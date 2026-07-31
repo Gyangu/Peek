@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+
+    /* 严格模式：全项目统一，禁止 any（用 unknown + 类型收窄替代） */
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "useUnknownInCatchVariables": true,
+    /* 下面两项刻意关闭：多 agent 并行开发期噪音过大，稳定后再开 */
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+
+    /* 让任何包都能直接 import @peek/core 的源码（无需先 build） */
+    "baseUrl": ".",
+    "paths": {
+      "@peek/core": ["./packages/core/src/index.ts"],
+      "@peek/core/*": ["./packages/core/src/*"],
+      "@peek/driver-postgres": ["./packages/driver-postgres/src/index.ts"],
+      "@peek/driver-postgres/*": ["./packages/driver-postgres/src/*"]
+    }
+  }
+}

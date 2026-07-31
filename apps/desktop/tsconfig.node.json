@@ -1,0 +1,15 @@
+{
+  // Node 侧（main / preload / 构建配置）的独立类型检查配置。
+  // 与 tsconfig.json 是并列关系，不用 project references——
+  // composite 模式要求先产出 .d.ts，多 agent 并行时纯添乱。
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node", "electron-vite/node"]
+  },
+  "include": [
+    "electron.vite.config.ts",
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts"
+  ]
+}

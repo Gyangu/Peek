@@ -1,0 +1,28 @@
+{
+  "name": "@peek/core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "peek 冻结共享契约：Command、Workspace 状态、capability 接口、chunk 协议、IPC 协议",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "immer": "^11.1.15",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

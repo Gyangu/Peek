@@ -1,0 +1,9 @@
+packages:
+  - 'packages/*'
+  - 'apps/*'
+
+# pnpm 10 默认禁止依赖执行安装脚本，这里显式放行必需的几个。
+onlyBuiltDependencies:
+  - electron
+  - esbuild
+  - rollup
