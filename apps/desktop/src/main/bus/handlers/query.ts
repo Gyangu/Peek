@@ -7,14 +7,15 @@ import type {
   ResultId,
   Workspace,
 } from '@peek/core'
-import { fail } from '../failure'
+import { failMsg } from '../failure'
 import type { CommandHandlerMap, ReduceCtx } from '../types'
 import { openView, requireConnection, requireReadyWithCapability, requireView, startQuery } from './shared'
 
 /**
- * query.* 的纯状态部分。
- * 真正的执行走 driver host：这里只分配 resultId、把视图置 loading、登记意图。
- * 结果 chunk 不经过 main（MessagePort 直连 renderer，PLAN 第 3 节）。
+ * The pure state part of query.*.
+ * Execution itself happens in the driver host; this file only allocates a
+ * resultId, moves the view into loading, and registers the intent. Result chunks
+ * never pass through main (MessagePort straight to the renderer, PLAN section 3).
  */
 export const queryHandlers = {
   'query.run': {
@@ -22,7 +23,7 @@ export const queryHandlers = {
       const view = resolveQueryView(draft, input, ctx)
 
       if (input.text !== undefined) view.text = input.text
-      if (view.text.trim() === '') fail('BAD_REQUEST', '查询语句为空')
+      if (view.text.trim() === '') failMsg('BAD_REQUEST', 'error.query.emptyText')
 
       const conn = requireConnection(draft, view.connId)
       requireReadyWithCapability(conn, 'tabularQuery')
@@ -42,9 +43,9 @@ export const queryHandlers = {
     reduce(draft, input, ctx) {
       const resultId = resolveResultId(draft, input)
       const meta = draft.results[resultId]
-      if (!meta) fail('NOT_FOUND', `结果集 ${resultId} 不存在`)
+      if (!meta) failMsg('NOT_FOUND', 'error.result.notFound', { resultId })
 
-      // 已经结束的不再打扰驱动，直接如实回 false
+      // Already finished: do not disturb the driver, just report false honestly.
       if (meta.status !== 'running') {
         const settled: QueryCancelResult = { resultId, cancelled: false }
         return settled
@@ -55,8 +56,9 @@ export const queryHandlers = {
       return result
     },
 
-    // reduce 里是"乐观地"回 true，驱动可能回"来不及取消了"，以真源最终状态为准。
-    // 本来就没在跑的（reduce 已回 false）不要在这里被改回 true。
+    // reduce answers optimistically with true; the driver may come back with
+    // "too late to cancel", and the source of truth has the final say. Something
+    // that was never running (reduce already said false) must not flip to true here.
     finalize(data, state) {
       if (!data.cancelled) return data
       return { ...data, cancelled: state.results[data.resultId]?.status === 'cancelled' }
@@ -64,7 +66,7 @@ export const queryHandlers = {
   },
 } satisfies CommandHandlerMap
 
-/** 有 viewId 就在既有 query 视图里跑，否则按 connId + text 新开一个 */
+/** With a viewId, run inside that existing query view; otherwise open a new one from connId + text. */
 function resolveQueryView(
   draft: Draft<Workspace>,
   input: CommandInput<'query.run'>,
@@ -72,28 +74,31 @@ function resolveQueryView(
 ): Draft<QueryViewState> {
   if (input.viewId !== undefined) {
     const view = requireView(draft, input.viewId)
-    if (view.kind !== 'query') fail('BAD_REQUEST', `视图 ${input.viewId} 不是查询视图`)
+    if (view.kind !== 'query') failMsg('BAD_REQUEST', 'error.view.notQuery', { viewId: input.viewId })
     return view
   }
 
-  // schema 的 refine 已保证：没有 viewId 时 connId 与 text 必然都在
+  // The schema's refine already guarantees connId and text are both present
+  // whenever viewId is absent.
   if (input.connId === undefined || input.text === undefined) {
-    fail('BAD_REQUEST', '需要 viewId，或者 connId + text')
+    failMsg('BAD_REQUEST', 'error.query.needViewOrConn')
   }
 
   const opened = openView(draft, { kind: 'query', connId: input.connId, text: input.text }, ctx, {
     ...(input.panelId !== undefined ? { panelId: input.panelId } : {}),
   })
   const view = draft.views[opened.viewId]
-  if (!view || view.kind !== 'query') fail('INTERNAL', '查询视图创建失败')
+  if (!view || view.kind !== 'query') failMsg('INTERNAL', 'error.view.createFailed')
   return view
 }
 
 function resolveResultId(draft: Draft<Workspace>, input: CommandInput<'query.cancel'>): ResultId {
   if (input.resultId !== undefined) return input.resultId
-  if (input.viewId === undefined) fail('BAD_REQUEST', '需要 resultId 或 viewId')
+  if (input.viewId === undefined) failMsg('BAD_REQUEST', 'error.query.needResultOrView')
   const view = requireView(draft, input.viewId)
   const resultId = 'resultId' in view ? view.resultId : undefined
-  if (resultId === undefined) fail('NOT_FOUND', `视图 ${input.viewId} 当前没有在跑的结果集`)
+  if (resultId === undefined) {
+    failMsg('NOT_FOUND', 'error.query.noRunningResult', { viewId: input.viewId })
+  }
   return resultId
 }

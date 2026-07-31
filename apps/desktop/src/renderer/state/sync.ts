@@ -4,14 +4,15 @@ import { attachResultPort, getCell, getResultSnapshot, isPendingCell, pruneResul
 import { startWorkspaceSync, useWorkspaceStore } from './workspaceStore'
 
 /**
- * renderer 侧的全部接线，在模块加载阶段执行一次。
- * 刻意不放在 React effect 里：StrictMode 会双跑 effect，
- * 而 MessagePort 订阅、patch 订阅都必须是单例。
+ * All of the renderer's wiring, run once at module load.
+ *
+ * Deliberately not inside a React effect: StrictMode invokes effects twice, and
+ * both the MessagePort intake and the patch subscription must be singletons.
  */
 
 let started = false
 
-/** 结果集缓存的定期回收间隔 */
+/** How often the result cache is swept. */
 const PRUNE_INTERVAL_MS = 15_000
 
 export function startRenderer(): void {
@@ -22,16 +23,18 @@ export function startRenderer(): void {
 
   const bridge = tryBridge()
   if (bridge) {
-    // 数据面：每个连接一个 MessagePort，chunk 由 driver host 直发，不过 main
+    // Data plane: one MessagePort per connection. Chunks come straight from the
+    // driver host and never pass through main.
     bridge.onResultPort((msg, port) => {
       attachResultPort(msg.connId, port)
     })
 
-    // main 手里没有行数据（chunk 不经过它），MCP 的 run_query 要样本行时反过来问我们
+    // main holds no row data (chunks bypass it), so when MCP's run_query wants
+    // sample rows it has to ask us
     bridge.onResultRowsRequest?.(handleRowsRequest)
   }
 
-  // main 已经忘掉的结果集，renderer 缓存也放掉（内存不能只涨不落）
+  // Release what main has already forgotten, so memory does not only ever grow
   const prune = (): void => {
     const ws = useWorkspaceStore.getState().workspace
     if (!ws) return
@@ -42,10 +45,11 @@ export function startRenderer(): void {
 }
 
 /* ==================================================================== */
-/* 结果集取样（应答 main 的 RESULT_ROWS_REQUEST）                          */
+/* Result sampling (answering main's RESULT_ROWS_REQUEST)                 */
 /* ==================================================================== */
 
-/** 一次最多给出去多少行，防止 AI 端上下文被撑爆（main 侧还会再收一次 limit） */
+/** Hard ceiling on rows handed out at once, so an AI context cannot be flooded.
+ *  main applies its own limit on top of this. */
 const MAX_SAMPLE_ROWS = 200
 
 function handleRowsRequest(msg: ResultRowsRequestMessage): void {
@@ -63,7 +67,8 @@ function handleRowsRequest(msg: ResultRowsRequestMessage): void {
       const row: unknown[] = new Array<unknown>(columns.length)
       for (let c = 0; c < columns.length; c += 1) {
         const cell = getCell(msg.resultId, r, c)
-        // 已被 LRU 淘汰的行给 null，而不是把哨兵 Symbol 送过 IPC（不可结构化克隆）
+        // Rows the LRU already evicted become null: the sentinel Symbol cannot
+        // survive structured clone and would break the send outright
         row[c] = isPendingCell(cell) ? null : toTransferable(cell)
       }
       rows.push(row)
@@ -83,15 +88,17 @@ function handleRowsRequest(msg: ResultRowsRequestMessage): void {
       ok: false,
       error: {
         code: 'INTERNAL',
-        message: error instanceof Error ? error.message : '取样失败',
+        // English literal: this text crosses into main and is read by MCP.
+        message: error instanceof Error ? error.message : 'Sampling failed',
       },
     })
   }
 }
 
 /**
- * IPC 走结构化克隆，函数 / Symbol / 带方法的对象都会让 send 直接抛。
- * 单元格里理论上只有 JSON 值和 TruncatedValue，这里只做最后一道兜底。
+ * IPC goes through structured clone, where a function, a Symbol or an object with
+ * methods makes `send` throw outright. Cells should only ever hold JSON values
+ * and TruncatedValue, so this is purely a last line of defence.
  */
 function toTransferable(value: unknown): unknown {
   const t = typeof value

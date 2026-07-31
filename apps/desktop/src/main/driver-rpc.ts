@@ -12,17 +12,18 @@ import {
 } from '@peek/core'
 
 /**
- * 非命令类只读 RPC 通道（renderer → main → driver host）。
+ * The non-command read-only RPC channel (renderer → main → driver host).
  *
- * 为什么不做成 Command：PLAN 第 6 节的 12 条命令都是**状态变更**，
- * 而命名空间树的子节点、大 value 的全量内容、redis 的类型化取值
- * 三者都不进 Workspace 真源（进了就等于把整棵树和整块 blob 塞进 patch 广播），
- * 所以它们只适合做一次性的只读查询。
+ * Why these are not Commands: all 12 commands in PLAN section 6 are **state
+ * changes**, whereas a namespace tree's child nodes, a large value's full
+ * contents and redis's typed reads never enter the Workspace source of truth —
+ * putting them there would mean broadcasting an entire tree or an entire blob in
+ * a patch. They only make sense as one-shot read-only queries.
  *
- * 这条通道刻意保持极窄：
- * - 只有三个 kind，参数与 HostRpcMap 一一对应；
- * - 不改状态、不广播 patch、不进 Command 日志；
- * - 错误一律 toPeekError 收敛，绝不把原始 Error 扔过 IPC。
+ * The channel is kept deliberately narrow:
+ * - three kinds only, with parameters matching HostRpcMap one for one;
+ * - no state changes, no patch broadcast, no Command log entry;
+ * - every error is collapsed through toPeekError, so a raw Error never crosses IPC.
  */
 export interface DriverRpcOptions {
   introspect(connId: ConnId, parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]>
@@ -44,7 +45,7 @@ export function installDriverRpc(options: DriverRpcInstallOptions): () => void {
   ipcMain.handle(IPC.DRIVER_RPC, async (_event, raw: unknown): Promise<DriverRpcResponse> => {
     const req = readRequest(raw)
     if (!req) {
-      return { ok: false, error: toPeekError(new Error('driver RPC 消息格式不正确')) }
+      return { ok: false, error: toPeekError(new Error('Malformed driver RPC message')) }
     }
     try {
       switch (req.kind) {
@@ -72,8 +73,9 @@ export function installDriverRpc(options: DriverRpcInstallOptions): () => void {
 }
 
 /**
- * renderer 来的消息一律当不可信数据处理。
- * 这里只做形状校验（kind + 必填字段存在），具体的 ref / connId 合法性由 driver 侧兜底。
+ * Everything arriving from the renderer is treated as untrusted data.
+ * This only validates shape (a known kind plus the required fields); whether a
+ * particular ref or connId is actually valid is the driver's problem.
  */
 function readRequest(raw: unknown): DriverRpcRequest | null {
   if (typeof raw !== 'object' || raw === null) return null

@@ -9,7 +9,7 @@ import {
   type ServerInfo,
 } from './capability'
 import { MAX_PAGE_LIMIT } from './chunk'
-import { peekError, type PeekError } from './errors'
+import { peekErrorMsg, type PeekError } from './errors'
 import {
   ConnIdSchema,
   PanelIdSchema,
@@ -25,7 +25,7 @@ import {
 import type { ConnStatus, ViewKind, WorkspaceSnapshot } from './workspace'
 
 /* ================================================================== */
-/* 0. 命令名（PLAN 第 6 节，domain.verb）                                */
+/* 0. Command names (PLAN §6, domain.verb)                             */
 /* ================================================================== */
 
 export const COMMAND_NAMES = [
@@ -49,12 +49,12 @@ export function isCommandName(value: unknown): value is CommandName {
   return typeof value === 'string' && (COMMAND_NAMES as readonly string[]).includes(value)
 }
 
-/** 命令来源，用于 Command 日志与审计（日志天然是操作录制，可回放） */
+/** Where a command came from; used by the command log and for auditing (the log is a recording of every action, and replayable) */
 export const CommandSourceSchema = z.enum(['ui', 'mcp', 'system'])
 export type CommandSource = z.infer<typeof CommandSourceSchema>
 
 /* ================================================================== */
-/* 1. 视图开启规格与增量更新                                              */
+/* 1. View-open specs and incremental updates                          */
 /* ================================================================== */
 
 const pageLimit = z.number().int().positive().max(MAX_PAGE_LIMIT)
@@ -74,9 +74,9 @@ export const TableViewSpecSchema = z.object({
 export const QueryViewSpecSchema = z.object({
   kind: z.literal('query'),
   connId: ConnIdSchema,
-  /** 不给就是空编辑器 */
+  /** Omitted means an empty editor */
   text: z.string().optional(),
-  /** 开完立刻执行 */
+  /** Run it as soon as the view opens */
   run: z.boolean().optional(),
   title: z.string().optional(),
 })
@@ -106,7 +106,7 @@ export const VectorViewSpecSchema = z.object({
   title: z.string().optional(),
 })
 
-/** view.open 的入参规格：不含 id（id 由 main 生成） */
+/** Input spec for view.open: no id, because main generates it */
 export const ViewOpenSpecSchema = z.discriminatedUnion('kind', [
   TableViewSpecSchema,
   QueryViewSpecSchema,
@@ -117,8 +117,9 @@ export const ViewOpenSpecSchema = z.discriminatedUnion('kind', [
 export type ViewOpenSpec = z.infer<typeof ViewOpenSpecSchema>
 
 /**
- * view.update 的增量补丁。必须带 kind，main 会校验它与目标视图的 kind 一致，
- * 不一致回 BAD_REQUEST（防止 AI 把 table 的 filter 打到 query 视图上）。
+ * Incremental patch for view.update. `kind` is mandatory: main checks it against
+ * the target view's kind and answers BAD_REQUEST on a mismatch, which is what stops
+ * the AI from applying a table's `filter` to a query view.
  */
 export const ViewPatchSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -159,37 +160,38 @@ export const ViewPatchSchema = z.discriminatedUnion('kind', [
 export type ViewPatch = z.infer<typeof ViewPatchSchema>
 
 /* ================================================================== */
-/* 2. 各命令入参 schema —— 类型全部由 z.infer 派生，绝不手写第二遍           */
+/* 2. Per-command input schemas — every type is z.infer'd from these,   */
+/*    never hand-written a second time                                 */
 /* ================================================================== */
 
 export const ConnOpenInputSchema = z.object({
   config: ConnectionConfigSchema,
-  /** 复用已有连接 id（重连场景）；不给则新建 */
+  /** Reuse an existing connection id (reconnect); omit to create a new one */
   connId: ConnIdSchema.optional(),
-  /** 建连后自动开一个 tree 视图 */
+  /** Open a tree view automatically once connected */
   openTree: z.boolean().optional(),
 })
 
 export const ConnCloseInputSchema = z.object({
   connId: ConnIdSchema,
-  /** 一并关掉该连接下的所有视图（默认 true） */
+  /** Also close every view belonging to this connection (default true) */
   closeViews: z.boolean().optional(),
 })
 
 export const ViewOpenInputSchema = z.object({
   spec: ViewOpenSpecSchema,
-  /** 开到哪个面板；不给则用 focusedPanel，再不行用第一个空面板 */
+  /** Which panel to open into; falls back to focusedPanel, then to the first empty panel */
   panelId: PanelIdSchema.optional(),
-  /** 目标面板已有视图时：true 覆盖（旧视图被关闭），false 则新开面板。默认 true */
+  /** When the target panel already holds a view: true replaces it (the old view is closed), false opens a new panel. Default true */
   replace: z.boolean().optional(),
-  /** 开完是否聚焦（默认 true） */
+  /** Focus the view once open (default true) */
   focus: z.boolean().optional(),
 })
 
 export const ViewUpdateInputSchema = z.object({
   viewId: ViewIdSchema,
   patch: ViewPatchSchema,
-  /** 是否立即按新参数重新取数（table/vector 默认 true，query 默认 false） */
+  /** Re-fetch immediately with the new parameters (default true for table/vector, false for query) */
   refresh: z.boolean().optional(),
 })
 
@@ -199,42 +201,43 @@ export const ViewCloseInputSchema = z.object({
 
 export const QueryRunInputSchema = z
   .object({
-    /** 在已有 query 视图里跑 */
+    /** Run inside an existing query view */
     viewId: ViewIdSchema.optional(),
-    /** 没有 viewId 时必须给 connId + text，main 会新开一个 query 视图 */
+    /** Without a viewId, connId + text are required and main opens a new query view */
     connId: ConnIdSchema.optional(),
-    /** 覆盖视图里的语句文本；不给则用视图当前文本 */
+    /** Override the view's statement text; omit to run whatever the view currently holds */
     text: z.string().optional(),
     params: z.array(z.unknown()).optional(),
     maxRows: z.number().int().positive().optional(),
     timeoutMs: z.number().int().positive().optional(),
-    /** 新开视图时落到哪个面板 */
+    /** Which panel a newly opened view lands in */
     panelId: PanelIdSchema.optional(),
   })
+  // Zod issue messages surface in PeekError.detail, which is never translated.
   .refine(
     (v) => v.viewId !== undefined || (v.connId !== undefined && v.text !== undefined),
-    { message: '需要 viewId，或者 connId + text' },
+    { message: 'Provide either viewId, or connId together with text' },
   )
 
 export const QueryCancelInputSchema = z
   .object({
     resultId: ResultIdSchema.optional(),
-    /** 取消该视图当前正在跑的结果集 */
+    /** Cancel whatever result set this view is currently running */
     viewId: ViewIdSchema.optional(),
   })
   .refine((v) => v.resultId !== undefined || v.viewId !== undefined, {
-    message: '需要 resultId 或 viewId',
+    message: 'Provide either resultId or viewId',
   })
 
 export const LayoutSplitInputSchema = z.object({
-  /** 要被劈开的面板 */
+  /** The panel to split */
   panelId: PanelIdSchema,
   dir: z.enum(['row', 'col']),
-  /** 新面板放在原面板之前还是之后（默认 after） */
+  /** Place the new panel before or after the original one (default after) */
   insert: z.enum(['before', 'after']).optional(),
-  /** 劈开后的占比；长度必须等于新 split 的子节点数，否则等分 */
+  /** Ratios after the split; the length must equal the new split's child count, otherwise the space is divided evenly */
   ratio: z.array(z.number().positive()).optional(),
-  /** 顺手在新面板里开一个视图 */
+  /** Optionally open a view in the new panel right away */
   view: ViewOpenSpecSchema.optional(),
 })
 
@@ -249,24 +252,25 @@ export const LayoutSetRatioInputSchema = z.object({
 
 export const LayoutCloseInputSchema = z.object({
   panelId: PanelIdSchema,
-  /** 面板里的视图是否一起关掉（默认 true） */
+  /** Close the panel's view along with it (default true) */
   closeView: z.boolean().optional(),
 })
 
 export const StateReadInputSchema = z.object({
-  /** 只取需要的部分，省 token；不给则全给 */
+  /** Ask for only the parts you need, to save tokens; omit for everything */
   include: z.array(z.enum(['layout', 'views', 'connections', 'results'])).optional(),
-  /** 只关心某个视图时给它，返回值里 views 只含这一个 */
+  /** Pass a view id when only that view matters; `views` in the response then holds just this one */
   viewId: ViewIdSchema.optional(),
 })
 
 /* ================================================================== */
-/* 3. 注册表：command name → input schema                              */
+/* 3. Registry: command name → input schema                            */
 /* ================================================================== */
 
 /**
- * Command 注册表。**这是唯一的真源**：
- * 入参类型一律 `CommandInput<'xxx'>` 从这里 z.infer 出来，不存在手写第二份。
+ * The command registry. **This is the single source of truth**: every input type
+ * is `CommandInput<'xxx'>`, z.infer'd from here, so no second hand-written copy
+ * exists.
  */
 export const commandSchemas = {
   'conn.open': ConnOpenInputSchema,
@@ -285,11 +289,11 @@ export const commandSchemas = {
 
 export type CommandSchemas = typeof commandSchemas
 
-/** 某条命令的入参类型 */
+/** Input type of one command */
 export type CommandInput<K extends CommandName> = z.infer<CommandSchemas[K]>
 
 /* ================================================================== */
-/* 4. 各命令返回值                                                      */
+/* 4. Per-command results                                              */
 /* ================================================================== */
 
 export interface ConnOpenResult {
@@ -297,7 +301,7 @@ export interface ConnOpenResult {
   status: ConnStatus
   capabilities: Capability[]
   serverInfo?: ServerInfo
-  /** openTree 为 true 时返回自动开出的树视图 */
+  /** The tree view opened automatically, when openTree was true */
   treeViewId?: ViewId
 }
 
@@ -310,19 +314,19 @@ export interface ViewOpenResult {
   viewId: ViewId
   panelId: PanelId
   kind: ViewKind
-  /** table/vector 视图开启即取数时返回 */
+  /** Present when a table/vector view started fetching on open */
   resultId?: ResultId
 }
 
 export interface ViewUpdateResult {
   viewId: ViewId
-  /** 触发了重新取数时返回新结果集 */
+  /** The new result set, when the update triggered a re-fetch */
   resultId?: ResultId
 }
 
 export interface ViewCloseResult {
   viewId: ViewId
-  /** 视图原本挂在哪个面板（面板保留，viewId 置 null） */
+  /** The panel the view used to sit in (the panel stays, with viewId set to null) */
   panelId: PanelId | null
 }
 
@@ -333,15 +337,15 @@ export interface QueryRunResult {
 
 export interface QueryCancelResult {
   resultId: ResultId
-  /** 目标本来就已结束时为 false */
+  /** False when the target had already finished */
   cancelled: boolean
 }
 
 export interface LayoutSplitResult {
   splitId: SplitId
-  /** 新建出来的面板 */
+  /** The newly created panel */
   panelId: PanelId
-  /** 传了 view 时返回 */
+  /** Present when a `view` was passed in */
   viewId?: ViewId
 }
 
@@ -351,7 +355,7 @@ export interface LayoutFocusResult {
 
 export interface LayoutSetRatioResult {
   splitId: SplitId
-  /** 归一化之后的实际占比 */
+  /** The effective ratios after normalization */
   ratio: number[]
 }
 
@@ -379,7 +383,7 @@ export interface CommandResultMap {
   'state.read': StateReadResult
 }
 
-/** 编译期断言：每条命令都必须有返回值类型，漏一条这里就红 */
+/** Compile-time assertion: every command needs a result type — miss one and this line goes red */
 type MissingResult = Exclude<CommandName, keyof CommandResultMap>
 const _assertNoMissingResult: MissingResult extends never ? true : never = true
 void _assertNoMissingResult
@@ -387,29 +391,29 @@ void _assertNoMissingResult
 export type CommandResultData<K extends CommandName> = CommandResultMap[K]
 
 /* ================================================================== */
-/* 5. Command 信封与结果信封                                             */
+/* 5. Command and result envelopes                                     */
 /* ================================================================== */
 
-/** 单条命令（name 与 input 强相关） */
+/** A single command; `name` and `input` are correlated */
 export type Command = { [K in CommandName]: { name: K; input: CommandInput<K> } }[CommandName]
 
 export interface CommandEnvelope<K extends CommandName = CommandName> {
-  /** 唯一 id，贯穿 Command 日志、patch 广播、结果返回 */
+  /** Unique id, carried through the command log, the patch broadcast and the result */
   id: string
   name: K
   input: CommandInput<K>
   source: CommandSource
-  /** 发起时间戳（ms） */
+  /** Timestamp of dispatch (ms) */
   ts: number
 }
 
-/** 任意命令的信封（name 与 input 保持相关性） */
+/** Envelope of any command, keeping `name` and `input` correlated */
 export type AnyCommandEnvelope = { [K in CommandName]: CommandEnvelope<K> }[CommandName]
 
 export interface CommandOk<T> {
   ok: true
   commandId: string
-  /** 落地后的 Workspace 修订号 */
+  /** Workspace revision after the command was committed */
   rev: number
   data: T
 }
@@ -422,7 +426,7 @@ export interface CommandErr {
 
 export type CommandResult<T = unknown> = CommandOk<T> | CommandErr
 
-/** 某条命令的完整结果类型 */
+/** Full result type of one command */
 export type CommandResultFor<K extends CommandName> = CommandResult<CommandResultData<K>>
 
 export function commandOk<T>(commandId: string, rev: number, data: T): CommandOk<T> {
@@ -434,7 +438,7 @@ export function commandErr(commandId: string, error: PeekError): CommandErr {
 }
 
 /* ================================================================== */
-/* 6. 校验入口                                                          */
+/* 6. Validation entry point                                           */
 /* ================================================================== */
 
 export type ParsedCommand<K extends CommandName> =
@@ -442,8 +446,9 @@ export type ParsedCommand<K extends CommandName> =
   | { ok: false; error: PeekError }
 
 /**
- * 校验某条命令的入参。UI 与 MCP 工具**都必须**先过这一关再进 Command Bus，
- * 保证进入 handler 的一定是合法数据。
+ * Validate one command's input. The UI and the MCP tools **both** have to clear
+ * this gate before reaching the Command Bus, which is what guarantees a handler
+ * only ever sees well-formed data.
  */
 export function parseCommandInput<K extends CommandName>(name: K, raw: unknown): ParsedCommand<K> {
   const schema: z.ZodType = commandSchemas[name]
@@ -453,7 +458,8 @@ export function parseCommandInput<K extends CommandName>(name: K, raw: unknown):
   }
   return {
     ok: false,
-    error: peekError('BAD_REQUEST', `命令 ${name} 入参不合法`, {
+    // The summary is localizable; the zod issue list in `detail` never is.
+    error: peekErrorMsg('BAD_REQUEST', 'error.command.badInput', { name }, {
       detail: formatZodIssues(result.error),
     }),
   }
@@ -468,7 +474,7 @@ function formatZodIssues(error: z.ZodError): string {
     .join('\n')
 }
 
-/** 组装一条待执行的命令信封 */
+/** Assemble an envelope for a command about to be executed */
 export function makeCommandEnvelope<K extends CommandName>(
   id: string,
   name: K,
@@ -479,8 +485,9 @@ export function makeCommandEnvelope<K extends CommandName>(
 }
 
 /**
- * 把某条命令的入参 schema 转成 JSON Schema，供 MCP 工具的 inputSchema 直接复用。
- * 这样"新增 MCP 工具 = 声明 inputSchema + 映射到若干 Command"里的前半句几乎为零成本。
+ * Convert one command's input schema to JSON Schema, so an MCP tool can reuse it
+ * directly as its `inputSchema`. That makes the first half of "a new MCP tool =
+ * declare an inputSchema + map it onto some commands" cost essentially nothing.
  */
 export const commandInputJsonSchema = (name: CommandName): unknown =>
   z.toJSONSchema(commandSchemas[name], { io: 'input', unrepresentable: 'any' })

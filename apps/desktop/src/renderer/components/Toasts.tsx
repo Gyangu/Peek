@@ -1,27 +1,37 @@
 import type { ReactElement } from 'react'
+import { useT } from '../i18n'
 import { useNotifyStore } from '../state/notifyStore'
 
-/** 右下角通知：命令错误、driver 崩溃提示、main 主动 NOTIFY */
+/**
+ * Bottom-right notifications: command failures, driver crashes, and NOTIFY
+ * messages pushed by main.
+ *
+ * The text itself is already resolved — `notifyStore` localizes at push time so
+ * that a toast keeps the language it was raised in (see the note there). Only the
+ * chrome around it goes through `t()`.
+ */
 export function Toasts(): ReactElement | null {
+  const t = useT()
   const toasts = useNotifyStore((s) => s.toasts)
   const dismiss = useNotifyStore((s) => s.dismiss)
   if (toasts.length === 0) return null
   return (
     <div className="toasts">
-      {toasts.map((t) => (
-        <div key={t.id} className={`toast ${t.level}`}>
+      {toasts.map((toast) => (
+        <div key={toast.id} className={`toast ${toast.level}`}>
           <div className="msg">
-            <span className="grow">{t.message}</span>
+            <span className="grow">{toast.message}</span>
             <button
               className="ghost"
+              title={t('app.toast.dismiss')}
               onClick={() => {
-                dismiss(t.id)
+                dismiss(toast.id)
               }}
             >
               ✕
             </button>
           </div>
-          {t.detail ? <div className="detail">{t.detail}</div> : null}
+          {toast.detail ? <div className="detail">{toast.detail}</div> : null}
         </div>
       ))}
     </div>

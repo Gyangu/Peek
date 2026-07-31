@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import type { ViewId } from '@peek/core'
+import { useT } from '../i18n'
 import { useView } from '../state/workspaceStore'
 import { InspectorView } from './views/InspectorView'
 import { QueryView } from './views/QueryView'
@@ -7,11 +8,12 @@ import { TableView } from './views/TableView'
 import { TreeView } from './views/TreeView'
 import { VectorView } from './views/VectorView'
 
-/** 按 ViewState.kind 分发到具体视图组件（PLAN 第 5 节五种 kind） */
+/** Dispatches on `ViewState.kind` to the concrete view (PLAN §5, five kinds). */
 export function ViewHost({ viewId }: { viewId: ViewId }): ReactElement {
+  const t = useT()
   const view = useView(viewId)
   if (!view) {
-    return <div className="panel-empty">视图 {viewId} 已不存在</div>
+    return <div className="panel-empty">{t('view.gone', { viewId })}</div>
   }
   switch (view.kind) {
     case 'table':

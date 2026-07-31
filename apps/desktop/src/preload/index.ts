@@ -1,7 +1,8 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-// 运行时常量只能从 core 的 ipc.ts **直接**取：ipc.ts 没有任何运行时依赖，
-// 而 '@peek/core' 桶文件会把 zod 带进来 —— sandbox 里的 preload 不能 require 第三方包。
-// 纯类型的 import type 走 '@peek/core' 无所谓（编译期就被抹掉了）。
+// Runtime constants must come **directly** from core's ipc.ts: that module has
+// no runtime dependencies, whereas the '@peek/core' barrel drags zod in — and a
+// sandboxed preload cannot require third-party packages.
+// Type-only imports from '@peek/core' are fine; they vanish at compile time.
 import { IPC, PEEK_BRIDGE_KEY } from '../../../../packages/core/src/ipc'
 import type {
   DriverRpcRequest,
@@ -27,37 +28,40 @@ import type {
 } from '@peek/core'
 
 /**
- * preload 窄桥。
+ * The narrow preload bridge.
  *
- * 安全基线：contextIsolation + sandbox 全开，**绝不把 ipcRenderer 本体暴露出去**，
- * renderer 只能看到 PeekBridge 上的五个方法。
+ * Security baseline: contextIsolation and sandbox are both on, and **ipcRenderer
+ * itself is never exposed** — the renderer sees only the methods on PeekBridge.
  *
- * 关于 MessagePort（实测结论，别改回去）：
- *   contextBridge 会把 MessagePort 复制成一个普通对象，主世界拿到的东西
- *   连 start() 都没有，数据面直接废掉。所以端口必须走 Electron 官方推荐的
- *   `window.postMessage(msg, '*', [port])` 移交，而接收方**必须是主世界的代码**。
- *   为此 window.peek 本体由 executeInMainWorld 在主世界里就地创建，
- *   contextBridge 只用来传 clone 安全的那部分（invoke / patch / notify）。
+ * About MessagePort (measured, do not revert):
+ *   contextBridge copies a MessagePort into a plain object, and what the main
+ *   world receives does not even have start(), which kills the data plane
+ *   outright. Ports must therefore be transferred the way Electron officially
+ *   recommends, `window.postMessage(msg, '*', [port])`, and the receiver **must
+ *   be main-world code**. That is why window.peek itself is assembled in the main
+ *   world by executeInMainWorld, and contextBridge only carries the clone-safe
+ *   part (invoke / patch / notify).
  */
 
 /**
- * preload ↔ 主世界引导之间的内部键。
- * contextBridge 挂上去的属性不可 delete，所以它在主世界里是可见的；
- * 但它暴露的能力与 window.peek 完全相同（同一批 ipcRenderer 包装），不构成额外权限。
+ * The internal key shared between preload and the main-world bootstrap.
+ * Properties installed by contextBridge cannot be deleted, so this one is visible
+ * in the main world; it exposes exactly the same capabilities as window.peek
+ * (the same ipcRenderer wrappers), so it grants no extra privilege.
  */
 const INTERNAL_KEY = '__peekPreloadInternal'
-/** 端口移交消息的判别键 */
+/** Discriminator key on a port-handover message */
 const PORT_RELAY_KEY = '__peekResultPort'
 
 type Unsubscribe = () => void
 
-/** contextBridge 只承载这些 clone 安全的能力 */
+/** contextBridge carries only these clone-safe capabilities */
 interface InternalBridge {
   invoke(name: string, input: unknown, source?: string): Promise<unknown>
   getSnapshot(): Promise<StateSnapshotMessage>
   onPatch(handler: (msg: StatePatchMessage) => void): Unsubscribe
   onNotify(handler: (msg: NotifyMessage) => void): Unsubscribe
-  /** 非命令类只读 RPC：introspect / peekValue / keyValue */
+  /** Non-command read-only RPCs: introspect / peekValue / keyValue */
   driverRpc(req: DriverRpcRequest): Promise<DriverRpcResponse>
   onResultRowsRequest(handler: (msg: ResultRowsRequestMessage) => void): Unsubscribe
   replyResultRows(msg: ResultRowsReplyMessage): void
@@ -106,10 +110,11 @@ const internal: InternalBridge = {
 }
 
 /**
- * 在主世界里就地组装 window.peek。
+ * Assemble window.peek in place, inside the main world.
  *
- * **这个函数会被序列化后在另一个 world 里执行**：
- * 只能引用自己的参数和全局对象，不许有任何闭包引用（类型注解无所谓，会被编译掉）。
+ * **This function is serialized and executed in a different world**: it may
+ * reference only its own parameters and globals, never a closure variable. Type
+ * annotations are fine — they are compiled away.
  */
 function bootstrapMainWorld(internalKey: string, relayKey: string, bridgeKey: string): boolean {
   const globals = window as unknown as Record<string, unknown>
@@ -118,7 +123,7 @@ function bootstrapMainWorld(internalKey: string, relayKey: string, bridgeKey: st
 
   type PortHandler = (msg: ResultPortMessage, port: MessagePort) => void
   const handlers = new Set<PortHandler>()
-  // 端口可能先于 renderer 注册回调到达，先兜住再补发
+  // A port may arrive before the renderer registers its handler; buffer it and replay
   const pending: { msg: ResultPortMessage; port: MessagePort }[] = []
 
   window.addEventListener('message', (event: MessageEvent) => {
@@ -135,8 +140,10 @@ function bootstrapMainWorld(internalKey: string, relayKey: string, bridgeKey: st
     for (const handler of handlers) handler(msg, port)
   })
 
-  // 只读 RPC 的应答信封在这里拆开：ok 就给数据，否则抛一个带原始 message 的 Error，
-  // renderer 侧统一转 toast。PeekError 本体不往上抛，避免调用方去 instanceof。
+  // Unwrap the read-only RPC response envelope here: on ok hand back the data,
+  // otherwise throw an Error carrying the original message, which the renderer
+  // turns into a toast. The PeekError itself is not rethrown, so callers never
+  // have to reach for instanceof.
   async function unwrap<T>(promise: Promise<DriverRpcResponse>): Promise<T> {
     const res = await promise
     if (res.ok) return res.data as T
@@ -224,12 +231,13 @@ try {
     }) === true
 } catch (error) {
   bootstrapped = false
-  console.error('[peek/preload] 主世界引导失败，数据面端口将不可用', error)
+  console.error('[peek/preload] main-world bootstrap failed; the data-plane port will be unavailable', error)
 }
 
 if (!bootstrapped) {
-  // 退化路径：至少让控制面（命令 + patch + 只读 RPC）能用；
-  // onResultPort 在这条路径上拿不到可用的 MessagePort，见文件头说明。
+  // Degraded path: at least keep the control plane usable (commands + patches +
+  // read-only RPC). On this path onResultPort never gets a usable MessagePort —
+  // see the note at the top of this file.
   const unwrapFallback = async <T,>(promise: Promise<DriverRpcResponse>): Promise<T> => {
     const res = await promise
     if (res.ok) return res.data as T
@@ -250,7 +258,7 @@ if (!bootstrapped) {
     onPatch: (handler) => internal.onPatch(handler),
     onNotify: (handler) => internal.onNotify(handler),
     onResultPort: () => () => {
-      // 无可用端口通道
+      // No port channel is available here
     },
     introspect: (connId, parentId, refresh) =>
       unwrapFallback<NamespaceNode[]>(
@@ -276,8 +284,9 @@ if (!bootstrapped) {
   contextBridge.exposeInMainWorld(PEEK_BRIDGE_KEY, fallback)
 }
 
-// 端口移交：ipcRenderer 收到后立刻转交主世界，preload 自己不持有端口，
-// 结果 chunk 因此是 driver host → renderer 直连，不经过 main 也不经过 preload。
+// Port handover: as soon as ipcRenderer receives one it is relayed to the main
+// world, and preload never holds on to it. Result chunks therefore travel
+// driver host → renderer directly, through neither main nor preload.
 ipcRenderer.on(IPC.RESULT_PORT, (event: IpcRendererEvent, msg: ResultPortMessage) => {
   const port = event.ports[0]
   if (!port) return

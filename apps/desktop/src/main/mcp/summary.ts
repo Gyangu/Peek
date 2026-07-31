@@ -1,9 +1,10 @@
 /**
- * Workspace 摘要渲染。
+ * Workspace summary rendering.
  *
- * read_workspace 要让 AI "看见"当前界面：每个 panel 的位置、视图类型、所连库、
- * 所看的表/查询、当前行数/是否加载中。摘要必须精炼——**绝不把结果集塞进来**，
- * 只给元信息（ResultMeta）。
+ * read_workspace exists so the AI can "see" the current UI: where each panel sits, its view
+ * kind, which database it is connected to, which table or query it shows, how many rows it has
+ * and whether it is still loading. The summary must stay compact — **never inline result set
+ * data**, only its metadata (ResultMeta).
  */
 
 import {
@@ -18,7 +19,7 @@ import {
 } from '@peek/core'
 
 /* ================================================================== */
-/* 1. 摘要数据结构                                                       */
+/* 1. Summary data structures                                           */
 /* ================================================================== */
 
 export interface ConnBrief {
@@ -27,7 +28,7 @@ export interface ConnBrief {
   driverId: string
   status: string
   capabilities: string[]
-  /** 已脱敏的连接目标（host/db 或文件路径） */
+  /** Redacted connection target (host/db, or a file path). */
   target: string
   serverVersion?: string
   error?: string
@@ -38,17 +39,18 @@ export interface ResultBrief {
   status: ResultMeta['status']
   rows: number
   /**
-   * 已加载的这 `rows` 行能不能信。**只有 error 为 false**——
-   * paused / cancelled 都是"没取完但取到的都是真数据"。
-   * 光给 status 不够：AI 见到一个没见过的状态值时最省事的猜法就是当失败处理，
-   * 所以这个结论必须显式写出来，不让读方自己推。
+   * Whether the `rows` loaded so far can be trusted. **Only `error` makes this false** —
+   * paused and cancelled both mean "we did not fetch everything, but everything fetched is
+   * real data". Reporting the status alone is not enough: when an AI meets a status value it
+   * has never seen, the cheapest guess is to treat it as a failure, so this conclusion is
+   * stated outright rather than left for the reader to infer.
    */
   rowsUsable: boolean
   elapsedMs?: number
   truncated?: boolean
-  /** 重新执行即可继续取数（status === 'paused' 时恒为 true） */
+  /** Re-running the query resumes fetching (always true when status === 'paused'). */
   resumable?: boolean
-  /** status === 'paused' 时的人可读原因 */
+  /** Human-readable reason, present when status === 'paused'. */
   pausedReason?: string
   columns?: string[]
   summary?: string
@@ -59,7 +61,7 @@ export interface ViewBrief {
   viewId: string
   kind: ViewSummary['kind']
   title: string
-  /** 一句话：当前视图在看什么 */
+  /** One line: what this view is currently looking at. */
   describe: string
   status: ViewSummary['status']
   connId: string
@@ -70,7 +72,7 @@ export interface ViewBrief {
 
 export interface PanelBrief {
   panelId: string
-  /** 在布局树里的位置，形如 'root' / 'root.0.1' */
+  /** Position within the layout tree, e.g. 'root' or 'root.0.1'. */
   path: string
   focused: boolean
   view: ViewBrief | null
@@ -81,19 +83,22 @@ export interface WorkspaceBrief {
   focusedPanel: string | null
   panels: PanelBrief[]
   connections: ConnBrief[]
-  /** 活跃/最近的结果集元信息（不含数据本体） */
+  /** Metadata for active/recent result sets (never the data itself). */
   results: ResultBrief[]
-  /** 原始布局树（含 split 的 dir/ratio/id，layout.setRatio 要用） */
+  /** The raw layout tree (with each split's dir/ratio/id, which layout.setRatio needs). */
   layout: LayoutNode
 }
 
 export type BriefSection = 'layout' | 'views' | 'connections' | 'results'
 
 /* ================================================================== */
-/* 2. 构建                                                             */
+/* 2. Building                                                          */
 /* ================================================================== */
 
-/** 连接目标的可读描述（config 已经过 redactConnectionConfig，这里只做拼装） */
+/**
+ * Readable description of a connection target. The config has already been through
+ * redactConnectionConfig, so this only assembles the pieces.
+ */
 export function connTarget(cfg: ConnectionSummary['config']): string {
   switch (cfg.driverId) {
     case 'postgres':
@@ -140,7 +145,7 @@ export function briefResult(r: ResultMeta): ResultBrief {
   }
 }
 
-/** 深度优先给每个 panel 算出树内路径，'root' 表示根就是面板 */
+/** Depth-first walk assigning each panel its path in the tree; 'root' means the root itself is a panel. */
 function panelPaths(node: LayoutNode, path: string, out: Map<PanelId, string>): void {
   if (node.type === 'panel') {
     out.set(node.id, path)
@@ -200,13 +205,13 @@ function briefView(
     describe: v.describe,
     status: v.status,
     connId: String(v.connId),
-    connLabel: conn?.label ?? '(未知连接)',
+    connLabel: conn?.label ?? '(unknown connection)',
     ...(result === undefined ? {} : { result: briefResult(result) }),
     ...(v.error === undefined ? {} : { error: `${v.error.code}: ${v.error.message}` }),
   }
 }
 
-/** 摊平的视图摘要（不依赖布局，view.* 类工具回执用） */
+/** Flat view summaries (layout-independent; used by the receipts of view.* tools). */
 export function briefViews(snap: WorkspaceSnapshot): ViewBrief[] {
   const connById = new Map(snap.connections.map((c) => [String(c.id), c]))
   const resultById = new Map(snap.results.map((r) => [String(r.id), r]))
@@ -214,17 +219,18 @@ export function briefViews(snap: WorkspaceSnapshot): ViewBrief[] {
 }
 
 /* ================================================================== */
-/* 3. 文本渲染                                                          */
+/* 3. Text rendering                                                    */
 /* ================================================================== */
 
 function viewLine(view: ViewBrief | null): string {
-  if (view === null) return '(空面板)'
+  if (view === null) return '(empty panel)'
   const bits = [view.kind, view.describe, `conn=${view.connLabel}`, `status=${view.status}`]
   if (view.result) {
     bits.push(`rows=${view.result.rows}`)
     if (view.result.status === 'paused') {
-      // 文本视图是 AI 最先读到的东西，"paused" 三个字太容易被当成失败，这里把结论写死
-      bits.push('result=paused（不是失败：这些行有效，重跑可继续取数）')
+      // This text outline is the first thing the AI reads, and the bare word "paused" is far
+      // too easy to read as a failure — so spell the conclusion out inline.
+      bits.push('result=paused (not a failure: these rows are valid, re-run to keep fetching)')
     } else if (view.result.status !== 'done') {
       bits.push(`result=${view.result.status}`)
     }
@@ -233,7 +239,7 @@ function viewLine(view: ViewBrief | null): string {
   return bits.join(' · ')
 }
 
-/** ASCII 布局树，最直观地告诉 AI "界面长什么样" */
+/** An ASCII layout tree — the most direct way to tell the AI what the UI looks like. */
 export function renderLayoutOutline(snap: WorkspaceSnapshot): string {
   const views = new Map(briefViews(snap).map((v) => [v.viewId, v]))
   const lines: string[] = []
@@ -258,7 +264,7 @@ export function renderLayoutOutline(snap: WorkspaceSnapshot): string {
   return lines.join('\n')
 }
 
-/** 一行一个面板的极简版，挂在写操作工具的回执尾巴上 */
+/** The minimal one-line-per-panel variant, appended to the receipts of write tools. */
 export function renderPanelBrief(snap: WorkspaceSnapshot): string {
   const views = new Map(briefViews(snap).map((v) => [v.viewId, v]))
   return collectPanels(snap.layout)
@@ -270,7 +276,7 @@ export function renderPanelBrief(snap: WorkspaceSnapshot): string {
     .join('\n')
 }
 
-/** 稳定的 JSON 序列化（工具正文里附结构化数据用） */
+/** Stable JSON serialization (for embedding structured data in a tool body). */
 export function toJson(value: unknown): string {
   return JSON.stringify(value, jsonReplacer, 2) ?? 'null'
 }

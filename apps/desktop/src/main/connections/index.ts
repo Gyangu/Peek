@@ -1,28 +1,28 @@
 /**
- * 连接管理器（PLAN 第 3 节进程模型）。
+ * The Connection Manager (PLAN section 3, the process model).
  *
- * 用法（集成 agent 在 main 里）：
+ * Usage (for whoever assembles main):
  *
  * ```ts
  * import { ConnectionManager } from './connections'
  *
  * const connections = new ConnectionManager()
  *
- * // 1) 窗口就绪后绑定 renderer——数据面端口靠它移交
+ * // 1) Bind the renderer once the window is ready — the data-plane port rides on this
  * win.webContents.on('did-finish-load', () => connections.attachRenderer(win.webContents))
  * win.on('closed', () => connections.detachRenderer())
  *
- * // 2) 事件接进 Command Bus / 通知层
+ * // 2) Wire the events into the Command Bus / notification layer
  * connections.events.on('status', ({ connId, status, error }) => bus.applyConnStatus(connId, status, error))
  * connections.events.on('result.schema', (e) => bus.fillResultSchema(e.resultId, e.schema))
  * connections.events.on('result.done', (e) => bus.finishResult(e.resultId, e.info))
  * connections.events.on('result.error', (e) => bus.failResult(e.resultId, e.error))
- * connections.events.on('crashed', (e) => notify('error', `driver 崩溃：${e.error.message}`))
+ * connections.events.on('crashed', (e) => notify('error', `driver crashed: ${e.error.message}`))
  *
- * // 3) 作为副作用接口注入 Command Bus
+ * // 3) Inject it into the Command Bus as the side-effect interface
  * const bus = createCommandBus({ connections })
  *
- * // 4) app 退出前收干净
+ * // 4) Reap everything before the app quits
  * app.on('before-quit', () => { void connections.disposeAll() })
  * ```
  */

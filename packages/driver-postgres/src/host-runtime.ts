@@ -1,7 +1,7 @@
 import {
   ACK_WINDOW,
   VALUE_PEEK_MAX_BYTES,
-  peekError,
+  peekErrorMsg,
   supportsCancel,
   supportsCollectionScan,
   supportsIntrospect,
@@ -9,9 +9,11 @@ import {
   supportsValuePeek,
   toPeekError,
   type ByteRange,
+  type Capability,
   type ConnectionConfig,
   type Cursor,
   type Driver,
+  type DriverId,
   type DriverSession,
   type HostEvent,
   type HostInbound,
@@ -29,19 +31,29 @@ import {
 import { postgresDriver, requirePostgresConfig } from './driver'
 
 /**
- * driver host 运行时：按 core/ipc.ts 的 driver host 协议收发消息。
+ * Driver host runtime: speaks the driver host protocol defined in core/ipc.ts.
  *
- * 两条通道严格分开（PLAN 第 3 节）：
- * - 控制面：main ↔ host，走 channel，RPC + 单向事件；
- * - 数据面：host → renderer，走 attachPort 移交过来的 MessagePort，直发 chunk，
- *   renderer 回 ack/cancel 做背压。
+ * The two planes stay strictly separate (PLAN section 3):
+ * - control plane: main ↔ host over `channel`, RPC plus one-way events;
+ * - data plane: host → renderer over the MessagePort handed across by
+ *   attachPort, carrying chunks directly, with the renderer replying ack/cancel
+ *   for backpressure.
  *
- * 这个文件不 import electron，纯 node 可跑（utilityProcess 就是 node 环境），
- * 也因此可以在 node:test 里用一对普通 MessageChannel 完整跑通。
+ * This file imports nothing from electron and runs on plain node (utilityProcess
+ * is a node environment), which is also why the whole protocol can be exercised
+ * end to end in node:test with an ordinary MessageChannel.
  */
 
+/** UNSUPPORTED_CAPABILITY with the driver and capability spelled out */
+function unsupported(driverId: DriverId, capability: Capability): PeekError {
+  return peekErrorMsg('UNSUPPORTED_CAPABILITY', 'error.conn.unsupportedCapability', {
+    driverId,
+    capability,
+  })
+}
+
 /* ------------------------------------------------------------------ */
-/* 传输抽象：只描述我们真正用到的那几个方法                                 */
+/* Transport abstraction: only the methods actually used                */
 /* ------------------------------------------------------------------ */
 
 export interface HostPortLike {
@@ -63,7 +75,7 @@ export interface HostChannelLike {
 }
 
 /* ------------------------------------------------------------------ */
-/* 入站消息识别                                                         */
+/* Inbound message recognition                                          */
 /* ------------------------------------------------------------------ */
 
 const HOST_METHODS: ReadonlySet<string> = new Set<HostMethod>([
@@ -99,23 +111,27 @@ function asAck(data: unknown): ResultStreamAck | null {
 }
 
 /* ------------------------------------------------------------------ */
-/* 结果泵：把 Cursor 的帧推到 MessagePort，实现 ack 窗口背压                */
+/* Result pump: cursor frames → MessagePort, under ack-window backpressure */
 /* ------------------------------------------------------------------ */
 
 /**
- * 背压暂停的空闲上限（毫秒）。
+ * Idle ceiling for a backpressure pause, in milliseconds.
  *
- * 窗口被压满之后如果这么久还没等到新的 ack（视口停着不动、renderer 缓存到顶），
- * 就主动收摊：关游标、把服务端连接与只读事务还回去。
- * 否则"暂停"等于**长期持有服务端资源**——生产库上会拦住 VACUUM（PLAN 第 8 节）。
+ * Once the ack window is full, waiting this long for the next ack (the viewport
+ * is parked, the renderer's cache is at capacity) means packing up: close the
+ * cursor and give the server connection and its read-only transaction back.
+ * Otherwise "paused" amounts to **holding server resources indefinitely**, which
+ * on a production database blocks VACUUM (PLAN section 8).
  *
- * 收摊的**结局是 paused，不是 error**：查询本身没出任何问题，已发出的行全部有效。
- * 早先这里 reject 一个 TIMEOUT PeekError，和真 SQL 错误（42P01 之类）挤在同一个
- * error 分支里，AI 通过 MCP 拿到回执时分不清「查询挂了」和「只是停下来了」。
+ * Packing up **ends in paused, not error**: nothing went wrong with the query and
+ * every row already delivered is valid. This used to reject with a TIMEOUT
+ * PeekError, which put a by-design pause in the same error branch as a real SQL
+ * failure (a 42P01, say) — leaving an AI reading the MCP receipt unable to tell
+ * "the query broke" from "it merely stopped".
  */
 const IDLE_ACK_TIMEOUT_MS = 60_000
 
-/** waitWindow 的结果：继续产帧，还是按设计暂停 */
+/** What waitWindow decided: keep producing frames, or pause by design */
 type WindowWait = 'go' | 'paused'
 
 class StreamPump {
@@ -130,7 +146,7 @@ class StreamPump {
   private stopped = false
   private rows = 0
   private readonly startedAt = Date.now()
-  /** stop() 时 reject 的信号，用来打断那些不看 stopped 标志的 await */
+  /** Signal rejected by stop(), used to break awaits that never look at the stopped flag */
   private readonly stopSignal: Promise<never>
   private stopReject: ((reason: unknown) => void) | null = null
 
@@ -142,12 +158,12 @@ class StreamPump {
     this.stopSignal = new Promise<never>((_resolve, reject) => {
       this.stopReject = reject
     })
-    // 泵已经正常跑完之后才 stop 的情况下没人 race 这个 Promise，
-    // 挂一个空 sink 防止变成 unhandledRejection
+    // When stop() arrives after the pump has already finished, nothing is racing
+    // this promise; an empty sink keeps it from becoming an unhandledRejection
     this.stopSignal.catch(() => {})
   }
 
-  /** renderer 确认已消费到 seq（含），窗口向前推进 */
+  /** The renderer confirms it consumed through `seq` inclusive, advancing the window */
   ack(seq: number): void {
     this.unacked = Math.max(0, this.lastSentSeq - seq)
     if (this.unacked < ACK_WINDOW) this.wake()
@@ -156,12 +172,13 @@ class StreamPump {
   stop(): void {
     if (this.stopped) return
     this.stopped = true
-    // 唤醒 waitWindow（正常 resolve，循环体下一步自己看 stopped 抛 CANCELLED）
+    // Wake waitWindow (a normal resolve; the next step of the loop sees `stopped`
+    // and throws CANCELLED itself)
     this.wake()
-    // 打断 waitPort 这类"永远不会自己醒"的等待
+    // Break the waits that would never wake on their own, such as waitPort
     const reject = this.stopReject
     this.stopReject = null
-    if (reject) reject(peekError('CANCELLED', '结果流已被取消'))
+    if (reject) reject(peekErrorMsg('CANCELLED', 'error.driver.streamCancelled'))
   }
 
   private wake(): void {
@@ -171,10 +188,12 @@ class StreamPump {
   }
 
   /**
-   * 未确认帧数达到 ACK_WINDOW 就挂起，直到 ack 到来。
-   * 挂起时间超过 idleAckMs 则返回 'paused'，让整条流收摊释放服务端资源。
+   * Suspend once ACK_WINDOW frames are unacknowledged, until an ack arrives.
+   * Suspending longer than idleAckMs returns 'paused', which packs the stream up
+   * and releases the server-side resources.
    *
-   * **不 reject**：暂停不是异常，走异常通道就必然和真错误混在一起。
+   * **Never rejects**: a pause is not an exception, and routing it through the
+   * exception channel inevitably mixes it up with real failures.
    */
   private waitWindow(): Promise<WindowWait> {
     if (this.stopped || this.unacked < ACK_WINDOW) return Promise.resolve('go')
@@ -183,7 +202,7 @@ class StreamPump {
         this.resumeFn = null
         resolve('paused')
       }, this.idleAckMs)
-      // 泵在等 ack 不该拖住进程退出
+      // A pump waiting for an ack must not hold process exit open
       timer.unref()
       this.resumeFn = (): void => {
         clearTimeout(timer)
@@ -192,15 +211,17 @@ class StreamPump {
     })
   }
 
-  /** 按设计暂停：控制面发 result.paused，数据面发 t:'paused'，两边都不是 error */
+  /** Pause by design: result.paused on the control plane, t:'paused' on the data plane — neither is an error */
   private announcePause(): void {
     const pause: ResultPause = {
       rows: this.rows,
       elapsedMs: Date.now() - this.startedAt,
       reason: 'idleAck',
+      // English literal on purpose: this text is written into workspace state and
+      // read back by MCP, which stays English forever.
       message:
-        `结果流已暂停：${Math.round(this.idleAckMs / 1000)} 秒没有新的消费确认，`
-        + '已释放服务端游标与连接',
+        `Result stream paused: no consumption ack for ${Math.round(this.idleAckMs / 1000)}s,`
+        + ' the server-side cursor and connection have been released',
       resumable: true,
     }
     this.host.sendStream({ t: 'paused', resultId: this.resultId, paused: pause })
@@ -210,16 +231,17 @@ class StreamPump {
   async run(): Promise<void> {
     try {
       for (;;) {
-        if (this.stopped) throw peekError('CANCELLED', '结果流已被取消')
-        // 端口还没移交过来时先不产帧，天然的背压。
-        // **必须可打断**：否则 attachPort 之前发起的查询会永久卡在这里，
-        // 取消也叫不醒它，游标会一直占着连接和只读事务。
+        if (this.stopped) throw peekErrorMsg('CANCELLED', 'error.driver.streamCancelled')
+        // Produce nothing until the port has been handed over — natural
+        // backpressure. **It has to stay interruptible**: otherwise a query issued
+        // before attachPort wedges here forever, cancellation cannot wake it, and
+        // the cursor holds its connection and read-only transaction indefinitely.
         const port = await Promise.race([this.host.waitPort(), this.stopSignal])
         if (await this.waitWindow() === 'paused') {
           this.announcePause()
           break
         }
-        if (this.stopped) throw peekError('CANCELLED', '结果流已被取消')
+        if (this.stopped) throw peekErrorMsg('CANCELLED', 'error.driver.streamCancelled')
 
         const frame = await this.cursor.next()
         if (frame === null) break
@@ -270,15 +292,15 @@ class StreamPump {
 }
 
 /* ------------------------------------------------------------------ */
-/* host 本体                                                           */
+/* The host itself                                                     */
 /* ------------------------------------------------------------------ */
 
 export interface DriverHostOptions {
-  /** 默认就是 postgresDriver；测试里可以换成假的 */
+  /** Defaults to postgresDriver; tests substitute a fake */
   driver?: Driver
-  /** shutdown 请求处理完之后的动作，默认什么都不做（由 entry 决定要不要 exit） */
+  /** What to do once a shutdown request has been handled; by default nothing (the entry decides whether to exit) */
   onShutdown?: () => void
-  /** 背压暂停的空闲上限，默认 IDLE_ACK_TIMEOUT_MS；测试里调小 */
+  /** Idle ceiling for a backpressure pause; defaults to IDLE_ACK_TIMEOUT_MS, lowered in tests */
   idleAckMs?: number
 }
 
@@ -290,7 +312,7 @@ export class DriverHost {
 
   private session: DriverSession | null = null
   private port: HostPortLike | null = null
-  /** 等数据面端口的泵。带 reject：host 关闭时必须把它们唤醒，不能留悬挂 Promise */
+  /** Pumps waiting for the data-plane port. Each carries a reject: closing the host has to wake them all, never leave a promise dangling */
   private portWaiters: { resolve: (p: HostPortLike) => void; reject: (e: unknown) => void }[] = []
   private readonly pumps = new Map<ResultId, StreamPump>()
   private disposed = false
@@ -308,7 +330,7 @@ export class DriverHost {
     channel.start?.()
   }
 
-  /* ---- 出站 ---- */
+  /* ---- Outbound ---- */
 
   emit(event: HostEvent): void {
     this.channel.postMessage(event)
@@ -324,7 +346,7 @@ export class DriverHost {
     })
   }
 
-  /** 宣告自己起来了，可以收请求 */
+  /** Announce that the host is up and ready for requests */
   announceReady(pid: number): void {
     this.emit({ kind: 'evt', type: 'ready', pid })
   }
@@ -334,13 +356,13 @@ export class DriverHost {
   }
 
   /**
-   * 数据面端口还没到就等着，绝不丢帧。
-   * 等待方必须自己带打断手段（StreamPump 用 stopSignal race），
-   * host 关闭时这里的 waiter 会被统一 reject。
+   * Wait for the data-plane port rather than dropping frames.
+   * Every waiter must bring its own way out (StreamPump races against
+   * stopSignal); closing the host rejects all waiters registered here.
    */
   waitPort(): Promise<HostPortLike> {
     if (this.port) return Promise.resolve(this.port)
-    if (this.disposed) return Promise.reject(peekError('CANCELLED', 'driver host 已关闭'))
+    if (this.disposed) return Promise.reject(peekErrorMsg('CANCELLED', 'error.driver.hostClosed'))
     return new Promise<HostPortLike>((resolve, reject) => {
       this.portWaiters.push({ resolve, reject })
     })
@@ -356,7 +378,7 @@ export class DriverHost {
     this.pumps.delete(resultId)
   }
 
-  /* ---- 入站 ---- */
+  /* ---- Inbound ---- */
 
   private async onMessage(event: HostChannelEvent): Promise<void> {
     const msg = asInbound(event.data)
@@ -411,7 +433,7 @@ export class DriverHost {
   }
 
   private requireSession(): DriverSession {
-    if (!this.session) throw peekError('CONFLICT', '尚未建立连接')
+    if (!this.session) throw peekErrorMsg('CONFLICT', 'error.driver.notConnected')
     return this.session
   }
 
@@ -436,7 +458,7 @@ export class DriverHost {
       case 'introspect.children': {
         const session = this.requireSession()
         if (!supportsIntrospect(session)) {
-          throw peekError('UNSUPPORTED_CAPABILITY', '该连接不支持 introspect')
+          throw unsupported(session.driverId, 'introspect')
         }
         return { nodes: await session.listChildren(req.params.parentId) }
       }
@@ -444,7 +466,7 @@ export class DriverHost {
       case 'introspect.describe': {
         const session = this.requireSession()
         if (!supportsIntrospect(session)) {
-          throw peekError('UNSUPPORTED_CAPABILITY', '该连接不支持 introspect')
+          throw unsupported(session.driverId, 'introspect')
         }
         return { schema: await session.describeCollection(req.params.ref) }
       }
@@ -452,7 +474,7 @@ export class DriverHost {
       case 'query.run': {
         const session = this.requireSession()
         if (!supportsTabularQuery(session)) {
-          throw peekError('UNSUPPORTED_CAPABILITY', '该连接不支持 tabularQuery')
+          throw unsupported(session.driverId, 'tabularQuery')
         }
         const p = req.params
         const cursor = await session.query({
@@ -470,7 +492,7 @@ export class DriverHost {
       case 'collection.scan': {
         const session = this.requireSession()
         if (!supportsCollectionScan(session)) {
-          throw peekError('UNSUPPORTED_CAPABILITY', '该连接不支持 collectionScan')
+          throw unsupported(session.driverId, 'collectionScan')
         }
         const p = req.params
         const cursor = await session.scan({
@@ -490,19 +512,20 @@ export class DriverHost {
       }
 
       case 'vector.search':
-        throw peekError('UNSUPPORTED_CAPABILITY', 'PostgreSQL 驱动不支持 vectorSearch')
+        throw unsupported(this.driver.meta.id, 'vectorSearch')
 
       case 'keyvalue.get':
-        throw peekError('UNSUPPORTED_CAPABILITY', 'PostgreSQL 驱动不支持 keyValue')
+        throw unsupported(this.driver.meta.id, 'keyValue')
 
       case 'value.peek': {
         const session = this.requireSession()
         if (!supportsValuePeek(session)) {
-          throw peekError('UNSUPPORTED_CAPABILITY', '该连接不支持 valuePeek')
+          throw unsupported(session.driverId, 'valuePeek')
         }
         const { ref, offset, length } = req.params
-        // HostRpcMap 的 offset/length 各自可选，而 ByteRange 两者必填：
-        // 只给 offset 时按"从这里到上限"理解，别退化成取 0 字节
+        // offset and length are independently optional in HostRpcMap, while
+        // ByteRange requires both: offset alone means "from here to the ceiling",
+        // not "read zero bytes"
         const range: ByteRange | undefined =
           offset === undefined && length === undefined
             ? undefined
@@ -557,7 +580,7 @@ export class DriverHost {
     void pump.run()
   }
 
-  /** 取消一个结果集：先让驱动真的打断服务端语句，再停泵 */
+  /** Cancel a result set: have the driver actually interrupt the server statement first, then stop the pump */
   private async cancelResult(resultId: ResultId): Promise<boolean> {
     const pump = this.pumps.get(resultId)
     let cancelled = false
@@ -575,8 +598,9 @@ export class DriverHost {
   private async closeSession(): Promise<void> {
     for (const pump of [...this.pumps.values()]) pump.stop()
     this.pumps.clear()
-    // 泵已经被 stop 打断，它们登记的等待项不会再有人认领，一并清掉
-    this.rejectPortWaiters(peekError('CANCELLED', '连接已关闭'))
+    // The pumps are already stopped, so nothing will ever claim the waiters they
+    // registered; clear them out too
+    this.rejectPortWaiters(peekErrorMsg('CANCELLED', 'error.conn.closed'))
     const session = this.session
     this.session = null
     if (session) await session.close().catch(() => {})
@@ -585,9 +609,9 @@ export class DriverHost {
   async dispose(): Promise<void> {
     if (this.disposed) return
     this.disposed = true
-    // 先叫醒还在等数据面端口的泵，再收会话：
-    // 否则它们会连同各自的游标一起挂到进程结束
-    this.rejectPortWaiters(peekError('CANCELLED', 'driver host 已关闭'))
+    // Wake the pumps still waiting for the data-plane port before tearing the
+    // session down, or they hang — cursors and all — until the process exits
+    this.rejectPortWaiters(peekErrorMsg('CANCELLED', 'error.driver.hostClosed'))
     await this.closeSession()
   }
 }

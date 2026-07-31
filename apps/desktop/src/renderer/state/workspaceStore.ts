@@ -14,25 +14,28 @@ import type {
   Workspace,
 } from '@peek/core'
 import { tryBridge } from '../bridge'
+import { tStatic } from '../i18n'
 import { notify } from './notifyStore'
 
-// immer 的 patch 能力是插件式的，applyPatches 用前必须启用
+// immer's patch support is a plugin; applyPatches needs it switched on first
 enablePatches()
 
 /**
- * Workspace **镜像**。真源在 main：
- * renderer 只做两件事——应用 patch、按 rev 校验连续性。
- * 任何组件都不允许直接写这里的 workspace（唯一入口是 main 广播的 patch）。
+ * The Workspace **mirror**. The source of truth is in main, and the renderer does
+ * exactly two things with it: apply patches, and check revision continuity.
+ * No component may write `workspace` here — the only way in is a patch broadcast
+ * by main.
  */
 interface WorkspaceMirrorState {
   workspace: Workspace | null
-  /** 已经拿到过至少一次全量快照 */
+  /** At least one full snapshot has arrived. */
   ready: boolean
-  /** 桥不可用（preload 未注入）——UI 进只读演示态 */
+  /** The bridge is unavailable (preload was not injected) — read-only demo mode. */
   bridgeMissing: boolean
-  /** 正在重新对齐快照 */
+  /** A snapshot realignment is in progress. */
   resyncing: boolean
-  /** 累计因 rev 断层触发的重新对齐次数，状态栏会显示，便于发现丢包 */
+  /** How many realignments a revision gap has forced; shown in the status bar so
+   *  dropped broadcasts are visible. */
   resyncCount: number
 }
 
@@ -48,10 +51,11 @@ const setState = useWorkspaceStore.setState
 const getState = useWorkspaceStore.getState
 
 /* ==================================================================== */
-/* patch / snapshot 同步                                                 */
+/* patch / snapshot synchronization                                       */
 /* ==================================================================== */
 
-/** 重新对齐期间到达的 patch 先缓冲，快照落地后再按 rev 续上 */
+/** Patches that arrive mid-realignment are buffered and re-applied by revision
+ *  once the snapshot lands. */
 const pending: StatePatchMessage[] = []
 let resyncInflight: Promise<void> | null = null
 
@@ -63,15 +67,16 @@ function applySnapshot(msg: StateSnapshotMessage): void {
 
 function drainPending(): void {
   if (pending.length === 0) return
-  // 按 fromRev 排序后逐条尝试续接，接不上的直接丢（快照已经比它新）
+  // Sort by fromRev, then splice them on one at a time; anything that no longer
+  // fits is dropped, because the snapshot is already newer than it
   pending.sort((a, b) => a.fromRev - b.fromRev)
   const queued = pending.splice(0, pending.length)
   for (const msg of queued) {
     const ws = getState().workspace
     if (!ws) break
-    if (msg.rev <= ws.rev) continue // 已包含在快照里
+    if (msg.rev <= ws.rev) continue // already contained in the snapshot
     if (msg.fromRev !== ws.rev) {
-      void resync('缓冲 patch 无法续接')
+      void resync('a buffered patch no longer splices on')
       return
     }
     commitPatch(ws, msg)
@@ -83,10 +88,11 @@ function commitPatch(base: Workspace, msg: StatePatchMessage): void {
   try {
     next = applyPatches(base, msg.patches)
   } catch (e) {
-    void resync(`patch 应用失败：${e instanceof Error ? e.message : String(e)}`)
+    void resync(`patch application failed: ${e instanceof Error ? e.message : String(e)}`)
     return
   }
-  // main 通常会把 rev 一起写进 patch；没写就在这里补齐，保证镜像 rev 权威
+  // main usually writes rev into the patch itself; fill it in otherwise, so the
+  // mirror's revision stays authoritative
   setState({ workspace: next.rev === msg.rev ? next : { ...next, rev: msg.rev } })
 }
 
@@ -94,21 +100,27 @@ function onPatch(msg: StatePatchMessage): void {
   const st = getState()
   if (!st.ready || st.resyncing || !st.workspace) {
     pending.push(msg)
-    if (!st.resyncing && !st.ready) void resync('尚未拿到首个快照')
+    if (!st.resyncing && !st.ready) void resync('the first snapshot has not arrived yet')
     return
   }
   const ws = st.workspace
-  if (msg.rev <= ws.rev) return // 重复广播，忽略
+  if (msg.rev <= ws.rev) return // duplicate broadcast, ignore
   if (msg.fromRev !== ws.rev) {
-    // rev 断层 = 丢包，必须走全量快照重新对齐（PLAN 第 5 节同步机制）
+    // A revision gap means a dropped broadcast, and the only cure is a full
+    // snapshot realignment (PLAN §5, synchronization)
     pending.push(msg)
-    void resync(`rev 断层：本地 ${ws.rev}，收到 fromRev ${msg.fromRev}`)
+    void resync(`revision gap: local ${ws.rev}, received fromRev ${msg.fromRev}`)
     return
   }
   commitPatch(ws, msg)
 }
 
-/** 拉全量快照重新对齐。并发调用会合并成同一次请求。 */
+/**
+ * Realign by pulling a full snapshot. Concurrent calls collapse into one request.
+ *
+ * `reason` is an internal diagnostic and stays English: it names revisions and
+ * patch state, and it travels straight into bug reports.
+ */
 export function resync(reason?: string): Promise<void> {
   if (resyncInflight) return resyncInflight
   const bridge = tryBridge()
@@ -118,7 +130,7 @@ export function resync(reason?: string): Promise<void> {
   }
   const bumped = getState().ready
   setState({ resyncing: true, ...(bumped ? { resyncCount: getState().resyncCount + 1 } : {}) })
-  if (reason && bumped) notify('warn', '状态重新对齐', reason)
+  if (reason && bumped) notify('warn', tStatic('app.notify.resync'), reason)
 
   resyncInflight = bridge
     .getSnapshot()
@@ -127,7 +139,7 @@ export function resync(reason?: string): Promise<void> {
     })
     .catch((e: unknown) => {
       setState({ resyncing: false })
-      notify('error', '读取状态快照失败', e instanceof Error ? e.message : String(e))
+      notify('error', tStatic('app.notify.snapshotFailed'), e instanceof Error ? e.message : String(e))
     })
     .finally(() => {
       resyncInflight = null
@@ -138,8 +150,9 @@ export function resync(reason?: string): Promise<void> {
 let started = false
 
 /**
- * 接线 preload：订阅 patch / notify，拉首个快照。
- * 在模块加载阶段调用一次（不放 effect 里，避免 StrictMode 双订阅）。
+ * Wire up preload: subscribe to patches and notifications, pull the first
+ * snapshot. Called once at module load — not from an effect, because StrictMode
+ * would subscribe twice.
  */
 export function startWorkspaceSync(): void {
   if (started) return
@@ -147,7 +160,7 @@ export function startWorkspaceSync(): void {
   const bridge = tryBridge()
   if (!bridge) {
     setState({ bridgeMissing: true })
-    notify('error', 'preload 桥未就绪', '窗口以只读演示态运行；请确认 preload/index.cjs 已构建并挂载。')
+    notify('error', tStatic('app.bridgeNotReady'), tStatic('app.notify.bridgeMissingDetail'))
     return
   }
   bridge.onPatch(onPatch)
@@ -158,7 +171,7 @@ export function startWorkspaceSync(): void {
 }
 
 /* ==================================================================== */
-/* 只读选择器                                                            */
+/* Read-only selectors                                                    */
 /* ==================================================================== */
 
 const EMPTY_CONNS: ConnectionState[] = []
@@ -176,7 +189,8 @@ export function useFocusedPanel(): PanelId | null {
   return useWorkspaceStore((s) => s.workspace?.focusedPanel ?? null)
 }
 
-/** 连接表：immer 结构共享保证对象未变时引用不变，可以直接当依赖 */
+/** The connection map. immer's structural sharing keeps the reference stable
+ *  while the object is unchanged, so it can be used as a dependency directly. */
 export function useConnectionsMap(): Record<ConnId, ConnectionState> | null {
   return useWorkspaceStore((s) => s.workspace?.connections ?? null)
 }
@@ -207,7 +221,7 @@ export function useResultMeta(resultId: ResultId | null | undefined): ResultMeta
   )
 }
 
-/** 非 hook 读取，供事件回调使用 */
+/** Non-hook read, for event callbacks. */
 export function readWorkspace(): Workspace | null {
   return getState().workspace
 }

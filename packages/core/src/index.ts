@@ -1,18 +1,22 @@
 /**
- * @peek/core —— 冻结共享契约。
+ * @peek/core — the frozen shared contract.
  *
- * 这个包不含任何业务逻辑，只有：
- *   errors.ts     结构化错误
- *   ids.ts        品牌类型与 id 生成
- *   chunk.ts      列式结果流协议 + 性能预算常量
- *   capability.ts 驱动能力模型（Driver / DriverSession / Cursor / 各种 Ref）
- *   workspace.ts  Workspace 状态模型（平铺布局 / 视图 / 连接状态机）
- *   commands.ts   Command Bus 契约（zod schema 与 TS 类型同源）
- *   ipc.ts        进程间协议（main ↔ renderer ↔ driver host）
+ * No business logic lives here, only:
+ *   messages.ts       message-formatting primitives (interpolation, plurals)
+ *   error-messages.ts canonical English catalog for peek-authored errors
+ *   errors.ts         structured errors
+ *   ids.ts            branded types and id generation
+ *   chunk.ts          columnar result-stream protocol + performance-budget constants
+ *   capability.ts     driver capability model (Driver / DriverSession / Cursor / the Refs)
+ *   workspace.ts      Workspace state model (tiled layout / views / connection state machine)
+ *   commands.ts       Command Bus contract (zod schemas and TS types from one source)
+ *   ipc.ts            inter-process protocol (main ↔ renderer ↔ driver host)
  *
- * 所有跨模块的类型都从这里导入，不要深入 '@peek/core/src/...'。
+ * Every cross-module type is imported from here; never reach into '@peek/core/src/...'.
  */
 
+export * from './messages'
+export * from './error-messages'
 export * from './errors'
 export * from './ids'
 export * from './chunk'

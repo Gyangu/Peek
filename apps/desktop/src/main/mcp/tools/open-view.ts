@@ -1,8 +1,9 @@
 /**
- * open_view —— 在界面上开一个视图（映射到 view.open）。
+ * open_view — open a view in the UI (maps onto view.open).
  *
- * 五种视图规格由 core 的 ViewOpenSpec 定死：table / query / inspector / tree / vector。
- * 这就是 "AI 说打开 postgres 的 harness 表，界面真的开出来" 的那条路径。
+ * The five view specs are fixed by core's ViewOpenSpec: table / query / inspector / tree / vector.
+ * This is the path that makes "the AI says open the harness table on postgres" actually appear
+ * on screen.
  */
 
 import { z } from 'zod'
@@ -12,7 +13,7 @@ import { renderPanelBrief, toJson } from '../summary'
 import { waitForResult } from '../wait'
 
 const InputSchema = commandSchemas['view.open'].safeExtend({
-  /** 视图开启即取数时，最多等结果多少毫秒再回执（0 = 不等） */
+  /** When opening the view also starts a fetch, how long to wait (ms) before replying (0 = do not wait). */
   waitMs: z.number().int().min(0).max(120_000).optional(),
 })
 
@@ -26,13 +27,13 @@ const ViewOpenResultShape = z.object({
 export default defineCommandTool({
   kind: 'command',
   name: 'open_view',
-  title: '打开视图',
+  title: 'Open a view',
   description:
-    '在 peek 界面上打开一个视图。spec.kind 五选一：' +
-    'table（浏览表/keyspace/collection，ref 从 introspect 拿）、' +
-    'query（SQL 编辑器，可带 text 并 run=true 直接跑）、' +
-    'inspector（看单个大值）、tree（命名空间树）、vector（向量检索）。' +
-    '不给 panelId 就开在当前聚焦面板；replace=false 会另开一个面板。',
+    'Open a view in the peek UI. spec.kind is one of five: ' +
+    'table (browse a table/keyspace/collection; get the ref from introspect), ' +
+    'query (SQL editor, optionally with text plus run=true to execute immediately), ' +
+    'inspector (examine one large value), tree (namespace tree), vector (vector search). ' +
+    'Without panelId the view opens in the currently focused panel; replace=false opens a new panel instead.',
   inputSchema: InputSchema,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   toCommands(input) {
@@ -42,7 +43,7 @@ export default defineCommandTool({
   async render(outcomes, input, ctx) {
     const parsed = ViewOpenResultShape.safeParse(outcomeData(outcomes, 'view.open'))
     if (!parsed.success) {
-      return { text: `view.open 已执行，但返回值不可解析。\n\n${toJson(outcomes)}` }
+      return { text: `view.open ran, but its return value could not be parsed.\n\n${toJson(outcomes)}` }
     }
     const { viewId, panelId, kind, resultId } = parsed.data
 
@@ -53,17 +54,17 @@ export default defineCommandTool({
         ? await waitForResult(ctx, resultId, waitMs)
         : { meta: null, settled: false }
       resultLine = meta
-        ? `\n结果集 ${resultId}：${meta.status} · ${meta.rows} 行` +
+        ? `\nResult ${resultId}: ${meta.status} · ${meta.rows} rows` +
           `${meta.elapsedMs === undefined ? '' : ` · ${meta.elapsedMs}ms`}` +
           `${meta.error ? ` · ${meta.error.code}: ${meta.error.message}` : ''}`
-        : `\n结果集 ${resultId}：仍在加载${settled ? '' : `（等待 ${waitMs}ms 未见终态）`}`
+        : `\nResult ${resultId}: still loading${settled ? '' : ` (waited ${waitMs}ms without reaching a settled status)`}`
     }
 
     const snap = ctx.getSnapshot()
     return {
       text:
-        `已打开 ${kind} 视图 ${viewId}（面板 ${panelId}）。${resultLine}\n\n` +
-        `当前面板：\n${renderPanelBrief(snap)}`,
+        `Opened ${kind} view ${viewId} (panel ${panelId}).${resultLine}\n\n` +
+        `Current panels:\n${renderPanelBrief(snap)}`,
       data: { viewId, panelId, kind, resultId },
     }
   },

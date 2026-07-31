@@ -1,9 +1,10 @@
 /**
- * introspect —— 只读工具：展开命名空间树（db → schema → table / key 模式 / collection）。
+ * introspect — read-only tool: expand the namespace tree (db → schema → table / key pattern /
+ * collection).
  *
- * 注意：introspect **不是 Command**（COMMAND_NAMES 里没有它），它是 driver host 的 RPC。
- * 所以这里走 ToolContext.introspect 这条注入的只读通道，与 read_workspace 同类。
- * 拿到 ref 之后用 open_view 把表真正开到界面上。
+ * Note: introspect is **not a Command** (it is absent from COMMAND_NAMES) — it is a driver host
+ * RPC. It therefore travels the injected read-only channel ToolContext.introspect, just like
+ * read_workspace. Once you have a ref, use open_view to actually put the table on screen.
  */
 
 import { z } from 'zod'
@@ -13,13 +14,13 @@ import { toJson } from '../summary'
 
 const InputSchema = z.object({
   connId: ConnIdSchema,
-  /** 要展开的节点 id（NamespaceNode.id）；不给或 null 表示根层 */
+  /** Id of the node to expand (NamespaceNode.id); omitted or null means the root level. */
   parentId: z.string().nullable().optional(),
-  /** 跳过缓存重新拉 */
+  /** Bypass the cache and fetch again. */
   refresh: z.boolean().optional(),
-  /** 递归展开几层（1 = 只列直接子节点），最多 3 层 */
+  /** How many levels to expand recursively (1 = direct children only), 3 at most. */
   depth: z.number().int().min(1).max(3).optional(),
-  /** 最多返回多少个节点，防止大库把上下文撑爆 */
+  /** Cap on returned nodes, so a large database cannot blow up the context window. */
   maxNodes: z.number().int().min(1).max(2000).optional(),
 })
 
@@ -29,7 +30,7 @@ interface NodeBrief {
   kind: string
   hasChildren: boolean
   detail?: string
-  /** 有 ref 的节点可以直接 open_view 成 table 视图 */
+  /** Nodes that carry a ref can be handed straight to open_view as a table view. */
   ref?: NamespaceNode['ref']
   children?: NodeBrief[]
 }
@@ -49,7 +50,7 @@ function outline(nodes: readonly NodeBrief[], indent = ''): string {
   const lines: string[] = []
   nodes.forEach((n, i) => {
     const last = i === nodes.length - 1
-    const openable = n.ref ? ' (可 open_view)' : ''
+    const openable = n.ref ? ' (open_view-able)' : ''
     const detail = n.detail ? ` — ${n.detail}` : ''
     lines.push(`${indent}${last ? '└─ ' : '├─ '}${n.kind} ${n.name} [${n.id}]${openable}${detail}`)
     if (n.children && n.children.length > 0) {
@@ -62,18 +63,19 @@ function outline(nodes: readonly NodeBrief[], indent = ''): string {
 export default defineReadTool({
   kind: 'read',
   name: 'introspect',
-  title: '浏览命名空间',
+  title: 'Browse namespaces',
   description:
-    '懒加载地展开某个连接的命名空间树：不给 parentId 拿根层（PG 是 schema 列表），' +
-    '给 parentId 拿它的子节点（如某 schema 下的表）。depth 可一次展开多层（最多 3）。' +
-    '返回的节点若带 ref，可直接丢给 open_view 的 spec.ref 把表开到界面上。',
+    "Lazily expand a connection's namespace tree: omit parentId for the root level (on PostgreSQL, " +
+    'the list of schemas); pass parentId to get that node\'s children (for example the tables in a schema). ' +
+    'Use depth to expand several levels at once (3 at most). ' +
+    'Any returned node that carries a ref can be passed straight to open_view as spec.ref to put that table on screen.',
   inputSchema: InputSchema,
   annotations: { readOnlyHint: true, openWorldHint: true },
   async read(input, ctx) {
     if (!ctx.introspect) {
       return errorOutput(
-        peekError('INTERNAL', 'introspect 通道未接线', {
-          detail: '创建 MCP server 时未注入 introspect（Connection Manager → driver host RPC）。',
+        peekError('INTERNAL', 'The introspect channel is not wired up', {
+          detail: 'No introspect reader (Connection Manager → driver host RPC) was injected when the MCP server was created.',
         }),
       )
     }
@@ -82,19 +84,19 @@ export default defineReadTool({
     const conn = snap.connections.find((c) => c.id === input.connId)
     if (!conn) {
       return errorOutput(
-        peekError('NOT_FOUND', `连接 ${input.connId} 不存在`, {
-          detail: '先用 list_connections 看有哪些连接，或用 connect 新建。',
+        peekError('NOT_FOUND', `Connection ${input.connId} does not exist`, {
+          detail: 'Use list_connections to see what is available, or connect to create a new one.',
         }),
       )
     }
     if (conn.status !== 'ready') {
       return errorOutput(
-        peekError('CONFLICT', `连接 ${conn.label} 当前状态为 ${conn.status}，无法 introspect`),
+        peekError('CONFLICT', `Connection ${conn.label} is ${conn.status}, so it cannot be introspected`),
       )
     }
     if (!conn.capabilities.includes('introspect')) {
       return errorOutput(
-        peekError('UNSUPPORTED_CAPABILITY', `驱动 ${conn.driverId} 不支持 introspect`),
+        peekError('UNSUPPORTED_CAPABILITY', `Driver ${conn.driverId} does not support introspect`),
       )
     }
 
@@ -136,8 +138,8 @@ export default defineReadTool({
 
     const head =
       nodes.length === 0
-        ? `${conn.label} 的 ${root === null ? '根层' : root} 下没有子节点。`
-        : `${conn.label} 的 ${root === null ? '根层' : root} 下共 ${total} 个节点${capped ? `（已截断到 maxNodes=${maxNodes}）` : ''}：`
+        ? `${conn.label} → ${root === null ? 'root level' : root}: no child nodes.`
+        : `${conn.label} → ${root === null ? 'root level' : root}: ${total} node(s)${capped ? ` (truncated at maxNodes=${maxNodes})` : ''}:`
 
     return {
       text: `${head}\n${outline(nodes)}\n\n${toJson({ connId: String(input.connId), parentId: root, nodes })}`,

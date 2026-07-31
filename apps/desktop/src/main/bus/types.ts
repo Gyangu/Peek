@@ -4,21 +4,24 @@ import type { IdFactory } from './ids'
 import type { PlanEffect } from './intents'
 
 /**
- * 命令 handler 的形状（PLAN 第 6 节：zod 校验 → handler → patch 广播 → 返回结果）。
+ * The shape of a command handler (PLAN section 6: zod validation → handler →
+ * patch broadcast → result).
  *
- * 一条命令最多分三段，全部可选：
- *   reduce   纯状态变更。跑在 immer draft 上，**不允许任何 I/O**，
- *            要做副作用就 `ctx.plan(intent)` 登记意图。
- *   （bus 在这里执行意图：真正去连库/跑查询，走注入的 CommandDeps）
- *   finalize 副作用跑完后，用最新的真源修正一下返回值（比如把 connecting 改成 ready）。
+ * A command has at most three stages, all optional:
+ *   reduce    Pure state change. Runs on an immer draft and **must not do any
+ *             I/O** — register side effects with `ctx.plan(intent)` instead.
+ *   (the bus runs those intents here: actually connecting, actually querying,
+ *    through the injected CommandDeps)
+ *   finalize  After the effects have run, correct the return value against the
+ *             fresh source of truth (e.g. turn `connecting` into `ready`).
  *
- * 只读命令用 read 代替 reduce：不 bump rev、不广播 patch。
+ * Read-only commands use `read` in place of `reduce`: no rev bump, no patches.
  */
 
 export interface ReduceCtx {
   readonly source: CommandSource
   readonly commandId: string
-  /** 本次命令的时间戳，handler 内一律用它而不是 Date.now()，保证可复现 */
+  /** Timestamp of this command. Handlers use it instead of Date.now() so runs are reproducible. */
   readonly now: number
   readonly ids: IdFactory
   readonly plan: PlanEffect
@@ -48,5 +51,5 @@ export interface CommandHandler<K extends CommandName> {
   finalize?: CommandFinalizer<K>
 }
 
-/** 一批 handler 的声明形状，`satisfies CommandHandlerMap` 可保证键与入参类型对得上 */
+/** Declaration shape for a batch of handlers; `satisfies CommandHandlerMap` proves keys and input types line up. */
 export type CommandHandlerMap = { [K in CommandName]?: CommandHandler<K> }

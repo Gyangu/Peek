@@ -8,11 +8,11 @@ import type {
 } from '@peek/core'
 
 /**
- * preload 窄桥的访问入口。
+ * Access to the narrow preload bridge.
  *
- * `window.peek` 的类型由 @peek/core 的 `declare global` 提供（非可选），
- * 但 main 在 preload 尚未落地时也允许起窗，所以这里一律做运行时判空，
- * 绝不直接解引用。
+ * `@peek/core` declares `window.peek` globally and non-optionally, but main will
+ * happily open a window before preload has landed — so every access here is
+ * null-checked at runtime and the global is never dereferenced directly.
  */
 export function tryBridge(): PeekBridge | null {
   const w = window as unknown as Record<string, unknown>
@@ -23,10 +23,16 @@ export function tryBridge(): PeekBridge | null {
   return b as PeekBridge
 }
 
-/** 桥不存在时抛这个，调用方统一转成 toast，不让 UI 崩 */
+/**
+ * Thrown when the bridge is missing. Callers turn it into a toast rather than
+ * letting the UI crash.
+ *
+ * The message is a plain English literal, not a catalog key: it names a missing
+ * global and is aimed at whoever is debugging the build, not at the user.
+ */
 export class BridgeUnavailable extends Error {
   constructor() {
-    super('preload 桥未就绪：window.peek 不可用')
+    super('preload bridge not ready: window.peek is unavailable')
     this.name = 'BridgeUnavailable'
   }
 }
@@ -38,32 +44,34 @@ export function requireBridge(): PeekBridge {
 }
 
 /* ==================================================================== */
-/* 契约缺口的可选扩展通道                                                  */
+/* Optional extension channels for a gap in the contract                  */
 /* ==================================================================== */
 
 /**
- * ⚠️ 契约缺口（已在交付说明里上报）：
+ * ⚠️ Contract gap (already raised in the delivery notes):
  *
- * `COMMAND_NAMES` 里没有 introspect / valuePeek / keyValue 对应的命令，
- * `ViewState` 里也没有承载命名空间节点或单值内容的字段。
- * 也就是说 **renderer 目前没有任何合法途径拿到树的子节点和大 value 全量**。
+ * `COMMAND_NAMES` has no command for introspect / valuePeek / keyValue, and
+ * `ViewState` has no field to carry namespace nodes or the body of a single
+ * value. In other words, **the renderer currently has no sanctioned way to obtain
+ * a tree's child nodes or the full text of a large value**.
  *
- * 这里定义一组**可选**的桥扩展方法作为唯一约定的补洞点：
- * - preload 若实现了它们，树视图和检查器就能工作；
- * - 没实现时，UI 只降级展示（树给提示、大 value 只显示 4KB 预览），不报错、不崩。
+ * These optional bridge methods are the one agreed-upon patch for that hole:
+ * - if preload implements them, the tree view and the inspector work;
+ * - if it does not, the UI degrades visibly (the tree explains itself, a large
+ *   value shows its 4KB preview) rather than erroring or crashing.
  *
- * 全部运行时探测，不改动 @peek/core 的 PeekBridge 接口。
+ * Everything is probed at runtime; `PeekBridge` in @peek/core is untouched.
  */
 export interface PeekBridgeExtras {
-  /** 对应 HostRpcMap['introspect.children'] */
+  /** Maps to HostRpcMap['introspect.children']. */
   introspect(connId: ConnId, parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]>
-  /** 对应 HostRpcMap['value.peek'] */
+  /** Maps to HostRpcMap['value.peek']. */
   peekValue(
     connId: ConnId,
     ref: ValueRef,
     range?: { offset: number; length: number },
   ): Promise<PeekedValue>
-  /** 对应 HostRpcMap['keyvalue.get'] */
+  /** Maps to HostRpcMap['keyvalue.get']. */
   getKeyValue(connId: ConnId, ref: ValueRef): Promise<KeyValueResult>
 }
 
@@ -82,7 +90,7 @@ export const bridgeExtras = {
 
   introspect(connId: ConnId, parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]> {
     const fn = extra('introspect')
-    if (!fn) return Promise.reject(new Error('桥未提供 introspect 通道'))
+    if (!fn) return Promise.reject(new Error('The bridge exposes no introspect channel'))
     return fn(connId, parentId, refresh)
   },
 
@@ -92,13 +100,13 @@ export const bridgeExtras = {
     range?: { offset: number; length: number },
   ): Promise<PeekedValue> {
     const fn = extra('peekValue')
-    if (!fn) return Promise.reject(new Error('桥未提供 peekValue 通道'))
+    if (!fn) return Promise.reject(new Error('The bridge exposes no peekValue channel'))
     return fn(connId, ref, range)
   },
 
   getKeyValue(connId: ConnId, ref: ValueRef): Promise<KeyValueResult> {
     const fn = extra('getKeyValue')
-    if (!fn) return Promise.reject(new Error('桥未提供 getKeyValue 通道'))
+    if (!fn) return Promise.reject(new Error('The bridge exposes no getKeyValue channel'))
     return fn(connId, ref)
   },
 } as const

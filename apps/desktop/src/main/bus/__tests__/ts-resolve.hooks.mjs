@@ -1,13 +1,14 @@
 import { registerHooks } from 'node:module'
 
 /**
- * node:test 跑 TypeScript 源码用的解析钩子（零依赖）。
+ * Resolution hooks that let node:test run TypeScript sources (zero dependencies).
  *
- * Node 自带类型擦除，但 ESM 解析要求相对导入带扩展名；
- * 而本仓库按 bundler 解析约定写的是无扩展名导入。
- * 这里在解析失败时依次补 `.ts` 与 `/index.ts`。
+ * Node strips types on its own, but ESM resolution requires an extension on
+ * relative imports, while this repository writes extensionless imports per the
+ * bundler resolution convention. When resolution fails, this retries with `.ts`
+ * and then with `/index.ts`.
  *
- * 用法（在 apps/desktop 目录下）：
+ * Usage (from apps/desktop):
  *   node --import ./src/main/bus/__tests__/ts-resolve.hooks.mjs --test "src/main/bus/__tests__/*.test.ts"
  */
 registerHooks({

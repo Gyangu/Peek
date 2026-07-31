@@ -1,13 +1,14 @@
-import { peekError, type FilterSpec, type RelationRef, type SortSpec } from '@peek/core'
+import { peekErrorMsg, type FilterSpec, type RelationRef, type SortSpec } from '@peek/core'
 
 /**
- * SQL 片段构造。
+ * SQL fragment construction.
  *
- * 铁律：**值一律走 $n 参数，绝不字符串拼接**；标识符走 quoteIdent 双引号转义。
- * 这里没有任何一处把用户提供的值拼进 SQL 文本。
+ * The one rule: **values always travel as $n parameters, never as concatenated
+ * text**; identifiers go through quoteIdent's double-quote escaping. Not a single
+ * line in this file interpolates a user-supplied value into SQL text.
  */
 
-/** 参数收集器：add(v) 返回 '$n' 占位符 */
+/** Parameter collector: add(v) returns the matching '$n' placeholder */
 export class ParamList {
   private readonly values: unknown[] = []
 
@@ -16,7 +17,7 @@ export class ParamList {
     return `$${this.values.length}`
   }
 
-  /** 已经存在的参数（比如 tabularQuery 透传的 params）预置进来 */
+  /** Preload parameters that already exist (e.g. the params tabularQuery passes through) */
   seed(values: readonly unknown[]): void {
     for (const v of values) this.values.push(v)
   }
@@ -30,37 +31,40 @@ export class ParamList {
   }
 }
 
-/** 源码里不放裸 NUL 字节，用它做包含性检查 */
+/** No literal NUL byte in the source; this is what the containment check compares against */
 const NUL_CHAR = String.fromCharCode(0)
 
 /**
- * 标识符引号：双引号包裹 + 内部双引号翻倍，空格/点/中文都安全。
- * 唯一无法安全转义的是 NUL 字节，直接拒绝。
+ * Quote an identifier: wrap in double quotes and double any embedded ones, which
+ * makes spaces, dots and non-ASCII names safe. A NUL byte is the one thing that
+ * cannot be escaped safely, so it is rejected outright.
  */
 export function quoteIdent(name: string): string {
-  if (name.length === 0) throw peekError('BAD_REQUEST', '标识符不能为空')
-  if (name.includes(NUL_CHAR)) throw peekError('BAD_REQUEST', `标识符含非法字符: ${JSON.stringify(name)}`)
+  if (name.length === 0) throw peekErrorMsg('BAD_REQUEST', 'error.sql.identifierEmpty')
+  if (name.includes(NUL_CHAR)) {
+    throw peekErrorMsg('BAD_REQUEST', 'error.sql.identifierInvalid', { name: JSON.stringify(name) })
+  }
   return `"${name.replace(/"/g, '""')}"`
 }
 
-/** schema.table 全限定名；schema 为空串时只用表名（走 search_path） */
+/** Fully qualified schema.table; an empty schema yields the bare table name (resolved through search_path) */
 export function qualifiedName(ref: RelationRef): string {
   return ref.schema ? `${quoteIdent(ref.schema)}.${quoteIdent(ref.name)}` : quoteIdent(ref.name)
 }
 
-/** regclass 参数用的字面文本（作为 $1 传入，不拼进 SQL） */
+/** Literal text for a regclass parameter (bound as $1, never interpolated into SQL) */
 export function relationLiteral(ref: RelationRef): string {
   return qualifiedName(ref)
 }
 
 function requireValue(f: FilterSpec): unknown {
   if (f.value === undefined) {
-    throw peekError('BAD_REQUEST', `筛选条件 ${f.column} ${f.op} 缺少 value`)
+    throw peekErrorMsg('BAD_REQUEST', 'error.sql.filterMissingValue', { column: f.column, op: f.op })
   }
   return f.value
 }
 
-/** 单条筛选 → SQL 片段 */
+/** One filter → one SQL fragment */
 export function renderFilter(f: FilterSpec, p: ParamList): string {
   const col = quoteIdent(f.column)
   switch (f.op) {
@@ -85,15 +89,17 @@ export function renderFilter(f: FilterSpec, p: ParamList): string {
     case 'ilike':
       return `${col}::text ILIKE ${p.add(String(requireValue(f)))}`
     case 'contains':
-      // 通配符不参与语义：用 strpos 做纯子串匹配，用户输入里的 % / _ 不被解释
+      // Wildcards carry no meaning here: strpos does a plain substring match, so
+      // % and _ typed by the user stay literal
       return `strpos(${col}::text, ${p.add(String(requireValue(f)))}) > 0`
     case 'in': {
       const raw = requireValue(f)
       if (!Array.isArray(raw)) {
-        throw peekError('BAD_REQUEST', `筛选条件 ${f.column} in 的 value 必须是数组`)
+        throw peekErrorMsg('BAD_REQUEST', 'error.sql.filterValueNotArray', { column: f.column })
       }
       if (raw.length === 0) return 'false'
-      // 展开成 IN ($1,$2,...)：每个元素独立参数化，PG 可从列类型推断参数类型
+      // Expand to IN ($1,$2,…): parameterizing each element separately lets PG
+      // infer the parameter types from the column
       const holes = raw.map((v) => p.add(v)).join(', ')
       return `${col} IN (${holes})`
     }
@@ -127,12 +133,12 @@ export interface ScanSqlInput {
 export interface ScanSql {
   text: string
   params: unknown[]
-  /** 实际生效的 offset / limit，用于回算 nextCursor */
+  /** The offset / limit actually applied, used to compute nextCursor */
   offset: number
   limit?: number
 }
 
-/** collectionScan → SELECT 语句。所有值参数化，标识符转义。 */
+/** collectionScan → SELECT statement. Every value parameterized, every identifier quoted. */
 export function buildScanSql(input: ScanSqlInput): ScanSql {
   const p = new ParamList()
   const cols = input.columns && input.columns.length > 0
@@ -157,15 +163,16 @@ export function buildScanSql(input: ScanSqlInput): ScanSql {
 }
 
 /**
- * 结果集内某一行的取值子查询：把原语句包一层并按序号重命名各列，
- * 这样即使原语句有重名列也能用 c0/c1/... 精确定位第 col 列。
+ * Subquery that isolates one row of a result set: wrap the original statement and
+ * rename its columns positionally, so that c0/c1/… addresses column `col`
+ * unambiguously even when the original statement has duplicate column names.
  */
 export function wrapResultRow(text: string, columnCount: number, offsetPlaceholder: string): string {
   const aliases = Array.from({ length: columnCount }, (_, i) => `c${i}`).join(', ')
   return `SELECT * FROM (${text}) AS _peek_src(${aliases}) OFFSET ${offsetPlaceholder} LIMIT 1`
 }
 
-/** 把标量表达式统一转成 bytea，供 substring 做字节级切片 */
+/** Coerce a scalar expression to bytea so substring can slice it by byte */
 export function toByteaExpr(expr: string, binary: boolean): string {
   return binary ? `(${expr})::bytea` : `convert_to((${expr})::text, 'UTF8')`
 }

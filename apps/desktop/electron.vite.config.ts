@@ -3,7 +3,7 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
 const rootDir = __dirname
-// monorepo 根，用于把 @peek/* 直接指向源码（无需先 build）
+// Monorepo root, used to alias @peek/* straight at the sources (no build step first)
 const repoRoot = resolve(rootDir, '../..')
 
 const peekAlias = {
@@ -12,7 +12,8 @@ const peekAlias = {
 }
 
 export default defineConfig({
-  // main：Electron 主进程。承载 Command Bus、Workspace 真源、MCP HTTP Server。
+  // main: the Electron main process. Hosts the Command Bus, the Workspace source of
+  // truth, and the MCP HTTP server.
   main: {
     plugins: [externalizeDepsPlugin({ exclude: ['@peek/core', '@peek/driver-postgres'] })],
     resolve: { alias: peekAlias },
@@ -20,16 +21,16 @@ export default defineConfig({
       outDir: 'out/main',
       rollupOptions: {
         input: {
-          // 主进程入口
+          // Main-process entry point
           index: resolve(rootDir, 'src/main/index.ts'),
-          // driver host：每个连接一个 utilityProcess，由 main fork 出来
+          // driver host: one utilityProcess per connection, forked by main
           'driver-host': resolve(rootDir, 'src/main/driver-host/entry.ts'),
         },
       },
     },
   },
 
-  // preload：只暴露一条窄桥（invoke / onPatch / onResultPort）
+  // preload: exposes one narrow bridge and nothing else (invoke / onPatch / onResultPort)
   preload: {
     plugins: [externalizeDepsPlugin({ exclude: ['@peek/core'] })],
     resolve: { alias: peekAlias },
@@ -42,7 +43,7 @@ export default defineConfig({
     },
   },
 
-  // renderer：React 界面。root 指到 app 包根目录，index.html 在那儿。
+  // renderer: the React UI. root points at the app package root, where index.html lives.
   renderer: {
     root: rootDir,
     plugins: [react()],
@@ -54,7 +55,7 @@ export default defineConfig({
       },
     },
     server: {
-      // 冷启动预算 < 1.5s，预打包这些重依赖
+      // Cold-start budget is under 1.5s, so pre-bundle the heavy dependencies
       warmup: { clientFiles: ['./src/renderer/main.tsx'] },
     },
   },

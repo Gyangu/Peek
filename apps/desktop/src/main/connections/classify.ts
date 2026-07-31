@@ -1,15 +1,17 @@
-import { peekError, toPeekError, type PeekError } from '@peek/core'
+import { peekErrorMsg, toPeekError, type PeekError } from '@peek/core'
 
 /* ================================================================== */
-/* 超时预算                                                            */
+/* Timeout budget                                                      */
 /* ================================================================== */
 
 /**
- * 各阶段的默认超时（毫秒）。调用方可以按需覆盖。
+ * Default timeout (in ms) for each stage. Callers may override any of them.
  *
- * 注意 query/scan/vectorSearch 的 RPC **只是发起**（返回 resultId 就算成功），
- * 真正的数据走 MessagePort，所以这里的超时是"发起阶段"的上限，
- * 不是整条查询的上限——整条查询的上限由调用方传进 params.timeoutMs 交给驱动执行。
+ * Note that the query/scan/vectorSearch RPCs **only start the work** — they
+ * succeed as soon as a resultId comes back — while the data itself travels the
+ * MessagePort. So these are limits on the *start* phase, not on the whole query;
+ * the whole-query limit is whatever the caller passes in params.timeoutMs for the
+ * driver to enforce.
  */
 export interface Timeouts {
   readyMs: number
@@ -24,48 +26,48 @@ export interface Timeouts {
 }
 
 export const DEFAULT_TIMEOUTS: Timeouts = {
-  /** spawn 到收到 ready 事件 */
+  /** From spawn to the ready event */
   readyMs: 10_000,
-  /** connect RPC（建连 + 握手 + 取 serverInfo） */
+  /** The connect RPC (dial + handshake + fetch serverInfo) */
   connectMs: 15_000,
-  /** 普通控制面 RPC（introspect / peek / keyvalue） */
+  /** Ordinary control-plane RPCs (introspect / peek / keyvalue) */
   rpcMs: 30_000,
-  /** 查询/扫描的发起阶段上限；调用方给了 timeoutMs 就用 timeoutMs + 宽限 */
+  /** Limit on the start phase of a query or scan; when the caller supplies timeoutMs, use timeoutMs plus the grace period */
   queryStartMs: 60_000,
-  /** 调用方给了 timeoutMs 时额外留给驱动收尾的宽限 */
+  /** Extra grace given to the driver to wind down when the caller supplied timeoutMs */
   queryGraceMs: 5_000,
-  /** cancel RPC：超过这个时间就升级为强杀进程 */
+  /** The cancel RPC: past this, escalate to killing the process */
   cancelMs: 2_000,
   /** disconnect RPC */
   disconnectMs: 5_000,
   /** shutdown RPC */
   shutdownMs: 3_000,
-  /** kill 之后等进程真正退出 */
+  /** How long to wait after kill for the process to actually exit */
   exitMs: 3_000,
 }
 
 /* ================================================================== */
-/* 错误分类                                                            */
+/* Error classification                                                */
 /* ================================================================== */
 
-/** 认证/授权类 SQLSTATE（PG 28 类） */
+/** Authentication / authorization SQLSTATEs (PG class 28) */
 const AUTH_SQLSTATES = new Set([
   '28000', // invalid_authorization_specification
   '28P01', // invalid_password
-  '28P02', // 部分发行版用于 SCRAM 失败
+  '28P02', // used by some distributions for SCRAM failure
   '42501', // insufficient_privilege
 ])
 
-/** 库不存在 / 无权访问 */
+/** Database missing or not accessible */
 const DB_NOT_FOUND_SQLSTATES = new Set([
   '3D000', // invalid_catalog_name
   '3F000', // invalid_schema_name
 ])
 
-/** 语法错误类（PG 42601 等），带 position 时编辑器可定位 */
+/** Syntax error class (PG 42601 and friends); with a position the editor can point at it */
 const SYNTAX_SQLSTATES = new Set(['42601', '42P01', '42703', '42883'])
 
-/** 网络层 errno（node 的 ECONNREFUSED 之类会出现在 message 里） */
+/** Network-layer errnos (node's ECONNREFUSED and the like show up inside `message`) */
 const NETWORK_ERRNOS = [
   'ECONNREFUSED',
   'ENOTFOUND',
@@ -93,16 +95,17 @@ function matchNetworkErrno(err: PeekError): string | null {
 }
 
 /**
- * 建连阶段的错误细化。
+ * Refine an error raised while connecting.
  *
- * 驱动应当自己给出精确的 code/driverCode；这里只做兜底细化，
- * 把"一坨 CONNECTION_FAILED"拆成认证 / 网络 / 超时 / 库不存在，
- * 让 UI 和 MCP 能给出可操作的提示。
+ * Drivers are expected to produce a precise code/driverCode themselves; this is
+ * only a fallback that splits an undifferentiated pile of CONNECTION_FAILED into
+ * auth / network / timeout / missing database, so the UI and MCP can say
+ * something actionable.
  */
 export function classifyConnectError(raw: unknown): PeekError {
   const err = toPeekError(raw, 'CONNECTION_FAILED')
 
-  // 已经是明确的终态分类就不再动
+  // Already a definitive terminal classification: leave it alone
   if (err.code === 'CANCELLED' || err.code === 'TIMEOUT' || err.code === 'DRIVER_CRASHED') return err
 
   const sqlstate = err.driverCode ?? ''
@@ -110,7 +113,10 @@ export function classifyConnectError(raw: unknown): PeekError {
     return {
       ...err,
       code: 'CONNECTION_FAILED',
-      message: err.message || '认证失败：用户名或密码不正确',
+      // Fallback wording for drivers that give us nothing but a SQLSTATE. It is
+      // literal English rather than a catalog key because it substitutes for
+      // driver text and travels the same untranslated path.
+      message: err.message || 'Authentication failed: wrong user name or password',
       retryable: false,
     }
   }
@@ -121,23 +127,25 @@ export function classifyConnectError(raw: unknown): PeekError {
   const errno = matchNetworkErrno(err)
   if (errno !== null) {
     const retryable = errno !== 'ENOTFOUND'
+    // These hints end up in `detail`, which is never translated (see the rule in
+    // @peek/core/error-messages), so they are literal English.
     const hint =
       errno === 'ECONNREFUSED'
-        ? '目标端口拒绝连接，确认数据库是否在运行、端口是否正确'
+        ? 'the target port refused the connection; check that the database is running on that port'
         : errno === 'ENOTFOUND' || errno === 'EAI_AGAIN'
-          ? '主机名解析失败'
+          ? 'host name resolution failed'
           : errno === 'ETIMEDOUT'
-            ? '网络连接超时'
-            : '网络错误'
+            ? 'the network connection timed out'
+            : 'network error'
     return {
       ...err,
       code: errno === 'ETIMEDOUT' ? 'TIMEOUT' : 'CONNECTION_FAILED',
-      detail: err.detail ? `${hint}（${errno}）\n${err.detail}` : `${hint}（${errno}）`,
+      detail: err.detail ? `${hint} (${errno})\n${err.detail}` : `${hint} (${errno})`,
       retryable,
     }
   }
 
-  // 认证提示词兜底（部分驱动不给 SQLSTATE）
+  // Keyword fallback for auth failures (some drivers give no SQLSTATE)
   const text = haystack(err)
   if (
     text.includes('PASSWORD AUTHENTICATION FAILED')
@@ -154,8 +162,8 @@ export function classifyConnectError(raw: unknown): PeekError {
 }
 
 /**
- * 执行阶段（query / scan / introspect / peek）的错误细化。
- * 语法错误单拎出来，UI 才能把光标定位到 position。
+ * Refine an error raised during execution (query / scan / introspect / peek).
+ * Syntax errors are singled out so the UI can move the cursor to `position`.
  */
 export function classifyExecError(raw: unknown): PeekError {
   const err = toPeekError(raw, 'QUERY_FAILED')
@@ -172,28 +180,39 @@ export function classifyExecError(raw: unknown): PeekError {
 }
 
 /* ------------------------------------------------------------------ */
-/* 常用错误构造                                                         */
+/* Common error constructors                                            */
 /* ------------------------------------------------------------------ */
 
-export function timeoutError(what: string, ms: number): PeekError {
-  return peekError('TIMEOUT', `${what} 超时（${ms}ms）`, { retryable: true })
+/**
+ * These all build localizable errors: `message` carries canonical English for
+ * MCP and the logs, while the attached `{ key, params }` descriptor lets the
+ * window render the same thing in the user's language.
+ *
+ * `operation` and `detail` arguments stay literal English — they name internal
+ * operations or pass driver output through, and neither is translated.
+ */
+export function timeoutError(operation: string, ms: number): PeekError {
+  return peekErrorMsg('TIMEOUT', 'error.query.timedOut', { operation, ms }, { retryable: true })
 }
 
 export function crashedError(detail?: string): PeekError {
-  return peekError('DRIVER_CRASHED', 'driver 进程已退出', {
+  return peekErrorMsg('DRIVER_CRASHED', 'error.driver.hostExited', undefined, {
     ...(detail === undefined ? {} : { detail }),
     retryable: true,
   })
 }
 
 export function notFoundConn(connId: string): PeekError {
-  return peekError('NOT_FOUND', `连接不存在：${connId}`)
+  return peekErrorMsg('NOT_FOUND', 'error.conn.notFound', { connId })
 }
 
 export function notReadyConn(connId: string, status: string): PeekError {
-  return peekError('CONFLICT', `连接 ${connId} 当前状态为 ${status}，无法执行该操作`)
+  return peekErrorMsg('CONFLICT', 'error.conn.notReady', { label: connId, status })
 }
 
-export function unsupported(capability: string): PeekError {
-  return peekError('UNSUPPORTED_CAPABILITY', `当前驱动不支持能力：${capability}`)
+export function unsupported(driverId: string, capability: string): PeekError {
+  return peekErrorMsg('UNSUPPORTED_CAPABILITY', 'error.conn.unsupportedCapability', {
+    driverId,
+    capability,
+  })
 }

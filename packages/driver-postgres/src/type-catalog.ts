@@ -1,24 +1,26 @@
 import type { LogicalType } from '@peek/core'
 
 /**
- * pg 类型目录：OID → 类型名 / 逻辑类型。
+ * pg type catalog: OID → type name / logical type.
  *
- * RowDescription 只给 dataTypeID（OID），要拿到 nativeType（'jsonb'/'timestamptz'…）
- * 必须查 pg_type。连接建立时一次性拉全表（约 600 行，几毫秒），之后纯内存查表；
- * 遇到连接后新建的类型（CREATE TYPE / 装扩展）走 refreshMissing 增量补。
+ * A RowDescription only carries dataTypeID (an OID), so reaching nativeType
+ * ('jsonb', 'timestamptz', …) means consulting pg_type. The whole table is
+ * pulled once when the connection is established (~600 rows, a few
+ * milliseconds); every lookup after that is pure memory. Types created after
+ * connect (CREATE TYPE, installing an extension) are filled in incrementally.
  */
 
 export interface PgTypeInfo {
   oid: number
-  /** pg_type.typname，即 ColumnDef.nativeType */
+  /** pg_type.typname, i.e. ColumnDef.nativeType */
   name: string
-  /** pg_type.typcategory，单字母 */
+  /** pg_type.typcategory, a single letter */
   category: string
-  /** 数组类型的元素 OID，0 表示不是数组 */
+  /** Element OID for array types; 0 means this is not an array */
   elem: number
 }
 
-/** pg_type 一行的原始形状 */
+/** Raw shape of one pg_type row */
 export interface PgTypeRow {
   oid: number
   typname: string
@@ -26,7 +28,7 @@ export interface PgTypeRow {
   typelem: number
 }
 
-/** 按 typname 精确指定逻辑类型（比 typcategory 更准） */
+/** Logical types pinned by typname (more precise than typcategory) */
 const LOGICAL_BY_NAME: Readonly<Record<string, LogicalType>> = {
   bool: 'boolean',
   bytea: 'bytes',
@@ -52,7 +54,7 @@ const LOGICAL_BY_NAME: Readonly<Record<string, LogicalType>> = {
   geography: 'geo',
 }
 
-/** typcategory 兜底映射 */
+/** typcategory fallback mapping */
 function logicalFromCategory(category: string): LogicalType {
   switch (category) {
     case 'A': return 'array'
@@ -71,7 +73,7 @@ function logicalFromCategory(category: string): LogicalType {
   }
 }
 
-/** 这些逻辑类型的值可能很大，前端需要提前准备 valuePeek 入口 */
+/** Values of these logical types can be huge, so the UI needs a valuePeek entry point ready up front */
 const PEEKABLE: ReadonlySet<LogicalType> = new Set<LogicalType>([
   'string', 'json', 'bytes', 'array', 'vector', 'geo', 'unknown',
 ])
@@ -83,7 +85,7 @@ export function isPeekableLogical(logical: LogicalType): boolean {
 export class PgTypeCatalog {
   private readonly byOid = new Map<number, PgTypeInfo>()
 
-  /** 用 pg_type 查询结果填充（可多次调用，做增量补充） */
+  /** Populate from a pg_type query result (safe to call repeatedly for incremental top-ups) */
   load(rows: readonly PgTypeRow[]): void {
     for (const r of rows) {
       this.byOid.set(r.oid, {
@@ -103,7 +105,7 @@ export class PgTypeCatalog {
     return this.byOid.get(oid)
   }
 
-  /** ColumnDef.nativeType；查不到时退化成 'oid:1234'，保证永远有值 */
+  /** ColumnDef.nativeType; an unknown OID degrades to 'oid:1234' so the field is never empty */
   nativeType(oid: number): string {
     return this.byOid.get(oid)?.name ?? `oid:${oid}`
   }
@@ -113,12 +115,12 @@ export class PgTypeCatalog {
     if (!info) return 'unknown'
     const byName = LOGICAL_BY_NAME[info.name]
     if (byName) return byName
-    // 数组：'_int4' 这类，统一归 array（vector 的数组也算 array）
+    // Arrays such as '_int4' all map to array (including arrays of vectors)
     if (info.category === 'A' || (info.elem !== 0 && info.name.startsWith('_'))) return 'array'
     return logicalFromCategory(info.category)
   }
 
-  /** 是否是 bytea（valuePeek 的字节切片要按二进制处理） */
+  /** Whether this is bytea (valuePeek has to slice its bytes as binary) */
   isBinary(oid: number): boolean {
     return this.byOid.get(oid)?.name === 'bytea'
   }
@@ -128,7 +130,7 @@ export class PgTypeCatalog {
   }
 }
 
-/** 拉取 pg_type 的 SQL。missingOids 非空时只拉这些，用于增量补齐。 */
+/** SQL that reads pg_type. The by-OID variant fetches only the missing types, for incremental top-ups. */
 export const PG_TYPE_QUERY =
   `SELECT oid::int4 AS oid, typname, typcategory, typelem::int4 AS typelem FROM pg_catalog.pg_type`
 

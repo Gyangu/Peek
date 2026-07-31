@@ -13,19 +13,21 @@ import {
 import type { WorkspaceStore } from './workspace-store'
 
 /**
- * driver host 事件 → 真源的回填口。
+ * The one place driver host events write back into the source of truth.
  *
- * driver host 的 HostEvent（result.schema / progress / done / error / status）
- * 由 Connection Manager 收下后调这些方法，状态机迁移全部复用 mutations.ts，
- * 不需要也不允许绕过 Command Bus 之外再写一套改状态的逻辑。
+ * The Connection Manager receives the host's HostEvents (result.schema /
+ * progress / done / error / status) and calls these methods. Every state machine
+ * transition reuses mutations.ts — there is no second implementation of "change
+ * the state" outside the Command Bus, and there must never be one.
  *
- * 注意：这里只走**控制面**。结果数据本体永远不经过 main。
+ * Note: this is the **control plane** only. Result data itself never passes
+ * through main.
  */
 export interface ResultEventSink {
   onSchema(resultId: ResultId, schema: ColumnDef[]): void
   onProgress(resultId: ResultId, rows: number): void
   onDone(resultId: ResultId, done: ResultDonePatch): void
-  /** 背压暂停（不是错误，见 mutations.pauseResult） */
+  /** Backpressure pause — not an error, see mutations.pauseResult */
   onPaused(resultId: ResultId, pause: ResultPausePatch): void
   onError(resultId: ResultId, error: PeekError): void
   onConnectionStatus(connId: ConnId, status: ConnStatus, patch?: ConnectionReadyPatch): void

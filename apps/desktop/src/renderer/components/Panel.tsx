@@ -1,12 +1,14 @@
 import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
-import type { PanelNode } from '@peek/core'
-import { viewTitle } from '@peek/core'
+import type { PanelNode, ViewState } from '@peek/core'
+import { collectionRefLabel } from '@peek/core'
+import { useT, type TFunction } from '../i18n'
 import { dispatch } from '../state/dispatch'
 import { useConnections, useFocusedPanel, useView } from '../state/workspaceStore'
 import { ViewHost } from './ViewHost'
 
-/** 平铺树的叶子：一个面板，最多挂一个视图 */
+/** A leaf of the tiled layout: one panel, holding at most one view. */
 export function PanelView({ panel }: { panel: PanelNode }): ReactElement {
+  const t = useT()
   const focusedPanel = useFocusedPanel()
   const view = useView(panel.viewId)
   const focused = focusedPanel === panel.id
@@ -29,16 +31,22 @@ export function PanelView({ panel }: { panel: PanelNode }): ReactElement {
   return (
     <div className={focused ? 'panel focused' : 'panel'} onMouseDown={onMouseDown}>
       <div className="panel-head">
+        {/* The kind badge shows the raw `ViewState.kind`, which is the same token
+            MCP addresses views by — an identifier, not a label. */}
         {view ? <span className="panel-kind">{view.kind}</span> : null}
-        <span className="panel-title">{view ? viewTitle(view) : '空面板'}</span>
+        <span className="panel-title">{view ? panelTitle(t, view) : t('panel.empty')}</span>
         {view?.status === 'loading' ? <span style={{ color: 'var(--warn)' }}>●</span> : null}
-        <button className="ghost" title="左右分屏" onClick={split('row')}>
+        <button className="ghost" title={t('panel.splitRow')} onClick={split('row')}>
           ⊞
         </button>
-        <button className="ghost" title="上下分屏" onClick={split('col')}>
+        <button className="ghost" title={t('panel.splitCol')} onClick={split('col')}>
           ⊟
         </button>
-        <button className="ghost" title={view ? '关闭视图' : '关闭面板'} onClick={closeView}>
+        <button
+          className="ghost"
+          title={view ? t('panel.closeView') : t('panel.closePanel')}
+          onClick={closeView}
+        >
           ✕
         </button>
       </div>
@@ -49,17 +57,38 @@ export function PanelView({ panel }: { panel: PanelNode }): ReactElement {
   )
 }
 
+/**
+ * Title of a view, for the window only.
+ *
+ * Deliberately not `viewTitle()` from core: that one feeds MCP and the workspace
+ * snapshot and is therefore fixed to English, whereas this line is read by a
+ * human. An explicit `title` (set by whoever opened the view) always wins, and a
+ * collection label such as `public.orders` is an identifier that stays as it is.
+ */
+function panelTitle(t: TFunction, view: ViewState): string {
+  if (view.title) return view.title
+  switch (view.kind) {
+    case 'table':
+      return collectionRefLabel(view.ref)
+    case 'vector':
+      return `${t('view.kind.vector')} · ${view.collection}`
+    default:
+      return t(`view.kind.${view.kind}`)
+  }
+}
+
 /* ------------------------------------------------------------------ */
 
 function EmptyPanel({ panelId }: { panelId: PanelNode['id'] }): ReactElement {
+  const t = useT()
   const conns = useConnections()
   const ready = conns.filter((c) => c.status === 'ready')
 
   if (ready.length === 0) {
     return (
       <div className="panel-empty">
-        <div>空面板</div>
-        <div style={{ color: 'var(--fg-faint)' }}>先在左侧连接一个数据库</div>
+        <div>{t('panel.empty')}</div>
+        <div style={{ color: 'var(--fg-faint)' }}>{t('panel.emptyHint')}</div>
       </div>
     )
   }
@@ -67,7 +96,9 @@ function EmptyPanel({ panelId }: { panelId: PanelNode['id'] }): ReactElement {
   const first = ready[0]
   return (
     <div className="panel-empty">
-      <div style={{ color: 'var(--fg-faint)' }}>空面板 · {first.label}</div>
+      <div style={{ color: 'var(--fg-faint)' }}>
+        {t('panel.emptyWithConn', { label: first.label })}
+      </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
         <button
           onClick={() => {
@@ -77,7 +108,7 @@ function EmptyPanel({ panelId }: { panelId: PanelNode['id'] }): ReactElement {
             })
           }}
         >
-          新建查询
+          {t('panel.newQuery')}
         </button>
         <button
           onClick={() => {
@@ -87,7 +118,7 @@ function EmptyPanel({ panelId }: { panelId: PanelNode['id'] }): ReactElement {
             })
           }}
         >
-          对象树
+          {t('panel.objectTree')}
         </button>
       </div>
     </div>

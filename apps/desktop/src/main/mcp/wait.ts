@@ -1,25 +1,26 @@
 /**
- * 结果集等待与行渲染。
+ * Waiting on a result set, and rendering its rows.
  *
- * query.run / view.open 只返回 resultId 就立刻回来（chunk 走 MessagePort 直达 renderer），
- * 但 AI 需要"跑完了没、多少行"。main 手里有 ResultMeta（控制面），轮询它即可，
- * 不需要额外的进程间协议。
+ * query.run / view.open return a resultId and come back immediately (chunks go over a
+ * MessagePort straight to the renderer), but the AI needs to know "did it finish, how many
+ * rows". main already holds ResultMeta on the control plane, so polling that is enough —
+ * no extra cross-process protocol is required.
  */
 
 import { isTruncatedValue, type ResultId, type ResultMeta } from '@peek/core'
 import type { ResultRowsSlice, ToolContext } from './types'
 
-/** 轮询间隔：50ms，够跟手又不至于空转 */
+/** Poll interval: 50ms — responsive enough without spinning. */
 const POLL_INTERVAL_MS = 50
 
 export interface ResultWaitOutcome {
   meta: ResultMeta | null
-  /** 等到了终态（done / error / cancelled） */
+  /** A settled status was reached (done / error / cancelled). */
   settled: boolean
   waitedMs: number
 }
 
-/** 轮询 Workspace 里的 ResultMeta，直到进入终态或超时 */
+/** Poll the ResultMeta in the Workspace until it settles or the timeout elapses. */
 export async function waitForResult(
   ctx: ToolContext,
   resultId: ResultId,
@@ -39,10 +40,13 @@ export async function waitForResult(
 }
 
 /* ================================================================== */
-/* 行渲染                                                              */
+/* Row rendering                                                        */
 /* ================================================================== */
 
-/** 单元格文本上限，防止一个大 value 撑爆上下文（全量看界面 / 走 valuePeek） */
+/**
+ * Per-cell character cap, so one huge value cannot blow up the context window
+ * (the full value is available in the UI, or through valuePeek).
+ */
 const CELL_MAX_CHARS = 160
 
 export function renderCell(value: unknown): string {
@@ -50,7 +54,7 @@ export function renderCell(value: unknown): string {
   if (value === undefined) return ''
   if (isTruncatedValue(value)) {
     const size = value.byteLength === undefined ? '' : ` /${value.byteLength}B`
-    return `${clip(value.preview)}…(截断${size})`
+    return `${clip(value.preview)}…(truncated${size})`
   }
   if (typeof value === 'string') return clip(value)
   if (typeof value === 'bigint') return value.toString()
@@ -73,10 +77,10 @@ function safeJson(value: unknown): string {
   }
 }
 
-/** 把行切片渲染成对齐的文本表格 */
+/** Render a row slice as an aligned text table. */
 export function renderRowsTable(slice: ResultRowsSlice): string {
   const header = slice.columns.map((c) => `${c.name}:${c.logical}`)
-  if (slice.rows.length === 0) return `${header.join(' | ')}\n(0 行)`
+  if (slice.rows.length === 0) return `${header.join(' | ')}\n(0 rows)`
 
   const body = slice.rows.map((row) => row.map(renderCell))
   const widths = header.map((h, i) =>

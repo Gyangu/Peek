@@ -14,15 +14,18 @@ import type {
 import { CommandFailure } from './failure'
 
 /**
- * Command Bus 的副作用依赖接口。
+ * The Command Bus's side-effect dependency interface.
  *
- * **bus 只认这个接口，绝不 import Connection Manager 的实现**——
- * 这样中枢可以脱离 Electron / 数据库单测，也不会和驱动侧的实现互相纠缠。
- * 由 main/index.ts 在装配时注入真实实现。
+ * **The bus knows only this interface and never imports the Connection Manager
+ * implementation** — that is what lets the hub be unit-tested without Electron
+ * or a database, and keeps it from getting tangled up with the driver side.
+ * main/index.ts injects the real implementation during assembly.
  *
- * 注意：这些方法**只负责把请求送到 driver host 并在被受理时 resolve**。
- * 结果数据不经过这里（chunk 由 driver host 通过 MessagePort 直发 renderer，
- * 见 PLAN 第 3 节），执行过程中的行数/收尾/报错通过 ResultEventSink 回填真源。
+ * Note: these methods **only deliver the request to the driver host and resolve
+ * once it has been accepted**. Result data does not pass through here (the
+ * driver host sends chunks straight to the renderer over a MessagePort — PLAN
+ * section 3); row counts, completion and errors flow back into the source of
+ * truth through the ResultEventSink.
  */
 
 export interface OpenConnectionRequest {
@@ -32,17 +35,17 @@ export interface OpenConnectionRequest {
 }
 
 export interface OpenConnectionOutcome {
-  /** 连上之后驱动实际声明的能力集（可能比 DRIVER_CAPABILITIES 更窄） */
+  /** The capability set the driver actually reports once connected (may be narrower than DRIVER_CAPABILITIES) */
   capabilities: Capability[]
   serverInfo?: ServerInfo
-  /** driver host 的 utilityProcess pid，便于排查 */
+  /** The driver host's utilityProcess pid, for troubleshooting */
   pid?: number
 }
 
 export interface ConnectionService {
-  /** 建连；失败必须 reject（抛 PeekError 形状最好，否则由 bus 兜底收敛） */
+  /** Open a connection. Failures must reject — ideally with a PeekError shape, otherwise the bus collapses it. */
   open(req: OpenConnectionRequest): Promise<OpenConnectionOutcome>
-  /** 关连接并回收 driver host 进程；幂等 */
+  /** Close the connection and reclaim the driver host process. Idempotent. */
   close(connId: ConnId): Promise<void>
 }
 
@@ -82,22 +85,23 @@ export interface ResultService {
   runQuery(req: RunQueryRequest): Promise<void>
   scanCollection(req: ScanCollectionRequest): Promise<void>
   vectorSearch(req: VectorSearchRequest): Promise<void>
-  /** 取消；目标本来就已结束时返回 false，不要抛错 */
+  /** Cancel. Returns false when the target had already finished — do not throw. */
   cancel(req: { connId: ConnId; resultId: ResultId }): Promise<boolean>
 }
 
 export interface CommandDeps {
   connections: ConnectionService
   results: ResultService
-  /** 非状态类通知（toast、best-effort 副作用失败提示） */
+  /** Non-state notifications (toasts, warnings about best-effort side effects that failed) */
   notify?(msg: NotifyMessage): void
 }
 
 /**
- * 占位实现：Connection Manager 还没接上时用。
- * 所有副作用一律回 INTERNAL，纯状态部分照常可跑（布局/视图命令完全可用）。
+ * Placeholder implementation, used before the Connection Manager is wired up.
+ * Every side effect fails with INTERNAL while the pure state phase keeps working,
+ * so layout and view commands remain fully usable.
  */
-export function createUnavailableDeps(reason = '连接管理器尚未接入'): CommandDeps {
+export function createUnavailableDeps(reason = 'The connection manager is not wired up yet'): CommandDeps {
   const boom = (): never => {
     throw new CommandFailure(peekError('INTERNAL', reason))
   }
@@ -105,7 +109,7 @@ export function createUnavailableDeps(reason = '连接管理器尚未接入'): C
     connections: {
       open: async () => boom(),
       close: async () => {
-        // 没接入时关连接视为无事发生
+        // Nothing is wired up, so closing a connection is a no-op
       },
     },
     results: {

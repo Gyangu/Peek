@@ -19,88 +19,94 @@ import type { ConnId, ResultId, ViewId } from './ids'
 import type { ConnStatus, Workspace, WorkspaceSnapshot } from './workspace'
 
 /* ================================================================== */
-/* 0. 常量                                                             */
+/* 0. Constants                                                        */
 /* ================================================================== */
 
-/** MCP Streamable HTTP 默认端口（PLAN 第 7 节） */
+/** Default MCP Streamable HTTP endpoint (PLAN §7) */
 export const MCP_DEFAULT_HOST = '127.0.0.1'
 export const MCP_DEFAULT_PORT = 7332
 export const MCP_HTTP_PATH = '/mcp'
-/** token 与端口写在 ~/.peek/mcp.json */
+/** Token and port are written to ~/.peek/mcp.json */
 export const PEEK_CONFIG_DIR_NAME = '.peek'
 export const MCP_CONFIG_FILE_NAME = 'mcp.json'
 
-/** preload 挂到 window 上的键名 */
+/** Key under which preload exposes the bridge on `window` */
 export const PEEK_BRIDGE_KEY = 'peek' as const
 
 /* ================================================================== */
-/* 1. IPC channel 名                                                   */
+/* 1. IPC channel names                                                */
 /* ================================================================== */
 
 /**
- * 所有 channel 名集中在此，禁止在任何地方硬编码字符串。
- * 方向标注：
- *   R→M  renderer → main（ipcRenderer.invoke）
- *   M→R  main → renderer（webContents.send）
+ * Every channel name lives here; hard-coding one anywhere else is forbidden.
+ * Direction markers:
+ *   R→M  renderer → main (ipcRenderer.invoke)
+ *   M→R  main → renderer (webContents.send)
  */
 export const IPC = {
-  /** R→M：执行一条 Command，返回 CommandResult */
+  /** R→M: execute one Command, returns a CommandResult */
   COMMAND_INVOKE: 'peek:command:invoke',
-  /** R→M：拉取 Workspace 全量快照（renderer 启动或检测到 rev 断层时） */
+  /** R→M: fetch a full Workspace snapshot (on renderer startup, or after spotting a gap in `rev`) */
   STATE_SNAPSHOT: 'peek:state:snapshot',
 
-  /** M→R：immer patch 广播 */
+  /** M→R: immer patch broadcast */
   STATE_PATCH: 'peek:state:patch',
-  /** M→R：移交某连接的 MessagePort（event.ports[0] 拿端口） */
+  /** M→R: hand over a connection's MessagePort (the port arrives as event.ports[0]) */
   RESULT_PORT: 'peek:result:port',
-  /** M→R：非状态类通知（toast、driver 崩溃提示等） */
+  /** M→R: non-state notifications (toasts, driver-crash notices, …) */
   NOTIFY: 'peek:notify',
 
   /**
-   * R→M：非命令类只读 RPC（命名空间树懒加载 / 大 value 取全量 / keyValue 取值）。
+   * R→M: read-only RPC that is not a command (lazy-loading the namespace tree /
+   * fetching a large value in full / reading a keyValue).
    *
-   * 这三件事在 PLAN 第 6 节的命令表里没有对应项，但 driver host 的 HostRpcMap 里有；
-   * 它们**不改 Workspace 状态**（树节点、单值本体都不进真源），因此不适合做成 Command，
-   * 走这条独立的只读通道，由 main 转发到对应连接的 driver host。
+   * None of these three appear in the command table of PLAN §6, though the driver
+   * host's HostRpcMap has them. They **do not change Workspace state** — neither a
+   * tree node nor a single value ever enters the source of truth — so modelling
+   * them as commands would be wrong. They take this separate read-only channel,
+   * which main forwards to the connection's driver host.
    */
   DRIVER_RPC: 'peek:driver:rpc',
 
   /**
-   * M→R：向 renderer 索取某结果集缓存里的前 N 行。
+   * M→R: ask the renderer for the first N rows cached for a result set.
    *
-   * 数据面 chunk 由 driver host 经 MessagePort 直发 renderer，**main 手里没有行数据**，
-   * 而 MCP 的 run_query 要给 AI 回几行样本，只能反过来向 renderer 取样。
+   * Chunks travel the data plane straight from the driver host to the renderer over
+   * a MessagePort, so **main holds no row data at all** — yet MCP's run_query owes
+   * the AI a few sample rows. The only way to get them is to sample the renderer in
+   * the opposite direction.
    */
   RESULT_ROWS_REQUEST: 'peek:result:rows:request',
-  /** R→M：RESULT_ROWS_REQUEST 的应答（按 requestId 配对） */
+  /** R→M: the reply to RESULT_ROWS_REQUEST, paired by requestId */
   RESULT_ROWS_REPLY: 'peek:result:rows:reply',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
 
 /* ================================================================== */
-/* 2. main ↔ renderer 消息体                                            */
+/* 2. main ↔ renderer message bodies                                   */
 /* ================================================================== */
 
 export interface CommandInvokeMessage<K extends CommandName = CommandName> {
   name: K
   input: CommandInput<K>
   source: CommandSource
-  /** renderer 侧生成的关联 id，可用于本地去重；不给由 main 生成 */
+  /** Correlation id minted by the renderer, useful for local de-duplication; main mints one when absent */
   commandId?: string
 }
 
 /**
- * 状态 patch 广播。renderer 镜像 store 严格按 rev 递增应用；
- * 若收到的 fromRev 与本地 rev 不连续，必须走 STATE_SNAPSHOT 重新对齐。
+ * State-patch broadcast. The renderer's mirror store applies these in strict `rev`
+ * order; if an incoming `fromRev` does not follow the local `rev`, it must
+ * re-align through STATE_SNAPSHOT.
  */
 export interface StatePatchMessage {
-  /** 应用前的 rev */
+  /** `rev` before applying */
   fromRev: number
-  /** 应用后的 rev */
+  /** `rev` after applying */
   rev: number
   patches: Patch[]
-  /** 触发这批 patch 的命令 */
+  /** The command that produced this batch of patches */
   commandId?: string
   commandName?: CommandName
 }
@@ -110,10 +116,10 @@ export interface StateSnapshotMessage {
   workspace: Workspace
 }
 
-/** MessagePort 移交：port 走 Electron 的 event.ports，不在消息体里 */
+/** MessagePort handover: the port itself rides on Electron's event.ports, not in this body */
 export interface ResultPortMessage {
   connId: ConnId
-  /** driver host 的 pid，便于排查 */
+  /** Pid of the driver host, handy when debugging */
   pid?: number
 }
 
@@ -128,13 +134,15 @@ export interface NotifyMessage {
 }
 
 /* ================================================================== */
-/* 2b. 非命令类只读 RPC（renderer ↔ main ↔ driver host）                 */
+/* 2b. Read-only RPC that is not a command                             */
+/*     (renderer ↔ main ↔ driver host)                                 */
 /* ================================================================== */
 
 /**
- * renderer 发起的只读 RPC。与 Command 的区别：
- * **不改状态、不进 Command 日志、不广播 patch**，只是把 driver host 的一次查询
- * 结果原样带回来（树的子节点 / 大 value 全量 / redis 类型化取值）。
+ * A read-only RPC issued by the renderer. How it differs from a Command:
+ * it **changes no state, is not written to the command log, and broadcasts no
+ * patch** — it just carries one driver-host answer back verbatim (a tree's
+ * children / a large value in full / a typed redis read).
  */
 export type DriverRpcRequest =
   | { kind: 'introspect'; connId: ConnId; parentId: string | null; refresh?: boolean }
@@ -149,20 +157,20 @@ export interface DriverRpcResultMap {
   keyValue: KeyValueResult
 }
 
-/** 只读 RPC 的应答信封：错误一律收敛成 PeekError，绝不把原始 Error 扔过 IPC */
+/** Response envelope for a read-only RPC: errors always collapse to a PeekError — a raw Error is never thrown across IPC */
 export type DriverRpcResponse<K extends DriverRpcKind = DriverRpcKind> =
   | { ok: true; data: DriverRpcResultMap[K] }
   | { ok: false; error: PeekError }
 
 /* ------------------------------------------------------------------ */
-/* 结果集取样（main → renderer）                                        */
+/* Result-set sampling (main → renderer)                               */
 /* ------------------------------------------------------------------ */
 
 export interface ResultRowsRequestMessage {
-  /** 配对应答用，由 main 生成 */
+  /** Pairs the reply to this request; minted by main */
   requestId: string
   resultId: ResultId
-  /** 最多要几行 */
+  /** How many rows at most */
   limit: number
 }
 
@@ -171,22 +179,22 @@ export type ResultRowsReplyMessage =
       requestId: string
       ok: true
       columns: ColumnDef[]
-      /** 行式（每行按 columns 顺序），已按 limit 截断 */
+      /** Row-major (each row ordered like `columns`), already cut to `limit` */
       rows: unknown[][]
-      /** 结果集已知的总行数（还在跑时为当前已收到的行数） */
+      /** Total rows known for this result set (while still running, the count received so far) */
       totalRows: number
-      /** 因 limit 截断（还有更多行没给出） */
+      /** Cut short by `limit` (more rows exist than were returned) */
       truncated: boolean
     }
   | { requestId: string; ok: false; error: PeekError }
 
 /* ================================================================== */
-/* 3. preload 暴露给 renderer 的窄桥                                     */
+/* 3. The narrow bridge preload exposes to the renderer                */
 /* ================================================================== */
 
 /**
- * preload 只暴露这一个对象，renderer 不允许拿到 ipcRenderer 本体。
- * 所有 on* 返回取消订阅函数。
+ * Preload exposes this object and nothing else; the renderer never gets hold of
+ * `ipcRenderer` itself. Every `on*` returns an unsubscribe function.
  */
 export interface PeekBridge {
   invoke<K extends CommandName>(
@@ -199,56 +207,60 @@ export interface PeekBridge {
 
   onPatch(handler: (msg: StatePatchMessage) => void): () => void
 
-  /** 收到某连接的数据面端口；renderer 用它接 ResultStreamMessage、回 ResultStreamAck */
+  /** A connection's data-plane port arrived; the renderer receives ResultStreamMessage on it and replies with ResultStreamAck */
   onResultPort(handler: (msg: ResultPortMessage, port: MessagePort) => void): () => void
 
   onNotify(handler: (msg: NotifyMessage) => void): () => void
 
-  /* ---------------- 非命令类只读通道 ---------------- */
+  /* ---------------- Read-only, non-command channel ---------------- */
   /*
-   * 下面这几个是**可选**的：preload 的主世界引导若降级（executeInMainWorld 不可用），
-   * 只有控制面能用。renderer 必须运行时探测，缺失时降级展示，不允许直接解引用。
+   * The members below are **optional**: if preload's main-world bootstrap has to
+   * degrade (executeInMainWorld unavailable), only the control plane works. The
+   * renderer must feature-detect at runtime and degrade its UI when they are
+   * missing — never dereference them blindly.
    */
 
-  /** 命名空间树懒加载，对应 HostRpcMap['introspect.children'] */
+  /** Lazy-load the namespace tree; maps to HostRpcMap['introspect.children'] */
   introspect?(connId: ConnId, parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]>
 
-  /** 大 value 取全量/按段取，对应 HostRpcMap['value.peek'] */
+  /** Fetch a large value in full or by range; maps to HostRpcMap['value.peek'] */
   peekValue?(
     connId: ConnId,
     ref: ValueRef,
     range?: { offset: number; length: number },
   ): Promise<PeekedValue>
 
-  /** 按 key 取类型化的值，对应 HostRpcMap['keyvalue.get'] */
+  /** Read a typed value by key; maps to HostRpcMap['keyvalue.get'] */
   getKeyValue?(connId: ConnId, ref: ValueRef): Promise<KeyValueResult>
 
-  /** main 向本 renderer 索取结果集样本行；handler 负责回 reply */
+  /** Main asks this renderer for sample rows of a result set; the handler is responsible for replying */
   onResultRowsRequest?(
     handler: (msg: ResultRowsRequestMessage) => void,
   ): () => void
 
-  /** 应答 onResultRowsRequest */
+  /** Reply to onResultRowsRequest */
   replyResultRows?(msg: ResultRowsReplyMessage): void
 }
 
 declare global {
   interface Window {
-    /** 由 preload 注入；键名见 PEEK_BRIDGE_KEY。renderer 侧请勿重复声明。 */
+    /** Injected by preload under the key in PEEK_BRIDGE_KEY. Do not re-declare this in the renderer. */
     readonly peek: PeekBridge
   }
 }
 
 /* ================================================================== */
-/* 4. driver host 协议（main ↔ utilityProcess）                          */
+/* 4. Driver-host protocol (main ↔ utilityProcess)                     */
 /* ================================================================== */
 
 /**
- * driver host 的 RPC 方法表。每个方法的 params / result 在这里一次性定死，
- * 请求与响应类型都从它派生，不存在两边对不上的可能。
+ * RPC method table of the driver host. Each method's params and result are pinned
+ * down here once, and both the request and response types derive from it, so the
+ * two ends cannot disagree.
  *
- * 注意：**结果数据不走这条通道**。query.run / collection.scan / vector.search
- * 只返回 resultId，真正的 chunk 由 host 通过 MessagePort 直发 renderer。
+ * Note: **result data does not travel this channel**. query.run / collection.scan /
+ * vector.search return only a resultId; the chunks themselves go straight from the
+ * host to the renderer over a MessagePort.
  */
 export interface HostRpcMap {
   connect: {
@@ -332,54 +344,56 @@ export type HostMethod = keyof HostRpcMap
 export type HostParams<M extends HostMethod> = HostRpcMap[M]['params']
 export type HostResult<M extends HostMethod> = HostRpcMap[M]['result']
 
-/** main → host 请求 */
+/** main → host request */
 export interface HostRequestOf<M extends HostMethod> {
   kind: 'req'
-  /** 单进程内自增，用来配对响应 */
+  /** Incremented within one process; pairs a response to its request */
   rid: number
   method: M
   params: HostParams<M>
 }
 export type HostRequest = { [M in HostMethod]: HostRequestOf<M> }[HostMethod]
 
-/** host → main 响应 */
+/** host → main response */
 export type HostResponseOf<M extends HostMethod> =
   | { kind: 'res'; rid: number; method: M; ok: true; result: HostResult<M> }
   | { kind: 'res'; rid: number; method: M; ok: false; error: PeekError }
 export type HostResponse = { [M in HostMethod]: HostResponseOf<M> }[HostMethod]
 
 /**
- * host → main 单向事件（不配对 rid）。
- * 结果集的控制面变化走这里，数据面走 MessagePort。
+ * One-way host → main events (no `rid` to pair with).
+ * A result set's control-plane changes travel here; its data plane goes over the
+ * MessagePort.
  */
 export type HostEvent =
-  /** host 起来了，可以收请求 */
+  /** The host is up and accepting requests */
   | { kind: 'evt'; type: 'ready'; pid: number }
-  /** 连接状态机变化 */
+  /** Connection state machine changed */
   | { kind: 'evt'; type: 'status'; status: ConnStatus; error?: PeekError }
-  /** 首帧 schema 到手（main 用来填 ResultMeta.schema） */
+  /** The first frame's schema arrived (main uses it to fill ResultMeta.schema) */
   | { kind: 'evt'; type: 'result.schema'; resultId: ResultId; schema: ColumnDef[] }
-  /** 结果集正常收尾 */
+  /** The result set finished normally */
   | { kind: 'evt'; type: 'result.done'; resultId: ResultId; rows: number; elapsedMs: number; truncated?: boolean; nextCursor?: string }
   /**
-   * 结果集**按设计暂停**（背压空闲超时）。不是错误：游标已释放，已发出的行全部有效。
-   * main 据此把 ResultMeta 打成 status='paused' + truncated + resumable，
-   * 绝不能和 result.error 合流（详见 core/chunk.ts 的 ResultPause）。
+   * The result set **paused by design** (backpressure idle timeout). Not an error:
+   * the cursor has been released and every row already emitted is valid. Main turns
+   * this into ResultMeta with status='paused' + truncated + resumable, and it must
+   * never be merged into result.error — see ResultPause in core/chunk.ts.
    */
   | { kind: 'evt'; type: 'result.paused'; resultId: ResultId; paused: ResultPause }
-  /** 结果集出错终止 */
+  /** The result set terminated with an error */
   | { kind: 'evt'; type: 'result.error'; resultId: ResultId; error: PeekError }
-  /** 进度心跳，用于长查询的行数反馈 */
+  /** Progress heartbeat, so a long query can report its row count */
   | { kind: 'evt'; type: 'result.progress'; resultId: ResultId; rows: number }
   | { kind: 'evt'; type: 'log'; level: NotifyLevel; message: string; detail?: string }
 
-/** host 发出的所有消息 */
+/** Everything a host can send */
 export type HostOutbound = HostResponse | HostEvent
 
 /**
- * main 发给 host 的所有消息。
- * `attachPort` 不是 RPC：它随 MessagePort 一起 postMessage 过去，
- * host 收到后把该端口作为数据面出口。
+ * Everything main can send to a host.
+ * `attachPort` is not an RPC: it is postMessage'd together with the MessagePort,
+ * and the host adopts that port as its data-plane outlet.
  */
 export type HostInbound =
   | HostRequest
@@ -394,10 +408,10 @@ export function isHostEvent(msg: HostOutbound): msg is HostEvent {
 }
 
 /* ================================================================== */
-/* 5. MCP 侧读状态                                                      */
+/* 5. State reads on the MCP side                                      */
 /* ================================================================== */
 
-/** MCP 工具直接读 main 的 Workspace Store，零 renderer 往返（PLAN 第 3 节） */
+/** MCP tools read main's Workspace store directly, with no renderer round-trip (PLAN §3) */
 export interface WorkspaceReader {
   getSnapshot(): WorkspaceSnapshot
 }

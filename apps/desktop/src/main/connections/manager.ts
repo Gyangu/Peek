@@ -4,7 +4,7 @@ import type { WebContents } from 'electron'
 import {
   defaultConnectionLabel,
   newConnId,
-  peekError,
+  peekErrorMsg,
   type Capability,
   type CollectionRef,
   type CollectionSchemaInfo,
@@ -50,7 +50,7 @@ import type {
 } from './types'
 
 /* ================================================================== */
-/* 内部记录                                                            */
+/* Internal bookkeeping                                                */
 /* ================================================================== */
 
 interface ConnEntry {
@@ -65,11 +65,11 @@ interface ConnEntry {
   readyAt?: number
   host: DriverHostProcess
   link: DataPlaneLink
-  /** 正在流的结果集；进程死掉时要逐个报错，避免 UI 上永远转圈 */
+  /** Result sets currently streaming; each has to be failed when the process dies, or the UI spins forever */
   activeResults: Set<ResultId>
   /**
-   * 已经在别处把 status 置成终态（强制取消 / 建连失败），
-   * exit 回调不要再覆盖一次。
+   * Something elsewhere already moved status to a terminal value (a forced
+   * cancel, a failed connect); the exit callback must not overwrite it.
    */
   statusSettled: boolean
 }
@@ -79,19 +79,25 @@ interface ConnEntry {
 /* ================================================================== */
 
 /**
- * 连接管理器：driver 的宿主进程管理（PLAN 第 3 节进程模型）。
+ * The Connection Manager: host-process management for drivers (PLAN section 3,
+ * the process model).
  *
- * 一个连接 = 一个 electron utilityProcess = 一条数据面 MessagePort。
+ * One connection = one Electron utilityProcess = one data-plane MessagePort.
  *
- * - **崩溃隔离**：进程挂了只影响这一条连接，主窗口毫发无伤；
- *   在飞 RPC 收敛成 DRIVER_CRASHED，在飞结果集逐个发 result.error，端口关闭，entry 移除。
- * - **强制取消 = 杀进程**：协作式 cancel 超时或驱动没有 cancel 能力时直接强杀。
- * - **数据面不经过 main**：只在建连时移交一次端口，之后 chunk 由 host 直发 renderer。
+ * - **Crash isolation**: a dead process affects only its own connection and
+ *   leaves the main window untouched. In-flight RPCs collapse into
+ *   DRIVER_CRASHED, in-flight result sets each get a result.error, the port
+ *   closes and the entry is removed.
+ * - **Forced cancel = kill the process**: when cooperative cancel times out, or
+ *   the driver has no cancel capability, the process is killed outright.
+ * - **The data plane bypasses main**: the port is handed over once at connect
+ *   time, and from then on chunks go from the host straight to the renderer.
  *
- * 对上以 `ConnectionEffects` 注入给 Command Bus；状态变化通过 `events` 推给 Bus。
+ * Upward it is injected into the Command Bus as `ConnectionEffects`; state
+ * changes reach the bus through `events`.
  */
 export class ConnectionManager implements ConnectionEffects {
-  /** 事件出口：Command Bus 订阅 status / result.*，通知层订阅 log / crashed */
+  /** Event outlet: the Command Bus subscribes to status / result.*, the notification layer to log / crashed */
   readonly events = new TypedEmitter<ConnectionEventMap>()
 
   private readonly conns = new Map<ConnId, ConnEntry>()
@@ -102,18 +108,19 @@ export class ConnectionManager implements ConnectionEffects {
 
   constructor(options: ConnectionManagerOptions = {}) {
     this.timeouts = { ...DEFAULT_TIMEOUTS, ...options.timeouts }
-    // main bundle 与 driver-host bundle 同在 out/main（见 electron.vite.config.ts）
+    // The main bundle and the driver-host bundle both live in out/main (see electron.vite.config.ts)
     this.hostDir = options.hostDir ?? process.env['PEEK_DRIVER_HOST_DIR'] ?? import.meta.dirname
     this.forwardStdio = options.forwardStdio ?? true
   }
 
   /* ---------------------------------------------------------------- */
-  /* renderer 绑定（数据面移交的另一端）                                 */
+  /* Renderer binding (the far end of the data-plane handover)         */
   /* ---------------------------------------------------------------- */
 
   /**
-   * 绑定 renderer。窗口创建后调用一次；renderer 每次重载（did-finish-load）也要再调，
-   * 旧端口随旧文档销毁，这里会自动换新通道重新移交。
+   * Bind the renderer. Call once after the window is created, and again on every
+   * renderer reload (did-finish-load): the old port dies with the old document,
+   * so a fresh channel is opened and handed over automatically.
    */
   attachRenderer(wc: WebContents): void {
     this.webContents = wc
@@ -122,7 +129,7 @@ export class ConnectionManager implements ConnectionEffects {
     }
   }
 
-  /** renderer 没了（窗口关闭）；连接与进程保持存活，等下次 attach 再移交端口 */
+  /** The renderer is gone (window closed). Connections and processes stay alive; the port is handed over again on the next attach. */
   detachRenderer(): void {
     this.webContents = null
   }
@@ -138,31 +145,36 @@ export class ConnectionManager implements ConnectionEffects {
         })
       }
     } catch (err) {
-      this.emitLog(entry.connId, 'error', '数据面端口移交失败', briefOf(err))
+      this.emitLog(entry.connId, 'error', 'Failed to hand over the data-plane port', briefOf(err))
     }
   }
 
   /* ---------------------------------------------------------------- */
-  /* 建连 / 断连                                                        */
+  /* Connect / disconnect                                              */
   /* ---------------------------------------------------------------- */
 
   async connect(config: ConnectionConfig, options: ConnectOptions = {}): Promise<ConnectOutcome> {
     const registration = lookupDriver(config.driverId)
     if (!registration) {
-      throw peekError('BAD_REQUEST', `尚未注册驱动：${config.driverId}`, {
-        detail: '在 src/main/connections/registry.ts 里注册后即可使用',
-      })
+      throw peekErrorMsg(
+        'BAD_REQUEST',
+        'error.conn.driverNotRegistered',
+        { driverId: config.driverId },
+        { detail: 'Register it in src/main/connections/registry.ts to enable it.' },
+      )
     }
 
     const entryPath = join(this.hostDir, registration.entryFile)
     if (!existsSync(entryPath)) {
-      throw peekError('INTERNAL', 'driver host 构建产物缺失', {
-        detail: `找不到 ${entryPath}；确认 electron-vite 的 main.rollupOptions.input 里有 driver-host 入口`,
+      throw peekErrorMsg('INTERNAL', 'error.driver.hostBuildMissing', undefined, {
+        detail:
+          `${entryPath} not found; check that electron-vite's main.rollupOptions.input `
+          + 'still declares the driver-host entry.',
       })
     }
 
     const connId = options.connId ?? newConnId()
-    // 重连：先把旧进程收干净，绝不允许同一个 connId 挂两个进程
+    // Reconnect: reap the old process first — one connId must never own two processes
     if (this.conns.has(connId)) await this.disconnect(connId)
 
     const host = new DriverHostProcess(connId, {
@@ -194,7 +206,7 @@ export class ConnectionManager implements ConnectionEffects {
         forwardStdio: this.forwardStdio,
       })
 
-      // 数据面先建好：connect 一返回，驱动就能立刻往端口里吐 chunk
+      // Build the data plane first, so the driver can start pushing chunks into the port the moment connect returns
       entry.link.open()
       this.deliverPort(entry)
 
@@ -222,7 +234,7 @@ export class ConnectionManager implements ConnectionEffects {
       entry.error = error
       entry.statusSettled = true
       this.setStatus(entry, 'error', error)
-      // 建连失败不留僵尸进程
+      // A failed connect must not leave a zombie process behind
       entry.link.close()
       host.forceKill()
       this.conns.delete(connId)
@@ -234,8 +246,8 @@ export class ConnectionManager implements ConnectionEffects {
     const entry = this.conns.get(connId)
     if (!entry) return
     entry.statusSettled = true
-    // 在飞结果集先收尾，UI 不会永远转圈
-    this.failActiveResults(entry, peekError('CANCELLED', '连接已关闭'))
+    // Wind up in-flight result sets first so the UI does not spin forever
+    this.failActiveResults(entry, peekErrorMsg('CANCELLED', 'error.conn.closed'))
     entry.link.close()
     await entry.host.shutdown({
       disconnectMs: this.timeouts.disconnectMs,
@@ -246,7 +258,7 @@ export class ConnectionManager implements ConnectionEffects {
     this.setStatus(entry, 'idle')
   }
 
-  /** app 退出前调用：把所有 driver 进程收干净 */
+  /** Called before the app quits: reap every driver process. */
   async disposeAll(): Promise<void> {
     const ids = [...this.conns.keys()]
     await Promise.all(ids.map((id) => this.disconnect(id).catch(() => undefined)))
@@ -285,7 +297,7 @@ export class ConnectionManager implements ConnectionEffects {
   }
 
   /* ---------------------------------------------------------------- */
-  /* 取数：只发起，数据走 MessagePort                                    */
+  /* Fetching: start only; the data travels the MessagePort            */
   /* ---------------------------------------------------------------- */
 
   async runQuery(connId: ConnId, params: HostParams<'query.run'>): Promise<StartResultOutcome> {
@@ -307,8 +319,9 @@ export class ConnectionManager implements ConnectionEffects {
   }
 
   /**
-   * 三个取数方法的共同骨架。
-   * RPC 只负责"发起"：驱动返回 resultId 就算成功，行数据由 host 直发 renderer。
+   * The shared skeleton of the three fetch methods.
+   * The RPC only *starts* the work: it succeeds as soon as the driver returns a
+   * resultId, and row data goes from the host straight to the renderer.
    */
   private async startResult(
     entry: ConnEntry,
@@ -317,11 +330,11 @@ export class ConnectionManager implements ConnectionEffects {
     timeoutMs: number | undefined,
     resultId: ResultId,
   ): Promise<StartResultOutcome> {
-    // 发起阶段的上限：调用方给了执行超时就在它基础上留宽限，否则用默认值
+    // Limit for the start phase: build on the caller's execution timeout plus a grace period, otherwise use the default
     const startTimeout =
       timeoutMs === undefined ? this.timeouts.queryStartMs : timeoutMs + this.timeouts.queryGraceMs
 
-    // 先登记再发请求：驱动可能在 RPC 响应之前就开始吐 chunk / 发 result.done
+    // Register before sending: the driver may start emitting chunks or result.done before the RPC response arrives
     entry.activeResults.add(resultId)
     try {
       let res: HostResult<'query.run' | 'collection.scan' | 'vector.search'>
@@ -340,7 +353,7 @@ export class ConnectionManager implements ConnectionEffects {
     } catch (raw) {
       entry.activeResults.delete(resultId)
       const error = classifyExecError(raw)
-      // 发起阶段超时：尽力让驱动也把这个 resultId 停掉，别留悬空游标
+      // Timed out while starting: make a best effort to stop that resultId driver-side rather than leave a dangling cursor
       if (error.code === 'TIMEOUT' && entry.host.alive) {
         void entry.host
           .call('cancel', { resultId }, this.timeouts.cancelMs)
@@ -351,7 +364,7 @@ export class ConnectionManager implements ConnectionEffects {
   }
 
   /* ---------------------------------------------------------------- */
-  /* 单值                                                              */
+  /* Single values                                                     */
   /* ---------------------------------------------------------------- */
 
   async getValue(connId: ConnId, ref: ValueRef): Promise<KeyValueResult> {
@@ -389,16 +402,19 @@ export class ConnectionManager implements ConnectionEffects {
   }
 
   /* ---------------------------------------------------------------- */
-  /* 取消                                                              */
+  /* Cancellation                                                      */
   /* ---------------------------------------------------------------- */
 
   /**
-   * 取消一个结果集。
+   * Cancel a result set.
    *
-   * 路径一（协作式）：驱动声明了 cancel 能力 → 发 cancel RPC，2s 内返回即完事。
-   * 路径二（强制）：驱动没有 cancel 能力，或协作式取消超时/失败，或调用方要求 force
-   *   → **杀进程**（PLAN 第 3 节明确的语义）。进程死了连接也就没了，
-   *     状态置 error，UI 需要重连。
+   * Path one (cooperative): the driver declares the cancel capability → send a
+   *   cancel RPC, done once it returns within 2s.
+   * Path two (forced): the driver has no cancel capability, or the cooperative
+   *   cancel timed out or failed, or the caller asked for force → **kill the
+   *   process**, which is exactly what PLAN section 3 specifies. Killing the
+   *   process kills the connection too, so status goes to error and the UI has
+   *   to reconnect.
    */
   async cancel(connId: ConnId, resultId: ResultId, options?: { force?: boolean }): Promise<CancelOutcome> {
     const entry = this.conns.get(connId)
@@ -414,20 +430,25 @@ export class ConnectionManager implements ConnectionEffects {
       entry.activeResults.delete(resultId)
       return { cancelled: res.cancelled, killed: false }
     } catch (raw) {
-      this.emitLog(connId, 'warn', '协作式取消失败，升级为强制终止 driver 进程', briefOf(raw))
+      this.emitLog(
+        connId,
+        'warn',
+        'Cooperative cancel failed; escalating to killing the driver process',
+        briefOf(raw),
+      )
       await this.killForCancel(entry, resultId)
       return { cancelled: true, killed: true }
     }
   }
 
   private async killForCancel(entry: ConnEntry, resultId: ResultId): Promise<void> {
-    const cancelled = peekError('CANCELLED', '已取消')
-    // 被取消的那个先报 CANCELLED，其余在飞结果集报连接丢失
+    const cancelled = peekErrorMsg('CANCELLED', 'error.driver.streamCancelled')
+    // The targeted result set reports CANCELLED; every other in-flight one reports a lost connection.
     if (entry.activeResults.has(resultId)) {
       entry.activeResults.delete(resultId)
       this.events.emit('result.error', { connId: entry.connId, resultId, error: cancelled })
     }
-    const lost = peekError('CONNECTION_LOST', '为强制取消已终止 driver 进程，请重新连接', {
+    const lost = peekErrorMsg('CONNECTION_LOST', 'error.conn.killedForCancel', undefined, {
       retryable: true,
     })
     this.failActiveResults(entry, lost)
@@ -442,7 +463,7 @@ export class ConnectionManager implements ConnectionEffects {
   }
 
   /* ---------------------------------------------------------------- */
-  /* 杂项                                                              */
+  /* Miscellaneous                                                     */
   /* ---------------------------------------------------------------- */
 
   async ping(connId: ConnId): Promise<HostResult<'ping'>> {
@@ -469,19 +490,19 @@ export class ConnectionManager implements ConnectionEffects {
   }
 
   /* ---------------------------------------------------------------- */
-  /* 内部                                                              */
+  /* Internals                                                         */
   /* ---------------------------------------------------------------- */
 
   private requireReady(connId: ConnId): ConnEntry {
     const entry = this.conns.get(connId)
     if (!entry) throw notFoundConn(String(connId))
     if (entry.status !== 'ready') throw notReadyConn(String(connId), entry.status)
-    if (!entry.host.alive) throw crashedError('driver 进程已退出')
+    if (!entry.host.alive) throw crashedError('The driver process has exited.')
     return entry
   }
 
   private requireCapability(entry: ConnEntry, capability: Capability): void {
-    if (!entry.capabilities.includes(capability)) throw unsupported(capability)
+    if (!entry.capabilities.includes(capability)) throw unsupported(entry.driverId, capability)
   }
 
   private setStatus(entry: ConnEntry, status: ConnStatus, error?: PeekError): void {
@@ -503,7 +524,7 @@ export class ConnectionManager implements ConnectionEffects {
     })
   }
 
-  /** 把还在飞的结果集统一判死，避免 UI 永远 loading */
+  /** Declare every in-flight result set dead, so the UI never sits at loading forever. */
   private failActiveResults(entry: ConnEntry, error: PeekError): void {
     if (entry.activeResults.size === 0) return
     for (const resultId of [...entry.activeResults]) {
@@ -542,7 +563,8 @@ export class ConnectionManager implements ConnectionEffects {
         return
       }
       case 'result.paused': {
-        // 暂停也是终态：游标已释放，这个结果集不会再有帧，从在飞集合里摘掉。
+        // A pause is terminal too: the cursor is released and no further frames
+        // will arrive, so drop it from the in-flight set.
         entry?.activeResults.delete(event.resultId)
         this.events.emit('result.paused', { connId, resultId: event.resultId, paused: event.paused })
         return
@@ -566,8 +588,9 @@ export class ConnectionManager implements ConnectionEffects {
   }
 
   /**
-   * driver host 退出。**崩溃隔离的收口**：
-   * 无论正常还是崩溃，这里都保证端口关闭、在飞结果集判死、entry 移除。
+   * The driver host exited. **This is where crash isolation is enforced**:
+   * whether the exit was clean or a crash, this guarantees the port is closed,
+   * in-flight result sets are failed, and the entry is removed.
    */
   private handleHostExit(connId: ConnId, code: number, expected: boolean, detail?: string): void {
     const entry = this.conns.get(connId)
@@ -576,8 +599,8 @@ export class ConnectionManager implements ConnectionEffects {
     entry.link.close()
 
     const error = expected
-      ? peekError('CONNECTION_LOST', 'driver 进程已关闭')
-      : crashedError(detail ?? `driver 进程异常退出，退出码 ${code}`)
+      ? peekErrorMsg('CONNECTION_LOST', 'error.driver.hostClosed')
+      : crashedError(detail ?? `The driver process exited unexpectedly with code ${code}.`)
 
     this.failActiveResults(entry, error)
     this.conns.delete(connId)
@@ -596,7 +619,7 @@ export class ConnectionManager implements ConnectionEffects {
 }
 
 /* ================================================================== */
-/* 小工具                                                              */
+/* Small helpers                                                       */
 /* ================================================================== */
 
 function toRuntime(entry: ConnEntry): ConnectionRuntime {
@@ -614,7 +637,7 @@ function toRuntime(entry: ConnEntry): ConnectionRuntime {
   }
 }
 
-/** sqlite 的 config 没有 connectTimeoutMs，用 in 收窄而不是硬取 */
+/** sqlite configs have no connectTimeoutMs, so narrow with `in` rather than reading blindly. */
 function configConnectTimeout(config: ConnectionConfig): number | undefined {
   if ('connectTimeoutMs' in config && typeof config.connectTimeoutMs === 'number') {
     return config.connectTimeoutMs

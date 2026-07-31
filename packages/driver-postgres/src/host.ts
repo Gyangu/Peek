@@ -1,16 +1,18 @@
 /**
- * driver host 进程入口（Electron utilityProcess 的 entry）。
+ * Driver host process entry (the entry point of an Electron utilityProcess).
  *
- * utilityProcess 是纯 node 环境（无 DOM、无 electron 渲染 API），
- * 与 main 的通道是 `process.parentPort`（MessagePortMain）。
- * 这里只做三件事：找到 parentPort、接上 DriverHost、把进程级异常转成 log 事件。
+ * utilityProcess is a plain node environment (no DOM, no electron renderer APIs),
+ * and its channel to main is `process.parentPort` (a MessagePortMain). This file
+ * does exactly three things: find parentPort, wire up a DriverHost, and turn
+ * process-level exceptions into log events.
  *
- * 真正的协议实现全在 host-runtime.ts，那边不碰任何 electron 专有对象，
- * 所以可以在 node:test 里用普通 MessageChannel 完整跑通。
+ * The protocol itself lives entirely in host-runtime.ts, which touches no
+ * electron-specific object and can therefore be exercised end to end in
+ * node:test with an ordinary MessageChannel.
  */
 import { createDriverHost, type HostChannelLike } from './host-runtime'
 
-/** 从 process 上结构化地取出 parentPort，不用 any */
+/** Pull parentPort off `process` structurally, without reaching for `any` */
 function getParentPort(): HostChannelLike | null {
   const candidate = (process as unknown as Record<string, unknown>)['parentPort']
   if (typeof candidate !== 'object' || candidate === null) return null
@@ -22,36 +24,38 @@ function getParentPort(): HostChannelLike | null {
 let started = false
 
 /**
- * 接上 parentPort 开始服务。幂等：
- * 模块被 import 时会自动调一次，entry 再显式调也不会重复注册。
+ * Attach to parentPort and start serving. Idempotent: importing this module
+ * already calls it once, so an entry file calling it explicitly registers nothing
+ * twice.
  */
 export function startDriverHost(): void {
   if (started) return
   started = true
   const parentPort = getParentPort()
   if (!parentPort) {
-    throw new Error('driver host 必须运行在 Electron utilityProcess 里（缺少 process.parentPort）')
+    throw new Error('The driver host must run inside an Electron utilityProcess (process.parentPort is missing)')
   }
 
   const host = createDriverHost(parentPort, {
     onShutdown: () => {
-      // 让事件循环把最后一条响应发出去再退出
+      // Let the event loop flush the final response before exiting
       setTimeout(() => process.exit(0), 0)
     },
   })
 
   process.on('uncaughtException', (err: Error) => {
-    host.log('error', `driver host 未捕获异常: ${err.message}`, err.stack)
+    host.log('error', `Uncaught exception in the driver host: ${err.message}`, err.stack)
   })
   process.on('unhandledRejection', (reason: unknown) => {
     const msg = reason instanceof Error ? reason.message : String(reason)
-    host.log('error', `driver host 未处理的 Promise 拒绝: ${msg}`)
+    host.log('error', `Unhandled promise rejection in the driver host: ${msg}`)
   })
 
   host.announceReady(process.pid)
 }
 
-// 作为 utilityProcess entry 被直接执行时自启动；被当模块 import 时不做任何事。
+// Self-starts when executed directly as a utilityProcess entry; importing it as a
+// module does nothing.
 if (getParentPort() !== null) {
   startDriverHost()
 }

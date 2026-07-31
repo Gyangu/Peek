@@ -12,14 +12,15 @@ import {
 } from '@peek/core'
 
 /* ==================================================================
- * BLOCKER 2 / MAJOR / MINOR 的回归网。
+ * The regression net for BLOCKER 2 / MAJOR / MINOR.
  *
- * resultCache 是纯 TS 模块（不是 React 状态），只依赖 requestAnimationFrame 与
- * MessagePort 两个 DOM 面。这里给它们最小替身，就能在 node:test 里
- * 逐帧驱动整条 ack 背压链路。
+ * resultCache is a plain TS module (not React state) and touches exactly two DOM
+ * surfaces: requestAnimationFrame and MessagePort. Minimal stand-ins for those
+ * two are enough to drive the entire ack backpressure chain frame by frame from
+ * node:test.
  * ================================================================== */
 
-/* ---- DOM 替身：必须在 import resultCache 之前装好 ---- */
+/* ---- DOM stand-ins: must be installed before resultCache is imported ---- */
 const rafQueue: (() => void)[] = []
 ;(globalThis as unknown as { requestAnimationFrame: (cb: () => void) => number })
   .requestAnimationFrame = (cb: () => void): number => {
@@ -37,7 +38,7 @@ interface Posted {
   resultId?: string
 }
 
-/** 假的数据面端口：记录 renderer 回给 host 的 ack / cancel */
+/** Fake data-plane port: records the acks and cancels the renderer sends back. */
 class FakePort {
   readonly posted: Posted[] = []
   onmessage: ((ev: { data: unknown }) => void) | null = null
@@ -53,7 +54,7 @@ class FakePort {
 
   close(): void {}
 
-  /** 模拟 host 发一条数据面消息过来 */
+  /** Simulate the host pushing one data-plane message. */
   deliver(data: unknown): void {
     this.onmessage?.({ data })
   }
@@ -93,7 +94,7 @@ function frame(resultId: ResultId, rows: number, opts: { first?: boolean; done?:
 interface Rig {
   port: FakePort
   id: ResultId
-  /** 推 n 个 1000 行的 chunk 进来 */
+  /** Push n chunks of 1000 rows each. */
   push(n: number): void
 }
 
@@ -119,7 +120,8 @@ beforeEach(() => {
   rafQueue.length = 0
 })
 
-/** 把 Date.now 整体往前拨 ms 跑一段（模拟"视口上报停了这么久"），跑完复位 */
+/** Run `fn` with Date.now shifted forward by `ms` — simulating "viewport reports
+ *  stopped this long ago" — then put the clock back. */
 function withClockSkew<T>(ms: number, fn: () => T): T {
   const real = Date.now
   Date.now = (): number => real.call(Date) + ms
@@ -132,47 +134,51 @@ function withClockSkew<T>(ms: number, fn: () => T): T {
 
 /* ================================================================== */
 
-describe('MINOR —— 背压行为与 React 渲染时序解耦', () => {
-  it('结果集一建立就有确定的默认视口，不必等表格渲染出来', () => {
+describe('MINOR — backpressure is decoupled from React render timing', () => {
+  it('a result set has a definite default viewport from the start, without waiting for the grid', () => {
     const r = rig()
-    // 从未调用过 setViewport：旧实现此时 viewport===null，行数规则被整段跳过
-    r.push(250) // 25 万行，超过 AHEAD_ROWS=20 万
+    // setViewport is never called: the old implementation left viewport === null
+    // here and skipped the row-count rule entirely
+    r.push(250) // 250k rows, past AHEAD_ROWS = 200k
     const snap = cache.getResultSnapshot(r.id)
     assert.equal(snap.rowCount, 250_000)
-    // 默认视口 {0,0,atBottom:false} ⇒ 前方 25 万行没人看 ⇒ 必须压住
-    assert.ok(r.port.acks().length < 250, `应当在半路压住 ack，实际全放行了 ${r.port.acks().length} 次`)
+    // The default viewport {0, 0, atBottom: false} means 250k rows nobody is
+    // looking at, so the stream must be held
+    assert.ok(r.port.acks().length < 250, `the ack should have been held partway; every one was released instead (${r.port.acks().length})`)
     const held = r.port.acks().length
-    assert.ok(held > 0 && held < 250, `压在中途而不是一开始就死锁（实际 ack ${held} 次）`)
+    assert.ok(held > 0 && held < 250, `held partway rather than deadlocked from the start (acked ${held} times)`)
     cache.dropResult(r.id)
   })
 
-  it('压住的位置只由行数决定，可预测：正好在越过 AHEAD_ROWS 的那一帧', () => {
+  it('where it holds depends on the row count alone, and is predictable: the frame that crosses AHEAD_ROWS', () => {
     const r = rig()
     r.push(250)
     const acks = r.port.acks()
     const lastAck = acks[acks.length - 1]
-    // AHEAD_ROWS = 200_000，每帧 1000 行 ⇒ 第 201 帧（seq=200）落地后 rowCount=201000
-    // 此时 201000 - 0 > 200000 成立，从这一帧开始 hold
-    assert.equal(lastAck, 199, `应当停在 seq=199（20 万行整），实际 ${lastAck}`)
+    // AHEAD_ROWS = 200_000 at 1000 rows per frame, so frame 201 (seq=200) lands
+    // with rowCount = 201000. 201000 - 0 > 200000 holds from that frame onwards.
+    assert.equal(lastAck, 199, `should stop at seq=199 (exactly 200k rows), got ${lastAck}`)
     cache.dropResult(r.id)
   })
 })
 
-describe('视口暂存表：视图先于首帧挂载，也不能留垃圾', () => {
-  it('一帧都没到过的结果集被回收后，暂存的视口不会跟着遗留', () => {
+describe('the parked-viewport map: a view mounting before the first frame must leave no litter', () => {
+  it('reclaiming a result set that never saw a frame also clears its parked viewport', () => {
     const connId = asConnId('conn_ghost')
     const ghost = asResultId('res_ghost')
     const port = new FakePort()
     cache.attachResultPort(connId, port as unknown as MessagePort)
 
-    // 视图挂载即上报视口，此时结果集连 entry 都还没有 ⇒ 进暂存表
+    // The view reports its viewport as it mounts, when the result set has no entry
+    // yet, so the report is parked
     cache.setViewport(ghost, 0, 26, true)
-    // 视图被关掉；main 的 results 里从来没有过它
+    // The view is closed again; main's results never knew about it
     cache.dropResult(ghost)
     cache.pruneResults(new Set())
 
-    // 万一同一个 id 后来真的来了帧，绝不能捡起那份过期的 atBottom 视口
-    // （否则行数背压会被一条早就作废的记录悄悄关掉）
+    // Should frames really arrive for that id later, the stale atBottom viewport
+    // must not be picked back up — a long-void record would otherwise switch off
+    // the row-count backpressure without a sound
     seqCounter = 0
     for (let seq = 0; seq < 250; seq += 1) {
       port.deliver({ t: 'chunk', frame: frame(ghost, 1000, { first: seq === 0 }) })
@@ -180,66 +186,71 @@ describe('视口暂存表：视图先于首帧挂载，也不能留垃圾', () =
     flushRaf()
     assert.ok(
       port.acks().length < 250,
-      `暂存视口已失效，必须回到默认视口的行数规则（实际放行 ${port.acks().length}/250）`,
+      `the parked viewport is void, so the default viewport's row-count rule must apply again (released ${port.acks().length}/250)`,
     )
     cache.dropResult(ghost)
   })
 })
 
-describe('BLOCKER 2 —— 视口推进释放 ack', () => {
-  it('视口往前走，被压住的 ack 立刻放行', () => {
+describe('BLOCKER 2 — advancing the viewport releases the ack', () => {
+  it('a viewport that moves forward releases the held ack immediately', () => {
     const r = rig()
     r.push(250)
     const before = r.port.acks().length
-    // 用户滚到 10 万行处
+    // The user scrolls to row 100,000
     cache.setViewport(r.id, 100_000, 100_026, false)
-    assert.ok(r.port.acks().length > before, '视口前移必须放行 ack')
+    assert.ok(r.port.acks().length > before, 'moving the viewport forward must release the ack')
     cache.dropResult(r.id)
   })
 
-  it('视口贴到可滚动末端时不再按行数压 ack —— 「视口推不动」不能把流饿死', () => {
+  it('a viewport pinned to the end stops holding by row count — "cannot advance" must not starve the stream', () => {
     const r = rig()
     r.push(250)
-    assert.ok(r.port.acks().length < 250, '前提：此刻确实被压住了')
+    assert.ok(r.port.acks().length < 250, 'premise: the stream really is held right now')
 
-    // 表格已经滚到最后一行，物理上推不动了。
-    // 注意 end 仍然远远落后于 rowCount（视口只有 27 行），
-    // 单看 `rowCount - end > AHEAD_ROWS` 这条规则依然成立 —— 必须靠 atBottom 兜底。
+    // The grid is already on the last row and physically cannot advance.
+    // Note that `end` is still far behind rowCount (the viewport is 27 rows), so
+    // `rowCount - end > AHEAD_ROWS` still holds on its own — only atBottom saves it.
     cache.setViewport(r.id, 0, 26, true)
     const released = r.port.acks().length
     assert.ok(released > 0)
 
-    // 继续推流：atBottom 期间一路放行，不再中途卡死
+    // Keep pushing: while atBottom holds, every frame is released and nothing wedges
     r.push(50)
     const acks = r.port.acks()
-    assert.equal(acks[acks.length - 1], 299, '最后一帧也被 ack')
-    assert.equal(acks.filter((s) => s >= 250).length, 50, 'atBottom 期间每一帧都被 ack')
+    assert.equal(acks[acks.length - 1], 299, 'the final frame was acked too')
+    assert.equal(acks.filter((s) => s >= 250).length, 50, 'every frame during atBottom was acked')
     cache.dropResult(r.id)
   })
 
-  it('字节水位那道闸在 4KB 截断约束下也够得着 —— 宽行撑爆受保护集', () => {
+  it('the byte gate is reachable even under the 4KB truncation rule — wide rows blow out the protected set', () => {
     /*
-     * 这条测试刻意按**端到端真实存在的形态**构造，不再用一格 15,000 字符的
-     * 假数据（驱动侧单格超 VALUE_PREVIEW_BYTES=4KB 一律截断成预览，那种值到不了 renderer）：
-     *   - 每格都是 TruncatedValue，preview 正好 4KB —— 驱动能产出的最大单格；
-     *   - 40 列（宽表，jsonb / text 多的库很常见）⇒ 40 × (4096×2+96) ≈ 324KB/行；
-     *   - 每 chunk 3 行 ≈ 974KB，落在 PLAN 的 chunk 目标区间 256KB–1MB 内。
-     * 于是 ~190 个 chunk 就把视口保护范围（±3000 行，这里全部 720 行都在里面）
-     * 顶到 ACK_HOLD_BYTES=180MB 之上，enforceBudget 一个字节都淘汰不掉，
-     * 字节闸必须独立把 ack 压住。
+     * This fixture is deliberately built from a shape that **exists end to end**,
+     * rather than a fake 15,000-character cell (the driver truncates any cell over
+     * VALUE_PREVIEW_BYTES = 4KB to a preview, so such a value never reaches the
+     * renderer):
+     *   - every cell is a TruncatedValue with a preview of exactly 4KB — the
+     *     largest single cell the driver can emit;
+     *   - 40 columns (a wide table, common in jsonb/text-heavy databases) gives
+     *     40 × (4096×2 + 96) ≈ 324KB per row;
+     *   - 3 rows per chunk ≈ 974KB, inside PLAN's 256KB–1MB chunk target.
+     * So ~190 chunks push the viewport's protected range (±3000 rows, which covers
+     * all 720 rows here) past ACK_HOLD_BYTES = 180MB. enforceBudget cannot free a
+     * single byte, and the byte gate has to hold the ack on its own.
      *
-     * 反过来也说明它的适用面很窄：窄表几千行连零头都够不到，
-     * "视口不再推进"只能靠行数闸 + atBottom 保鲜期管，不能指望字节闸兜底。
+     * It also shows how narrow that gate's reach is: a narrow table would not come
+     * close with thousands of rows, so "the viewport stopped advancing" is the job
+     * of the row-count gate plus the atBottom freshness window, never this one.
      */
     const connId = asConnId('conn_bytes')
     const id = asResultId('res_bytes')
     const port = new FakePort()
     cache.attachResultPort(connId, port as unknown as MessagePort)
-    cache.setViewport(id, 0, 26, true) // atBottom：行数规则已被关掉
+    cache.setViewport(id, 0, 26, true) // atBottom: the row-count rule is off
 
     const wide: ColumnDef[] = []
     for (let c = 0; c < 40; c += 1) wide.push({ name: `t${c}`, logical: 'string', nativeType: 'text' })
-    // 驱动能发出的最大单格：预览正好截到 VALUE_PREVIEW_BYTES
+    // The largest single cell the driver can emit: a preview cut at exactly VALUE_PREVIEW_BYTES
     const cell = truncatedValue('z'.repeat(VALUE_PREVIEW_BYTES), 'utf8', { byteLength: 9_000_000 })
     const col = [cell, cell, cell]
     const cols = wide.map(() => col)
@@ -259,72 +270,75 @@ describe('BLOCKER 2 —— 视口推进释放 ack', () => {
     }
     flushRaf()
     const acked = port.acks().length
-    assert.ok(acked > 0, '一开始（远未到水位）必须放行')
+    assert.ok(acked > 0, 'the early frames, nowhere near the watermark, must be released')
     assert.ok(
       acked < CHUNKS,
-      `受保护集超过 180MB 之后字节水位必须独立压住 ack（实际放行 ${acked}/${CHUNKS}）`,
+      `once the protected set passes 180MB the byte watermark must hold the ack on its own (released ${acked}/${CHUNKS})`,
     )
-    // 压住的位置可预测：180MB / 每 chunk ~974KB ≈ 190 帧上下
-    assert.ok(acked > 150 && acked < 230, `压在水位处而不是别的地方（实际 ${acked}）`)
+    // Where it holds is predictable: 180MB over ~974KB per chunk is around frame 190
+    assert.ok(acked > 150 && acked < 230, `held at the watermark and not somewhere else (got ${acked})`)
     cache.dropResult(id)
   })
 })
 
-describe('BLOCKER 2 续 —— atBottom 是会失效的信号，不是只进不出的闩', () => {
-  it('新鲜的 atBottom 才放行；上报中断超过保鲜期，行数闸重新接管', () => {
+describe('BLOCKER 2, continued — atBottom expires; it is not a one-way latch', () => {
+  it('only a fresh atBottom releases; once reports stop past the freshness window the row-count gate takes over again', () => {
     const r = rig()
-    cache.setViewport(r.id, 0, 26, true) // 视口贴在末端
-    r.push(250) // 25 万行：atBottom 新鲜 ⇒ 一路放行
-    assert.equal(r.port.acks().length, 250, '前提：新鲜的 atBottom 确实关掉了行数闸')
+    cache.setViewport(r.id, 0, 26, true) // the viewport is pinned to the end
+    r.push(250) // 250k rows: atBottom is fresh, so everything is released
+    assert.equal(r.port.acks().length, 250, 'premise: a fresh atBottom really does switch off the row-count gate')
 
-    // 表格卸载 / rAF 被 backgroundThrottling 掐掉 / 主线程卡死：上报就此停了。
-    // 旧实现里 viewport 冻结在 atBottom:true，这条流会全速扫完整张表。
+    // Grid unmounted / rAF starved by backgroundThrottling / main thread wedged:
+    // reporting simply stops. The old implementation froze the viewport at
+    // atBottom: true and let this stream scan the whole table at full speed.
     withClockSkew(10_000, () => {
       r.push(50)
     })
     assert.equal(
       r.port.acks().length,
       250,
-      `上报停了 10 秒之后一帧都不该再放行（实际 ${r.port.acks().length}）`,
+      `after 10 seconds without a report, not one more frame may be released (got ${r.port.acks().length})`,
     )
 
-    // 消费者回来了（窗口重新可见 / 用户滚动）：被压住的 ack 立刻放行，流可以继续
+    // The consumer is back (window visible again, user scrolling): the held ack is
+    // released at once and the stream can continue
     cache.setViewport(r.id, 0, 26, true)
     const acks = r.port.acks()
-    assert.equal(acks[acks.length - 1], 299, '恢复上报后必须补上最后一个被压住的 seq')
+    assert.equal(acks[acks.length - 1], 299, 'resuming reports must deliver the last held seq')
     cache.dropResult(r.id)
   })
 
-  it('位置没变的重复上报也要续保鲜期（不能因为"值没变"就早退）', () => {
+  it('a repeated report at an unchanged position still renews the freshness window (no early return just because the value is the same)', () => {
     const r = rig()
     cache.setViewport(r.id, 0, 26, true)
     r.push(250)
-    // 10 秒后又报了一次**一模一样**的视口：值没变，但消费者确实还活着
+    // Ten seconds later, the **identical** viewport is reported again: the value
+    // did not change, but the consumer is demonstrably alive
     withClockSkew(10_000, () => {
       cache.setViewport(r.id, 0, 26, true)
     })
     withClockSkew(11_000, () => {
       r.push(20)
     })
-    assert.equal(r.port.acks().length, 270, '距最近一次上报只过了 1 秒，仍在保鲜期内')
+    assert.equal(r.port.acks().length, 270, 'only one second since the last report, still inside the freshness window')
     cache.dropResult(r.id)
   })
 
-  it('显式撤销 atBottom（DataGrid 卸载时补的那条）当场恢复行数闸，不必等保鲜期', () => {
+  it('explicitly revoking atBottom (what DataGrid sends on unmount) restores the row-count gate at once, without waiting out the window', () => {
     const r = rig()
     cache.setViewport(r.id, 0, 26, true)
     r.push(250)
     assert.equal(r.port.acks().length, 250)
 
-    cache.setViewport(r.id, 0, 26, false) // ← DataGrid 卸载 / 换结果集时的那一条
+    cache.setViewport(r.id, 0, 26, false) // ← the report DataGrid sends on unmount / result switch
     r.push(50)
-    assert.equal(r.port.acks().length, 250, '撤销之后一帧都不该再放行')
+    assert.equal(r.port.acks().length, 250, 'after the revocation not one more frame may be released')
     cache.dropResult(r.id)
   })
 })
 
-describe('MAJOR —— paused 是终态，不是错误', () => {
-  it('收到 t:paused：状态变 paused，已落地的行一行不丢，error 保持为空', () => {
+describe('MAJOR — paused is a terminal state, not an error', () => {
+  it('on t:paused the status becomes paused, not one landed row is lost, and error stays empty', () => {
     const r = rig()
     r.push(10)
     const rowsBefore = cache.getResultSnapshot(r.id).rowCount
@@ -336,7 +350,9 @@ describe('MAJOR —— paused 是终态，不是错误', () => {
         rows: rowsBefore,
         elapsedMs: 1234,
         reason: 'idleAck',
-        message: '结果流已暂停：60 秒没有新的消费确认，已释放服务端游标与连接',
+        message:
+          'Result stream paused: no consumption ack for 60s,'
+          + ' the server-side cursor and connection have been released',
         resumable: true,
       },
     })
@@ -344,17 +360,17 @@ describe('MAJOR —— paused 是终态，不是错误', () => {
 
     const snap = cache.getResultSnapshot(r.id)
     assert.equal(snap.status, 'paused')
-    assert.equal(snap.error, null, 'paused 绝不能顺手塞一个 error 进去')
-    assert.equal(snap.rowCount, rowsBefore, '已加载的行必须原样保留')
+    assert.equal(snap.error, null, 'pausing must never slip an error in alongside')
+    assert.equal(snap.rowCount, rowsBefore, 'the rows already loaded must be kept exactly as they were')
     assert.equal(snap.paused?.resumable, true)
     assert.equal(snap.paused?.rows, rowsBefore)
-    // 数据仍然可读
+    // The data is still readable
     assert.equal(cache.getCell(r.id, 5, 0), 5)
     assert.equal(cache.isRowLoaded(r.id, 9999), true)
     cache.dropResult(r.id)
   })
 
-  it('真错误仍然落到 error，两条路径不混流', () => {
+  it('a real error still lands in error; the two paths never mix', () => {
     const r = rig()
     r.push(2)
     r.port.deliver({
@@ -370,7 +386,7 @@ describe('MAJOR —— paused 是终态，不是错误', () => {
     cache.dropResult(r.id)
   })
 
-  it('已经 paused 之后再来的 done/paused 不会把状态改回去', () => {
+  it('a done/paused arriving after the pause does not change the state back', () => {
     const r = rig()
     r.push(2)
     const pause = {
@@ -383,7 +399,7 @@ describe('MAJOR —— paused 是终态，不是错误', () => {
     r.port.deliver({ t: 'paused', resultId: r.id, paused: pause })
     r.port.deliver({ t: 'paused', resultId: r.id, paused: { ...pause, rows: 99 } })
     flushRaf()
-    assert.equal(cache.getResultSnapshot(r.id).paused?.rows, 2000, '第一次暂停说了算')
+    assert.equal(cache.getResultSnapshot(r.id).paused?.rows, 2000, 'the first pause is the one that counts')
     cache.dropResult(r.id)
   })
 })

@@ -1,14 +1,16 @@
 import { Suspense, lazy, useCallback, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 import type { QueryViewState } from '@peek/core'
+import { useT } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
 import { useConnection, useResultMeta } from '../../state/workspaceStore'
-import { formatMs } from '../../util/format'
+import { formatCount, formatMs } from '../../util/format'
 import { DataGrid } from '../DataGrid'
 import { ViewError } from '../ViewError'
 
-// CodeMirror 是整个包里最重的一块，切成独立 chunk 按需加载，
-// 保证"冷启动到可交互 < 1.5s"（PLAN 第 8 节）不被编辑器拖累。
+// CodeMirror is the heaviest thing in the bundle, so it gets its own lazily
+// loaded chunk — the "cold start to interactive under 1.5s" budget (PLAN §8)
+// must not be spent on an editor the user may never open.
 const SqlEditor = lazy(async () => {
   const m = await import('../SqlEditor')
   return { default: m.SqlEditor }
@@ -17,9 +19,10 @@ const SqlEditor = lazy(async () => {
 const MIN_EDITOR_H = 60
 const MAX_EDITOR_H = 600
 
-/** 自由查询视图：上编辑器、下结果表格 */
+/** Free-form query view: editor on top, result grid below. */
 export function QueryView({ view }: { view: QueryViewState }): ReactElement {
   const { id: viewId, connId, text, resultId } = view
+  const t = useT()
   const conn = useConnection(connId)
   const meta = useResultMeta(resultId)
   const [editorH, setEditorH] = useState(150)
@@ -66,6 +69,7 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
   return (
     <div className="query-view">
       <div className="toolbar">
+        {/* The title is key notation, not prose: the same symbols in every language. */}
         <button
           className="primary"
           disabled={running || conn?.status !== 'ready'}
@@ -74,10 +78,10 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
           }}
           title="⌘/Ctrl + Enter"
         >
-          ▶ 执行
+          ▶ {t('query.run')}
         </button>
         <button className="ghost" disabled={!running} onClick={cancel}>
-          ■ 取消
+          ■ {t('query.cancel')}
         </button>
         <span className="sep" />
         <span>{conn?.label ?? connId}</span>
@@ -85,12 +89,13 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
           <>
             <span className="sep" />
             <span className="mono">
-              {meta.rows} 行 · {formatMs(meta.elapsedMs)}
+              {t('grid.rows', { count: meta.rows, rows: formatCount(meta.rows) })}
+              {` · ${formatMs(meta.elapsedMs)}`}
             </span>
           </>
         ) : null}
         <span className="grow" />
-        <span style={{ color: 'var(--fg-faint)' }}>⌘⏎ 执行</span>
+        <span style={{ color: 'var(--fg-faint)' }}>{t('query.runHint')}</span>
       </div>
 
       <Suspense fallback={<div className="editor-wrap" style={{ height: editorH }} />}>
@@ -106,7 +111,7 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
 
       <ViewError error={view.error} />
 
-      <DataGrid connId={connId} resultId={resultId} emptyHint="⌘⏎ 执行查询" />
+      <DataGrid connId={connId} resultId={resultId} emptyHint={t('query.empty')} />
     </div>
   )
 }

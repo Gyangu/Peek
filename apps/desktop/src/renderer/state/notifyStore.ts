@@ -1,9 +1,11 @@
 import { create } from 'zustand'
 import type { NotifyLevel, PeekError } from '@peek/core'
+import { localizeErrorNow, tStatic } from '../i18n'
 
 /**
- * 通知/错误提示。这是**纯 renderer 的瞬时 UI 状态**，
- * 不属于 Workspace 真源，因此可以本地持有（不违反"renderer 不改状态"）。
+ * Notifications and error toasts. This is **purely transient renderer UI state**,
+ * not part of the Workspace source of truth, so holding it locally does not
+ * violate "the renderer never mutates state".
  */
 export interface Toast {
   id: number
@@ -22,9 +24,9 @@ interface NotifyState {
 
 let seq = 0
 
-/** 同时最多堆这么多条，多了丢最旧的 */
+/** How many can stack at once; the oldest is dropped beyond this. */
 const MAX_TOASTS = 5
-/** info 级自动消失时长 */
+/** How long an info-level toast stays up. */
 const AUTO_DISMISS_MS = 4500
 
 export const useNotifyStore = create<NotifyState>((set) => ({
@@ -50,8 +52,18 @@ export function notify(level: NotifyLevel, message: string, detail?: string): vo
   useNotifyStore.getState().push(level, message, detail)
 }
 
-/** 把 PeekError 转成一条 error toast */
-export function notifyError(err: PeekError, prefix?: string): void {
-  const head = prefix ? `${prefix}：${err.message}` : err.message
+/**
+ * Turn a PeekError into an error toast.
+ *
+ * The text is localized at push time rather than at render time, so a toast
+ * already on screen keeps the language it was raised in. That is a deliberate
+ * trade: keeping toasts translatable would mean storing the PeekError in the
+ * store and resolving it in the component, and a toast lives for seconds while a
+ * language switch is a once-a-session act. Anything long-lived — view errors,
+ * status bar, panel chrome — resolves at render time instead, via `useErrorText`.
+ */
+export function notifyError(err: PeekError, context?: string): void {
+  const text = localizeErrorNow(err)
+  const head = context ? tStatic('app.error.prefixed', { context, message: text }) : text
   notify('error', `[${err.code}] ${head}`, err.detail)
 }

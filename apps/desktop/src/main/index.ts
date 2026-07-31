@@ -12,35 +12,41 @@ import { installDriverRpc, type DriverRpcOptions } from './driver-rpc'
 import { createResultRowsBroker, type ResultRowsBroker } from './result-rows'
 
 /**
- * peek 主进程装配（PLAN 第 3 / 6 / 7 节）。
+ * Assembly of peek's main process (PLAN sections 3, 6 and 7).
  *
- * 依赖方向是单向的，装配顺序必须照着来：
+ * Dependencies point one way only, and the assembly order has to follow them:
  *
- *   WorkspaceStore（真源）
- *     → ConnectionManager（进程模型；只发事件，不改真源）
- *     → CommandDeps（把管理器包成 bus 认识的副作用接口）
- *     → CommandBus（UI 与 MCP 唯一入口）
- *     → IPC 装配（patch 广播 / 命令通道 / 数据面端口）
- *     → MCP HTTP Server（读真源、写走 bus）
- *     → 窗口
+ *   WorkspaceStore (the source of truth)
+ *     → ConnectionManager (the process model; emits events, never writes the
+ *       source of truth)
+ *     → CommandDeps (wraps the manager in the side-effect interface the bus knows)
+ *     → CommandBus (the single entry point for both UI and MCP)
+ *     → IPC wiring (patch broadcast / command channel / data-plane port)
+ *     → MCP HTTP server (reads the source of truth, writes through the bus)
+ *     → the window
  *
- * 反向引用一律通过事件或注入，绝不 import 回去：
- * ConnectionManager 不认识 Bus，Bus 不认识 ConnectionManager，MCP 不认识两者。
+ * References that would point backwards always travel by event or injection and
+ * are never imported: the ConnectionManager does not know the bus, the bus does
+ * not know the ConnectionManager, and MCP knows neither.
  */
 
 /* ================================================================== */
-/* stdio 韧性：日志写不出去不该让 app 崩                                   */
+/* stdio resilience: a broken log pipe must not crash the app          */
 /* ================================================================== */
 
 /**
- * 当父进程先退出、或 app 是经由管道/nohup 启动时，stdout / stderr 可能已经关闭。
- * 此时任何 console.* 都会抛 EPIPE，冒泡成主进程未捕获异常，
- * Electron 随即弹出「A JavaScript error occurred in the main process」错误框——
- * 日志通道断掉本身是无害的，却把整个 app 表现成了崩溃。
+ * stdout / stderr may already be closed — when the parent process exited first,
+ * or when the app was started through a pipe or under nohup. Any console.* call
+ * then throws EPIPE, which surfaces as an uncaught exception in the main process
+ * and makes Electron pop up "A JavaScript error occurred in the main process".
+ * Losing the log channel is harmless in itself, yet it presents the whole app as
+ * having crashed.
  *
- * 两道防护：
- *   1. 给两个流挂 error 监听，吞掉 EPIPE / 流已销毁这类写入失败（其余错误照旧抛出）；
- *   2. console.* 再包一层同步 try/catch，兜住 Node 在某些路径下同步抛出的写入错误。
+ * Two layers of protection:
+ *   1. an error listener on both streams that swallows write failures such as
+ *      EPIPE or a destroyed stream (anything else is rethrown as before);
+ *   2. a synchronous try/catch around console.*, catching the write errors Node
+ *      throws synchronously on some paths.
  */
 function hardenStdio(): void {
   const isBrokenPipe = (error: unknown): boolean => {
@@ -62,7 +68,7 @@ function hardenStdio(): void {
         original(...args)
       } catch (error) {
         if (!isBrokenPipe(error)) throw error
-        // 管道已断：静默丢弃这条日志
+        // The pipe is gone: drop this log line silently
       }
     }
   }
@@ -73,19 +79,19 @@ hardenStdio()
 const isDev = !app.isPackaged
 
 /* ================================================================== */
-/* 进程级单例                                                           */
+/* Process-wide singletons                                             */
 /* ================================================================== */
 
 const store = new WorkspaceStore()
 const connections = new ConnectionManager()
-/** driver host 事件 → 真源的唯一回填口（状态机复用 store/mutations） */
+/** The one place driver host events write back into the source of truth (state transitions reuse store/mutations) */
 const resultSink = createResultEventSink(store)
 
 let mainWindow: BrowserWindow | null = null
 let mcp: McpServerHandle | null = null
 const disposers: (() => void)[] = []
 
-/** 当前需要收 patch / 通知的 renderer；窗口可能还没建或已销毁 */
+/** The renderers that should receive patches and notifications; the window may not exist yet or may be destroyed */
 function renderers(): readonly WebContents[] {
   return BrowserWindow.getAllWindows()
     .filter((w) => !w.isDestroyed())
@@ -100,15 +106,17 @@ function notify(message: NotifyMessage): void {
 }
 
 /* ================================================================== */
-/* 1. Command Bus 的副作用依赖                                          */
+/* 1. Side-effect dependencies for the Command Bus                     */
 /* ================================================================== */
 
 /**
- * 把 ConnectionManager 适配成 Bus 认识的 `CommandDeps`。
+ * Adapt the ConnectionManager into the `CommandDeps` the bus knows.
  *
- * 这一层只做形状转换，没有任何策略：
- * 取数方法**只负责把请求送到 driver host**，行数据由 host 经 MessagePort 直发 renderer，
- * 执行过程中的 schema / 行数 / 收尾 / 报错由 connections.events 回填真源（见下方订阅）。
+ * This layer is pure shape conversion with no policy of its own: the fetch
+ * methods **only deliver the request to the driver host**, row data goes from the
+ * host straight to the renderer over a MessagePort, and schema / row counts /
+ * completion / errors flow back into the source of truth through
+ * connections.events (see the subscriptions below).
  */
 function createDeps(): CommandDeps {
   return {
@@ -164,7 +172,8 @@ function createDeps(): CommandDeps {
           const outcome = await connections.cancel(req.connId, req.resultId)
           return outcome.cancelled
         } catch {
-          // 连接早就没了 / 结果集已结束：按契约回 false，不要把取消变成一条错误命令
+          // The connection is long gone, or the result set already finished. The
+          // contract says answer false — a cancel must not become a failed command.
           return false
         }
       },
@@ -175,7 +184,7 @@ function createDeps(): CommandDeps {
 }
 
 /* ================================================================== */
-/* 2. driver host 事件 → 真源 + 通知                                     */
+/* 2. Driver host events → source of truth + notifications             */
 /* ================================================================== */
 
 function wireConnectionEvents(): void {
@@ -214,7 +223,7 @@ function wireConnectionEvents(): void {
     }),
 
     events.on('log', ({ connId, level, message, detail }) => {
-      // driver host 的 stdout/stderr 很吵，只有 warn 以上才打扰用户
+      // A driver host's stdout/stderr is noisy; only warn and above bother the user
       if (level === 'info') {
         console.log('[peek/driver]', message, detail ?? '')
         return
@@ -225,16 +234,19 @@ function wireConnectionEvents(): void {
     events.on('crashed', ({ connId, error }) => {
       notify({
         level: 'error',
-        message: `driver 进程异常退出：${error.message}`,
+        // NotifyMessage carries no localization descriptor, and this text also
+        // goes to the main-process log, so it stays plain English.
+        message: `The driver process exited unexpectedly: ${error.message}`,
         connId,
-        detail: '该连接已不可用，请重新连接。其它连接不受影响。',
+        detail: 'This connection is unusable; reconnect to continue. Other connections are unaffected.',
       })
     }),
   )
 }
 
 /* ================================================================== */
-/* 3. 非命令类只读通道（契约缺口的补丁，见文件末尾说明）                    */
+/* 3. The non-command read-only channel                                */
+/*    (a patch over a gap in the command contract; see below)          */
 /* ================================================================== */
 
 const driverRpc: DriverRpcOptions = {
@@ -245,14 +257,18 @@ const driverRpc: DriverRpcOptions = {
 }
 
 /* ================================================================== */
-/* 4. 窗口                                                             */
+/* 4. The window                                                       */
 /* ================================================================== */
 
 function createWindow(): BrowserWindow {
   const preloadPath = join(import.meta.dirname, '../preload/index.cjs')
   const hasPreload = existsSync(preloadPath)
   if (!hasPreload) {
-    console.error('[peek/error] preload 产物缺失：', preloadPath, '——界面将退化为只读态')
+    console.error(
+      '[peek/error] preload build output missing:',
+      preloadPath,
+      '— the window will degrade to read-only',
+    )
   }
 
   const win = new BrowserWindow({
@@ -264,7 +280,7 @@ function createWindow(): BrowserWindow {
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#141414',
     webPreferences: {
-      // 安全基线：renderer 无 Node、开上下文隔离、开沙箱
+      // Security baseline: no Node in the renderer, context isolation on, sandbox on
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -272,20 +288,22 @@ function createWindow(): BrowserWindow {
     },
   })
 
-  // 冷启动预算 < 1.5s：首帧准备好再显示，避免白屏闪烁
+  // Cold-start budget under 1.5s: show only once the first frame is ready, to
+  // avoid a flash of blank window.
   win.once('ready-to-show', () => {
     win.show()
   })
 
-  // renderer 出事必须在主进程日志里看得见，否则界面白屏时无从查起
+  // Renderer trouble has to show up in the main-process log, or a blank window
+  // leaves nothing to investigate.
   win.webContents.on('did-fail-load', (_event, code, description, url) => {
-    console.error('[peek/error] 界面加载失败', code, description, url)
+    console.error('[peek/error] window failed to load', code, description, url)
   })
   win.webContents.on('render-process-gone', (_event, details) => {
     notify({
       level: 'error',
-      message: `界面进程退出（${details.reason}）`,
-      detail: '连接与 driver 进程仍在，重开窗口即可恢复。',
+      message: `The window process exited (${details.reason})`,
+      detail: 'Connections and driver processes are still alive; reopening the window restores everything.',
     })
   })
   if (isDev || process.env['PEEK_FORWARD_CONSOLE'] === '1') {
@@ -294,8 +312,9 @@ function createWindow(): BrowserWindow {
     })
   }
 
-  // 数据面端口靠 attachRenderer 移交，**必须等文档加载完**，
-  // 否则 webContents.postMessage 的端口会丢；每次重载都要重新移交。
+  // attachRenderer performs the data-plane handover, and it **must wait for the
+  // document to finish loading** — otherwise the port passed to
+  // webContents.postMessage is lost. Every reload needs a fresh handover.
   win.webContents.on('did-finish-load', () => {
     connections.attachRenderer(win.webContents)
   })
@@ -305,7 +324,7 @@ function createWindow(): BrowserWindow {
     if (mainWindow === win) mainWindow = null
   })
 
-  // 外链一律丢给系统浏览器，窗口内不允许导航到外部
+  // External links always go to the system browser; in-window navigation off-site is refused
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
     return { action: 'deny' }
@@ -328,12 +347,14 @@ function createWindow(): BrowserWindow {
 
 async function startMcp(commandBus: CommandBus, rows: ResultRowsBroker): Promise<void> {
   const handle = createMcpServer({
-    // UI 与 AI 共用同一条指令通道：source 只进日志，不改任何一行执行路径
+    // UI and AI share one command channel: source is recorded in the log and
+    // changes no line of the execution path.
     dispatch: (name, input, source) => commandBus.dispatch(name, input, source),
     getSnapshot: (): WorkspaceSnapshot => store.getSnapshot(),
-    // introspect 不是 Command（COMMAND_NAMES 里没有），走注入的只读通道
+    // introspect is not a Command (it is absent from COMMAND_NAMES), so it goes
+    // through the injected read-only channel.
     introspect: (req) => driverRpc.introspect(req.connId, req.parentId, req.refresh),
-    // 行数据只在 renderer 的缓存里（chunk 不经过 main），向 renderer 取样
+    // Row data lives only in the renderer cache (chunks bypass main), so sample from the renderer
     readResultRows: (req) => rows.read(req),
     logger: {
       log: (level, message, detail) => {
@@ -347,24 +368,24 @@ async function startMcp(commandBus: CommandBus, rows: ResultRowsBroker): Promise
 
   try {
     const endpoint = await handle.start()
-    console.log(`[peek/mcp] 已监听 ${endpoint.url}`)
-    console.log(`[peek/mcp] 接入方式：${endpoint.hint}`)
+    console.log(`[peek/mcp] listening on ${endpoint.url}`)
+    console.log(`[peek/mcp] how to connect: ${endpoint.hint}`)
   } catch (raw) {
     mcp = null
     const error: PeekError = toPeekError(raw)
     notify({
       level: 'error',
-      message: `MCP server 启动失败：${error.message}`,
+      message: `The MCP server failed to start: ${error.message}`,
       detail:
         error.code === 'CONFLICT'
-          ? '端口被占用（可能已有一个 peek 在跑）。界面照常可用，只是 AI 连不进来。'
+          ? 'The port is in use — another peek may already be running. The window works as usual; only the AI cannot connect.'
           : (error.detail ?? ''),
     })
   }
 }
 
 /* ================================================================== */
-/* 6. 生命周期                                                          */
+/* 6. Lifecycle                                                        */
 /* ================================================================== */
 
 function bootstrap(): void {
@@ -372,7 +393,7 @@ function bootstrap(): void {
 
   wireConnectionEvents()
 
-  // renderer ↔ Bus / Store：命令通道 + 全量快照 + patch 广播
+  // renderer ↔ bus / store: the command channel, full snapshots and patch broadcast
   disposers.push(
     installBusIpc({
       ipcMain,
@@ -382,11 +403,12 @@ function bootstrap(): void {
     }),
   )
 
-  // 命名空间树 / 单值取全量：这三件事没有对应的 Command（契约缺口），
-  // 走一条独立的只读 IPC，不进 Workspace 状态也不进 Command 日志
+  // Namespace tree and full single-value reads: these three have no corresponding
+  // Command (a gap in the contract), so they travel a separate read-only IPC that
+  // enters neither the Workspace state nor the Command log.
   disposers.push(installDriverRpc({ ipcMain, ...driverRpc }))
 
-  // MCP run_query 要给 AI 回几行样本，而行数据只在 renderer 缓存里
+  // MCP's run_query owes the AI a few sample rows, and row data lives only in the renderer cache
   const rows = createResultRowsBroker({ ipcMain, renderers })
   disposers.push(() => {
     rows.dispose()
@@ -404,20 +426,20 @@ async function shutdown(): Promise<void> {
     try {
       dispose()
     } catch (error) {
-      console.error('[peek/error] 清理钩子抛错', error)
+      console.error('[peek/error] a disposer threw', error)
     }
   }
-  // MCP 先关：别让 AI 在 driver 收尸期间还能发命令进来
+  // Close MCP first: the AI must not be able to send commands while drivers are being reaped
   await mcp?.close().catch((error: unknown) => {
-    console.error('[peek/error] 关闭 MCP server 失败', error)
+    console.error('[peek/error] failed to close the MCP server', error)
   })
   mcp = null
   await connections.disposeAll().catch((error: unknown) => {
-    console.error('[peek/error] 回收 driver 进程失败', error)
+    console.error('[peek/error] failed to reclaim driver processes', error)
   })
 }
 
-// 单实例：MCP 端口与本地状态都是单点，多开没有意义
+// Single instance: the MCP port and the local state are both singletons, so a second window would be meaningless
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
@@ -435,11 +457,12 @@ if (!app.requestSingleInstanceLock()) {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })
 
-    // 冒烟自检：设了这个环境变量就在 N 毫秒后自己退出，供 CI / 集成脚本用
+    // Smoke check: with this environment variable set, quit after N milliseconds.
+    // Used by CI and integration scripts.
     const smokeMs = Number(process.env['PEEK_SMOKE_EXIT_MS'] ?? '')
     if (Number.isFinite(smokeMs) && smokeMs > 0) {
       setTimeout(() => {
-        console.log('[peek] 冒烟自检结束，退出')
+        console.log('[peek] smoke check finished, exiting')
         app.quit()
       }, smokeMs)
     }
@@ -450,8 +473,9 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   /**
-   * 优雅退出：driver host 是独立进程，不收会留一堆孤儿；MCP 占着 7332 端口。
-   * before-quit 是同步事件，所以先 preventDefault，异步收干净之后再真正 quit。
+   * Graceful exit: driver hosts are separate processes and would be orphaned if
+   * left behind, and MCP is holding port 7332. `before-quit` is a synchronous
+   * event, so preventDefault first, clean up asynchronously, then really quit.
    */
   app.on('before-quit', (event) => {
     if (shuttingDown) return

@@ -26,13 +26,25 @@ import readWorkspaceTool from '../../mcp/tools/read-workspace'
 import { briefResult } from '../../mcp/summary'
 
 /* ==================================================================
- * MAJOR 的回归网：「按设计暂停」必须与「查询失败」彻底分开。
+ * Regression net: "paused by design" has to stay completely separate from
+ * "the query failed".
  *
- * 覆盖三段：
- *   1. core 的状态机语义（paused 是终态、数据可用）
- *   2. main 真源的迁移（视图保持 ready，不出红色错误条）
- *   3. MCP run_query 回执（isError 为假、措辞能让 AI 分清）
+ * Three layers are covered:
+ *   1. core's state machine semantics (paused is terminal, its data is usable)
+ *   2. the transition in main's source of truth (the view stays ready, no red
+ *      error bar)
+ *   3. MCP's run_query receipt (isError is falsy, and the wording lets an AI
+ *      tell the two apart)
  * ================================================================== */
+
+/**
+ * The backpressure pause reason, worded exactly as the postgres driver words it
+ * (see StreamPump in @peek/driver-postgres). It is driver text, so it travels
+ * untranslated all the way to the UI and to MCP.
+ */
+const PAUSE_REASON =
+  'Result stream paused: no consumption ack for 60s,'
+  + ' the server-side cursor and connection have been released'
 
 const PG_CONFIG: PostgresConnectionConfig = {
   driverId: 'postgres',
@@ -88,10 +100,10 @@ async function runningQuery(h: Harness): Promise<{ resultId: ResultId; viewId: V
 }
 
 /* ------------------------------------------------------------------ */
-/* 1. core 语义                                                         */
+/* 1. core semantics                                                    */
 /* ------------------------------------------------------------------ */
 
-test('paused 是终态，且数据可用；只有 error 的数据不可信', () => {
+test('paused is terminal and its data is usable; only error data is untrustworthy', () => {
   assert.equal(isSettledResultStatus('paused'), true)
   assert.equal(isSettledResultStatus('running'), false)
   assert.equal(hasUsableRows('paused'), true)
@@ -101,10 +113,10 @@ test('paused 是终态，且数据可用；只有 error 的数据不可信', () 
 })
 
 /* ------------------------------------------------------------------ */
-/* 2. 真源迁移                                                          */
+/* 2. Source-of-truth transitions                                       */
 /* ------------------------------------------------------------------ */
 
-test('背压暂停：结果集落 paused + truncated + resumable，视图保持 ready 不报错', async () => {
+test('backpressure pause: the result set lands on paused + truncated + resumable while the view stays ready', async () => {
   const h = harness()
   const { resultId, viewId } = await runningQuery(h)
 
@@ -112,7 +124,7 @@ test('背压暂停：结果集落 paused + truncated + resumable，视图保持 
     pauseResult(draft, resultId, {
       rows: 901_000,
       elapsedMs: 61_234,
-      reason: '结果流已暂停：60 秒没有新的消费确认，已释放服务端游标与连接',
+      reason: PAUSE_REASON,
     })
   }, { source: 'system' })
 
@@ -121,17 +133,17 @@ test('背压暂停：结果集落 paused + truncated + resumable，视图保持 
   assert.equal(meta.status, 'paused')
   assert.equal(meta.rows, 901_000)
   assert.equal(meta.elapsedMs, 61_234)
-  assert.equal(meta.truncated, true, '还有更多行没取')
-  assert.equal(meta.resumable, true, '重新执行即可继续')
-  assert.equal(meta.error, undefined, '暂停绝不能带错误对象')
-  assert.ok(meta.pausedReason?.includes('已释放服务端游标'))
+  assert.equal(meta.truncated, true, 'more rows are still waiting')
+  assert.equal(meta.resumable, true, 're-running continues from here')
+  assert.equal(meta.error, undefined, 'a pause must never carry an error object')
+  assert.ok(meta.pausedReason?.includes('the server-side cursor'))
 
-  // 关键：视图不能变成红色错误态
+  // The crux: the view must not turn red
   assert.equal(state.views[viewId].status, 'ready')
   assert.equal(state.views[viewId].error, undefined)
 })
 
-test('暂停与真错误互不污染：SQL 报错仍然落 error + 红色视图', async () => {
+test('pauses and real errors never contaminate each other: a SQL error still lands on error plus a red view', async () => {
   const h = harness()
   const { resultId, viewId } = await runningQuery(h)
 
@@ -146,7 +158,7 @@ test('暂停与真错误互不污染：SQL 报错仍然落 error + 红色视图'
   assert.ok(state.views[viewId].error)
 })
 
-test('已进终态的结果集不会被迟到的暂停改写（取消/完成 说了算）', async () => {
+test('a result set already in a terminal state is not rewritten by a late pause (cancel/finish wins)', async () => {
   const h = harness()
   const a = await runningQuery(h)
   h.store.apply((draft) => {
@@ -167,7 +179,7 @@ test('已进终态的结果集不会被迟到的暂停改写（取消/完成 说
 })
 
 /* ------------------------------------------------------------------ */
-/* 3. MCP 回执                                                          */
+/* 3. MCP receipts                                                      */
 /* ------------------------------------------------------------------ */
 
 function toolCtx(h: Harness): ToolContext {
@@ -180,12 +192,12 @@ function toolCtx(h: Harness): ToolContext {
   }
 }
 
-/** 走工具本尊（校验 → toCommands → dispatch → render），只是不经 MCP transport */
+/** Runs the real tool (validate → toCommands → dispatch → render), just without the MCP transport */
 function runTool(h: Harness, input: Record<string, unknown>): Promise<ToolOutput> {
   return runQueryTool.run(input, toolCtx(h))
 }
 
-test('run_query 缺省 maxRows 时套服务端上限，AI 一条 select * 不会直奔暂停', async () => {
+test('run_query applies the server-side ceiling when maxRows is omitted, so an AI select * does not run straight into a pause', async () => {
   const h = harness()
   const connId = await connect(h)
   await runTool(h, { connId, text: 'select * from harness', waitMs: 0, previewRows: 0 })
@@ -193,42 +205,42 @@ test('run_query 缺省 maxRows 时套服务端上限，AI 一条 select * 不会
   assert.equal(h.runQueryCalls[0].maxRows, MCP_DEFAULT_MAX_ROWS)
 })
 
-test('run_query 显式给了 maxRows 就不覆盖', async () => {
+test('run_query does not override an explicitly supplied maxRows', async () => {
   const h = harness()
   const connId = await connect(h)
   await runTool(h, { connId, text: 'select 1', maxRows: 5, waitMs: 0, previewRows: 0 })
   assert.equal(h.runQueryCalls[0].maxRows, 5)
 })
 
-test('run_query 回执：paused 不是 isError，且明说数据有效、可重跑续取', async () => {
+test('run_query receipt: paused is not isError, and it says outright that the data is valid and re-running continues', async () => {
   const h = harness()
   const connId = await connect(h)
   const first = await h.bus.dispatch('query.run', { connId, text: 'select 1' }, 'ui')
   assert.equal(first.ok, true)
   if (!first.ok) return
 
-  // 复用同一个 query 视图重跑，然后把它打成 paused
+  // Re-run inside the same query view, then push it into paused
   const out = await new Promise<ToolOutput>((resolve) => {
     void runTool(h, { viewId: first.data.viewId, waitMs: 500, previewRows: 0 }).then(resolve)
-    // 让 query.run 先落地拿到新的 resultId，再迁移到 paused
+    // Let query.run land and mint its new resultId first, then move it to paused
     setTimeout(() => {
       const ws = h.store.getState()
       const running = Object.values(ws.results).find((r) => r.status === 'running')
-      assert.ok(running, '应当有一个在跑的结果集')
+      assert.ok(running, 'there should be exactly one running result set')
       h.store.apply((draft) => {
         pauseResult(draft, running.id, {
           rows: 200_000,
           elapsedMs: 61_000,
-          reason: '结果流已暂停：60 秒没有新的消费确认，已释放服务端游标与连接',
+          reason: PAUSE_REASON,
         })
       }, { source: 'system' })
     }, 0)
   })
 
-  assert.notEqual(out.isError, true, 'paused 绝不能被报成失败')
-  assert.ok(out.text.includes('已暂停'), `回执必须点明暂停：${out.text}`)
-  assert.ok(out.text.includes('不是失败'), '必须显式否定"失败"这个解读')
-  assert.ok(out.text.includes('重新执行'), '必须告诉 AI 怎么继续')
+  assert.notEqual(out.isError, true, 'paused must never be reported as a failure')
+  assert.ok(out.text.includes('Paused'), `the receipt must name the pause: ${out.text}`)
+  assert.ok(out.text.includes('not a failure'), 'it must explicitly deny the "failure" reading')
+  assert.ok(out.text.includes('run the query again'), 'it must tell the AI how to continue')
   const data = out.data as { status: string; rowsUsable: boolean; resumable: boolean; rows: number }
   assert.equal(data.status, 'paused')
   assert.equal(data.rowsUsable, true)
@@ -237,37 +249,44 @@ test('run_query 回执：paused 不是 isError，且明说数据有效、可重�
 })
 
 /* ------------------------------------------------------------------ */
-/* 4. read_workspace：AI 感知界面的主入口，不能只给一个 'paused' 字样      */
+/* 4. read_workspace: the AI's main window onto the UI, so a bare        */
+/*    'paused' label is not enough                                      */
 /* ------------------------------------------------------------------ */
 
-test('read_workspace：paused 结果集带上 rowsUsable/resumable/pausedReason', async () => {
+test('read_workspace: a paused result set carries rowsUsable/resumable/pausedReason', async () => {
   const h = harness()
   const { resultId, viewId } = await runningQuery(h)
   h.store.apply((draft) => {
     pauseResult(draft, resultId, {
       rows: 207_000,
       elapsedMs: 60_278,
-      reason: '结果流已暂停：60 秒没有新的消费确认，已释放服务端游标与连接',
+      reason: PAUSE_REASON,
     })
   }, { source: 'system' })
 
   const out = await readWorkspaceTool.run({}, toolCtx(h))
   const data = out.data as { results: Record<string, unknown>[]; panels: Record<string, unknown>[] }
   const brief = data.results.find((r) => r['resultId'] === String(resultId))
-  assert.ok(brief, 'read_workspace 必须报出这个结果集')
+  assert.ok(brief, 'read_workspace must report this result set')
   assert.equal(brief['status'], 'paused')
-  assert.equal(brief['rowsUsable'], true, '已加载的行是好的，必须显式说出来')
+  assert.equal(brief['rowsUsable'], true, 'the rows already loaded are good, and that must be said outright')
   assert.equal(brief['resumable'], true)
   assert.equal(brief['truncated'], true)
-  assert.ok(String(brief['pausedReason']).includes('已释放服务端游标'), '要给出人可读原因')
+  assert.ok(
+    String(brief['pausedReason']).includes('the server-side cursor'),
+    'it must give a human-readable reason',
+  )
   assert.notEqual(out.isError, true)
 
-  // 文本视图（AI 最先读到的那段）也必须否掉"失败"这个解读
-  assert.ok(out.text.includes('不是失败'), `布局大纲里要写清楚：${out.text.slice(0, 400)}`)
+  // The text view — the first thing an AI reads — must deny the "failure" reading too
+  assert.ok(
+    out.text.includes('not a failure'),
+    `the layout outline has to spell this out: ${out.text.slice(0, 400)}`,
+  )
   assert.ok(String(viewId).length > 0)
 })
 
-test('read_workspace：真错误的结果集 rowsUsable=false，两条路径不混流', async () => {
+test('read_workspace: a genuinely failed result set has rowsUsable=false; the two paths never merge', async () => {
   const h = harness()
   const { resultId } = await runningQuery(h)
   h.store.apply((draft) => {
@@ -284,7 +303,7 @@ test('read_workspace：真错误的结果集 rowsUsable=false，两条路径不�
   assert.ok(String(brief['error']).includes('QUERY_FAILED'))
 })
 
-test('briefResult：五种状态的 rowsUsable 判定只有一个出处', () => {
+test('briefResult: rowsUsable for all five statuses is decided in exactly one place', () => {
   const base = {
     id: 'res_x' as ResultId,
     connId: 'conn_x' as ConnId,
@@ -301,7 +320,7 @@ test('briefResult：五种状态的 rowsUsable 判定只有一个出处', () => 
   assert.equal(usable('error'), false)
 })
 
-test('run_query 回执：真错误仍然 isError=true', async () => {
+test('run_query receipt: a real error is still isError=true', async () => {
   const h = harness()
   const connId = await connect(h)
   const first = await h.bus.dispatch('query.run', { connId, text: 'select 1' }, 'ui')

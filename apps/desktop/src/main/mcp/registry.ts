@@ -1,9 +1,10 @@
 /**
- * 工具注册表。
+ * Tool registry.
  *
- * 可插拔的关键：`tools/` 下每个文件 default-export 一个 PeekTool（用 defineCommandTool /
- * defineReadTool 声明），注册表用 import.meta.glob 自动收集，**内核不需要知道有哪些工具**。
- * 新增一个工具 = 新建一个文件，不碰这里。
+ * The key to pluggability: every file under `tools/` default-exports one PeekTool (declared
+ * with defineCommandTool / defineReadTool), and the registry collects them via
+ * import.meta.glob, so **the core never needs to know which tools exist**.
+ * Adding a tool means adding a file — this module stays untouched.
  */
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -30,8 +31,9 @@ function isPeekTool(value: unknown): value is PeekTool {
 }
 
 /**
- * 自动收集 tools/ 下的全部工具。
- * eager: true —— 构建期静态展开，打包后依然可用（不依赖运行时文件系统）。
+ * Collect every tool under tools/ automatically.
+ * eager: true — expanded statically at build time, so it still works once bundled
+ * (no reliance on the filesystem at runtime).
  */
 export function collectBuiltinTools(): PeekTool[] {
   const modules = import.meta.glob<ToolModule>('./tools/*.ts', { eager: true })
@@ -42,10 +44,10 @@ export function collectBuiltinTools(): PeekTool[] {
     const mod = modules[path]
     const exported = mod?.default
     if (!isPeekTool(exported)) {
-      throw new Error(`MCP 工具文件 ${path} 必须 default-export 一个 PeekTool（见 executor.defineCommandTool / defineReadTool）`)
+      throw new Error(`MCP tool file ${path} must default-export a PeekTool (see executor.defineCommandTool / defineReadTool)`)
     }
     if (seen.has(exported.name)) {
-      throw new Error(`MCP 工具名重复：${exported.name}（${path}）`)
+      throw new Error(`Duplicate MCP tool name: ${exported.name} (${path})`)
     }
     seen.add(exported.name)
     tools.push(exported)
@@ -54,10 +56,10 @@ export function collectBuiltinTools(): PeekTool[] {
 }
 
 /* ================================================================== */
-/* 注册到 MCP server                                                    */
+/* Registration on an MCP server                                        */
 /* ================================================================== */
 
-/** ToolOutput → MCP 的 CallToolResult。工具错误一律走 isError，不抛协议异常。 */
+/** ToolOutput → MCP CallToolResult. Tool errors always travel via isError, never as protocol exceptions. */
 export function toCallToolResult(out: ToolOutput): CallToolResult {
   const content: CallToolResult['content'] = [{ type: 'text', text: out.text }]
   if (out.data !== undefined) {
@@ -67,8 +69,8 @@ export function toCallToolResult(out: ToolOutput): CallToolResult {
 }
 
 /**
- * 把一组工具注册到一个 McpServer 实例上。
- * 每个 HTTP session 一个 McpServer，但工具定义是共享的（无状态）。
+ * Register a set of tools on one McpServer instance.
+ * There is one McpServer per HTTP session, but the tool definitions are shared (they are stateless).
  */
 export function registerTools(server: McpServer, tools: readonly PeekTool[], ctx: ToolContext): void {
   for (const tool of tools) {
@@ -85,8 +87,9 @@ export function registerTools(server: McpServer, tools: readonly PeekTool[], ctx
           const out = await tool.run(args, ctx)
           return toCallToolResult(out)
         } catch (err) {
-          // 兜底：任何漏网的异常都收敛成结构化错误，server 绝不因单个工具崩掉
-          ctx.logger.log('error', `工具 ${tool.name} 抛出未捕获异常`, err)
+          // Safety net: any escaped exception collapses into a structured error — a single
+          // tool must never be able to take the server down.
+          ctx.logger.log('error', `Tool ${tool.name} threw an uncaught exception`, err)
           return toCallToolResult(errorOutput(toPeekError(err)))
         }
       },

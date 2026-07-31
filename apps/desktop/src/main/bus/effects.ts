@@ -6,12 +6,13 @@ import { CommandFailure, asPeekError } from './failure'
 import type { EffectIntent } from './intents'
 
 /**
- * 副作用执行阶段。
+ * The side-effect phase.
  *
- * 纯状态阶段登记的意图在这里按序执行，全部通过注入的 CommandDeps 走出去 ——
- * bus 不认识 Connection Manager，也不认识任何驱动。
- * 执行过程中产生的状态变化（连上了 / 失败了 / 取消成功）继续走 store.apply，
- * 于是 renderer 能看到 connecting → ready 的实时过渡。
+ * Intents registered during the pure state phase run here in order, all of them
+ * leaving through the injected CommandDeps — the bus knows neither the
+ * Connection Manager nor any driver. State changes produced along the way
+ * (connected / failed / cancelled) go back through store.apply, which is how the
+ * renderer sees the connecting → ready transition live.
  */
 
 export interface EffectRunnerCtx {
@@ -32,7 +33,9 @@ export async function runIntents(intents: readonly EffectIntent[], ctx: EffectRu
       if (intent.soft === true) {
         ctx.deps.notify?.({
           level: 'warn',
-          message: `${ctx.commandName} 的 ${intent.type} 未成功`,
+          // NotifyMessage has no localization channel, and this text is also read
+          // from the main-process log, so it stays plain English.
+          message: `${ctx.commandName}: the ${intent.type} effect did not succeed`,
           detail: error.message,
         })
         continue
@@ -116,7 +119,7 @@ async function runIntent(intent: EffectIntent, ctx: EffectRunnerCtx): Promise<vo
   }
 }
 
-/** 副作用失败时把状态机推到 error，避免视图永远停在 loading */
+/** On effect failure, push the state machine to error so a view never sits at loading forever. */
 function applyIntentFailure(
   intent: EffectIntent,
   error: ReturnType<typeof asPeekError>,

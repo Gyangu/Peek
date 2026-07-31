@@ -1,12 +1,22 @@
 import { peekError, toPeekError, type PeekError, type PeekErrorCode } from '@peek/core'
 
 /**
- * PostgreSQL 错误分类。
- * 把 pg 抛出的 DatabaseError（带 SQLSTATE）与 node 网络错误统一收敛成 PeekError，
- * 尽量给出精确 code，不依赖 toPeekError 的 INTERNAL 兜底。
+ * PostgreSQL error classification.
+ *
+ * Collapses everything the driver can throw — pg's `DatabaseError` (carrying a
+ * SQLSTATE) and node's network errnos — into a single `PeekError`, picking the
+ * most precise code available rather than falling back on `toPeekError`'s
+ * INTERNAL catch-all.
+ *
+ * **Nothing here is localizable.** The text produced by this module comes
+ * straight from the server or the socket layer and is passed through verbatim,
+ * with no `i18n` descriptor attached. `relation "usres" does not exist` is not
+ * prose, it is evidence: the user searches for it, diffs it against the server
+ * log, and spots the typo in it. `detail`, `driverCode` and `position` are
+ * likewise never translated.
  */
 
-/** pg 的 DatabaseError 结构（@types/pg 的 DatabaseError 字段都是可选的，这里只取需要的） */
+/** The shape of pg's DatabaseError (@types/pg marks every field optional; only these are used) */
 interface PgErrorShape {
   message: string
   code?: string
@@ -25,7 +35,8 @@ function asPgError(value: unknown): PgErrorShape | null {
   if (typeof value !== 'object' || value === null) return null
   const v = value as Record<string, unknown>
   if (typeof v['message'] !== 'string') return null
-  // pg 的 DatabaseError 一定带 severity + code（string），据此与普通 Error 区分
+  // pg's DatabaseError always carries severity + code (both strings); that is
+  // what separates it from a plain Error here
   if (typeof v['code'] !== 'string') return null
   const out: PgErrorShape = { message: v['message'], code: v['code'] }
   if (typeof v['detail'] === 'string') out.detail = v['detail']
@@ -39,16 +50,23 @@ function asPgError(value: unknown): PgErrorShape | null {
   return out
 }
 
-/** node 网络层错误码 → CONNECTION_FAILED */
+/** node network-layer errnos → CONNECTION_FAILED */
 const NET_ERROR_CODES = new Set([
   'ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ENETUNREACH',
   'ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'EAI_AGAIN', 'EACCES',
 ])
 
-/** SQLSTATE → PeekErrorCode。返回 null 表示按 class 前缀继续判断。 */
+/**
+ * SQLSTATE → PeekErrorCode.
+ *
+ * Two passes: an exact table for the codes worth distinguishing, then the
+ * two-character SQLSTATE class as a catch-all. Returning null means "no exact
+ * match, fall through to the class prefix".
+ */
 function codeFromSqlState(sqlState: string, message: string): PeekErrorCode | null {
   switch (sqlState) {
-    // query_canceled：PG 用同一个 SQLSTATE 表示"被取消"和"语句超时"，靠文案区分
+    // query_canceled: PG reuses one SQLSTATE for "cancelled" and "statement
+    // timed out"; the message text is the only thing telling them apart
     case '57014':
       return /statement timeout|lock timeout|idle-session timeout/i.test(message) ? 'TIMEOUT' : 'CANCELLED'
     case '42601': // syntax_error
@@ -94,7 +112,7 @@ function codeFromSqlState(sqlState: string, message: string): PeekErrorCode | nu
   }
 }
 
-/** 哪些错误值得让用户重试 */
+/** Which failures are worth the user's time to retry */
 function isRetryable(code: PeekErrorCode, sqlState: string | undefined): boolean {
   if (code === 'CONNECTION_FAILED' || code === 'CONNECTION_LOST' || code === 'TIMEOUT') return true
   if (sqlState === '40001' || sqlState === '40P01' || sqlState === '55P03') return true
@@ -102,15 +120,15 @@ function isRetryable(code: PeekErrorCode, sqlState: string | undefined): boolean
 }
 
 export interface MapPgErrorContext {
-  /** 出错时执行的语句，放进 detail 便于排查 */
+  /** The statement that failed; goes into `detail` to make the error diagnosable */
   sql?: string
-  /** 无法识别时的兜底 code */
+  /** Code to use when nothing matches */
   fallback?: PeekErrorCode
 }
 
 /**
- * 把任意 catch 到的东西映射成 PeekError。
- * 驱动里所有对外抛出的错误都必须过这里。
+ * Map anything caught into a PeekError.
+ * Every error this driver throws outward has to pass through here.
  */
 export function mapPgError(value: unknown, ctx: MapPgErrorContext = {}): PeekError {
   const fallback = ctx.fallback ?? 'QUERY_FAILED'
@@ -118,7 +136,7 @@ export function mapPgError(value: unknown, ctx: MapPgErrorContext = {}): PeekErr
   const pg = asPgError(value)
   if (pg && pg.code) {
     const sqlState = pg.code
-    // node 网络错误也走 code 字段，但不是 5 位 SQLSTATE
+    // node network errors also land in `code`, but they are not 5-char SQLSTATEs
     if (NET_ERROR_CODES.has(sqlState)) {
       return peekError('CONNECTION_FAILED', pg.message, {
         driverCode: sqlState,
@@ -141,9 +159,9 @@ export function mapPgError(value: unknown, ctx: MapPgErrorContext = {}): PeekErr
     })
   }
 
-  // 非 pg 错误：AbortError / 超时 / 普通 Error
+  // Not a pg error: AbortError, a timeout, or a plain Error
   if (value instanceof Error) {
-    if (value.name === 'AbortError') return peekError('CANCELLED', value.message || '操作已取消')
+    if (value.name === 'AbortError') return peekError('CANCELLED', value.message || 'Operation cancelled')
     const errno = (value as unknown as Record<string, unknown>)['code']
     if (typeof errno === 'string' && NET_ERROR_CODES.has(errno)) {
       return peekError('CONNECTION_FAILED', value.message, { driverCode: errno, retryable: true })
@@ -155,7 +173,7 @@ export function mapPgError(value: unknown, ctx: MapPgErrorContext = {}): PeekErr
   return toPeekError(value, fallback)
 }
 
-/** 抛出结构化错误（保持调用点简洁） */
+/** Throw a structured error (keeps call sites terse) */
 export function throwPeek(code: PeekErrorCode, message: string, detail?: string): never {
   throw peekError(code, message, detail === undefined ? undefined : { detail })
 }

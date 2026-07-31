@@ -1,5 +1,5 @@
 import {
-  peekError,
+  peekErrorMsg,
   type CollectionRef,
   type CollectionSchemaInfo,
   type ColumnDef,
@@ -13,17 +13,21 @@ import { relationLiteral } from './sql'
 import { isPeekableLogical, type PgTypeCatalog } from './type-catalog'
 
 /**
- * 命名空间树：database → schema → table/view，每层单独查、按需展开（懒加载）。
- * 全部走 pg_catalog —— information_schema 是一堆视图，大库上慢一个数量级。
+ * Namespace tree: database → schema → table/view. Each level is a separate query,
+ * expanded on demand (lazy loading).
+ *
+ * Everything reads pg_catalog directly. information_schema is a stack of views
+ * and is an order of magnitude slower on a large database.
  */
 
 /* ------------------------------------------------------------------ */
-/* 节点 id 编解码                                                       */
+/* Node id encoding                                                    */
 /* ------------------------------------------------------------------ */
 
 /**
- * 节点 id 形如 'db:postgres' / 'schema:public' / 'relation:public.harness'。
- * 名字里可能有 '.' ':' '%'，用最小转义保证可逆，同时常见场景仍然可读。
+ * Node ids look like 'db:postgres' / 'schema:public' / 'relation:public.harness'.
+ * Names can contain '.', ':' and '%', so the encoding escapes exactly those three
+ * — enough to stay reversible while keeping the common case readable.
  */
 function encodeSeg(raw: string): string {
   return raw.replace(/%/g, '%25').replace(/:/g, '%3A').replace(/\./g, '%2E')
@@ -69,7 +73,7 @@ export function parseNodeId(id: string): ParsedNodeId {
 /* SQL                                                                 */
 /* ------------------------------------------------------------------ */
 
-/** 用户 schema：排除 pg_* 与 information_schema，public 排最前 */
+/** User schemas: pg_* and information_schema excluded, public sorted first */
 const SCHEMA_SQL = `
 SELECT n.nspname AS name,
        (SELECT count(*)
@@ -81,7 +85,7 @@ SELECT n.nspname AS name,
    AND left(n.nspname, 3) <> 'pg_'
  ORDER BY (n.nspname = 'public') DESC, n.nspname`
 
-/** 某 schema 下的表 / 视图 / 物化视图 / 分区表 / 外部表 */
+/** Tables / views / materialized views / partitioned tables / foreign tables in one schema */
 const RELATION_SQL = `
 SELECT c.relname AS name,
        c.relkind::text AS relkind,
@@ -133,7 +137,7 @@ SELECT c.reltuples::float8 AS est_rows,
  WHERE c.oid = $1::regclass`
 
 /* ------------------------------------------------------------------ */
-/* 实现                                                                */
+/* Implementation                                                      */
 /* ------------------------------------------------------------------ */
 
 const RELKIND_TO_NODE: Readonly<Record<string, NamespaceNodeKind>> = {
@@ -144,38 +148,45 @@ const RELKIND_TO_NODE: Readonly<Record<string, NamespaceNodeKind>> = {
   m: 'materializedView',
 }
 
-/** reltuples 为 -1 表示从未 ANALYZE 过，这时不给估算值 */
+/** reltuples of -1 means the relation was never ANALYZEd, so report no estimate */
 function estimateOf(raw: unknown): number | undefined {
   const n = typeof raw === 'number' ? raw : Number(raw)
   if (!Number.isFinite(n) || n < 0) return undefined
   return Math.round(n)
 }
 
+/**
+ * Row-count hint shown on a tree node.
+ *
+ * Deliberately an English literal, not a catalog message: this string is written
+ * into NamespaceNode.detail, which MCP reads as well as the sidebar, and the MCP
+ * surface stays English forever.
+ */
 function formatRows(n: number): string {
-  if (n < 1000) return `~${n} 行`
-  if (n < 1_000_000) return `~${(n / 1000).toFixed(1)}k 行`
-  return `~${(n / 1_000_000).toFixed(1)}M 行`
+  if (n < 1000) return `~${n} rows`
+  if (n < 1_000_000) return `~${(n / 1000).toFixed(1)}k rows`
+  return `~${(n / 1_000_000).toFixed(1)}M rows`
 }
 
 export interface IntrospectDeps {
   pool: Pool
   catalog: PgTypeCatalog
-  /** 当前连接的库名 */
+  /** Database this connection is attached to */
   database: string
-  /** 服务端版本，挂在 database 节点的 detail 上 */
+  /** Server version, surfaced on the database node's detail line */
   serverVersion?: string
 }
 
 export class PgIntrospector {
   private readonly deps: IntrospectDeps
-  /** describeCollection 结果缓存，key 为 schema + '.' + name */
+  /** describeCollection cache, keyed by schema + '.' + name */
   private readonly describeCache = new Map<string, CollectionSchemaInfo>()
 
   constructor(deps: IntrospectDeps) {
     this.deps = deps
   }
 
-  /** 手动刷新失效（PLAN 第 8 节：树懒加载 + 缓存 + 手动刷新失效） */
+  /** Invalidate on manual refresh (PLAN section 8: lazy tree + cache + manual invalidation) */
   invalidate(): void {
     this.describeCache.clear()
   }
@@ -189,10 +200,11 @@ export class PgIntrospector {
       case 'schema':
         return this.relationNodes(parsed.name)
       case 'relation':
-        // 表节点是叶子：列信息走 describeCollection，不进树
+        // A relation node is a leaf: its columns come from describeCollection,
+        // they are not part of the tree
         return []
       case 'unknown':
-        throw peekError('BAD_REQUEST', `无法识别的节点 id: ${parentId}`)
+        throw peekErrorMsg('BAD_REQUEST', 'error.introspect.unknownNodeId', { nodeId: parentId })
     }
   }
 
@@ -217,7 +229,7 @@ export class PgIntrospector {
         name: r.name,
         kind: 'schema' as const,
         hasChildren: count > 0,
-        detail: `${count} 个对象`,
+        detail: count === 1 ? '1 object' : `${count} objects`,
       }
     })
   }
@@ -248,10 +260,10 @@ export class PgIntrospector {
     })
   }
 
-  /** 关系必须是 relation 类型的 ref，其余（keyPattern / vectorCollection）不属于 PG */
+  /** The ref has to be a relation; the others (keyPattern / vectorCollection) belong to other drivers */
   static requireRelation(ref: CollectionRef): RelationRef {
     if (ref.kind !== 'relation') {
-      throw peekError('BAD_REQUEST', `PostgreSQL 只支持 relation 类型的集合，收到 ${ref.kind}`)
+      throw peekErrorMsg('BAD_REQUEST', 'error.introspect.collectionKindUnsupported', { kind: ref.kind })
     }
     return ref
   }
@@ -282,7 +294,7 @@ export class PgIntrospector {
     ])
 
     if (cols.length === 0) {
-      throw peekError('NOT_FOUND', `表不存在或没有可见列: ${key}`)
+      throw peekErrorMsg('NOT_FOUND', 'error.introspect.relationNotFound', { name: key })
     }
 
     const pkSet = new Set(pks.map((p) => p.name))
@@ -321,7 +333,7 @@ export class PgIntrospector {
     return info
   }
 
-  /** 列 hint：供 collectionScan 的首帧 schema 补 primaryKey / nullable */
+  /** Column hints that fill in primaryKey / nullable on collectionScan's first-frame schema */
   async columnHints(
     ref: CollectionRef,
   ): Promise<ReadonlyMap<string, { nullable?: boolean; primaryKey?: boolean }>> {
@@ -335,7 +347,7 @@ export class PgIntrospector {
         hints.set(c.name, hint)
       }
     } catch {
-      // 拿不到就算了，schema 少两个可选字段不影响扫描
+      // Not worth failing over: the scan works fine with two optional fields missing
     }
     return hints
   }

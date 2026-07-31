@@ -1,12 +1,13 @@
 import type { Draft } from 'immer'
 import type { ViewCloseResult, ViewPatch, ViewUpdateResult, ViewState } from '@peek/core'
-import { fail } from '../failure'
+import { failMsg } from '../failure'
 import type { CommandHandlerMap } from '../types'
 import { autoFetch, closeView, openView, requireView } from './shared'
 
 /**
- * view.* 的纯状态实现。
- * "开表 / 改筛选 / 翻页"在 PLAN 里统统是 view.*，所以 update 才是最常走的路径。
+ * The pure state implementation of view.*.
+ * In PLAN, "open a table", "change a filter" and "page through results" are all
+ * view.* — which is why `update` is the hottest path here.
  */
 export const viewHandlers = {
   'view.open': {
@@ -24,11 +25,16 @@ export const viewHandlers = {
     reduce(draft, input, ctx) {
       const view = requireView(draft, input.viewId)
       if (view.kind !== input.patch.kind) {
-        fail('BAD_REQUEST', `视图 ${input.viewId} 是 ${view.kind}，不能用 ${input.patch.kind} 补丁更新`)
+        failMsg('BAD_REQUEST', 'error.view.kindMismatch', {
+          viewId: input.viewId,
+          actual: view.kind,
+          expected: input.patch.kind,
+        })
       }
 
       const affectsFetch = applyViewPatch(view, input.patch)
-      // table / vector 改了取数参数就默认重取；query 视图要显式 query.run
+      // Changing fetch parameters on a table / vector view refetches by default;
+      // a query view needs an explicit query.run.
       const refresh = input.refresh ?? (affectsFetch && view.kind !== 'query')
 
       const result: ViewUpdateResult = { viewId: view.id }
@@ -51,8 +57,8 @@ export const viewHandlers = {
 } satisfies CommandHandlerMap
 
 /**
- * 按 kind 施加增量补丁（kind 已在外层校验过与视图一致）。
- * 返回是否动到了会影响取数结果的字段。
+ * Apply an incremental patch by kind (the caller has already checked that the
+ * kind matches the view). Returns whether any field that affects fetching changed.
  */
 function applyViewPatch(view: Draft<ViewState>, patch: ViewPatch): boolean {
   if (patch.title !== undefined) view.title = patch.title
@@ -86,7 +92,8 @@ function applyViewPatch(view: Draft<ViewState>, patch: ViewPatch): boolean {
         view.page.limit = patch.limit
         affects = true
       }
-      // 换了取数条件，旧的续拉游标（redis SCAN cursor / qdrant scroll）必须作废
+      // The fetch conditions changed, so the old continuation cursor (redis SCAN
+      // cursor / qdrant scroll) has to be invalidated.
       if (invalidatesCursor) delete view.cursorToken
       return affects
     }

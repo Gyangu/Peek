@@ -1,7 +1,7 @@
 /**
- * peek 的 MCP 服务（PLAN 第 7 节）。
+ * peek's MCP service (PLAN section 7).
  *
- * main 进程只需要这样接线：
+ * The main process only has to wire it up like this:
  *
  * ```ts
  * import { createMcpServer } from './mcp'
@@ -9,16 +9,17 @@
  * const mcp = createMcpServer({
  *   dispatch: (name, input, source) => commandBus.invoke(name, input, source),
  *   getSnapshot: () => snapshotWorkspace(store.getState()),
- *   introspect: (req) => connections.listChildren(req),      // 可选
- *   readResultRows: (req) => results.readRows(req),          // 可选
+ *   introspect: (req) => connections.listChildren(req),      // optional
+ *   readResultRows: (req) => results.readRows(req),          // optional
  *   logger: { log: (level, msg, detail) => console[...] },
  * })
- * await mcp.start()          // 绑 127.0.0.1:7332，写 ~/.peek/mcp.json
+ * await mcp.start()          // binds 127.0.0.1:7332, writes ~/.peek/mcp.json
  * app.on('will-quit', () => void mcp.close())
  * ```
  *
- * 新增一个 MCP 工具：在 `mcp/tools/` 下新建一个文件，default-export
- * `defineCommandTool({...})` 或 `defineReadTool({...})`。注册表会自动收集，内核不用改。
+ * To add an MCP tool: create a file under `mcp/tools/` that default-exports
+ * `defineCommandTool({...})` or `defineReadTool({...})`. The registry picks it up
+ * automatically — the core needs no changes.
  */
 
 export { createMcpServer, type CreateMcpServerOptions, type McpServerHandle } from './server'

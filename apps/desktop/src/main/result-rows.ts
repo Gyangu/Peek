@@ -3,6 +3,7 @@ import type { IpcMain, WebContents } from 'electron'
 import {
   IPC,
   peekError,
+  peekErrorMsg,
   type ResultId,
   type ResultRowsReplyMessage,
   type ResultRowsRequestMessage,
@@ -10,14 +11,16 @@ import {
 import type { ResultRowsSlice } from './mcp'
 
 /**
- * 结果集取样（main ← renderer）。
+ * Result-set sampling (main ← renderer).
  *
- * PLAN 第 3 节：数据面 chunk 由 driver host 经 MessagePort **直发 renderer**，
- * main 只有 ResultMeta，手里没有一行数据。而 MCP 的 run_query 要给 AI 回几行样本，
- * 所以只能反向问 renderer 要——它的列式缓存里正好有。
+ * PLAN section 3: data-plane chunks go from the driver host **straight to the
+ * renderer** over a MessagePort, so main holds ResultMeta and not a single row.
+ * But MCP's run_query owes the AI a few sample rows, so main has to ask the
+ * renderer — whose columnar cache happens to have exactly that.
  *
- * 这条通道只用于**取样**（默认 20 行，上限由调用方控制），
- * 绝不是"把结果集搬回 main"的后门：全量数据永远只在 renderer 缓存里。
+ * This channel is for **sampling only** (20 rows by default, with the ceiling set
+ * by the caller). It is not a back door for hauling result sets back into main:
+ * the full data lives in the renderer cache and nowhere else.
  */
 export interface ResultRowsBroker {
   read(req: { resultId: ResultId; limit: number; timeoutMs?: number }): Promise<ResultRowsSlice>
@@ -26,9 +29,9 @@ export interface ResultRowsBroker {
 
 export interface ResultRowsBrokerOptions {
   ipcMain: IpcMain
-  /** 当前可问的 renderer；没有窗口时取样直接失败 */
+  /** The renderers available to ask; with no window, sampling fails outright */
   renderers: () => readonly WebContents[]
-  /** 单次取样超时（renderer 忙或没装 handler 时不能一直挂着） */
+  /** Per-sample timeout, so a busy renderer or a missing handler cannot hang the call forever */
   timeoutMs?: number
 }
 
@@ -77,8 +80,8 @@ export function createResultRowsBroker(options: ResultRowsBrokerOptions): Result
       const target = renderers().find((wc) => !wc.isDestroyed())
       if (!target) {
         return Promise.reject(
-          peekError('INTERNAL', '没有可用的界面窗口，无法取样结果集', {
-            detail: '行数据只存在于 renderer 的结果缓存里（chunk 不经过 main）。',
+          peekErrorMsg('INTERNAL', 'error.result.sampleNoWindow', undefined, {
+            detail: 'Row data exists only in the renderer result cache (chunks bypass main).',
           }),
         )
       }
@@ -94,8 +97,10 @@ export function createResultRowsBroker(options: ResultRowsBrokerOptions): Result
         const timer = setTimeout(() => {
           pending.delete(requestId)
           reject(
-            peekError('TIMEOUT', '向界面取样结果集超时', {
-              detail: '界面可能还没接上取样通道，或结果集已被缓存淘汰。',
+            peekErrorMsg('TIMEOUT', 'error.result.sampleTimedOut', undefined, {
+              detail:
+                'The window may not have attached the sampling channel yet, or the result '
+                + 'set may have been evicted from its cache.',
               retryable: true,
             }),
           )
@@ -109,13 +114,13 @@ export function createResultRowsBroker(options: ResultRowsBrokerOptions): Result
       ipcMain.off(IPC.RESULT_ROWS_REPLY, listener)
       for (const [id] of [...pending]) {
         const entry = settle(id)
-        entry?.reject(peekError('CANCELLED', '取样通道已关闭'))
+        entry?.reject(peekErrorMsg('CANCELLED', 'error.result.sampleChannelClosed'))
       }
     },
   }
 }
 
-/** renderer 的应答同样是不可信数据，逐字段校验后再用 */
+/** A renderer reply is untrusted data too: validate field by field before use. */
 function readReply(raw: unknown): ResultRowsReplyMessage | null {
   if (typeof raw !== 'object' || raw === null) return null
   const rec = raw as Record<string, unknown>
@@ -138,15 +143,17 @@ function readReply(raw: unknown): ResultRowsReplyMessage | null {
 
   const error = rec['error']
   if (typeof error !== 'object' || error === null) {
-    return { requestId, ok: false, error: peekError('INTERNAL', '界面取样失败') }
+    return { requestId, ok: false, error: peekErrorMsg('INTERNAL', 'error.result.sampleFailed') }
   }
   const err = error as Record<string, unknown>
   return {
     requestId,
     ok: false,
-    error: peekError(
-      'INTERNAL',
-      typeof err['message'] === 'string' ? err['message'] : '界面取样失败',
-    ),
+    // The renderer's own message is passed through verbatim (driver-style text,
+    // never translated); only the fallback comes from the catalog.
+    error:
+      typeof err['message'] === 'string'
+        ? peekError('INTERNAL', err['message'])
+        : peekErrorMsg('INTERNAL', 'error.result.sampleFailed'),
   }
 }

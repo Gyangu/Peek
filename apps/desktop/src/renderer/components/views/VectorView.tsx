@@ -1,16 +1,20 @@
 import type { ReactElement } from 'react'
 import type { VectorViewState } from '@peek/core'
+import { useT } from '../../i18n'
 import { useConnection } from '../../state/workspaceStore'
 import { DataGrid } from '../DataGrid'
 import { ViewError } from '../ViewError'
 
 /**
- * 向量检索视图。
+ * Vector search view.
  *
- * M1 只做占位：结果一旦有 resultId 就照常走列式缓存 + 虚拟化表格展示
- * （score / payload 就是普通列），真正的检索入口与向量编辑留到 M4（Qdrant）。
+ * A placeholder in M1: once a result set exists it is displayed through the same
+ * columnar cache and virtualized grid as everything else (score and payload are
+ * ordinary columns). The search entry point and vector editing arrive with M4
+ * (Qdrant).
  */
 export function VectorView({ view }: { view: VectorViewState }): ReactElement {
+  const t = useT()
   const conn = useConnection(view.connId)
   const dim = view.queryVec?.length
 
@@ -19,23 +23,24 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
       <div className="toolbar">
         <span>{conn?.label ?? view.connId}</span>
         <span className="sep" />
+        {/* Collection name and `topK` are API-level identifiers, left untranslated. */}
         <span className="mono">{view.collection}</span>
         <span className="sep" />
         <span>topK {view.topK}</span>
         {dim ? (
           <>
             <span className="sep" />
-            <span>查询向量 {dim} 维</span>
+            <span>{t('vector.queryVector', { dim })}</span>
           </>
         ) : null}
         {view.queryText ? (
           <>
             <span className="sep" />
-            <span title={view.queryText}>文本入口</span>
+            <span title={view.queryText}>{t('vector.textQuery')}</span>
           </>
         ) : null}
         <span className="grow" />
-        <span style={{ color: 'var(--fg-faint)' }}>M4 完善</span>
+        <span style={{ color: 'var(--fg-faint)' }}>{t('vector.plannedM4')}</span>
       </div>
 
       <ViewError error={view.error} />
@@ -43,7 +48,7 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
       <DataGrid
         connId={view.connId}
         resultId={view.resultId}
-        emptyHint="向量检索视图（M4 实现检索入口）"
+        emptyHint={t('vector.notImplemented')}
       />
     </>
   )

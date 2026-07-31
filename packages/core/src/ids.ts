@@ -1,13 +1,16 @@
 import { z } from 'zod'
 
 /**
- * 品牌类型（branded types）。
- * 全部用 zod 的 .brand() 生成，保证 "zod schema 与 TS 类型同源"——
- * 校验器和类型是同一个东西，不存在写两遍走样的可能。
+ * Branded types.
  *
- * 想从裸 string 拿到品牌类型有两条路：
- *   1. 走 schema：`ConnIdSchema.parse(raw)`（外部输入必须走这条）
- *   2. 走构造器：`asConnId(raw)` / `newConnId()`（内部已知安全时用）
+ * All of them come from zod's `.brand()`, which keeps the schema and the TS type
+ * from a single source — the validator *is* the type, so there is no second
+ * declaration to drift out of sync.
+ *
+ * Two ways to turn a bare string into a branded one:
+ *   1. Through the schema: `ConnIdSchema.parse(raw)` — mandatory for external input.
+ *   2. Through a constructor: `asConnId(raw)` / `newConnId()` — for values already
+ *      known to be safe internally.
  */
 
 export const ConnIdSchema = z.string().min(1).brand<'ConnId'>()
@@ -19,16 +22,16 @@ export type ViewId = z.infer<typeof ViewIdSchema>
 export const PanelIdSchema = z.string().min(1).brand<'PanelId'>()
 export type PanelId = z.infer<typeof PanelIdSchema>
 
-/** 平铺树里 split 节点的 id，layout.setRatio 靠它定位 */
+/** Id of a split node in the tiled layout tree; layout.setRatio addresses splits by it */
 export const SplitIdSchema = z.string().min(1).brand<'SplitId'>()
 export type SplitId = z.infer<typeof SplitIdSchema>
 
-/** 一次查询/扫描的结果集 id，chunk 流靠它归属 */
+/** Id of one query's or scan's result set; every chunk in the stream is attributed by it */
 export const ResultIdSchema = z.string().min(1).brand<'ResultId'>()
 export type ResultId = z.infer<typeof ResultIdSchema>
 
 /* ------------------------------------------------------------------ */
-/* 断言式构造器：仅用于内部已知安全的字符串                                 */
+/* Assertion constructors: only for strings already known to be safe    */
 /* ------------------------------------------------------------------ */
 
 export const asConnId = (raw: string): ConnId => raw as ConnId
@@ -38,15 +41,18 @@ export const asSplitId = (raw: string): SplitId => raw as SplitId
 export const asResultId = (raw: string): ResultId => raw as ResultId
 
 /* ------------------------------------------------------------------ */
-/* id 生成                                                             */
+/* Id generation                                                       */
 /* ------------------------------------------------------------------ */
 
 let seq = 0
 
 /**
- * 生成带前缀的短 id。进程内单调递增 + 时间戳 + 随机尾巴，
- * 跨进程（main / driver host）也不会撞。
- * 刻意不用 crypto.randomUUID：renderer 在 file:// 下未必是 secure context。
+ * Generate a short, prefixed id. A per-process monotonic counter plus a timestamp
+ * plus a random tail, which keeps ids from colliding across processes (main and
+ * the driver hosts) too.
+ *
+ * `crypto.randomUUID` is deliberately avoided: the renderer is not guaranteed to
+ * be a secure context under `file://`.
  */
 export function makeId(prefix: string): string {
   seq += 1
@@ -61,5 +67,5 @@ export const newViewId = (): ViewId => asViewId(makeId('view'))
 export const newPanelId = (): PanelId => asPanelId(makeId('panel'))
 export const newSplitId = (): SplitId => asSplitId(makeId('split'))
 export const newResultId = (): ResultId => asResultId(makeId('res'))
-/** Command 信封 id，非品牌类型，纯字符串 */
+/** Command envelope id — a plain string, deliberately not branded */
 export const newCommandId = (): string => makeId('cmd')

@@ -20,9 +20,11 @@ import {
 import { DriverHost, type HostChannelLike, type HostPortLike } from '../host-runtime'
 
 /**
- * driver host 协议端到端：用一对内存假端口模拟 main ↔ host ↔ renderer，
- * 验证控制面 RPC、数据面 chunk 直发、ack 窗口背压、取消。
- * 完全不 import electron —— utilityProcess 里能跑的东西，这里就能跑。
+ * End-to-end driver host protocol: a pair of in-memory fake ports stands in for
+ * main ↔ host ↔ renderer, covering control-plane RPC, chunks delivered straight
+ * over the data plane, ack-window backpressure and cancellation.
+ * Nothing from electron is imported — whatever runs inside a utilityProcess runs
+ * here.
  */
 
 const TEST_URL = process.env['PEEK_TEST_PG_URL'] ?? 'postgresql://postgres@localhost:5432/postgres'
@@ -33,7 +35,7 @@ const CONFIG: PostgresConnectionConfig = {
   applicationName: 'peek-host-test',
 }
 
-/** 假的 main ↔ host 控制通道 */
+/** Fake main ↔ host control channel */
 class FakeChannel implements HostChannelLike {
   readonly outbound: HostOutbound[] = []
   private readonly listeners: ((e: { data: unknown; ports?: readonly HostPortLike[] }) => void)[] = []
@@ -46,7 +48,7 @@ class FakeChannel implements HostChannelLike {
     this.listeners.push(listener)
   }
 
-  /** 模拟 main 发消息给 host */
+  /** Simulate main sending a message to the host */
   send(data: HostInbound, ports?: readonly HostPortLike[]): void {
     for (const l of this.listeners) l(ports ? { data, ports } : { data })
   }
@@ -60,7 +62,7 @@ class FakeChannel implements HostChannelLike {
   }
 }
 
-/** 假的 host → renderer 数据面端口 */
+/** Fake host → renderer data-plane port */
 class FakePort implements HostPortLike {
   readonly received: ResultStreamMessage[] = []
   private readonly listeners: ((e: { data: unknown }) => void)[] = []
@@ -78,7 +80,7 @@ class FakePort implements HostPortLike {
     this.started = true
   }
 
-  /** 模拟 renderer 回 ack / cancel */
+  /** Simulate the renderer replying with ack / cancel */
   send(msg: ResultStreamAck): void {
     for (const l of this.listeners) l({ data: msg })
   }
@@ -92,7 +94,7 @@ class FakePort implements HostPortLike {
 
 let ridSeq = 0
 
-/** 在指定通道上发一条 RPC 并等它的响应 */
+/** Send one RPC on the given channel and await its response */
 async function callOn<M extends HostRequest['method']>(
   ch: FakeChannel,
   method: M,
@@ -101,7 +103,7 @@ async function callOn<M extends HostRequest['method']>(
   ridSeq += 1
   const myRid = ridSeq
   ch.send({ kind: 'req', rid: myRid, method, params } as HostRequest)
-  await waitFor(() => ch.responses().some((r) => r.rid === myRid), `RPC ${method} 的响应`)
+  await waitFor(() => ch.responses().some((r) => r.rid === myRid), `the response to RPC ${method}`)
   const res = ch.responses().find((r) => r.rid === myRid)
   assert.ok(res)
   return res
@@ -110,25 +112,27 @@ async function callOn<M extends HostRequest['method']>(
 async function waitFor(predicate: () => boolean, label: string, timeoutMs = 8000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (!predicate()) {
-    if (Date.now() > deadline) throw new Error(`等待超时: ${label}`)
+    if (Date.now() > deadline) throw new Error(`timed out waiting for: ${label}`)
     await new Promise((r) => setTimeout(r, 10))
   }
 }
 
-/** 稳定一小会儿，用来断言"不该再来更多帧了" */
+/** Settle briefly, so "no further frames should arrive" can be asserted */
 async function settle(ms = 250): Promise<void> {
   await new Promise((r) => setTimeout(r, ms))
 }
 
-describe('driver host 协议', () => {
+describe('driver host protocol', () => {
   let channel: FakeChannel
   let host: DriverHost
   let port: FakePort
 
   /**
-   * 发一条 RPC 并等它的响应。
-   * 这里不复用 callOn：M 还是类型变量时 `Extract<HostRequest, {method: M}>['params']`
-   * 无法安全地转交给另一个泛型函数（TS 会把它摊成所有 params 的交集）。
+   * Send one RPC and await its response.
+   * This deliberately does not delegate to callOn: while M is still a type
+   * variable, `Extract<HostRequest, {method: M}>['params']` cannot be handed
+   * safely to another generic function (TS collapses it to the intersection of
+   * every params type).
    */
   async function call<M extends HostRequest['method']>(
     method: M,
@@ -139,7 +143,7 @@ describe('driver host 协议', () => {
     channel.send({ kind: 'req', rid: myRid, method, params } as HostRequest)
     await waitFor(
       () => channel.responses().some((r) => r.rid === myRid),
-      `RPC ${method} 的响应`,
+      `the response to RPC ${method}`,
     )
     const res = channel.responses().find((r) => r.rid === myRid)
     assert.ok(res)
@@ -147,19 +151,21 @@ describe('driver host 协议', () => {
   }
 
   /**
-   * 表的真实行数。测试库是活库（其它进程会往里写），行数断言只能以 count(*) 为基准。
-   * 走 query.run + 数据面读回，顺便证明这条链路本身是通的。
+   * The table's real row count. The test database is live (other processes write
+   * to it), so row-count assertions can only be measured against count(*).
+   * Going through query.run and reading the result back off the data plane also
+   * proves that path works.
    */
   async function rowCountOf(table: string): Promise<number> {
     const resultId = newResultId()
     await call('query.run', { resultId, text: `SELECT count(*)::int4 AS n FROM ${table}` })
     await waitFor(
       () => channel.events().some((e) => e.type === 'result.done' && e.resultId === resultId),
-      'count 查询收尾',
+      'the count query to finish',
     )
     const frame = port.chunks().find((f) => f.resultId === resultId)
     const n = frame?.cols[0]?.[0]
-    assert.equal(typeof n, 'number', 'count(*) 必须回一个数字')
+    assert.equal(typeof n, 'number', 'count(*) must come back as a number')
     return n as number
   }
 
@@ -178,7 +184,7 @@ describe('driver host 协议', () => {
     await host.dispose()
   })
 
-  it('ready 事件与 connect 响应带回能力集', () => {
+  it('emits ready and returns the capability set with the connect response', () => {
     const ready = channel.events().find((e) => e.type === 'ready')
     assert.ok(ready)
     const statuses = channel.events().filter((e) => e.type === 'status').map((e) => e.status)
@@ -191,17 +197,17 @@ describe('driver host 协议', () => {
       'cancel', 'collectionScan', 'introspect', 'tabularQuery', 'valuePeek',
     ])
     assert.equal(result.serverInfo?.flavor, 'PostgreSQL')
-    assert.equal(port.started, true, 'attachPort 后必须 start()')
+    assert.equal(port.started, true, 'attachPort must be followed by start()')
   })
 
-  it('introspect.children 走 RPC 返回 3 张表', async () => {
+  it('introspect.children returns the 3 tables over RPC', async () => {
     const res = await call('introspect.children', { parentId: 'schema:public' })
     assert.ok(res.ok)
     const result = res.result as HostResult<'introspect.children'>
     assert.deepEqual(result.nodes.map((n) => n.name).sort(), ['account', 'harness', 'document'])
   })
 
-  it('collection.scan 的结果只走 MessagePort，不走控制面', async () => {
+  it('collection.scan results travel only over the MessagePort, never the control plane', async () => {
     const expected = await rowCountOf('public.harness')
     const resultId = newResultId()
     const before = port.received.length
@@ -212,25 +218,25 @@ describe('driver host 协议', () => {
     assert.ok(res.ok)
     const result = res.result as HostResult<'collection.scan'>
     assert.equal(result.resultId, resultId)
-    // 控制面响应里没有任何行数据
+    // Not a single row of data in the control-plane response
     assert.deepEqual(Object.keys(result), ['resultId'])
 
     await waitFor(
       () => channel.events().some((e) => e.type === 'result.done' && e.resultId === resultId),
-      'result.done 事件',
+      'the result.done event',
     )
     const frames = port.chunks().slice(before)
     const mine = frames.filter((f) => f.resultId === resultId)
     assert.equal(mine.length, 1)
     assert.equal(mine[0]?.rowCount, expected)
     assert.ok(mine[0]?.done)
-    assert.ok(mine[0]?.schema, '首帧带 schema')
+    assert.ok(mine[0]?.schema, 'the first frame carries the schema')
 
     const schemaEvt = channel.events().find((e) => e.type === 'result.schema' && e.resultId === resultId)
-    assert.ok(schemaEvt, 'main 侧应该收到 result.schema 用来填 ResultMeta')
+    assert.ok(schemaEvt, 'main must receive result.schema to populate ResultMeta')
   })
 
-  it('ack 窗口生效：未确认帧达到 ACK_WINDOW 就停发', async () => {
+  it('the ack window holds: sending stops once ACK_WINDOW frames are unacknowledged', async () => {
     const resultId = newResultId()
     const res = await call('query.run', {
       resultId,
@@ -240,30 +246,30 @@ describe('driver host 协议', () => {
     assert.ok(res.ok)
 
     const mine = (): ChunkFrame[] => port.chunks().filter((f) => f.resultId === resultId)
-    await waitFor(() => mine().length >= ACK_WINDOW, `前 ${ACK_WINDOW} 帧`)
+    await waitFor(() => mine().length >= ACK_WINDOW, `the first ${ACK_WINDOW} frames`)
     await settle()
-    assert.equal(mine().length, ACK_WINDOW, `没有 ack 时最多只能发 ${ACK_WINDOW} 帧`)
+    assert.equal(mine().length, ACK_WINDOW, `without an ack at most ${ACK_WINDOW} frames may be sent`)
 
-    // 确认到 seq=1，窗口腾出 2 个位置
+    // Acking through seq=1 frees two slots in the window
     port.send({ t: 'ack', resultId, seq: 1 })
-    await waitFor(() => mine().length >= ACK_WINDOW + 2, '窗口推进后的新帧')
+    await waitFor(() => mine().length >= ACK_WINDOW + 2, 'the new frames released by the advanced window')
     await settle()
-    assert.equal(mine().length, ACK_WINDOW + 2, '窗口只放行了腾出来的名额')
+    assert.equal(mine().length, ACK_WINDOW + 2, 'the window released exactly the slots that were freed')
 
-    // 收尾：一路 ack 到底，确认能正常 done
+    // Wrap up: ack all the way through and confirm it reaches done
     let guard = 0
     while (!channel.events().some((e) => e.type === 'result.done' && e.resultId === resultId)) {
       const last = mine().length - 1
       port.send({ t: 'ack', resultId, seq: last })
       await settle(20)
       guard += 1
-      if (guard > 400) throw new Error('ack 推进异常，结果集没能收尾')
+      if (guard > 400) throw new Error('ack progress stalled; the result set never finished')
     }
     const done = channel.events().find((e) => e.type === 'result.done' && e.resultId === resultId)
     assert.equal(done?.type === 'result.done' ? done.rows : -1, 200)
   })
 
-  it('renderer 从数据面发 cancel，长查询立刻被打断', async () => {
+  it('a cancel from the renderer over the data plane interrupts a long query at once', async () => {
     const resultId = newResultId()
     const res = await call('query.run', { resultId, text: 'SELECT pg_sleep(30)' })
     assert.ok(res.ok)
@@ -272,7 +278,7 @@ describe('driver host 协议', () => {
 
     await waitFor(
       () => channel.events().some((e) => e.type === 'result.error' && e.resultId === resultId),
-      'result.error 事件',
+      'the result.error event',
       6000,
     )
     const evt = channel.events().find((e) => e.type === 'result.error' && e.resultId === resultId)
@@ -281,7 +287,7 @@ describe('driver host 协议', () => {
     assert.ok(errMsg?.t === 'error' && isPeekError(errMsg.error))
   })
 
-  it('不支持的能力返回 UNSUPPORTED_CAPABILITY 而不是崩溃', async () => {
+  it('an unsupported capability answers UNSUPPORTED_CAPABILITY instead of crashing', async () => {
     const res = await call('vector.search', { resultId: newResultId(), collection: 'x', topK: 1 })
     assert.equal(res.ok, false)
     assert.ok(!res.ok && res.error.code === 'UNSUPPORTED_CAPABILITY')
@@ -290,12 +296,12 @@ describe('driver host 协议', () => {
     assert.ok(!kv.ok && kv.error.code === 'UNSUPPORTED_CAPABILITY')
   })
 
-  it('value.peek 走 RPC 取回全量大值', async () => {
+  it('value.peek fetches a large value in full over RPC', async () => {
     const resultId: ResultId = newResultId()
     await call('query.run', { resultId, text: `SELECT repeat('m', 9000) AS big` })
     await waitFor(
       () => channel.events().some((e) => e.type === 'result.done' && e.resultId === resultId),
-      '大值查询收尾',
+      'the large-value query to finish',
     )
     const res = await call('value.peek', { ref: { kind: 'resultCell', resultId, row: 0, col: 0 } })
     assert.ok(res.ok)
@@ -304,23 +310,25 @@ describe('driver host 协议', () => {
     assert.equal(result.value.eof, true)
   })
 
-  it('数据面端口还没到就发起查询：cancel 能把泵叫醒，不留卡死的游标', async () => {
-    // 这条路径是作者显式支持的（"端口还没到就等着，绝不丢帧"），
-    // 但等待必须可打断，否则取消叫不醒泵，游标会一直占着连接和只读事务。
+  it('a query issued before the data-plane port arrives: cancel wakes the pump, leaving no wedged cursor', async () => {
+    // This path is supported on purpose ("wait for the port rather than drop
+    // frames"), but the wait has to be interruptible: otherwise cancellation
+    // cannot wake the pump and the cursor keeps its connection and read-only
+    // transaction forever.
     const lonely = new FakeChannel()
     const lonelyHost = new DriverHost(lonely)
     const connected = await callOn(lonely, 'connect', { connId: newConnId(), config: CONFIG })
     assert.ok(connected.ok)
 
     const resultId = newResultId()
-    // **不** attachPort，直接查
+    // Deliberately **no** attachPort — query straight away
     const started = await callOn(lonely, 'query.run', { resultId, text: 'SELECT 1 AS a' })
     assert.ok(started.ok)
     await settle(100)
     assert.equal(
       lonely.events().some((e) => e.type === 'result.done' || e.type === 'result.error'),
       false,
-      '没有数据面端口时不该产帧',
+      'no frames may be produced while there is no data-plane port',
     )
 
     const cancelled = await callOn(lonely, 'cancel', { resultId })
@@ -329,7 +337,7 @@ describe('driver host 协议', () => {
 
     await waitFor(
       () => lonely.events().some((e) => e.type === 'result.error' && e.resultId === resultId),
-      '取消后控制面必须收到 result.error（否则 main 侧永远停在 running）',
+      'after a cancel the control plane must receive result.error (otherwise main sits at running forever)',
       3000,
     )
     const evt = lonely.events().find((e) => e.type === 'result.error' && e.resultId === resultId)
@@ -337,13 +345,15 @@ describe('driver host 协议', () => {
     await lonelyHost.dispose()
   })
 
-  it('背压暂停超过空闲上限：主动收摊并报 paused（不是 error）', async () => {
-    // 压住 ack 不放行，泵停在 waitWindow；超过 idleAckMs 就必须关游标、还连接，
-    // 而不是无限期持有服务端资源（PLAN 第 8 节）。
+  it('a backpressure pause past the idle ceiling packs up and reports paused (not error)', async () => {
+    // Withhold every ack so the pump parks in waitWindow; past idleAckMs it must
+    // close the cursor and return the connection rather than hold server-side
+    // resources indefinitely (PLAN section 8).
     //
-    // **收摊的结局必须是 paused**。早先这里 reject 一个 TIMEOUT PeekError，
-    // 于是"按设计暂停"和真 SQL 错误挤在同一个 error 分支里，
-    // AI 通过 MCP 拿到回执时分不清「查询挂了」和「只是停下来了、数据是好的」。
+    // **Packing up has to end in paused.** This used to reject with a TIMEOUT
+    // PeekError, which put a by-design pause in the same error branch as a real
+    // SQL failure, leaving an AI reading the MCP receipt unable to tell "the
+    // query broke" from "it merely stopped, and the rows are good".
     const idle = new FakeChannel()
     const idleHost = new DriverHost(idle, { idleAckMs: 300 })
     const idlePort = new FakePort()
@@ -359,42 +369,45 @@ describe('driver host 协议', () => {
     })
     assert.ok(started.ok)
 
-    await waitFor(() => idlePort.chunks().length >= ACK_WINDOW, `前 ${ACK_WINDOW} 帧`)
+    await waitFor(() => idlePort.chunks().length >= ACK_WINDOW, `the first ${ACK_WINDOW} frames`)
     await waitFor(
       () => idle.events().some((e) => e.type === 'result.paused' && e.resultId === resultId),
-      '空闲超时后的 result.paused',
+      'result.paused after the idle timeout',
       3000,
     )
 
-    // 控制面：paused 事件带够 main 迁移状态机所需的一切
+    // Control plane: the paused event carries everything main needs to move its
+    // state machine
     const evt = idle.events().find((e) => e.type === 'result.paused' && e.resultId === resultId)
     assert.ok(evt?.type === 'result.paused')
     assert.equal(evt.paused.reason, 'idleAck')
     assert.equal(evt.paused.resumable, true)
-    assert.equal(evt.paused.rows, ACK_WINDOW, '已发出的行数如实汇报')
+    assert.equal(evt.paused.rows, ACK_WINDOW, 'the rows already delivered are reported truthfully')
     assert.ok(evt.paused.elapsedMs >= 0)
 
-    // 绝不能同时再报一条 error —— 那正是本轮要拆掉的混流
+    // No error may be reported alongside it — that conflation is exactly what
+    // this behaviour exists to prevent
     assert.equal(
       idle.events().some((e) => e.type === 'result.error' && e.resultId === resultId),
       false,
-      '暂停不得走 error 分支',
+      'a pause must not take the error branch',
     )
     assert.equal(
       idlePort.received.some((m) => m.t === 'error' && m.resultId === resultId),
       false,
-      '数据面也不得收到 error',
+      'the data plane must not receive an error either',
     )
 
-    // 数据面：一条 paused 消息，renderer 据此把状态改成"已暂停"而不是红色错误
+    // Data plane: one paused message, which is how the renderer shows "paused"
+    // instead of a red error
     const pausedMsg = idlePort.received.find((m) => m.t === 'paused' && m.resultId === resultId)
     assert.ok(pausedMsg?.t === 'paused' && pausedMsg.paused.resumable === true)
 
-    assert.equal(idlePort.chunks().length, ACK_WINDOW, '收摊前不会偷偷多发帧')
+    assert.equal(idlePort.chunks().length, ACK_WINDOW, 'no extra frames sneak out before packing up')
     await idleHost.dispose()
   })
 
-  it('暂停之后游标已释放：再补 ack 也不会又吐帧出来', async () => {
+  it('once paused the cursor is released: a late ack produces no further frames', async () => {
     const idle = new FakeChannel()
     const idleHost = new DriverHost(idle, { idleAckMs: 200 })
     const idlePort = new FakePort()
@@ -417,15 +430,15 @@ describe('driver host 协议', () => {
 
     idlePort.send({ t: 'ack', resultId, seq: framesAtPause - 1 })
     await settle(300)
-    assert.equal(idlePort.chunks().length, framesAtPause, '暂停是终态，迟到的 ack 不复活它')
+    assert.equal(idlePort.chunks().length, framesAtPause, 'paused is terminal; a late ack does not revive it')
     await idleHost.dispose()
   })
 
-  it('未连接时的请求返回 CONFLICT，不留悬挂 Promise', async () => {
+  it('a request made before connecting answers CONFLICT, leaving no dangling promise', async () => {
     const lonely = new FakeChannel()
     const lonelyHost = new DriverHost(lonely)
     lonely.send({ kind: 'req', rid: 1, method: 'introspect.children', params: { parentId: null } })
-    await waitFor(() => lonely.responses().length > 0, '未连接时的响应')
+    await waitFor(() => lonely.responses().length > 0, 'the response while not connected')
     const res = lonely.responses()[0]
     assert.ok(res && !res.ok && res.error.code === 'CONFLICT')
     await lonelyHost.dispose()

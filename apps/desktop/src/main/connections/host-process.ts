@@ -3,7 +3,7 @@ import type { MessagePortMain, UtilityProcess } from 'electron'
 import {
   isHostEvent,
   isHostResponse,
-  peekError,
+  peekErrorMsg,
   type ConnId,
   type DriverId,
   type HostEvent,
@@ -19,7 +19,8 @@ import {
 import { crashedError, timeoutError } from './classify'
 
 /* ================================================================== */
-/* 消息解析：utilityProcess 的 message 是 any，先收敛成 HostOutbound       */
+/* Message parsing: utilityProcess messages are `any`, so narrow to       */
+/* HostOutbound first                                                    */
 /* ================================================================== */
 
 function parseHostOutbound(raw: unknown): HostOutbound | null {
@@ -35,23 +36,23 @@ function parseHostOutbound(raw: unknown): HostOutbound | null {
 }
 
 /* ================================================================== */
-/* 单进程封装                                                          */
+/* Single-process wrapper                                              */
 /* ================================================================== */
 
 interface PendingCall {
   method: HostMethod
-  /** 类型在 call() 里已按 M 钉死，这里擦除存储 */
+  /** call() pins the type to M; storage erases it */
   resolve: (value: unknown) => void
   reject: (error: PeekError) => void
   timer: NodeJS.Timeout | null
 }
 
 export interface HostProcessHooks {
-  /** host 发来的单向事件（status / result.* / log） */
+  /** One-way events from the host (status / result.* / log) */
   onEvent(event: HostEvent): void
-  /** 进程退出。expected 表示是我们主动关的 */
+  /** The process exited. `expected` means we asked for it. */
   onExit(code: number, expected: boolean, detail?: string): void
-  /** stdout / stderr 转发 */
+  /** Forwarded stdout / stderr */
   onStdio(level: NotifyLevel, text: string): void
 }
 
@@ -63,24 +64,30 @@ export interface SpawnOptions {
 }
 
 /**
- * 一个 driver host（electron utilityProcess）的进程封装。
+ * Process wrapper around one driver host (an Electron utilityProcess).
  *
- * 职责边界：**只管进程与 RPC 配对**，不认识具体驱动语义。
- * - 生命周期：spawn → ready 握手 → 服务 → 优雅关闭 / 强杀
- * - 崩溃隔离：进程挂了，所有在飞 RPC 统一 reject DRIVER_CRASHED，资源就地回收
- * - 数据面：attachPort() 把 MessagePortMain 移交给进程，chunk 不经过 main
+ * Scope: **process lifecycle and RPC correlation only** — it knows nothing about
+ * driver semantics.
+ * - Lifecycle: spawn → ready handshake → serve → graceful shutdown / kill
+ * - Crash isolation: when the process dies, every in-flight RPC rejects with
+ *   DRIVER_CRASHED and resources are reclaimed on the spot
+ * - Data plane: attachPort() hands a MessagePortMain to the process, so chunks
+ *   never pass through main
  *
- * 与 child_process 的差异（写实现时踩过的点）：
- * - `utilityProcess.fork` 必须在 app ready 之后调用；
- * - 通信用 `postMessage` / `'message'` 事件（结构化克隆），**不是** `send`/`ipc`；
- * - 支持 transfer MessagePortMain，子进程侧用 `process.parentPort` 收；
- * - 没有 `SIGKILL` 级 API，`kill()` 走 SIGTERM 并保证进程被 reap。
+ * Differences from child_process (learned the hard way while writing this):
+ * - `utilityProcess.fork` must be called after the app is ready;
+ * - communication uses `postMessage` / the `'message'` event (structured clone),
+ *   **not** `send`/`ipc`;
+ * - MessagePortMain can be transferred, and the child receives it through
+ *   `process.parentPort`;
+ * - there is no SIGKILL-level API: `kill()` sends SIGTERM and guarantees the
+ *   process gets reaped.
  */
 export class DriverHostProcess {
   private child: UtilityProcess | null = null
   private childPid: number | undefined
   private ready = false
-  /** 我们主动要求退出（优雅关闭或强杀），用来区分崩溃与正常退出 */
+  /** We asked the process to exit (graceful shutdown or kill); distinguishes a crash from a clean exit */
   private expectedExit = false
   private exited = false
   private nextRid = 1
@@ -88,7 +95,7 @@ export class DriverHostProcess {
   private readyResolve: (() => void) | null = null
   private readyReject: ((err: PeekError) => void) | null = null
   private readyTimer: NodeJS.Timeout | null = null
-  /** V8 FatalError 的现场，退出时一并上报 */
+  /** The V8 FatalError report, reported along with the exit */
   private fatalDetail: string | undefined
 
   constructor(
@@ -109,12 +116,12 @@ export class DriverHostProcess {
   }
 
   /* ---------------------------------------------------------------- */
-  /* 生命周期                                                          */
+  /* Lifecycle                                                         */
   /* ---------------------------------------------------------------- */
 
-  /** spawn 并等待 ready 握手。失败时进程已被回收，抛 PeekError。 */
+  /** Spawn and wait for the ready handshake. On failure the process has already been reaped and a PeekError is thrown. */
   async spawn(opts: SpawnOptions): Promise<void> {
-    // utilityProcess.fork 必须在 app ready 之后
+    // utilityProcess.fork must be called after the app is ready
     if (!app.isReady()) await app.whenReady()
 
     const env = sanitizeEnv({
@@ -135,9 +142,12 @@ export class DriverHostProcess {
         },
       )
     } catch (err) {
-      throw peekError('DRIVER_CRASHED', `无法启动 driver 进程：${opts.entryPath}`, {
-        detail: err instanceof Error ? err.message : String(err),
-      })
+      throw peekErrorMsg(
+        'DRIVER_CRASHED',
+        'error.driver.hostSpawnFailed',
+        { entryPath: opts.entryPath },
+        { detail: err instanceof Error ? err.message : String(err) },
+      )
     }
 
     this.child = child
@@ -147,14 +157,14 @@ export class DriverHostProcess {
       this.readyResolve = resolve
       this.readyReject = reject
       this.readyTimer = setTimeout(() => {
-        this.settleReady(timeoutError('driver 进程 ready 握手', opts.readyMs))
+        this.settleReady(timeoutError('The driver ready handshake', opts.readyMs))
       }, opts.readyMs)
     })
 
     try {
       await readyPromise
     } catch (err) {
-      // 握手失败：不留僵尸
+      // Handshake failed: leave no zombie behind
       this.forceKill()
       throw err
     }
@@ -165,15 +175,15 @@ export class DriverHostProcess {
       this.childPid = child.pid
     })
 
-    // message 的声明类型是 any；这里用 unknown 收，内部自行收窄
+    // The declared message type is any; take it as unknown and narrow internally
     child.on('message', (raw: unknown) => {
       this.handleMessage(raw)
     })
 
     child.on('error', (type: string, location: string, report: string) => {
-      // V8 不可续错误：exit 一定紧随其后
+      // An unrecoverable V8 error: an exit always follows
       this.fatalDetail = `${type} @ ${location}\n${report}`
-      this.hooks.onStdio('error', `driver 进程致命错误：${type} @ ${location}`)
+      this.hooks.onStdio('error', `Fatal error in the driver process: ${type} @ ${location}`)
     })
 
     child.on('exit', (code: number) => {
@@ -195,16 +205,16 @@ export class DriverHostProcess {
   private handleMessage(raw: unknown): void {
     const msg = parseHostOutbound(raw)
     if (!msg) {
-      this.hooks.onStdio('warn', `收到无法识别的 driver 消息：${safeBrief(raw)}`)
+      this.hooks.onStdio('warn', `Unrecognized message from the driver: ${safeBrief(raw)}`)
       return
     }
 
-    // 容错：契约规定 host 起来先发 ready；万一驱动漏发，收到任何消息也视为已就绪
+    // Leniency: the contract says the host emits ready first, but if a driver forgets, any message counts as ready
     if (!this.ready) this.settleReady(null)
 
     if (isHostResponse(msg)) {
       const call = this.pending.get(msg.rid)
-      if (!call) return // 超时后迟到的响应，丢弃
+      if (!call) return // A response that arrived after the timeout; drop it
       this.pending.delete(msg.rid)
       if (call.timer) clearTimeout(call.timer)
       if (msg.ok) call.resolve(msg.result)
@@ -224,10 +234,10 @@ export class DriverHostProcess {
     const expected = this.expectedExit
     const detail = this.fatalDetail
 
-    // 未完成的 RPC 全部收敛成 DRIVER_CRASHED，绝不悬空
+    // Every unfinished RPC collapses into DRIVER_CRASHED; none is left dangling
     const error = expected
-      ? peekError('CONNECTION_LOST', 'driver 进程已关闭')
-      : crashedError(detail ?? `退出码 ${code}`)
+      ? peekErrorMsg('CONNECTION_LOST', 'error.driver.hostClosed')
+      : crashedError(detail ?? `Exit code ${code}.`)
     for (const [rid, call] of this.pending) {
       if (call.timer) clearTimeout(call.timer)
       call.reject(error)
@@ -262,13 +272,13 @@ export class DriverHostProcess {
   /* ---------------------------------------------------------------- */
 
   /**
-   * 发一条 RPC 并等响应。
-   * 失败一律 reject **PeekError 形状**（不是 Error 实例）。
+   * Send one RPC and await its response.
+   * Failures always reject with a **PeekError shape**, never an Error instance.
    */
   call<M extends HostMethod>(method: M, params: HostParams<M>, timeoutMs: number): Promise<HostResult<M>> {
     const child = this.child
     if (!child || this.exited) {
-      return Promise.reject(crashedError('driver 进程不在运行'))
+      return Promise.reject(crashedError('The driver process is not running.'))
     }
     const rid = this.nextRid++
     const req: HostRequestOf<M> = { kind: 'req', rid, method, params }
@@ -278,7 +288,7 @@ export class DriverHostProcess {
         timeoutMs > 0
           ? setTimeout(() => {
               this.pending.delete(rid)
-              reject(timeoutError(`driver 调用 ${method}`, timeoutMs))
+              reject(timeoutError(`The driver call ${method}`, timeoutMs))
             }, timeoutMs)
           : null
 
@@ -290,7 +300,7 @@ export class DriverHostProcess {
       })
 
       try {
-        // postMessage 走结构化克隆；req 的形状已由 HostRequestOf<M> 钉死
+        // postMessage uses structured clone; HostRequestOf<M> has already pinned req's shape
         child.postMessage(req)
       } catch (err) {
         this.pending.delete(rid)
@@ -300,21 +310,22 @@ export class DriverHostProcess {
     })
   }
 
-  /** 移交数据面端口：host 收到后把它作为 chunk 出口，数据不再经过 main */
+  /** Hand over the data-plane port: the host uses it as its chunk outlet, and data stops passing through main. */
   attachPort(port: MessagePortMain): void {
     const child = this.child
-    if (!child || this.exited) throw crashedError('driver 进程不在运行')
+    if (!child || this.exited) throw crashedError('The driver process is not running.')
     const msg: HostInbound = { kind: 'attachPort', connId: this.connId }
     child.postMessage(msg, [port])
   }
 
   /* ---------------------------------------------------------------- */
-  /* 关闭                                                              */
+  /* Shutdown                                                          */
   /* ---------------------------------------------------------------- */
 
   /**
-   * 优雅关闭：disconnect → shutdown → 等退出 → 兜底强杀。
-   * 每一步都吞错，目标只有一个：进程一定死掉，资源一定回收。
+   * Graceful shutdown: disconnect → shutdown → wait for exit → kill as a last
+   * resort. Every step swallows errors, because there is only one goal: the
+   * process must die and its resources must be reclaimed.
    */
   async shutdown(opts: { disconnectMs: number; shutdownMs: number; exitMs: number }): Promise<void> {
     if (!this.alive) return
@@ -322,29 +333,29 @@ export class DriverHostProcess {
     try {
       await this.call('disconnect', {}, opts.disconnectMs)
     } catch {
-      /* 关连接失败不影响后续强杀 */
+      /* A failed disconnect must not stop the kill that follows */
     }
     try {
       await this.call('shutdown', {}, opts.shutdownMs)
     } catch {
-      /* 同上 */
+      /* Same here */
     }
     await this.waitExit(opts.exitMs)
     if (this.alive) this.forceKill()
   }
 
-  /** 强杀。PLAN 第 3 节：强制取消 = 杀进程。 */
+  /** Kill the process. PLAN section 3: a forced cancel *is* killing the process. */
   forceKill(): boolean {
     const child = this.child
     if (!child) return false
     this.expectedExit = true
     const killed = child.kill()
-    // kill() 之后 exit 事件通常会来；万一没来（进程已被 reap），主动收尾
+    // An exit event usually follows kill(); if it does not (the process was already reaped), wind things up ourselves
     if (!killed && !this.exited) this.handleExit(-1)
     return killed
   }
 
-  /** 等进程退出，超时返回 false */
+  /** Wait for the process to exit; returns false on timeout. */
   waitExit(ms: number): Promise<boolean> {
     if (this.exited) return Promise.resolve(true)
     return new Promise<boolean>((resolve) => {
@@ -363,10 +374,10 @@ export class DriverHostProcess {
 }
 
 /* ================================================================== */
-/* 小工具                                                              */
+/* Small helpers                                                       */
 /* ================================================================== */
 
-/** ForkOptions.env 不接受 undefined 值，先过滤 */
+/** ForkOptions.env rejects undefined values, so filter them out first. */
 function sanitizeEnv(src: Record<string, string | undefined>): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [k, v] of Object.entries(src)) {

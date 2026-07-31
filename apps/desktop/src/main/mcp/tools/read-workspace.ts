@@ -1,9 +1,10 @@
 /**
- * read_workspace —— 只读工具：让 AI "看见"当前界面。
+ * read_workspace — read-only tool that lets the AI "see" the current UI.
  *
- * 直接读 main 的 Workspace 真源快照（零 renderer 往返，PLAN 第 3 节）。
- * 返回布局树 + 各视图摘要：每个 panel 的位置、视图类型、所连库、所看的表/查询、
- * 当前行数/是否加载中。**不含任何结果集数据本体**——那在界面里。
+ * Reads the snapshot of main's Workspace source of truth directly (zero renderer round-trips,
+ * PLAN section 3). Returns the layout tree plus a summary of every view: where each panel sits,
+ * its view kind, the database it is connected to, the table or query it shows, its row count and
+ * whether it is still loading. **No result set data is ever included** — that lives in the UI.
  */
 
 import { z } from 'zod'
@@ -13,23 +14,24 @@ import { buildWorkspaceBrief, renderLayoutOutline, toJson, type BriefSection } f
 const SectionSchema = z.enum(['layout', 'views', 'connections', 'results'])
 
 const InputSchema = z.object({
-  /** 只取需要的部分，省 token；不给则全给 */
+  /** Fetch only the sections you need, to save tokens; omit for everything. */
   include: z.array(SectionSchema).min(1).optional(),
-  /** 附上原始布局树（含 split 的 id/dir/ratio，layout.setRatio 需要） */
+  /** Attach the raw layout tree (with each split's id/dir/ratio, which layout.setRatio needs). */
   withLayoutTree: z.boolean().optional(),
 })
 
 export default defineReadTool({
   kind: 'read',
   name: 'read_workspace',
-  title: '读取界面状态',
+  title: 'Read UI state',
   description:
-    '读取 peek 当前的界面状态：平铺布局树、每个面板里是什么视图、连的哪个库、' +
-    '正在看哪张表或哪条查询、结果集的行数与加载状态，以及所有连接的能力集。' +
-    '任何要改界面的操作之前都该先看一眼这个。返回不含结果集数据本体。' +
-    '结果集状态里 paused 表示"背压把流停住了，不是查询失败"——' +
-    '这种结果集的 rowsUsable 为 true，已加载的行可以直接用，重新执行即可继续取数；' +
-    '只有 error 才是真失败（rowsUsable=false）。',
+    "Read peek's current UI state: the tiled layout tree, which view sits in each panel, which " +
+    'database it is connected to, which table or query it is showing, each result set\'s row count ' +
+    'and loading status, and the capability set of every connection. ' +
+    'Read this before any operation that changes the UI. The response contains no result set data. ' +
+    'A result status of paused means "backpressure stopped the stream", not "the query failed": ' +
+    'such a result has rowsUsable=true, the rows already loaded can be used as they are, and ' +
+    'running the query again resumes fetching. Only error is a real failure (rowsUsable=false).',
   inputSchema: InputSchema,
   annotations: { readOnlyHint: true, openWorldHint: false },
   read(input, ctx) {
@@ -47,11 +49,11 @@ export default defineReadTool({
     if (want('results')) payload['results'] = brief.results
     if (input.withLayoutTree === true) payload['layout'] = brief.layout
 
-    const outline = want('layout') ? `布局：\n${renderLayoutOutline(snap)}\n\n` : ''
+    const outline = want('layout') ? `Layout:\n${renderLayoutOutline(snap)}\n\n` : ''
     const connLine =
       brief.connections.length > 0
-        ? `连接：${brief.connections.map((c) => `${c.label}(${c.connId}, ${c.driverId}, ${c.status})`).join('；')}\n\n`
-        : '连接：无\n\n'
+        ? `Connections: ${brief.connections.map((c) => `${c.label}(${c.connId}, ${c.driverId}, ${c.status})`).join('; ')}\n\n`
+        : 'Connections: none\n\n'
 
     return {
       text: `workspace rev=${brief.rev}\n\n${outline}${want('connections') ? connLine : ''}${toJson(payload)}`,

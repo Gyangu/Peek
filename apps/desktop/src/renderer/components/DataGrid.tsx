@@ -15,6 +15,7 @@ import {
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual'
 import type { ColumnDef, ConnId, ResultId, SortSpec } from '@peek/core'
 import { isTruncatedValue } from '@peek/core'
+import { useT, type TFunction } from '../i18n'
 import { getCell, isRowLoaded, setViewport } from '../state/resultCache'
 import { useResult } from '../state/useResult'
 import { cellClass, cellText, formatCount, formatMs, isExpandable } from '../util/format'
@@ -23,37 +24,41 @@ import { ValueModal } from './ValueModal'
 import { HEAD_H, ROW_H, VScrollDriver, rowTopIn } from './vscroll'
 
 /* ==================================================================
- * 虚拟化表格 —— renderer 的性能核心。
+ * The virtualized grid — the performance core of the renderer.
  *
- * 分工：
- * - TanStack **Table** 只负责列模型（表头、列宽、列宽拖拽）。
- *   刻意不喂 data：百万行结果集若走 getCoreRowModel 会生成百万个 Row 对象，
- *   直接违背"表格无整表驻留"的红线。
- * - TanStack **Virtual** 只留列虚拟化（横轴仍是原生 scrollLeft，零改动）。
- *   行轴改用自研 VScrollDriver，原因见 vscroll.ts 顶部：
- *   spacer 高度会被 Chromium 静默钳到 ~1677 万 px（Retina），
- *   70 万行以后的数据在界面上永远看不到；顺带这也拔掉了 virtual-core 每来一个
- *   chunk 就重建一条 Float64Array(count*2) 的 O(rowCount) 开销。
- * - 单元格取值直接从列式缓存按 (row, col) 下标读，**零拷贝、无中间行对象**。
- * - 行是 memo 组件、单元格是纯 div（不是组件）：可视窗口只有几百个节点；
- *   行高固定 + 分块原点 ⇒ 滚动时行 props 几乎恒定，整片跳过重渲染。
+ * Division of labour:
+ * - TanStack **Table** owns the column model only (headers, widths, resizing).
+ *   It is deliberately given no data: running a million-row result set through
+ *   getCoreRowModel would materialize a million Row objects, breaking the
+ *   "never hold the whole table in memory" rule outright.
+ * - TanStack **Virtual** is kept for column virtualization only (the horizontal
+ *   axis is still native scrollLeft, untouched). The row axis uses the in-house
+ *   VScrollDriver instead; the reason is at the top of vscroll.ts: a spacer's
+ *   height is silently clamped by Chromium at ~16.7M px on Retina, so anything
+ *   past ~700k rows can never be reached. It also removes virtual-core's
+ *   O(rowCount) cost of rebuilding a Float64Array(count*2) on every chunk.
+ * - Cell reads go straight into the columnar cache by (row, col) index —
+ *   **zero copies, no intermediate row objects**.
+ * - Rows are memo components and cells are plain divs (not components), so the
+ *   visible window is a few hundred nodes. Fixed row height plus the block origin
+ *   keeps row props constant while scrolling, so re-renders are skipped wholesale.
  * ================================================================== */
 
 const GUTTER_W = 54
 const COL_OVERSCAN = 3
 
-/** 只用列模型、不喂数据；这个占位类型给泛型一个落点 */
+/** Column model only, no data; this stub gives the generic something to bind to. */
 type RowStub = Record<string, never>
 const EMPTY_DATA: RowStub[] = []
 
 export interface DataGridProps {
   connId: ConnId
   resultId: ResultId | undefined
-  /** 当前排序（table 视图传入，用于列头指示） */
+  /** Current sort (passed by the table view, drives the header indicator). */
   sort?: SortSpec[] | undefined
-  /** 点击列头的回调；不传则列头不可点。必须是稳定引用。 */
+  /** Header click handler; headers are inert without it. Must be a stable reference. */
   onSortColumn?: ((column: string) => void) | undefined
-  /** 没有结果集时的提示语 */
+  /** Overlay text shown when there is no result set. Already localized by the caller. */
   emptyHint?: string
 }
 
@@ -64,16 +69,19 @@ interface CellPos {
 
 export function DataGrid(props: DataGridProps): ReactElement {
   const { connId, resultId, sort, onSortColumn, emptyHint } = props
+  const t = useT()
   const snap = useResult(resultId)
-  /** 横向滚动容器（.grid）。纵轴 hidden，所以它只滚 scrollLeft */
+  /** The horizontal scroll container (.grid). Vertical is hidden, so it only scrolls scrollLeft. */
   const scrollRef = useRef<HTMLDivElement | null>(null)
   /**
-   * 不随横向滚动移动的浮层容器（.grid-wrap）。
+   * The overlay anchor that does not move with horizontal scrolling (.grid-wrap).
    *
-   * 自绘滚动条与覆盖层**必须**挂在这里而不是 .grid 里：.grid 是横向滚动容器，
-   * 它的 absolute 后代属于"可滚动内容"，会随 scrollLeft 一起平移
-   * （实测 scrollLeft=1000 时 .grid-vsb 的 x 从 [889,900] 变成 [-111,-100]），
-   * 再叠加 .grid 的 contain:layout paint 裁切，横向一滚滚动条就既看不见也点不到。
+   * The custom scrollbar and the overlay **must** live here rather than inside
+   * .grid: .grid is a horizontal scroll container, so its absolutely positioned
+   * descendants count as scrollable content and translate with scrollLeft
+   * (measured: at scrollLeft=1000 the .grid-vsb x range moves from [889,900] to
+   * [-111,-100]). Add .grid's `contain: layout paint` clipping on top and a single
+   * horizontal scroll makes the scrollbar both invisible and unclickable.
    */
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [sizing, setSizing] = useState<ColumnSizingState>({})
@@ -83,14 +91,14 @@ export function DataGrid(props: DataGridProps): ReactElement {
   const schema = snap.schema
   const rowCount = snap.rowCount
 
-  /* --- 纵向滚动驱动器：整个组件生命周期内同一个实例 --- */
+  /* --- Vertical scroll driver: one instance for the component's whole life --- */
   const driverRef = useRef<VScrollDriver | null>(null)
   if (driverRef.current === null) driverRef.current = new VScrollDriver()
   const driver = driverRef.current
   const geom = useSyncExternalStore(driver.subscribe, driver.getSnapshot)
   const [viewportH, setViewportH] = useState(0)
 
-  /* --- 列模型：schema 变了才重建 --- */
+  /* --- Column model: rebuilt only when the schema changes --- */
   const columns = useMemo<TanstackColumnDef<RowStub>[]>(() => {
     if (!schema) return []
     return schema.map((c, i) => ({
@@ -103,13 +111,16 @@ export function DataGrid(props: DataGridProps): ReactElement {
   }, [schema])
 
   /**
-   * 停止消费某个结果集时，显式补一条 `atBottom=false` 的视口。
+   * Report one last `atBottom=false` viewport when we stop consuming a result set.
    *
-   * atBottom 会关掉 ack 背压的行数闸，而它只有这一个上报口。表格一旦不再上报
-   * （卸载、换结果集），resultCache 里的视口就冻结在最后一次上报值上；若那次恰好
-   * 是 atBottom:true，这条流就再也压不住了——PG 侧的游标与只读事务要一直开到扫完。
-   * resultCache 那边还有一道保鲜期兜底（VIEWPORT_FRESH_MS），但那是"最多再跑几秒"，
-   * 能当场说清楚的事就不要留给超时。
+   * `atBottom` disables the row-count gate of the ack backpressure, and this
+   * component is its only source. Once the grid stops reporting (unmount, or a
+   * switch to another result set) the viewport stored in resultCache freezes at
+   * whatever came last; if that happened to be `atBottom: true`, the stream can
+   * never be held again — the PostgreSQL cursor and its read-only transaction
+   * would stay open until the scan finishes. resultCache does have a staleness
+   * fallback (VIEWPORT_FRESH_MS), but that only bounds the damage to a few
+   * seconds; anything we can state outright should not be left to a timeout.
    */
   const releaseViewport = useCallback(
     (id: ResultId | undefined): void => {
@@ -121,16 +132,18 @@ export function DataGrid(props: DataGridProps): ReactElement {
     [driver],
   )
 
-  // 换结果集：清掉用户拖过的列宽、选中态，滚回顶部
+  // New result set: drop the widths the user dragged and the selection, scroll to top
   useEffect(() => {
     setSizing({})
     setSelected(null)
     setExpanded(null)
-    // 纵向位置只活在驱动器里，绝不能再写 el.scrollTop（那条路已经没有纵向滚动了）
+    // The vertical position lives in the driver alone; never write el.scrollTop —
+    // that element has no vertical scrolling any more.
     driver.reset()
     const el = scrollRef.current
     if (el) el.scrollLeft = 0
-    // 清理跑在下一个 resultId 之前，闭包里的 resultId 还是**上一个**结果集——正是要撤的那个
+    // Cleanup runs before the next resultId takes effect, so the captured resultId
+    // is still the **previous** result set — exactly the one to release.
     return () => {
       releaseViewport(resultId)
     }
@@ -151,7 +164,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
   let totalWidth = GUTTER_W
   for (const w of widths) totalWidth += w
 
-  /* --- 列虚拟化：横轴仍是原生 scrollLeft，这里一个字节都没改 --- */
+  /* --- Column virtualization: still native scrollLeft, unchanged --- */
   const colVirt = useVirtualizer({
     horizontal: true,
     count: widths.length,
@@ -160,17 +173,19 @@ export function DataGrid(props: DataGridProps): ReactElement {
     overscan: COL_OVERSCAN,
   })
 
-  // 列宽改变后必须重新量，否则 translateX 错位
+  // Widths changed: re-measure, or the translateX offsets drift
   useEffect(() => {
     colVirt.measure()
   }, [widthKey, colVirt])
 
   const virtualCols = colVirt.getVirtualItems()
 
-  /* --- 视口上报：LRU 保护 + ack 背压放行 ---
-   * 由驱动器**同步**回调，不再经过 useEffect。
-   * 从前那条 useEffect 要等 React commit，于是"背压生效与否"取决于渲染时序：
-   * 60 万行 1 秒跑完的场景里 viewport 一直是 null，行数规则从未介入。 */
+  /* --- Viewport reporting: LRU protection plus ack release ---
+   * The driver calls back **synchronously**; this no longer goes through an
+   * effect. The old useEffect had to wait for a React commit, which made
+   * "does backpressure engage at all" a function of render timing: with 600k rows
+   * arriving in a second the viewport stayed null and the row-count rule never
+   * ran once. */
   const resultIdRef = useRef(resultId)
   resultIdRef.current = resultId
   useLayoutEffect(() => {
@@ -179,12 +194,13 @@ export function DataGrid(props: DataGridProps): ReactElement {
     }
     return () => {
       driver.onViewport = null
-      // 卸载之后再没有人上报视口了：把 atBottom 这个"放行 ack"的信号交回去
+      // Nobody reports the viewport after unmount: hand back `atBottom`, the
+      // signal that would otherwise keep acks flowing forever.
       releaseViewport(resultIdRef.current)
     }
   }, [driver, releaseViewport])
 
-  /* --- 尺寸 / 行数 / dpr 变化都要重算几何 --- */
+  /* --- Geometry has to be recomputed on size, row count or dpr changes --- */
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -201,32 +217,35 @@ export function DataGrid(props: DataGridProps): ReactElement {
     driver.setGeometry(viewportH, rowCount, window.devicePixelRatio || 1)
   }, [driver, viewportH, rowCount])
 
-  /* --- wheel 必须手挂：React 把 wheel 注册成 passive，onWheel 里 preventDefault 是空操作 ---
-   * 挂在 wrap 上而不是 .grid 上：滚动条与覆盖层已经是 .grid 的兄弟节点，
-   * 鼠标停在滚动条上时滚轮事件不会经过 .grid。 */
+  /* --- wheel must be attached by hand: React registers wheel as passive, so
+   * preventDefault inside onWheel is a no-op. It goes on the wrap rather than on
+   * .grid because the scrollbar and the overlay are .grid's siblings — with the
+   * pointer over the scrollbar, wheel events never reach .grid. */
   useLayoutEffect(() => {
     const el = scrollRef.current
     const wrap = wrapRef.current
     if (!el || !wrap) return
     const onWheel = (e: WheelEvent): void => {
-      if (e.ctrlKey) return // 捏合缩放交给浏览器
+      if (e.ctrlKey) return // pinch zoom belongs to the browser
       const unit = e.deltaMode === 1 ? ROW_H : e.deltaMode === 2 ? Math.max(1, el.clientHeight) : 1
       const dy = e.deltaY * unit
-      if (dy === 0) return // 纯横向手势：完全交给原生，保留橡皮筋与惯性
-      if (driver.maxTop <= 0) return // 没什么可滚的，别吞事件（滚动链继续往上传）
+      if (dy === 0) return // purely horizontal gesture: leave it native, keep rubber-banding and inertia
+      if (driver.maxTop <= 0) return // nothing to scroll, do not swallow the event (let it chain up)
       e.preventDefault()
       driver.scrollBy(dy)
-      // preventDefault 之后原生横向滚动也被取消了，自己补上
+      // preventDefault also cancelled the native horizontal scroll; redo it here
       if (e.deltaX !== 0) el.scrollLeft += e.deltaX * unit
     }
     /*
-     * 纵向 scrollTop 必须恒为 0。
+     * scrollTop must stay pinned at 0.
      *
-     * overflow-y:hidden 只是**关掉用户滚动**，元素本身仍有滚动范围：
-     * 视口下沿之外的 overscan 行（最多 ~10 行 ≈ 246px，实测）照样算进 scrollHeight。
-     * 一旦 Chromium 的 scroll anchoring、focus 自动滚动、或某处 scrollIntoView
-     * 把它推离 0，整张表会整体上移且用户没有任何办法滚回来——而且悄无声息。
-     * overflow-anchor:none 挡掉第一种，这里的守卫挡掉其余所有种。
+     * `overflow-y: hidden` only takes away *user* scrolling; the element still has
+     * a scroll range, because the overscan rows below the viewport (up to ~10 rows
+     * ≈ 246px, measured) count towards scrollHeight. If Chromium's scroll
+     * anchoring, an automatic focus scroll, or a stray scrollIntoView ever pushes
+     * it off 0, the whole table shifts up with no way for the user to get it back
+     * — and it does so silently. `overflow-anchor: none` blocks the first case;
+     * this guard blocks every other one.
      */
     const onScroll = (): void => {
       if (el.scrollTop !== 0) el.scrollTop = 0
@@ -239,7 +258,8 @@ export function DataGrid(props: DataGridProps): ReactElement {
     }
   }, [driver])
 
-  /* --- 键盘：overflow-y:hidden 之后原生滚动没了，方向键/翻页/Home/End 全要自己接 --- */
+  /* --- Keyboard: with overflow-y hidden there is no native scrolling left, so
+   * arrows, page keys, Home and End all have to be handled here --- */
   const onKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>): void => {
       const m = driver.metrics
@@ -266,10 +286,12 @@ export function DataGrid(props: DataGridProps): ReactElement {
     [driver],
   )
 
-  /* --- 分块原点回写：画布位移与行 top 必须永远出自同一个原点 ---
-   * 行是按 geom.origin 排的（见下面的 rowTopIn），而 geom 只在 React 提交之后
-   * 才真正落到 DOM 上。所以原点要在这里回写，不能让驱动器自己按最新 snap 猜——
-   * 跨 4096 行边界那一帧会错开 98,304px，屏幕直接全白。 */
+  /* --- Write the block origin back: the surface transform and the row tops must
+   * always come from the same origin. Rows are laid out against geom.origin (see
+   * rowTopIn below), and geom only reaches the DOM once React commits. So the
+   * origin is reported from here rather than guessed by the driver from its latest
+   * snapshot — on the frame that crosses a 4096-row boundary the two would differ
+   * by a full block (98,304px) and the screen would go blank. */
   useLayoutEffect(() => {
     driver.syncDomOrigin(geom.origin)
   }, [driver, geom.origin])
@@ -282,7 +304,8 @@ export function DataGrid(props: DataGridProps): ReactElement {
     [driver],
   )
 
-  /* --- 列窗口做成稳定引用：纵向滚动时行组件才能整片 bail out --- */
+  /* --- Keep the column window as a stable reference, so row components can bail
+   * out wholesale while scrolling vertically --- */
   const colWindowKey =
     virtualCols.length > 0
       ? `${virtualCols[0].index}:${virtualCols[virtualCols.length - 1].index}:${widthKey}`
@@ -304,11 +327,11 @@ export function DataGrid(props: DataGridProps): ReactElement {
     setExpanded(null)
   }, [])
 
-  /* --- 覆盖层提示 --- */
+  /* --- Overlay hint --- */
   let overlay: string | null = null
-  if (!resultId) overlay = emptyHint ?? '尚未执行'
-  else if (!schema && snap.status === 'running') overlay = '执行中…'
-  else if (rowCount === 0 && snap.status === 'done') overlay = '0 行'
+  if (!resultId) overlay = emptyHint ?? t('grid.notRun')
+  else if (!schema && snap.status === 'running') overlay = t('grid.running')
+  else if (rowCount === 0 && snap.status === 'done') overlay = t('grid.noRows')
 
   const expandedValue = expanded ? getCell(resultId, expanded.row, expanded.col) : null
   const expandedColumn = expanded && schema ? (schema[expanded.col] ?? null) : null
@@ -321,7 +344,8 @@ export function DataGrid(props: DataGridProps): ReactElement {
         resultId={resultId}
         schema={schema}
         rowIndex={i}
-        // 只在跨 4096 行边界（origin 变化）时才变 ⇒ memo 照旧整片 bail out
+        // Only changes when the origin does, i.e. every 4096 rows, so memo keeps
+        // bailing out wholesale
         top={rowTopIn(i, geom.origin)}
         width={totalWidth}
         cols={stableCols}
@@ -334,12 +358,13 @@ export function DataGrid(props: DataGridProps): ReactElement {
 
   return (
     <>
-      {/* 浮层锚点：只有它下面的 .grid 会横向滚动，滚动条与覆盖层不会跟着跑 。
-          tabIndex 挂这一层，点滚动条也能保住键盘焦点。 */}
+      {/* Overlay anchor: only the .grid inside it scrolls horizontally, so the
+          scrollbar and the overlay stay put. tabIndex sits on this level so that
+          clicking the scrollbar keeps keyboard focus. */}
       <div className="grid-wrap" ref={wrapRef} tabIndex={0} onKeyDown={onKeyDown}>
         <div className="grid" ref={scrollRef}>
-          {/* 高度恒为 100%：DOM 里再没有任何与 rowCount 相关的尺寸，
-              那条 16,777,214px 的墙从根上不存在了 */}
+          {/* Height is always 100%: no dimension in the DOM is derived from
+              rowCount any more, so the 16,777,214px wall simply does not exist */}
           <div className="grid-inner" style={{ width: totalWidth }}>
             <div className="grid-head" style={{ width: totalWidth }}>
               <div className="grid-corner" />
@@ -354,7 +379,11 @@ export function DataGrid(props: DataGridProps): ReactElement {
                     className="grid-head-cell"
                     style={{ left: GUTTER_W + vc.start, width: vc.size }}
                     onClick={onSortColumn ? () => onSortColumn(col.name) : undefined}
-                    title={`${col.name} · ${col.nativeType}${col.primaryKey ? ' · 主键' : ''}`}
+                    title={
+                      col.primaryKey
+                        ? t('grid.columnTitlePk', { name: col.name, type: col.nativeType })
+                        : t('grid.columnTitle', { name: col.name, type: col.nativeType })
+                    }
                   >
                     <span className="cname">{col.name}</span>
                     <span className="ctype">{col.nativeType}</span>
@@ -375,7 +404,8 @@ export function DataGrid(props: DataGridProps): ReactElement {
           </div>
         </div>
 
-        {/* 以下两个是 .grid 的**兄弟**，不是后代：它们必须钉在面板上不动 */}
+        {/* The next two are **siblings** of .grid, not descendants: they have to
+            stay pinned to the panel */}
         {overlay !== null ? <div className="grid-overlay">{overlay}</div> : null}
 
         <GridScrollbar driver={driver} snap={geom} thumbRef={setThumb} />
@@ -410,7 +440,8 @@ function stopClick(e: ReactMouseEvent): void {
 }
 
 /* ------------------------------------------------------------------ */
-/* 行组件：memo + 固定行高 ⇒ 滚动时 props 恒定，直接跳过重渲染             */
+/* Row component: memo plus a fixed row height means props stay constant   */
+/* while scrolling, so re-renders are skipped entirely.                    */
 /* ------------------------------------------------------------------ */
 
 interface GridRowProps {
@@ -420,7 +451,8 @@ interface GridRowProps {
   top: number
   width: number
   cols: VirtualItem[]
-  /** 该行已加载时恒为 0；未加载时跟随结果集 version，等数据到了自动刷新 */
+  /** 0 once the row is loaded; otherwise it tracks the result version, so the
+   *  row refreshes by itself when its data arrives. */
   dataVersion: number
   selectedCol: number
   onCellClick: (row: number, col: number, expand: boolean) => void
@@ -429,13 +461,15 @@ interface GridRowProps {
 const GridRow = memo(function GridRow(props: GridRowProps): ReactElement {
   const { resultId, schema, rowIndex, top, width, cols, selectedCol, onCellClick } = props
 
-  // 单元格不挂各自的 handler：事件委托到行，从 data-col 反查列下标
+  // Cells carry no handlers of their own: the event is delegated to the row and
+  // the column index is read back off data-col
   const onClick = (e: ReactMouseEvent<HTMLDivElement>): void => {
     const raw = (e.target as HTMLElement).dataset['col']
     if (raw === undefined) return
     const col = Number(raw)
     const value = getCell(resultId, rowIndex, col)
-    // 截断值单击即展开（走 valuePeek 拉全量），其余值双击展开
+    // A truncated value expands on a single click (fetching the rest via
+    // valuePeek); everything else expands on a double click
     const expand = isTruncatedValue(value) || (e.detail >= 2 && isExpandable(value))
     onCellClick(rowIndex, col, expand)
   }
@@ -482,18 +516,21 @@ interface GridFooterProps {
   status: string
   elapsedMs: number | undefined
   truncated: boolean
-  /** 非 null 表示流已按设计暂停（不是错误） */
+  /** Non-null means the stream paused by design (not an error). */
   pausedReason: string | null
   evicted: number
 }
 
 function GridFooter(p: GridFooterProps): ReactElement {
+  const t = useT()
   return (
     <div className="toolbar" style={{ borderTop: '1px solid var(--border)', borderBottom: 'none' }}>
-      <span className="mono">{formatCount(p.rowCount)} 行</span>
+      {/* `count` selects the plural form, `rows` carries the grouped number —
+          t() never formats numbers itself. */}
+      <span className="mono">{t('grid.rows', { count: p.rowCount, rows: formatCount(p.rowCount) })}</span>
       <span className="sep" />
       <span className={p.status === 'paused' ? 'paused-tag' : undefined}>
-        {statusLabel(p.status)}
+        {statusLabel(t, p.status)}
       </span>
       {p.elapsedMs !== undefined ? (
         <>
@@ -504,26 +541,23 @@ function GridFooter(p: GridFooterProps): ReactElement {
       {p.pausedReason !== null ? (
         <>
           <span className="sep" />
-          <span
-            className="paused-tag"
-            title={`${p.pausedReason}。已加载的行是完整有效的数据；重新执行可继续取数。`}
-          >
-            已暂停 · 数据有效，重新执行可继续
+          {/* The reason comes from main and is canonical English, the same text
+              MCP reads; only the sentence around it is localized. */}
+          <span className="paused-tag" title={t('grid.pausedTitle', { reason: p.pausedReason })}>
+            {t('grid.paused')}
           </span>
         </>
       ) : null}
       {p.truncated ? (
         <>
           <span className="sep" />
-          <span title="达到 maxRows 上限，后面还有数据">已截断</span>
+          <span title={t('grid.truncatedTitle')}>{t('grid.truncated')}</span>
         </>
       ) : null}
       {p.evicted > 0 ? (
         <>
           <span className="sep" />
-          <span title="超出 200MB 缓存预算，远端 chunk 已按 LRU 淘汰；滚回去会显示占位符">
-            淘汰 {p.evicted} 块
-          </span>
+          <span title={t('grid.evictedTitle')}>{t('grid.evicted', { count: p.evicted })}</span>
         </>
       ) : null}
       <span className="grow" />
@@ -531,18 +565,18 @@ function GridFooter(p: GridFooterProps): ReactElement {
   )
 }
 
-function statusLabel(s: string): string {
+function statusLabel(t: TFunction, s: string): string {
   switch (s) {
     case 'running':
-      return '接收中…'
+      return t('grid.status.running')
     case 'done':
-      return '完成'
+      return t('grid.status.done')
     case 'paused':
-      return '已暂停'
+      return t('grid.status.paused')
     case 'error':
-      return '出错'
+      return t('grid.status.error')
     default:
-      return '空闲'
+      return t('grid.status.idle')
   }
 }
 

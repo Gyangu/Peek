@@ -1,11 +1,11 @@
 /**
- * @peek/driver-postgres —— PostgreSQL 驱动。
+ * @peek/driver-postgres — the PostgreSQL driver.
  *
- * 能力集：introspect + tabularQuery + collectionScan + valuePeek + cancel
- * （与 core 的 DRIVER_CAPABILITIES.postgres 同源）。
+ * Capabilities: introspect + tabularQuery + collectionScan + valuePeek + cancel
+ * (single source of truth: core's DRIVER_CAPABILITIES.postgres).
  *
- * 不依赖 electron，可独立 node 运行与测试；
- * 作为 utilityProcess 入口时用 src/host.ts。
+ * No electron dependency, so it runs and is tested standalone on node.
+ * src/host.ts is the entry point when it runs as a utilityProcess.
  */
 
 export { PostgresDriver, postgresDriver, requirePostgresConfig } from './driver'
@@ -28,8 +28,10 @@ export {
 } from './sql'
 export { estimateCellBytes, normalizeCell, type NormalizeContext } from './values'
 /**
- * utilityProcess 入口。import 本模块时若检测到 process.parentPort 会自动启动，
- * 显式调用 startDriverHost() 也可以（幂等）。main 进程没有 parentPort，import 无副作用。
+ * utilityProcess entry. Importing this module self-starts the host when
+ * process.parentPort is present; calling startDriverHost() explicitly works too
+ * (it is idempotent). The main process has no parentPort, so importing it there
+ * has no side effects.
  */
 export { startDriverHost } from './host'
 export {

@@ -1,7 +1,9 @@
 /**
- * 通用工具执行器：校验 → 依次 dispatch 到 Command Bus → 汇总结果 → 转 MCP 返回格式。
+ * The shared tool executor: validate → dispatch to the Command Bus in order → aggregate
+ * outcomes → convert to the MCP return format.
  *
- * 所有工具共用这一条路径，工具文件里只剩 schema + 映射，没有流程代码。
+ * Every tool travels this one path, which is why tool files contain nothing but a schema and
+ * a mapping — no control flow.
  */
 
 import type { z } from 'zod'
@@ -26,12 +28,13 @@ import type {
 } from './types'
 
 /* ================================================================== */
-/* 1. 单条 Command 的 dispatch                                          */
+/* 1. Dispatching a single Command                                      */
 /* ================================================================== */
 
 /**
- * 把 `Command` 这个可辨识联合安全地喂给泛型 dispatch。
- * 内层的泛型函数把 name 与 input 的相关性重新绑定，避免任何断言。
+ * Feed the `Command` discriminated union into the generic dispatch safely.
+ * The inner generic function re-binds the correlation between `name` and `input`, which keeps
+ * the whole path free of type assertions.
  */
 export async function dispatchCommand(
   ctx: ToolContext,
@@ -45,23 +48,23 @@ export async function dispatchCommand(
 }
 
 /* ================================================================== */
-/* 2. 默认渲染                                                          */
+/* 2. Default rendering                                                 */
 /* ================================================================== */
 
 function defaultRender(outcomes: CommandOutcome[], ctx: ToolContext): ToolOutput {
   const failed = outcomes.find((o) => !o.ok)
   const snap = ctx.getSnapshot()
   const head = failed
-    ? `命令 ${failed.name} 失败：${failed.error?.code ?? 'INTERNAL'} ${failed.error?.message ?? ''}`
-    : `已执行 ${outcomes.length} 条命令，workspace rev=${snap.rev}`
+    ? `Command ${failed.name} failed: ${failed.error?.code ?? 'INTERNAL'} ${failed.error?.message ?? ''}`
+    : `Executed ${outcomes.length} command(s), workspace rev=${snap.rev}`
   const body = toJson(outcomes)
   return {
-    text: `${head}\n\n${body}\n\n当前面板：\n${renderPanelBrief(snap)}`,
+    text: `${head}\n\n${body}\n\nCurrent panels:\n${renderPanelBrief(snap)}`,
     ...(failed ? { isError: true } : {}),
   }
 }
 
-/** 工具级错误的统一形状：结构化 PeekError，绝不抛出去让 server 崩 */
+/** The uniform shape of a tool-level error: a structured PeekError, never thrown out to crash the server. */
 export function errorOutput(error: PeekError): ToolOutput {
   return {
     text: `[${error.code}] ${error.message}${error.detail ? `\n${error.detail}` : ''}`,
@@ -71,7 +74,7 @@ export function errorOutput(error: PeekError): ToolOutput {
 }
 
 /* ================================================================== */
-/* 3. defineTool：把带泛型的 spec 擦成统一的 PeekTool                      */
+/* 3. defineTool: erase the generic spec down to a uniform PeekTool     */
 /* ================================================================== */
 
 function baseFields<S extends z.ZodType>(
@@ -86,7 +89,7 @@ function baseFields<S extends z.ZodType>(
   }
 }
 
-/** 入参校验：失败一律 BAD_REQUEST，带上 zod 的路径信息 */
+/** Input validation: every failure becomes BAD_REQUEST, carrying zod's path information. */
 function parseInput<S extends z.ZodType>(
   spec: { name: string; inputSchema: S },
   raw: unknown,
@@ -98,11 +101,11 @@ function parseInput<S extends z.ZodType>(
     .join('\n')
   return {
     ok: false,
-    error: peekError('BAD_REQUEST', `工具 ${spec.name} 入参不合法`, { detail }),
+    error: peekError('BAD_REQUEST', `Invalid input for tool ${spec.name}`, { detail }),
   }
 }
 
-/** 映射到 Command 的工具 */
+/** A tool that maps onto Commands. */
 export function defineCommandTool<S extends z.ZodType>(spec: CommandToolSpec<S>): PeekTool {
   return {
     ...baseFields(spec),
@@ -120,8 +123,8 @@ export function defineCommandTool<S extends z.ZodType>(spec: CommandToolSpec<S>)
 
       const outcomes: CommandOutcome[] = []
       for (const cmd of commands) {
-        // 二次校验：工具映射出的入参也必须过 Command 的 schema，
-        // 保证进 Command Bus 的一定合法（PLAN 第 6 节）
+        // Second validation pass: input produced by the tool mapping must still satisfy the
+        // Command's own schema, so nothing invalid can ever reach the Command Bus (PLAN section 6).
         const check = parseCommandInput(cmd.name, cmd.input)
         if (!check.ok) {
           outcomes.push({ name: cmd.name, ok: false, error: check.error })
@@ -155,7 +158,7 @@ export function defineCommandTool<S extends z.ZodType>(spec: CommandToolSpec<S>)
   }
 }
 
-/** 只读工具：直接读 Workspace Store，不经 dispatch */
+/** Read-only tool: reads the Workspace Store directly, never dispatches. */
 export function defineReadTool<S extends z.ZodType>(spec: ReadToolSpec<S>): PeekTool {
   return {
     ...baseFields(spec),
@@ -174,10 +177,10 @@ export function defineReadTool<S extends z.ZodType>(spec: ReadToolSpec<S>): Peek
 }
 
 /* ================================================================== */
-/* 4. 取某条命令的返回数据（工具自定义 render 时用）                        */
+/* 4. Pulling data back out of an outcome (used by custom renderers)    */
 /* ================================================================== */
 
-/** 从 outcomes 里挑出第一条成功执行的指定命令的返回数据 */
+/** Pick the data returned by the first successful outcome for the named command. */
 export function outcomeData(outcomes: readonly CommandOutcome[], name: CommandName): unknown {
   return outcomes.find((o) => o.name === name && o.ok)?.data
 }

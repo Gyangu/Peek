@@ -1,7 +1,8 @@
 {
-  // Node 侧（main / preload / 构建配置）的独立类型检查配置。
-  // 与 tsconfig.json 是并列关系，不用 project references——
-  // composite 模式要求先产出 .d.ts，多 agent 并行时纯添乱。
+  // Standalone typecheck config for the Node side (main / preload / build config).
+  // It sits alongside tsconfig.json rather than using project references:
+  // composite mode wants .d.ts emitted first, which only gets in the way while
+  // several agents work in parallel.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2023"],

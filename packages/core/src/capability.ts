@@ -7,19 +7,19 @@ import { ResultIdSchema, type ResultId } from './ids'
 /* ================================================================== */
 
 export const CAPABILITIES = [
-  /** 命名空间树：db→schema→table / db→key-pattern / collection */
+  /** Namespace tree: db→schema→table / db→key-pattern / collection */
   'introspect',
-  /** 自由查询语句（SQL 等），返回表格流 */
+  /** Free-form statements (SQL and friends) returning a tabular stream */
   'tabularQuery',
-  /** 顺序/分页浏览一个集合（表、keyspace、collection） */
+  /** Sequential/paged browsing of one collection (table, keyspace, collection) */
   'collectionScan',
-  /** 按 key 取值 + 类型化检查器（redis hash/list/zset…） */
+  /** Fetch by key plus a typed inspector (redis hash/list/zset…) */
   'keyValue',
-  /** 向量相似检索（qdrant） */
+  /** Vector similarity search (qdrant) */
   'vectorSearch',
-  /** 大 value 按需取全量（长文本/blob/向量本体） */
+  /** Fetch a large value in full, on demand (long text / blob / the vector itself) */
   'valuePeek',
-  /** 取消执行中的操作 */
+  /** Cancel an in-flight operation */
   'cancel',
 ] as const
 
@@ -31,9 +31,10 @@ export const DriverIdSchema = z.enum(DRIVER_IDS)
 export type DriverId = z.infer<typeof DriverIdSchema>
 
 /**
- * 各驱动声明的能力集（PLAN 第 4 节的四库对照）。
- * UI 与 MCP 工具在**连上之前**就靠这张表做能力自适应；
- * 连上之后以 DriverSession.capabilities 为准（可能更窄，比如老版本 PG）。
+ * Capabilities each driver advertises (the four-database comparison in PLAN §4).
+ * The UI and the MCP tools adapt to this table **before** a connection exists;
+ * once connected, `DriverSession.capabilities` wins — it may be narrower, e.g. on
+ * an older PostgreSQL server.
  */
 export const DRIVER_CAPABILITIES: Readonly<Record<DriverId, readonly Capability[]>> = {
   postgres: ['introspect', 'tabularQuery', 'collectionScan', 'valuePeek', 'cancel'],
@@ -44,18 +45,18 @@ export const DRIVER_CAPABILITIES: Readonly<Record<DriverId, readonly Capability[
 }
 
 /* ================================================================== */
-/* 2. ConnectionConfig（按 driverId 可辨识联合）                          */
+/* 2. ConnectionConfig (discriminated union on driverId)               */
 /* ================================================================== */
 
 const baseConn = {
-  /** 用户可见的连接名；不填由 main 从 host/database 推一个 */
+  /** User-visible connection name; when absent main derives one from host/database */
   label: z.string().optional(),
 } as const
 
 export const PostgresConnectionConfigSchema = z.object({
   driverId: z.literal('postgres'),
   ...baseConn,
-  /** postgresql://user:pass@host:port/db —— 给了 url 就以 url 为准，其余字段作为覆盖 */
+  /** postgresql://user:pass@host:port/db — when `url` is given it wins, the other fields act as overrides */
   url: z.string().optional(),
   host: z.string().optional(),
   port: z.number().int().positive().max(65535).optional(),
@@ -65,7 +66,7 @@ export const PostgresConnectionConfigSchema = z.object({
   ssl: z.boolean().optional(),
   applicationName: z.string().optional(),
   connectTimeoutMs: z.number().int().positive().optional(),
-  /** 默认 search_path，影响 introspect 的默认 schema */
+  /** Default search_path; decides which schema introspection starts from */
   searchPath: z.array(z.string()).optional(),
 })
 
@@ -85,7 +86,7 @@ export const MysqlConnectionConfigSchema = z.object({
 export const SqliteConnectionConfigSchema = z.object({
   driverId: z.literal('sqlite'),
   ...baseConn,
-  /** 数据库文件绝对路径；':memory:' 表示内存库 */
+  /** Absolute path to the database file; ':memory:' means an in-memory database */
   file: z.string().min(1),
   readOnly: z.boolean().optional(),
 })
@@ -126,12 +127,12 @@ export type SqliteConnectionConfig = z.infer<typeof SqliteConnectionConfigSchema
 export type RedisConnectionConfig = z.infer<typeof RedisConnectionConfigSchema>
 export type QdrantConnectionConfig = z.infer<typeof QdrantConnectionConfigSchema>
 
-/** 密码占位符。任何要离开 main 进程边界的 config 都必须先脱敏。 */
+/** Password placeholder. Any config that crosses the main-process boundary must be redacted first. */
 export const REDACTED = '***'
 
 /**
- * 脱敏：给 MCP / renderer 看的 config 一律走这里。
- * 连接串里的密码也会被替换掉。
+ * Redaction: every config shown to MCP or the renderer goes through here.
+ * Passwords embedded in a connection URL are replaced as well.
  */
 export function redactUrlCredentials(url: string): string {
   return url.replace(/(:\/\/[^:/@]*):[^@]*@/, `$1:${REDACTED}@`)
@@ -164,11 +165,13 @@ export function redactConnectionConfig(cfg: ConnectionConfig): ConnectionConfig 
 }
 
 /**
- * 从 config 推一个默认展示名（label 为空时用）。
+ * Derive a default display name from a config (used when `label` is empty).
  *
- * label 是要广播给 renderer 和 MCP 的，而 postgres/mysql/redis 在没填 database/host 时
- * 会退化到连接串，连接串里带着明文口令 —— 所以这里**内部一律先把 url 里的口令抹掉**，
- * 调用方不需要（也不该需要）记得先 redactConnectionConfig。
+ * The label is broadcast to the renderer and to MCP, and postgres/mysql/redis fall
+ * back to the connection URL when neither database nor host was given — and that
+ * URL carries a plaintext password. So this function **always scrubs the URL
+ * itself**; callers do not need to remember (and should not have to remember) to
+ * call `redactConnectionConfig` first.
  */
 export function defaultConnectionLabel(cfg: ConnectionConfig): string {
   if (cfg.label) return cfg.label
@@ -190,28 +193,28 @@ function safeUrlLabel(url: string | undefined): string | undefined {
 }
 
 /* ================================================================== */
-/* 3. Ref：集合定位与单值定位                                            */
+/* 3. Refs: addressing a collection, and addressing a single value     */
 /* ================================================================== */
 
-/** 关系库的表/视图 */
+/** A table or view in a relational database */
 export const RelationRefSchema = z.object({
   kind: z.literal('relation'),
-  /** sqlite/mysql 没有 schema 层时填 '' 或 'main' / 库名 */
+  /** Where sqlite/mysql have no schema layer, use '' or 'main' / the database name */
   schema: z.string(),
   name: z.string().min(1),
 })
 
-/** redis 的 key 模式（SCAN MATCH），永远不要退化成 KEYS */
+/** A redis key pattern (SCAN MATCH); never degrade this into KEYS */
 export const KeyPatternRefSchema = z.object({
   kind: z.literal('keyPattern'),
-  /** glob 模式，如 'user:*'；'*' 表示整库 */
+  /** Glob pattern such as 'user:*'; '*' means the whole database */
   pattern: z.string(),
   db: z.number().int().nonnegative().optional(),
-  /** 只扫某种类型（TYPE 过滤） */
+  /** Scan only one type (TYPE filter) */
   typeFilter: z.string().optional(),
 })
 
-/** qdrant 的 collection */
+/** A qdrant collection */
 export const VectorCollectionRefSchema = z.object({
   kind: z.literal('vectorCollection'),
   collection: z.string().min(1),
@@ -228,7 +231,7 @@ export type KeyPatternRef = z.infer<typeof KeyPatternRefSchema>
 export type VectorCollectionRef = z.infer<typeof VectorCollectionRefSchema>
 export type CollectionRef = z.infer<typeof CollectionRefSchema>
 
-/** 集合的可读展示名，UI 与 MCP 摘要统一用这个 */
+/** Human-readable name of a collection; the UI and MCP summaries both use this */
 export function collectionRefLabel(ref: CollectionRef): string {
   switch (ref.kind) {
     case 'relation':
@@ -241,36 +244,37 @@ export function collectionRefLabel(ref: CollectionRef): string {
 }
 
 /**
- * 单个大 value 的定位符，供 valuePeek / inspector 视图使用。
- * 四种来源：结果集单元格、关系表单元格（按主键）、redis key（可带路径）、qdrant point 字段。
+ * Address of one large value, used by valuePeek and the inspector view.
+ * Four origins: a result-set cell, a relational cell (by primary key), a redis key
+ * (optionally with a path into it), and a qdrant point field.
  */
 export const ValueRefSchema = z.discriminatedUnion('kind', [
-  /** 结果集内的某个单元格：最常用，chunk 里的截断值就带这个 */
+  /** A cell inside a result set: the common case — truncated values in a chunk carry this */
   z.object({
     kind: z.literal('resultCell'),
     resultId: ResultIdSchema,
-    /** 结果集内的全局行下标（不是 chunk 内下标） */
+    /** Row index within the whole result set (not within the chunk) */
     row: z.number().int().nonnegative(),
-    /** 列下标 */
+    /** Column index */
     col: z.number().int().nonnegative(),
   }),
-  /** 关系表的某个单元格，按主键定位（结果集被淘汰后仍可回源） */
+  /** A relational cell addressed by primary key (still resolvable after the result set is evicted) */
   z.object({
     kind: z.literal('relationCell'),
     collection: RelationRefSchema,
-    /** 主键列 → 值 */
+    /** Primary-key column → value */
     pk: z.record(z.string(), z.unknown()),
     column: z.string().min(1),
   }),
-  /** redis：key 本体，或 hash field / list index / zset member */
+  /** redis: the key itself, or a hash field / list index / zset member */
   z.object({
     kind: z.literal('redisValue'),
     key: z.string().min(1),
     db: z.number().int().nonnegative().optional(),
-    /** hash 的 field、list 的下标、zset 的 member；不填表示整个 key */
+    /** Hash field, list index or zset member; absent means the whole key */
     path: z.string().optional(),
   }),
-  /** qdrant：某个 point 的 payload 字段或向量本体（field === 'vector'） */
+  /** qdrant: a point's payload field, or the vector itself (field === 'vector') */
   z.object({
     kind: z.literal('qdrantPoint'),
     collection: z.string().min(1),
@@ -282,7 +286,7 @@ export const ValueRefSchema = z.discriminatedUnion('kind', [
 export type ValueRef = z.infer<typeof ValueRefSchema>
 
 /* ================================================================== */
-/* 4. 过滤与排序                                                        */
+/* 4. Filtering and sorting                                            */
 /* ================================================================== */
 
 export const FILTER_OPS = [
@@ -295,7 +299,7 @@ export type FilterOp = z.infer<typeof FilterOpSchema>
 export const FilterSpecSchema = z.object({
   column: z.string().min(1),
   op: FilterOpSchema,
-  /** isNull / isNotNull 不需要 value；in 需要数组 */
+  /** isNull / isNotNull take no value; `in` takes an array */
   value: z.unknown().optional(),
 })
 export type FilterSpec = z.infer<typeof FilterSpecSchema>
@@ -308,7 +312,7 @@ export const SortSpecSchema = z.object({
 export type SortSpec = z.infer<typeof SortSpecSchema>
 
 /* ================================================================== */
-/* 5. 命名空间树                                                        */
+/* 5. Namespace tree                                                   */
 /* ================================================================== */
 
 export const NAMESPACE_NODE_KINDS = [
@@ -318,59 +322,62 @@ export const NAMESPACE_NODE_KINDS = [
 export type NamespaceNodeKind = (typeof NAMESPACE_NODE_KINDS)[number]
 
 /**
- * 命名空间树节点。**懒加载**：一次 listChildren 只返回一层，
- * `hasChildren` 决定 UI 画不画展开箭头（未知时给 true，展开后拿到空数组再收起）。
+ * A node in the namespace tree. **Lazily loaded**: one `listChildren` call returns
+ * exactly one level, and `hasChildren` decides whether the UI draws an expand
+ * arrow (pass true when unknown; if expanding yields an empty array the UI folds
+ * the node back).
  */
 export interface NamespaceNode {
   /**
-   * 连接内唯一的节点 id，同时是 listChildren 的 parentId。
-   * 约定为路径式且稳定可重建，如 'schema:public'、'relation:public.harness'。
+   * Node id, unique within the connection, and also the `parentId` of listChildren.
+   * By convention it is path-shaped and stably reconstructible, e.g. 'schema:public',
+   * 'relation:public.harness'.
    */
   id: string
-  /** 显示名 */
+  /** Display name */
   name: string
   kind: NamespaceNodeKind
-  /** 是否还有下一层（懒加载标记） */
+  /** Whether another level exists below (the lazy-loading marker) */
   hasChildren: boolean
-  /** 可以直接 view.open 成 table 视图的节点带上它 */
+  /** Set on nodes that can be opened directly as a table view via view.open */
   ref?: CollectionRef
-  /** 右侧灰字：行数估算、列类型、TTL 等 */
+  /** Dimmed text on the right: row-count estimate, column type, TTL, … */
   detail?: string
-  /** 驱动自定义元信息，UI 不解释 */
+  /** Driver-specific metadata; the UI does not interpret it */
   meta?: Readonly<Record<string, unknown>>
 }
 
-/** 集合结构描述（describeCollection 返回） */
+/** Structure of a collection (returned by describeCollection) */
 export interface CollectionSchemaInfo {
   ref: CollectionRef
   columns: ColumnDef[]
   primaryKey?: string[]
-  /** 估算行数（PG 走 reltuples，别 count(*) 全表） */
+  /** Estimated row count (PG reads reltuples — never count(*) a whole table) */
   rowCountEstimate?: number
   indexes?: { name: string; columns: string[]; unique: boolean }[]
   comment?: string
 }
 
 /* ================================================================== */
-/* 6. 请求与返回                                                        */
+/* 6. Requests and responses                                           */
 /* ================================================================== */
 
 export interface ServerInfo {
-  /** 版本号字符串，如 '16.4' */
+  /** Version string, e.g. '16.4' */
   version: string
-  /** 具体实现风味，如 'PostgreSQL' / 'CockroachDB' / 'Valkey' */
+  /** Which implementation, e.g. 'PostgreSQL' / 'CockroachDB' / 'Valkey' */
   flavor?: string
   extra?: Readonly<Record<string, string>>
 }
 
 export interface TabularQueryRequest {
   resultId: ResultId
-  /** 语句文本（SQL 或其他方言） */
+  /** Statement text (SQL or another dialect) */
   text: string
   params?: readonly unknown[]
-  /** 最多取多少行，超出则 done.truncated = true */
+  /** Row ceiling; going past it sets done.truncated = true */
   maxRows?: number
-  /** 建议的单 chunk 行数；不给则驱动按 adaptiveChunkRows 自适应 */
+  /** Suggested rows per chunk; when absent the driver adapts via adaptiveChunkRows */
   chunkRows?: number
   timeoutMs?: number
   signal?: AbortSignal
@@ -381,11 +388,11 @@ export interface CollectionScanRequest {
   ref: CollectionRef
   filter?: readonly FilterSpec[]
   sort?: readonly SortSpec[]
-  /** 只取这些列（qdrant 默认只取 payload，向量本体走 valuePeek） */
+  /** Fetch only these columns (qdrant returns payload only by default; the vector itself goes through valuePeek) */
   columns?: readonly string[]
   offset?: number
   limit?: number
-  /** 续拉游标：redis SCAN cursor / qdrant next_page_offset。给了就忽略 offset。 */
+  /** Continuation cursor: redis SCAN cursor / qdrant next_page_offset. When given, `offset` is ignored. */
   cursorToken?: string
   chunkRows?: number
   timeoutMs?: number
@@ -395,13 +402,13 @@ export interface CollectionScanRequest {
 export interface VectorSearchRequest {
   resultId: ResultId
   collection: string
-  /** 查询向量本体 */
+  /** The query vector itself */
   queryVec?: readonly number[]
-  /** 命名向量字段（qdrant 多向量场景） */
+  /** Named vector field (qdrant multi-vector setups) */
   vectorName?: string
   topK: number
   filter?: readonly FilterSpec[]
-  /** 是否把向量本体一起带回（默认 false，只带 payload + score） */
+  /** Whether to return the vectors as well (default false: payload + score only) */
   withVector?: boolean
   timeoutMs?: number
   signal?: AbortSignal
@@ -409,19 +416,19 @@ export interface VectorSearchRequest {
 
 export interface KeyValueResult {
   ref: ValueRef
-  /** 驱动侧类型名，redis 为 string|hash|list|set|zset|stream */
+  /** Driver-side type name; for redis one of string|hash|list|set|zset|stream */
   type: string
-  /** 毫秒剩余 TTL，-1 表示永不过期 */
+  /** Remaining TTL in milliseconds; -1 means it never expires */
   ttlMs?: number
   /**
-   * 类型化的值。检查器按 type 分发解释：
-   * string → string；hash → Record<string,unknown>；list/set → unknown[]；
+   * The typed value. The inspector interprets it by `type`:
+   * string → string; hash → Record<string,unknown>; list/set → unknown[];
    * zset → { member: string; score: number }[]
    */
   value: unknown
-  /** 值过大已被截断，全量走 peekValue */
+  /** The value was too large and got truncated; fetch it in full via peekValue */
   truncated?: boolean
-  /** 元素总数（hash field 数 / list 长度等） */
+  /** Total element count (number of hash fields, list length, …) */
   size?: number
 }
 
@@ -429,39 +436,41 @@ export interface PeekedValue {
   ref: ValueRef
   encoding: 'utf8' | 'base64' | 'json'
   data: string
-  /** 本次返回的字节数 */
+  /** Bytes returned by this call */
   byteLength: number
-  /** 全量字节数（可知时） */
+  /** Total byte length, when it can be determined */
   totalBytes?: number
-  /** MIME，供前端选渲染器：'application/json' / 'text/plain' / 'application/octet-stream' */
+  /** MIME type, so the frontend can pick a renderer: 'application/json' / 'text/plain' / 'application/octet-stream' */
   contentType?: string
-  /** 已到末尾 */
+  /** The end has been reached */
   eof: boolean
 }
 
 export interface ByteRange {
   offset: number
-  /** 不超过 VALUE_PEEK_MAX_BYTES */
+  /** Must not exceed VALUE_PEEK_MAX_BYTES */
   length: number
 }
 
 /* ================================================================== */
-/* 7. 游标：流式结果的唯一出口                                            */
+/* 7. Cursor: the only way streamed results leave a driver             */
 /* ================================================================== */
 
 /**
- * 游标句柄。**tabularQuery / collectionScan / vectorSearch 一律返回它，
- * 绝不允许返回整个数组**——百万行结果集必须能流式吐。
+ * A cursor handle. **tabularQuery / collectionScan / vectorSearch all return one;
+ * returning a whole array is never allowed** — a million-row result set has to be
+ * streamable.
  *
- * 拉取语义：
- * - `next()` 每次返回一帧；末帧带 `done`。
- * - 末帧之后再调 `next()` 返回 null。
- * - 出错时 `next()` reject（reject 的一律是 PeekError 形状，用 toPeekError 收敛）。
- * - `close()` 幂等，必须释放底层游标/连接。
+ * Pull semantics:
+ * - `next()` returns one frame per call; the final frame carries `done`.
+ * - Calling `next()` after the final frame returns null.
+ * - On failure `next()` rejects, always with a PeekError-shaped value (funnel
+ *   through `toPeekError`).
+ * - `close()` is idempotent and must release the underlying cursor/connection.
  */
 export interface Cursor {
   readonly resultId: ResultId
-  /** 首帧到达前可能为 null */
+  /** May be null until the first frame arrives */
   readonly schema: readonly ColumnDef[] | null
   next(): Promise<ChunkFrame | null>
   close(): Promise<void>
@@ -477,8 +486,9 @@ export interface DriverMeta {
 }
 
 /**
- * 驱动工厂。跑在 driver host（utilityProcess）里，每个连接一个进程。
- * 泛型 C 让具体驱动收窄自己的 config 类型，不必在实现里做 driverId 判别。
+ * Driver factory. Runs inside the driver host (a utilityProcess), one process per
+ * connection. The generic `C` lets a concrete driver narrow its own config type so
+ * the implementation never has to re-discriminate on `driverId`.
  */
 export interface Driver<C extends ConnectionConfig = ConnectionConfig> {
   readonly meta: DriverMeta
@@ -487,10 +497,12 @@ export interface Driver<C extends ConnectionConfig = ConnectionConfig> {
 }
 
 /**
- * 一个活连接。**方法按 capability 可选**：声明了某能力就必须实现对应方法，
- * 没声明就不要实现（调用方用下面的类型守卫收窄，不要硬 `!`）。
+ * A live connection. **Methods are optional, keyed by capability**: advertise a
+ * capability and you must implement its method; do not implement methods for
+ * capabilities you did not advertise. Callers narrow with the type guards below
+ * rather than reaching for `!`.
  *
- * | capability      | 必须实现                          |
+ * | capability      | must implement                   |
  * |-----------------|----------------------------------|
  * | introspect      | listChildren, describeCollection |
  * | tabularQuery    | query                            |
@@ -505,13 +517,13 @@ export interface DriverSession {
   readonly capabilities: ReadonlySet<Capability>
   readonly serverInfo?: ServerInfo
 
-  /** 幂等关闭 */
+  /** Idempotent close */
   close(): Promise<void>
-  /** 健康检查，可选 */
+  /** Optional health check */
   ping?(): Promise<void>
 
   /* --- introspect --- */
-  /** parentId 为 null 表示取根层 */
+  /** A null parentId asks for the root level */
   listChildren?(parentId: string | null): Promise<NamespaceNode[]>
   describeCollection?(ref: CollectionRef): Promise<CollectionSchemaInfo>
 
@@ -531,12 +543,13 @@ export interface DriverSession {
   peekValue?(ref: ValueRef, range?: ByteRange): Promise<PeekedValue>
 
   /* --- cancel --- */
-  /** 取消指定结果集；未在执行中也不能抛错，返回 false 即可 */
+  /** Cancel a result set. If it is not running, do not throw — just return false. */
   cancel?(resultId: ResultId): Promise<boolean>
 }
 
 /* ------------------------------------------------------------------ */
-/* 类型守卫：按能力收窄 session，替代不安全的 `session.query!(...)`        */
+/* Type guards: narrow a session by capability, so nobody has to write */
+/* the unsafe `session.query!(...)`                                    */
 /* ------------------------------------------------------------------ */
 
 type WithMethod<M extends keyof DriverSession> = DriverSession & Required<Pick<DriverSession, M>>

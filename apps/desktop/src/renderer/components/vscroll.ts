@@ -1,63 +1,75 @@
 /* ==================================================================
- * 纵向虚拟滚动驱动器 —— 纵轴彻底脱离 DOM 尺寸。
+ * The vertical virtual-scroll driver — the vertical axis has no DOM size at all.
  *
- * ## 为什么不能用「撑一个 rowCount × ROW_H 高的 spacer」
+ * ## Why a `rowCount × ROW_H` spacer cannot work
  *
- * Chromium 单元素布局高度有上限（≈ 2^25 设备像素 / devicePixelRatio：
- * dpr=1 → 33,554,248px，dpr=2 → 16,777,214px，dpr=3 → 11,184,809px）。
- * 90.1 万行 × 24px = 21,624,026px 在 Retina 上被**静默**钳到 16,777,214，
- * 于是最后可见行号只到 694,060，后面 20 万行在界面上永远看不到。
- * 而且这个上限不是常数，写死一个"安全值"在换屏 / 改 zoomFactor 后会再次踩雷。
+ * Chromium caps the layout height of a single element (≈ 2^25 device pixels /
+ * devicePixelRatio: dpr=1 → 33,554,248px, dpr=2 → 16,777,214px, dpr=3 →
+ * 11,184,809px). 901k rows × 24px = 21,624,026px gets **silently** clamped to
+ * 16,777,214 on a Retina display, so the last reachable row is 694,060 and the
+ * 200k rows behind it can never be seen. The cap is not even a constant, so
+ * hardcoding a "safe" value just moves the failure to the next external display
+ * or the next zoomFactor change.
  *
- * 解法：**DOM 里不存在任何与 rowCount 相关的尺寸**。
- * - `.grid` 改成 `overflow-x:auto; overflow-y:hidden`：横轴仍是原生滚动
- *   （总宽最多几十万 px，离上限差两个数量级，colVirt / sticky 行号栏零改动）；
- * - 纵轴位置只是一个 JS 里的 double `top`（虚拟像素），谁都读不到它的 DOM 尺寸，
- *   所以不存在可被钳位的东西。1 亿行 × 24px = 2.4e9 仍是安全整数。
+ * The fix: **no dimension anywhere in the DOM is derived from rowCount**.
+ * - `.grid` becomes `overflow-x: auto; overflow-y: hidden`, so the horizontal
+ *   axis stays native scrolling (total width tops out in the hundreds of
+ *   thousands of pixels — two orders of magnitude below the cap — and colVirt
+ *   and the sticky gutter need no changes at all);
+ * - the vertical position is just a JS double `top` in virtual pixels. Nothing
+ *   reads a DOM size for it, so there is nothing left to clamp. 100M rows × 24px
+ *   = 2.4e9, still a safe integer.
  *
- * ## 两个精度陷阱（都已绕开）
+ * ## Two precision traps (both avoided)
  *
- * A. 若每帧改每一行的 top，行 props 每帧都变，GridRow 的 memo 整片失效。
- * B. 若把全部位移放到父节点 transform 上，10M 行是 2.4e8 px，
- *    合成器变换矩阵在部分路径是 float32，2.4e8 的 ULP 已经 16px，文字会错位。
+ * A. Changing every row's top every frame would change row props every frame,
+ *    and GridRow's memo would stop bailing out entirely.
+ * B. Putting the whole offset on the parent's transform means 2.4e8 px at 10M
+ *    rows, and the compositor's transform matrix is float32 on some paths — one
+ *    ULP at 2.4e8 is already 16px, enough to visibly misplace text.
  *
- * 解法是**分块原点**：origin = floor(top / ORIGIN_BLOCK_PX) * ORIGIN_BLOCK_PX。
- * - 画布 transform = origin - top，恒在 (-98304, 0]；
- * - 行 top = i*ROW_H - origin + HEAD_H，只在跨 4096 行边界时才变。
- * 于是 DOM 上出现的任何纵向像素量都 < 10 万 px（float32 ULP 0.0078px，无损），
- * 而 memo bail-out 保持在 ~99.98%。
+ * The answer is a **block origin**: origin = floor(top / ORIGIN_BLOCK_PX) *
+ * ORIGIN_BLOCK_PX.
+ * - the surface transform is origin - top, always within (-98304, 0];
+ * - a row's top is i*ROW_H - origin + HEAD_H, which only changes when a 4096-row
+ *   boundary is crossed.
+ * Every vertical pixel quantity that reaches the DOM therefore stays under 100k
+ * px (float32 ULP there is 0.0078px, i.e. lossless), while memo bail-out stays at
+ * ~99.98%.
  *
- * ## 这个模块刻意是纯的
- * computeScroll 不碰 DOM，可以在 node:test 里直接对 1M / 10M / 1 亿行断言。
+ * ## This module is deliberately pure
+ * computeScroll never touches the DOM, so node:test can assert on 1M / 10M / 100M
+ * rows directly.
  * ================================================================== */
 
 export const ROW_H = 24
 export const HEAD_H = 26
 export const ROW_OVERSCAN = 10
 
-/** 分块原点的块大小：4096 行 = 98,304px */
+/** Block size of the origin: 4096 rows = 98,304px. */
 export const ORIGIN_BLOCK_ROWS = 4096
 export const ORIGIN_BLOCK_PX = ORIGIN_BLOCK_ROWS * ROW_H
 
-/** 自绘 thumb 的最小高度 */
+/** Minimum height of the hand-drawn thumb. */
 export const MIN_THUMB_H = 24
 
 export interface ScrollSnapshot {
-  /** 纵向偏移（虚拟像素，唯一真源） */
+  /** Vertical offset in virtual pixels — the single source of truth. */
   readonly top: number
-  /** 当前分块原点 */
+  /** The current block origin. */
   readonly origin: number
   readonly maxTop: number
   readonly rowCount: number
-  /** 表头以下的可视高度 */
+  /** Visible height below the header. */
   readonly bodyH: number
-  /** 要渲染的行区间（含 overscan）；rowCount 为 0 时 renderLast < renderFirst */
+  /** Rows to render, overscan included; with rowCount 0, renderLast < renderFirst. */
   readonly renderFirst: number
   readonly renderLast: number
-  /** 真正可见的行区间（上报给 resultCache 做 LRU 保护与 ack 放行） */
+  /** Rows actually visible (reported to resultCache for LRU protection and ack release). */
   readonly visibleFirst: number
   readonly visibleLast: number
-  /** 已贴到可滚动范围末端，再往前推不动了（ack 背压的兜底信号） */
+  /** Pinned to the end of the scrollable range, unable to advance (the fallback
+   *  signal for ack backpressure). */
   readonly atBottom: boolean
 }
 
@@ -75,9 +87,10 @@ export const EMPTY_SCROLL: ScrollSnapshot = {
 }
 
 /**
- * 几何计算的**唯一实现**。纯函数，不碰 DOM。
+ * The **single implementation** of the geometry. Pure, never touches the DOM.
  *
- * @param dpr 设备像素比：把 top 量化到设备像素栅格，避免分数 transform 让等宽字体发虚。
+ * @param dpr Device pixel ratio: quantizes `top` onto the device pixel grid, so a
+ *            fractional transform cannot blur the monospace text.
  */
 export function computeScroll(
   rowCount: number,
@@ -109,23 +122,25 @@ export function computeScroll(
     renderLast: Math.min(lastRow, visibleLast + ROW_OVERSCAN),
     visibleFirst,
     visibleLast,
-    // 全部内容都装得下（maxTop === 0）也算"推不动了"：能看到的就是全部
+    // Content that fits entirely (maxTop === 0) also counts as "cannot advance":
+    // what you see is already everything
     atBottom: maxTop <= 0 || top >= maxTop - 0.5,
   }
 }
 
-/** 行 i 在画布坐标系里的 top（画布自身还带一个 origin - top 的 transform） */
+/** Top of row `i` in surface coordinates (the surface itself carries an
+ *  `origin - top` transform on top of this). */
 export function rowTopIn(index: number, origin: number): number {
   return index * ROW_H + HEAD_H - origin
 }
 
-/** 自绘 thumb 的几何。trackH 就是 bodyH。 */
+/** Geometry of the hand-drawn thumb. `trackH` is simply `bodyH`. */
 export interface ThumbGeom {
-  /** 需要滚动条（内容装不下） */
+  /** A scrollbar is needed at all (the content does not fit). */
   readonly visible: boolean
   readonly height: number
   readonly y: number
-  /** thumb 可移动的像素行程 */
+  /** Pixels of travel available to the thumb. */
   readonly travel: number
 }
 
@@ -142,19 +157,22 @@ export function thumbGeom(snap: ScrollSnapshot, trackH: number): ThumbGeom {
 export type ViewportSink = (first: number, last: number, atBottom: boolean) => void
 
 /**
- * 驱动器：持有 top，算出快照，直接写 DOM 的两处 transform（画布 + thumb），
- * 只有**行窗口真的移动**时才通知 React 重渲染。
+ * The driver: owns `top`, derives the snapshot, writes the two DOM transforms
+ * (surface and thumb) directly, and only notifies React when the **row window
+ * actually moves**.
  *
- * 也就是说滚一整屏之内的移动完全不经过 React：一次 style 写入，合成层，无布局无重绘。
+ * In other words, scrolling within a screenful never reaches React at all: one
+ * style write, composited, no layout and no repaint.
  */
 export class VScrollDriver {
-  /** 行画布；transform = origin - top */
+  /** The row surface; its transform is origin - top. */
   surface: HTMLElement | null = null
-  /** 自绘 thumb；由驱动器直接写 height / transform，不走 React */
+  /** The hand-drawn thumb; the driver writes its height/transform, bypassing React. */
   thumb: HTMLElement | null = null
   /**
-   * 视口上报口。**同步调用**，不等 React commit——
-   * 背压能不能生效因此与渲染时序无关（这是 MINOR 的解法之一）。
+   * Where the viewport is reported. Called **synchronously**, without waiting for
+   * a React commit — which is what decouples "does backpressure engage" from
+   * render timing.
    */
   onViewport: ViewportSink | null = null
 
@@ -163,17 +181,21 @@ export class VScrollDriver {
   private rowCount = 0
   private dpr = 1
   /**
-   * **DOM 里那批行当前用的分块原点**，由渲染层在 React 提交之后回写。
+   * **The block origin the rows currently in the DOM were laid out against**,
+   * written back by the render layer after React commits.
    *
-   * 画布 transform 必须配这个值，而不是配 `snap.origin`：跨 4096 行边界那一刻，
-   * snap.origin 立刻变了，但 DOM 里的行还带着旧 origin（React 要到下一次提交才换）。
-   * 若此时就按新 origin 写 transform，两者会错开整整一个块（98,304px）——
-   * 屏幕上是一帧全白。改用 domOrigin 之后，transform 与行 top 永远出自同一个原点：
-   * React 迟一帧提交最多让画面停一帧，绝不会错位。
+   * The surface transform must match this value rather than `snap.origin`: the
+   * instant a 4096-row boundary is crossed, snap.origin changes, but the rows in
+   * the DOM still carry the old origin (React only swaps them on the next
+   * commit). Writing the transform against the new origin right then would put
+   * the two a full block apart (98,304px) — one blank frame on screen. With
+   * domOrigin, the transform and the row tops always come from the same origin,
+   * so a late React commit costs at most a stalled frame, never a misplaced one.
    */
   private domOrigin = 0
   private snap: ScrollSnapshot = EMPTY_SCROLL
-  /** useSyncExternalStore 读的那份：只在通知时换新引用，绝不撕裂 */
+  /** The copy useSyncExternalStore reads: a new reference only when subscribers
+   *  are notified, so it can never tear. */
   private viewSnap: ScrollSnapshot = EMPTY_SCROLL
   private readonly subs = new Set<() => void>()
 
@@ -186,7 +208,7 @@ export class VScrollDriver {
     }
   }
 
-  /** 当前几何（命令式读取，给事件处理器用） */
+  /** The current geometry, read imperatively — for event handlers. */
   get metrics(): ScrollSnapshot {
     return this.snap
   }
@@ -200,7 +222,8 @@ export class VScrollDriver {
     this.viewportH = viewportH
     this.rowCount = rowCount
     this.dpr = dpr
-    // rawTop 不动 ⇒ 流式追加时用户视线锁在同一行，内容不会在眼皮底下往前漂
+    // rawTop is left alone, so rows streaming in keep the user's eye on the same
+    // row instead of drifting under it
     this.commit(this.rawTop, true)
   }
 
@@ -212,21 +235,22 @@ export class VScrollDriver {
     this.commit(this.rawTop + dy, false)
   }
 
-  /** 跳到某一行；任意行数下都精确（这是自绘相对原生滚动的关键增益） */
+  /** Jump to a row. Exact at any row count — the key win over native scrolling. */
   scrollToRow(index: number, align: 'start' | 'center' = 'start'): void {
     const base = index * ROW_H
     this.commit(align === 'center' ? base - (this.snap.bodyH - ROW_H) / 2 : base, false)
   }
 
-  /** 换结果集：位置归零 */
+  /** New result set: back to the top. */
   reset(): void {
     this.rawTop = 0
     this.commit(0, true)
   }
 
   /**
-   * 渲染层回写"这一批行是按哪个原点排的"。
-   * 必须在 React 提交之后调（useLayoutEffect），且只能传本次渲染用的那个 origin。
+   * The render layer reporting which origin the current batch of rows was laid
+   * out against. Must be called after React commits (useLayoutEffect), and only
+   * ever with the origin used by that very render.
    */
   syncDomOrigin(origin: number): void {
     if (this.domOrigin === origin) return
@@ -234,15 +258,15 @@ export class VScrollDriver {
     this.paint()
   }
 
-  /** 当前画布 transform 所依据的原点（测试与断言用） */
+  /** The origin the current surface transform is based on (for tests and asserts). */
   get paintedOrigin(): number {
     return this.domOrigin
   }
 
-  /** 挂上 DOM 之后补一次绘制（React ref 回调时机晚于 commit） */
+  /** Repaint once the DOM node is attached (React ref callbacks run after commit). */
   paint(): void {
     const { surface, thumb, snap } = this
-    // 注意是 domOrigin 不是 snap.origin，理由见 domOrigin 的注释
+    // domOrigin, not snap.origin — see the note on domOrigin
     if (surface) surface.style.transform = `translate3d(0,${this.domOrigin - snap.top}px,0)`
     if (thumb) {
       const g = thumbGeom(snap, snap.bodyH)
@@ -260,18 +284,19 @@ export class VScrollDriver {
       return
     }
     this.snap = snap
-    // 位置永远存 clamp 之后的值：fling 到底时不许把过冲量攒起来，
-    // 否则用户要反向空滚一大段才看得到内容动
+    // Always store the clamped position: a fling that hits the end must not bank
+    // the overshoot, or the user has to scroll a long way back before anything moves
     this.rawTop = snap.top
 
-    // 视口同步上报：ack 放行 / LRU 保护不等 React
+    // Report the viewport synchronously: ack release and LRU protection do not wait for React
     if (snap.visibleLast >= snap.visibleFirst) {
       this.onViewport?.(snap.visibleFirst, snap.visibleLast, snap.atBottom)
     }
 
     this.paint()
 
-    // 行窗口没动就不打扰 React：滚动一整屏之内只有上面那两次 style 写入
+    // The row window did not move, so leave React alone: scrolling within a
+    // screenful is nothing but the two style writes above
     if (
       snap.renderFirst !== prev.renderFirst
       || snap.renderLast !== prev.renderLast
@@ -279,8 +304,9 @@ export class VScrollDriver {
       || snap.rowCount !== prev.rowCount
       || snap.maxTop !== prev.maxTop
     ) {
-      // viewSnap 与通知必须成对：useSyncExternalStore 的 getSnapshot 只能在
-      // 收到通知之后才换新引用，否则 React 会判定为撕裂
+      // viewSnap and the notification must move together: getSnapshot may only
+      // return a new reference after subscribers have been told, or React reads
+      // it as a tear
       this.viewSnap = snap
       for (const cb of [...this.subs]) cb()
     }

@@ -13,12 +13,14 @@ import {
 } from '@peek/core'
 
 /**
- * 平铺树的纯函数操作集（PLAN 第 5 节"布局即状态"）。
+ * Pure operations on the tiled layout tree (PLAN section 5, "layout is state").
  *
- * 全部输入输出都是普通 LayoutNode：**不修改入参**，返回新树。
- * 命令 handler 里用 `plain(draft.layout)` 取出普通树，算完再整棵赋回 draft。
- * 布局树规模是面板数量级（个位数～十几），整棵替换比逐节点改 draft 简单得多，
- * 产生的 patch 也只有一条。
+ * Every input and output is a plain LayoutNode: these functions **never mutate
+ * their arguments**, they return a new tree. Command handlers pull a plain tree
+ * out with `plain(draft.layout)`, compute, then assign the whole tree back onto
+ * the draft. A layout tree is the size of the panel count (a handful, at most a
+ * dozen), so replacing it wholesale is far simpler than editing node by node —
+ * and it yields a single patch instead of many.
  */
 
 /* ================================================================== */
@@ -26,12 +28,12 @@ import {
 /* ================================================================== */
 
 export interface SplitPanelOptions {
-  /** 要被劈开的面板 */
+  /** The panel being split */
   panelId: PanelId
   dir: 'row' | 'col'
-  /** 新面板放在原面板之前还是之后（默认 after） */
+  /** Whether the new panel goes before or after the original (default: after) */
   insert?: 'before' | 'after'
-  /** 期望占比；长度与结果 split 的子节点数不符则忽略（退化为均分/对半分） */
+  /** Desired ratio; ignored when its length does not match the resulting split's child count (falls back to an even split) */
   ratio?: readonly number[]
   newPanelId: PanelId
   newSplitId: SplitId
@@ -39,17 +41,20 @@ export interface SplitPanelOptions {
 
 export interface SplitPanelOutcome {
   layout: LayoutNode
-  /** 新面板所属的 split（同方向时是被并入的既有 split，否则是新建的 split） */
+  /** The split the new panel belongs to: the existing one it merged into when directions match, otherwise the newly created split */
   splitId: SplitId
-  /** 新建出来的面板 */
+  /** The panel that was created */
   panelId: PanelId
 }
 
 /**
- * 劈开一个面板。找不到目标面板返回 null（调用方回 NOT_FOUND）。
+ * Split a panel. Returns null when the target panel does not exist (the caller
+ * turns that into NOT_FOUND).
  *
- * 方向相同时**并入父 split**而不是嵌套新 split —— 否则连续横切会堆出
- * row(row(row(...))) 这种等价但没法拖拽调整的畸形树。
+ * When the direction matches, the new panel **merges into the parent split**
+ * rather than nesting a new one — otherwise repeated horizontal splits pile up
+ * row(row(row(...))), a tree that is equivalent but impossible to resize by
+ * dragging.
  */
 export function splitPanel(root: LayoutNode, opts: SplitPanelOptions): SplitPanelOutcome | null {
   if (root.type === 'panel') {
@@ -86,7 +91,7 @@ function splitInside(split: SplitNode, opts: SplitPanelOptions): SplitPanelOutco
     if (child.id !== opts.panelId) continue
 
     if (split.dir === opts.dir) {
-      // 同方向：新面板直接并入当前 split
+      // Same direction: the new panel joins the current split directly
       const created: PanelNode = { type: 'panel', id: opts.newPanelId, viewId: null }
       const at = opts.insert === 'before' ? i : i + 1
       const children = [...split.children]
@@ -98,7 +103,7 @@ function splitInside(split: SplitNode, opts: SplitPanelOptions): SplitPanelOutco
       }
     }
 
-    // 换方向：把这个面板就地升级成一个新的 split
+    // Direction change: promote this panel in place into a new split
     const children = [...split.children]
     children[i] = wrapPanelInSplit(child, opts)
     return { layout: { ...split, children }, splitId: opts.newSplitId, panelId: opts.newPanelId }
@@ -106,7 +111,7 @@ function splitInside(split: SplitNode, opts: SplitPanelOptions): SplitPanelOutco
   return null
 }
 
-/** 并入既有 split 时的占比：显式 ratio 优先，否则把被劈面板的份额对半分给新面板 */
+/** Ratio when merging into an existing split: an explicit ratio wins, otherwise the split panel's share is halved with the newcomer. */
 function ratioAfterInsert(
   ratio: readonly number[],
   targetIndex: number,
@@ -129,20 +134,21 @@ function ratioAfterInsert(
 export interface ClosePanelOutcome {
   layout: LayoutNode
   /**
-   * 被摘掉的面板 id。树里只剩这一个面板时不摘除（布局至少要有一个面板），
-   * 只把它清空，此时为 null。
+   * The id of the panel that was removed. When it is the only panel left it is
+   * kept rather than removed (a layout always has at least one panel) and merely
+   * emptied, in which case this is null.
    */
   removedPanelId: PanelId | null
-  /** 该面板原本挂着的视图 */
+  /** The view that panel was holding */
   viewId: ViewId | null
 }
 
-/** 关闭一个面板：兄弟节点顶上，父 split 只剩一个孩子时塌缩。找不到返回 null。 */
+/** Close a panel: siblings take over, and a parent split collapses once it is down to one child. Returns null when not found. */
 export function closePanel(root: LayoutNode, panelId: PanelId): ClosePanelOutcome | null {
   const target = findPanel(root, panelId)
   if (!target) return null
 
-  // 最后一个面板：保留节点本身，只清空视图
+  // The last panel: keep the node itself, just clear its view
   if (collectPanels(root).length <= 1) {
     return {
       layout: { type: 'panel', id: target.id, viewId: null },
@@ -166,7 +172,7 @@ function removePanel(node: LayoutNode, panelId: PanelId): LayoutNode | null {
       if (child.id !== panelId) continue
       const children = node.children.filter((_, j) => j !== i)
       const ratio = node.ratio.filter((_, j) => j !== i)
-      // 只剩一个孩子：split 塌缩，孩子顶替它的位置
+      // Down to one child: the split collapses and the child takes its place
       if (children.length === 1) return children[0]
       return { ...node, children, ratio: normalizeRatio(ratio, children.length) }
     }
@@ -189,9 +195,10 @@ export type SetRatioOutcome =
   | { ok: false; reason: 'notFound' | 'lengthMismatch'; expected?: number }
 
 /**
- * 调整某个 split 的占比。
- * 长度必须与子节点数一致 —— 不一致时不静默均分，而是回 lengthMismatch，
- * 让发命令的人（尤其是 AI）拿到明确反馈。
+ * Adjust one split's ratio.
+ * The length must match the child count — a mismatch is reported as
+ * `lengthMismatch` rather than silently evened out, so whoever sent the command
+ * (an AI in particular) gets unambiguous feedback.
  */
 export function setSplitRatio(root: LayoutNode, splitId: SplitId, ratio: readonly number[]): SetRatioOutcome {
   const split = findSplit(root, splitId)
@@ -210,16 +217,16 @@ function mapSplits(node: LayoutNode, splitId: SplitId, ratio: number[]): LayoutN
 }
 
 /* ================================================================== */
-/* 面板 ↔ 视图挂载                                                      */
+/* Mounting views onto panels                                          */
 /* ================================================================== */
 
-/** 把视图挂到面板上（viewId 传 null 表示清空）。面板不存在返回 null。 */
+/** Mount a view onto a panel (pass null to clear it). Returns null when the panel does not exist. */
 export function setPanelView(root: LayoutNode, panelId: PanelId, viewId: ViewId | null): LayoutNode | null {
   if (!findPanel(root, panelId)) return null
   return mapPanels(root, (panel) => (panel.id === panelId ? { ...panel, viewId } : panel))
 }
 
-/** 把某个视图从它所在的面板上摘掉；视图没挂在任何面板上时 panelId 为 null */
+/** Detach a view from whichever panel holds it; `panelId` is null when no panel does. */
 export function clearViewFromPanels(
   root: LayoutNode,
   viewId: ViewId,
@@ -236,10 +243,10 @@ export function mapPanels(node: LayoutNode, fn: (panel: PanelNode) => PanelNode)
 }
 
 /* ================================================================== */
-/* 查询辅助                                                             */
+/* Lookup helpers                                                      */
 /* ================================================================== */
 
-/** 第一个空面板（view.open 没指定面板且没有焦点时的落点） */
+/** The first empty panel — where view.open lands when no panel was given and nothing has focus. */
 export function firstEmptyPanel(root: LayoutNode): PanelNode | null {
   return collectPanels(root).find((panel) => panel.viewId === null) ?? null
 }

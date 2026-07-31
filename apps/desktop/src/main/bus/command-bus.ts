@@ -4,7 +4,7 @@ import {
   isCommandName,
   newCommandId,
   parseCommandInput,
-  peekError,
+  peekErrorMsg,
   type CommandEnvelope,
   type CommandInput,
   type CommandName,
@@ -16,35 +16,41 @@ import type { WorkspaceStore } from '../store/workspace-store'
 import { CommandLog, redactCommandInput } from './command-log'
 import type { CommandDeps } from './deps'
 import { runIntents } from './effects'
-import { asPeekError, fail } from './failure'
+import { asPeekError, failMsg } from './failure'
 import { defaultIdFactory, type IdFactory } from './ids'
 import type { EffectIntent } from './intents'
 import type { CommandHandler, CommandHandlerMap, ReduceCtx } from './types'
 
 /**
- * Command Bus —— 整个架构的心脏（PLAN 第 6 节）。
+ * Command Bus — the heart of the architecture (PLAN section 6).
  *
- * **UI 事件和 MCP 工具调用走的是同一个 dispatch，没有任何分叉**：
- * source 只用于日志与审计，不改变任何一行执行路径。给 MCP 开后门 =
- * 人和 AI 的状态可能不一致 = 这个项目最核心的卖点没了。
+ * **UI events and MCP tool calls go through the same dispatch, with no fork
+ * anywhere**: `source` is recorded for logging and audit only, and never changes
+ * a single line of the execution path. A back door for MCP would mean the human
+ * and the AI could end up looking at different state — which is precisely the
+ * property this project exists to guarantee.
  *
- * 一次 dispatch 的顺序：
- *   zod 校验 → reduce（纯状态，原子）→ patch 广播 → 副作用 → finalize → 结果 + 日志
- * 任何一步失败都收敛成 CommandResult 的 error 分支，**不向调用方抛异常**。
+ * The order of one dispatch:
+ *   zod validation → reduce (pure state, atomic) → patch broadcast → effects →
+ *   finalize → result + log
+ * A failure at any step collapses into the error branch of a CommandResult;
+ * **no exception ever escapes to the caller**.
  */
 export interface CommandBusOptions {
   store: WorkspaceStore
   deps: CommandDeps
   ids?: IdFactory
   log?: CommandLog
-  /** 可注入的时钟，测试用 */
+  /** Injectable clock, for tests */
   now?: () => number
 }
 
 export class CommandBus {
   /**
-   * 注册表是异构的：值的具体类型与键一一对应，这层关联由 register 的签名保证，
-   * 存进来之后 TS 表达不了，所以统一存成 unknown，取出时按 name 收窄。
+   * The registry is heterogeneous: each value's concrete type is tied to its key.
+   * `register`'s signature enforces that correspondence at the call site, but TS
+   * cannot express it for the stored map, so entries are kept as `unknown` and
+   * narrowed by name on the way out.
    */
   readonly #handlers = new Map<CommandName, unknown>()
   readonly #store: WorkspaceStore
@@ -80,7 +86,7 @@ export class CommandBus {
     return this.#store
   }
 
-  /** 执行一条命令。rawInput 未经校验，由这里统一过 zod。 */
+  /** Run one command. `rawInput` is untrusted; zod validation happens here. */
   async dispatch<K extends CommandName>(
     name: K,
     rawInput: unknown,
@@ -106,7 +112,10 @@ export class CommandBus {
     }
 
     if (!isCommandName(name)) {
-      return finish(commandErr(id, peekError('BAD_REQUEST', `未知命令 ${String(name)}`)), rawInput)
+      return finish(
+        commandErr(id, peekErrorMsg('BAD_REQUEST', 'error.command.unknown', { name: String(name) })),
+        rawInput,
+      )
     }
 
     const parsed = parseCommandInput(name, rawInput)
@@ -115,7 +124,7 @@ export class CommandBus {
 
     const handler = this.#handlers.get(name) as CommandHandler<K> | undefined
     if (!handler) {
-      return finish(commandErr(id, peekError('INTERNAL', `命令 ${name} 没有注册 handler`)), input)
+      return finish(commandErr(id, peekErrorMsg('INTERNAL', 'error.command.noHandler', { name })), input)
     }
 
     const intents: EffectIntent[] = []
@@ -143,21 +152,23 @@ export class CommandBus {
       }
 
       if (handler.finalize) data = handler.finalize(data, this.#store.getState(), ctx)
-      // rev 取副作用跑完后的最新值：conn.open 这类命令在副作用里还会再改状态
+      // Report the rev from *after* the effects ran: commands like conn.open keep
+      // mutating state during their effect phase.
       return finish(commandOk(id, this.#store.rev, data), input)
     } catch (raw) {
       return finish(commandErr(id, asPeekError(raw)), input)
     }
   }
 
-  /** 信封式入口，便于回放 Command 日志 */
+  /** Envelope entry point, so a Command log can be replayed verbatim. */
   dispatchEnvelope<K extends CommandName>(envelope: CommandEnvelope<K>): Promise<CommandResultFor<K>> {
     return this.dispatch(envelope.name, envelope.input, envelope.source, envelope.id)
   }
 
   /**
-   * 状态阶段：read（只读，不 bump rev）或 reduce（immer 原子变更 + patch 广播）。
-   * reduce 抛异常时 immer 会丢弃整个 draft，状态不会留下半成品。
+   * The state phase: either `read` (read-only, does not bump rev) or `reduce`
+   * (atomic immer mutation + patch broadcast). When `reduce` throws, immer
+   * discards the whole draft, so no half-applied state survives.
    */
   #runStateStage<K extends CommandName>(
     handler: CommandHandler<K>,
@@ -169,7 +180,7 @@ export class CommandBus {
   ): CommandResultData<K> {
     if (handler.read) return handler.read(this.#store.getState(), input, ctx)
     const reduce = handler.reduce
-    if (!reduce) fail('INTERNAL', `命令 ${name} 既没有 reduce 也没有 read`)
+    if (!reduce) failMsg('INTERNAL', 'error.command.notReducible', { name })
     return this.#store.applyWith((draft) => reduce(draft, input, ctx), {
       commandId,
       commandName: name,

@@ -12,9 +12,10 @@ import { PostgresSession } from '../session'
 import { nodeId } from '../introspect'
 
 /**
- * 真实库联调：postgresql://postgres@localhost:5432/postgres
- * 覆盖 introspect / collectionScan / tabularQuery 流式分帧 / 大值截断 + valuePeek /
- * cancel / 超时。
+ * Integration against a real database (default postgresql://postgres@localhost:5432/postgres,
+ * overridable with PEEK_TEST_PG_URL). Covers introspect, collectionScan,
+ * tabularQuery's streamed framing, large-value truncation plus valuePeek,
+ * cancellation and timeouts.
  */
 
 const TEST_URL = process.env['PEEK_TEST_PG_URL'] ?? 'postgresql://postgres@localhost:5432/postgres'
@@ -25,7 +26,7 @@ const CONFIG: PostgresConnectionConfig = {
   applicationName: 'peek-test',
 }
 
-/** 把一个游标抽干，收集所有帧 */
+/** Drain a cursor, collecting every frame */
 async function drain(cursor: Cursor): Promise<ChunkFrame[]> {
   const frames: ChunkFrame[] = []
   for (;;) {
@@ -37,35 +38,36 @@ async function drain(cursor: Cursor): Promise<ChunkFrame[]> {
   return frames
 }
 
-/** 校验帧序列本身是否合法（seq 连续、schema 只在首帧、末帧带 done） */
+/** Check the frame sequence itself: seq contiguous, schema only on the first frame, done on the last */
 function assertFrameProtocol(frames: ChunkFrame[]): void {
-  assert.ok(frames.length > 0, '至少要有一帧')
+  assert.ok(frames.length > 0, 'there has to be at least one frame')
   frames.forEach((f, i) => {
-    assert.equal(f.seq, i, 'seq 必须从 0 连续递增')
-    if (i === 0) assert.ok(f.schema, '首帧必须带 schema')
-    else assert.equal(f.schema, undefined, '非首帧不得重复 schema')
+    assert.equal(f.seq, i, 'seq must increment from 0 with no gaps')
+    if (i === 0) assert.ok(f.schema, 'the first frame must carry the schema')
+    else assert.equal(f.schema, undefined, 'later frames must not repeat the schema')
     const cols = f.cols
-    assert.equal(cols.length, frames[0]?.schema?.length, 'cols 数必须等于列数')
-    for (const col of cols) assert.equal(col.length, f.rowCount, '每列长度必须等于 rowCount')
+    assert.equal(cols.length, frames[0]?.schema?.length, 'the number of cols must equal the number of columns')
+    for (const col of cols) assert.equal(col.length, f.rowCount, 'every column must be rowCount long')
   })
   const last = frames[frames.length - 1]
-  assert.ok(last?.done, '末帧必须带 done')
-  for (const f of frames.slice(0, -1)) assert.equal(f.done, undefined, '只有末帧能带 done')
+  assert.ok(last?.done, 'the last frame must carry done')
+  for (const f of frames.slice(0, -1)) assert.equal(f.done, undefined, 'only the last frame may carry done')
 }
 
-describe('driver-postgres 真实库联调', () => {
+describe('driver-postgres against a real database', () => {
   let session: PostgresSession
 
   /**
-   * 表的真实行数。测试库是一个活库（其它进程会往里写），
-   * 所以行数断言不能写死数字，只能拿服务端自己的 count(*) 当基准。
+   * The table's real row count. The test database is live (other processes write
+   * to it), so row-count assertions cannot hard-code a number and must be
+   * measured against the server's own count(*).
    */
   async function rowCountOf(table: string): Promise<number> {
     const frames = await drain(
       await session.query({ resultId: newResultId(), text: `SELECT count(*)::int4 AS n FROM ${table}` }),
     )
     const n = frames[0]?.cols[0]?.[0]
-    assert.equal(typeof n, 'number', 'count(*) 必须回一个数字')
+    assert.equal(typeof n, 'number', 'count(*) must come back as a number')
     return n as number
   }
 
@@ -77,7 +79,7 @@ describe('driver-postgres 真实库联调', () => {
     await session?.close()
   })
 
-  it('连上后能力集与 core 的 DRIVER_CAPABILITIES.postgres 一致', () => {
+  it('the capability set after connecting matches core DRIVER_CAPABILITIES.postgres', () => {
     assert.deepEqual(
       [...session.capabilities].sort(),
       ['cancel', 'collectionScan', 'introspect', 'tabularQuery', 'valuePeek'],
@@ -86,34 +88,35 @@ describe('driver-postgres 真实库联调', () => {
     assert.match(session.serverInfo.version, /^\d+/)
   })
 
-  /* -------------------- introspect：懒加载三层 -------------------- */
+  /* -------------------- introspect: three lazily loaded levels -------------------- */
 
-  it('根层只返回当前库，逐层懒加载', async () => {
+  it('the root level returns only the current database, expanding one level at a time', async () => {
     const roots = await session.listChildren(null)
     assert.equal(roots.length, 1)
     assert.equal(roots[0]?.kind, 'database')
-    // 库名从 TEST_URL 推导——测试库可由 PEEK_TEST_PG_URL 覆盖，不能写死
+    // Derive the database name from TEST_URL: PEEK_TEST_PG_URL can point this
+    // elsewhere, so it must not be hard-coded
     assert.equal(roots[0]?.name, new URL(TEST_URL).pathname.slice(1))
     assert.equal(roots[0]?.hasChildren, true)
 
     const schemas = await session.listChildren(roots[0]?.id ?? '')
     const names = schemas.map((s) => s.name)
-    assert.ok(names.includes('public'), `schema 层应含 public，实际 ${names.join(',')}`)
-    assert.equal(names[0], 'public', 'public 排最前')
+    assert.ok(names.includes('public'), `the schema level should contain public, got ${names.join(',')}`)
+    assert.equal(names[0], 'public', 'public sorts first')
     for (const s of schemas) assert.equal(s.kind, 'schema')
   })
 
-  it('public schema 下正好 3 张表，且带可直接 open 的 ref', async () => {
+  it('the public schema holds exactly 3 tables, each with a directly openable ref', async () => {
     const tables = await session.listChildren(nodeId.schema('public'))
     assert.deepEqual(tables.map((t) => t.name).sort(), ['account', 'harness', 'document'])
     for (const t of tables) {
       assert.equal(t.kind, 'table')
-      assert.equal(t.hasChildren, false, '表是叶子节点，列走 describeCollection')
+      assert.equal(t.hasChildren, false, 'a table is a leaf; its columns come from describeCollection')
       assert.deepEqual(t.ref, { kind: 'relation', schema: 'public', name: t.name })
     }
   })
 
-  it('describeCollection 给出列定义与主键', async () => {
+  it('describeCollection reports column definitions and the primary key', async () => {
     const info = await session.describeCollection({
       kind: 'relation',
       schema: 'public',
@@ -128,7 +131,7 @@ describe('driver-postgres 真实库联调', () => {
     assert.ok((info.indexes?.length ?? 0) >= 1)
   })
 
-  it('非 relation 的 CollectionRef 被拒', async () => {
+  it('a non-relation CollectionRef is rejected', async () => {
     await assert.rejects(
       () => session.describeCollection({ kind: 'keyPattern', pattern: '*' }),
       (err: unknown) => isPeekError(err) && err.code === 'BAD_REQUEST',
@@ -137,14 +140,14 @@ describe('driver-postgres 真实库联调', () => {
 
   /* -------------------- collectionScan -------------------- */
 
-  it('harness 表扫出的行数与 count(*) 一致，首帧 schema 带主键标记', async () => {
+  it('scanning harness yields exactly count(*) rows, and the first-frame schema flags the primary key', async () => {
     const expected = await rowCountOf('public.harness')
-    assert.ok(expected > 0, '测试库里 harness 不该是空表')
+    assert.ok(expected > 0, 'harness should not be empty in the test database')
     const cursor = await session.scan({ resultId: newResultId(), ref: { kind: 'relation', schema: 'public', name: 'harness' } })
     const frames = await drain(cursor)
     assertFrameProtocol(frames)
     const total = frames.reduce((n, f) => n + f.rowCount, 0)
-    assert.equal(total, expected, '扫描必须把表里的行一行不多一行不少地吐出来')
+    assert.equal(total, expected, 'a scan must emit every row in the table, no more and no fewer')
     assert.equal(frames[frames.length - 1]?.done?.rows, expected)
     const schema = frames[0]?.schema ?? []
     assert.deepEqual(schema.map((c) => c.name), ['id', 'account_id', 'created_at', 'name'])
@@ -152,7 +155,7 @@ describe('driver-postgres 真实库联调', () => {
     assert.equal(schema.find((c) => c.name === 'created_at')?.nullable, false)
   })
 
-  it('筛选走参数化，注入串只会被当成普通值', async () => {
+  it('filters are parameterized, so an injection string stays an ordinary value', async () => {
     const cursor = await session.scan({
       resultId: newResultId(),
       ref: { kind: 'relation', schema: 'public', name: 'harness' },
@@ -160,14 +163,14 @@ describe('driver-postgres 真实库联调', () => {
     })
     const frames = await drain(cursor)
     assertFrameProtocol(frames)
-    assert.equal(frames[frames.length - 1]?.done?.rows, 0, '空结果集也要发一帧带 done')
+    assert.equal(frames[frames.length - 1]?.done?.rows, 0, 'an empty result set still emits one frame carrying done')
     assert.equal(frames[0]?.rowCount, 0)
-    // 表还在：说明注入没生效
+    // The table is still there, so the injection did nothing
     const after = await session.describeCollection({ kind: 'relation', schema: 'public', name: 'harness' })
     assert.equal(after.columns.length, 4)
   })
 
-  it('分页给出 nextCursor，可续拉下一页', async () => {
+  it('pagination returns a nextCursor that fetches the following page', async () => {
     const ref = { kind: 'relation', schema: 'public', name: 'harness' } as const
     const first = await drain(await session.scan({ resultId: newResultId(), ref, limit: 2, sort: [{ column: 'id', dir: 'asc' }] }))
     const done = first[first.length - 1]?.done
@@ -185,12 +188,12 @@ describe('driver-postgres 真实库联调', () => {
     const firstIds = first.flatMap((f) => f.cols[0] ?? [])
     const secondIds = second.flatMap((f) => f.cols[0] ?? [])
     assert.equal(firstIds.length, 2)
-    assert.notDeepEqual(firstIds, secondIds, '第二页必须是不同的行')
+    assert.notDeepEqual(firstIds, secondIds, 'the second page must hold different rows')
   })
 
-  /* -------------------- tabularQuery：真流式 -------------------- */
+  /* -------------------- tabularQuery: genuinely streamed -------------------- */
 
-  it('5000 行按 chunkRows 分成多帧流式返回', async () => {
+  it('5000 rows stream back as multiple frames sized by chunkRows', async () => {
     const cursor = await session.query({
       resultId: newResultId(),
       text: `SELECT i, repeat('a', 40) AS pad FROM generate_series(1, 5000) AS i`,
@@ -198,28 +201,28 @@ describe('driver-postgres 真实库联调', () => {
     })
     const frames = await drain(cursor)
     assertFrameProtocol(frames)
-    assert.equal(frames.length, 10, '5000 行 / 500 每帧 = 10 帧')
+    assert.equal(frames.length, 10, '5000 rows / 500 per frame = 10 frames')
     for (const f of frames) assert.equal(f.rowCount, 500)
     assert.equal(frames[frames.length - 1]?.done?.rows, 5000)
     assert.equal(frames[0]?.schema?.[0]?.logical, 'number')
   })
 
-  it('不指定 chunkRows 时按行宽自适应，同样是多帧', async () => {
+  it('without chunkRows the frame size adapts to row width, still yielding multiple frames', async () => {
     const cursor = await session.query({
       resultId: newResultId(),
       text: `SELECT i, repeat('b', 300) AS pad FROM generate_series(1, 4000) AS i`,
     })
     const frames = await drain(cursor)
     assertFrameProtocol(frames)
-    assert.ok(frames.length >= 2, `应该分帧，实际 ${frames.length} 帧`)
+    assert.ok(frames.length >= 2, `expected multiple frames, got ${frames.length}`)
     assert.equal(frames.reduce((n, f) => n + f.rowCount, 0), 4000)
-    // 自适应下每帧行数落在 core 的 500–2000 预算区间
+    // Adaptive sizing keeps every frame inside core's 500-2000 row budget
     for (const f of frames.slice(0, -1)) {
-      assert.ok(f.rowCount >= 500 && f.rowCount <= 2000, `帧行数 ${f.rowCount} 超出预算区间`)
+      assert.ok(f.rowCount >= 500 && f.rowCount <= 2000, `frame of ${f.rowCount} rows is outside the budget`)
     }
   })
 
-  it('maxRows 截断时 done.truncated 为 true', async () => {
+  it('done.truncated is true when maxRows cuts the result short', async () => {
     const cursor = await session.query({
       resultId: newResultId(),
       text: 'SELECT i FROM generate_series(1, 1000) AS i',
@@ -232,7 +235,7 @@ describe('driver-postgres 真实库联调', () => {
     assert.equal(frames[frames.length - 1]?.done?.truncated, true)
   })
 
-  it('查询参数走 $n，不拼字符串', async () => {
+  it('query parameters travel as $n rather than concatenated text', async () => {
     const cursor = await session.query({
       resultId: newResultId(),
       text: 'SELECT $1::int AS a, $2::text AS b',
@@ -243,21 +246,22 @@ describe('driver-postgres 真实库联调', () => {
     assert.equal(frames[0]?.cols[1]?.[0], "it's fine")
   })
 
-  it('不能建游标的语句退化成一次性查询，帧契约与服务端超时都还在', async () => {
-    // DECLARE 只接受 SELECT / VALUES / TABLE，EXPLAIN 会失败并把事务打成 aborted；
-    // 退化路径要重开事务，超时保险也必须跟着重上一遍
+  it('a statement that cannot back a cursor degrades to a one-shot query, keeping the frame contract and the server timeout', async () => {
+    // DECLARE only accepts SELECT / VALUES / TABLE, so EXPLAIN fails and leaves
+    // the transaction aborted; the fallback path has to reopen the transaction
+    // and arm the timeouts again
     const explained = await drain(await session.query({ resultId: newResultId(), text: 'EXPLAIN SELECT 1' }))
     assertFrameProtocol(explained)
-    assert.ok((explained[explained.length - 1]?.done?.rows ?? 0) > 0, 'EXPLAIN 至少有一行计划')
+    assert.ok((explained[explained.length - 1]?.done?.rows ?? 0) > 0, 'EXPLAIN yields at least one plan row')
 
     const shown = await drain(
       await session.query({ resultId: newResultId(), text: 'SHOW statement_timeout', timeoutMs: 4321 }),
     )
     assertFrameProtocol(shown)
-    assert.equal(shown[0]?.cols[0]?.[0], '4321ms', '退化路径里 statement_timeout 仍然生效')
+    assert.equal(shown[0]?.cols[0]?.[0], '4321ms', 'statement_timeout still applies on the fallback path')
   })
 
-  it('语法错误映射成 SYNTAX_ERROR 并带 position', async () => {
+  it('a syntax error maps to SYNTAX_ERROR and carries a position', async () => {
     await assert.rejects(
       () => session.query({ resultId: newResultId(), text: 'SELEC 1' }),
       (err: unknown) => {
@@ -270,16 +274,16 @@ describe('driver-postgres 真实库联调', () => {
     )
   })
 
-  it('表不存在映射成 NOT_FOUND', async () => {
+  it('a missing table maps to NOT_FOUND', async () => {
     await assert.rejects(
       () => session.query({ resultId: newResultId(), text: 'SELECT * FROM no_such_table_xyz' }),
       (err: unknown) => isPeekError(err) && err.code === 'NOT_FOUND' && err.driverCode === '42P01',
     )
   })
 
-  /* -------------------- 大值截断 + valuePeek -------------------- */
+  /* -------------------- large value truncation + valuePeek -------------------- */
 
-  it('超 4KB 的值只发预览，valuePeek 能取回全量', async () => {
+  it('a value over 4KB travels as a preview, and valuePeek retrieves it in full', async () => {
     const resultId = newResultId()
     const cursor = await session.query({
       resultId,
@@ -287,7 +291,7 @@ describe('driver-postgres 真实库联调', () => {
     })
     const frames = await drain(cursor)
     const cell = frames[0]?.cols[0]?.[0]
-    assert.ok(isTruncatedValue(cell), '大值必须被标记成 TruncatedValue')
+    assert.ok(isTruncatedValue(cell), 'a large value must be flagged as a TruncatedValue')
     assert.equal(cell.byteLength, 10000)
     assert.equal(cell.preview.length, 4096)
     assert.deepEqual(cell.ref, { kind: 'resultCell', resultId, row: 0, col: 0 })
@@ -300,7 +304,7 @@ describe('driver-postgres 真实库联调', () => {
     assert.equal(full.eof, true)
   })
 
-  it('valuePeek 支持字节区间，切片在服务端完成', async () => {
+  it('valuePeek supports byte ranges, slicing on the server', async () => {
     const resultId = newResultId()
     await drain(await session.query({ resultId, text: `SELECT repeat('q', 20000) AS big` }))
     const ref = { kind: 'resultCell', resultId, row: 0, col: 0 } as const
@@ -311,7 +315,7 @@ describe('driver-postgres 真实库联调', () => {
     assert.equal(part.eof, false)
   })
 
-  it('valuePeek 按主键回源关系表单元格', async () => {
+  it('valuePeek resolves a relation cell by primary key', async () => {
     const idCursor = await session.query({
       resultId: newResultId(),
       text: 'SELECT id, name FROM public.harness ORDER BY id LIMIT 1',
@@ -331,7 +335,7 @@ describe('driver-postgres 真实库联调', () => {
     assert.equal(peeked.eof, true)
   })
 
-  it('bytea 走 base64', async () => {
+  it('bytea comes back as base64', async () => {
     const resultId = newResultId()
     const frames = await drain(await session.query({
       resultId,
@@ -344,7 +348,7 @@ describe('driver-postgres 真实库联调', () => {
     assert.equal(Buffer.from(peeked.data, 'base64').toString('utf8'), 'Hello')
   })
 
-  it('失效的 resultId 回源报 NOT_FOUND', async () => {
+  it('re-fetching through a stale resultId reports NOT_FOUND', async () => {
     await assert.rejects(
       () => session.peekValue({ kind: 'resultCell', resultId: newResultId(), row: 0, col: 0 }),
       (err: unknown) => isPeekError(err) && err.code === 'NOT_FOUND',
@@ -353,29 +357,30 @@ describe('driver-postgres 真实库联调', () => {
 
   /* -------------------- cancel / timeout -------------------- */
 
-  it('cancel 真的打断执行中的长查询', async () => {
+  it('cancel genuinely interrupts a long query in flight', async () => {
     const resultId = newResultId()
     const cursor = await session.query({ resultId, text: 'SELECT pg_sleep(30)' })
-    // 立刻接住 rejection：取消可能在 session.cancel() 还没返回时就打断 FETCH，
-    // 裸着的 rejected promise 会被 node:test 记成 unhandled rejection
+    // Attach the rejection handler immediately: the cancel can interrupt FETCH
+    // before session.cancel() even returns, and a bare rejected promise is
+    // recorded by node:test as an unhandled rejection
     const pending = cursor.next().then(
       () => null,
       (err: unknown) => err,
     )
-    // 让 FETCH 真的发出去再取消
+    // Give FETCH time to actually go out before cancelling
     await new Promise((r) => setTimeout(r, 150))
     const t0 = Date.now()
     assert.equal(await session.cancel(resultId), true)
     const outcome = await pending
     assert.ok(
       isPeekError(outcome) && outcome.code === 'CANCELLED',
-      `取消后 next() 必须以 CANCELLED 失败，实际是 ${JSON.stringify(outcome)}`,
+      `after a cancel, next() must fail with CANCELLED; got ${JSON.stringify(outcome)}`,
     )
-    assert.ok(Date.now() - t0 < 5000, '取消必须立刻生效，而不是等查询自然结束')
-    assert.equal(await session.cancel(resultId), false, '重复取消返回 false 且不抛错')
+    assert.ok(Date.now() - t0 < 5000, 'the cancel must take effect at once, not wait for the query to end on its own')
+    assert.equal(await session.cancel(resultId), false, 'a repeated cancel returns false without throwing')
   })
 
-  it('timeoutMs 到点映射成 TIMEOUT', async () => {
+  it('an expired timeoutMs maps to TIMEOUT', async () => {
     const cursor = await session.query({
       resultId: newResultId(),
       text: 'SELECT pg_sleep(30)',
@@ -387,15 +392,15 @@ describe('driver-postgres 真实库联调', () => {
     )
   })
 
-  it('长查询被取消后连接仍可用', async () => {
+  it('the connection stays usable after a long query is cancelled', async () => {
     await session.ping()
     const frames = await drain(await session.query({ resultId: newResultId(), text: 'SELECT 1 AS ok' }))
     assert.equal(frames[0]?.cols[0]?.[0], 1)
   })
 })
 
-describe('建连失败分类', () => {
-  it('库不存在 → CONNECTION_FAILED', async () => {
+describe('connection failure classification', () => {
+  it('a missing database maps to CONNECTION_FAILED', async () => {
     await assert.rejects(
       () => PostgresSession.connect({
         driverId: 'postgres',
@@ -406,7 +411,7 @@ describe('建连失败分类', () => {
     )
   })
 
-  it('端口不通 → CONNECTION_FAILED 且 retryable', async () => {
+  it('an unreachable port maps to CONNECTION_FAILED and is retryable', async () => {
     await assert.rejects(
       () => PostgresSession.connect({
         driverId: 'postgres',

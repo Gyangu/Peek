@@ -2,19 +2,22 @@ import { useCallback, useEffect, useMemo } from 'react'
 import type { ReactElement } from 'react'
 import type { ConnId, NamespaceNode, NamespaceNodeKind, TreeViewState } from '@peek/core'
 import { bridgeExtras } from '../../bridge'
+import { useT } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
 import { invalidateConnection, loadChildren, useNodes } from '../../state/namespaceStore'
 import { useConnection } from '../../state/workspaceStore'
 import { ViewError } from '../ViewError'
 
 /**
- * 命名空间树。**懒加载**：只有展开才拉下一层（PLAN 第 8 节）。
+ * The namespace tree. **Lazily loaded**: a level is only fetched when it is
+ * expanded (PLAN §8).
  *
- * 展开/选中是界面状态，走 view.update 落到 main；
- * 节点内容是只读的远端数据，缓存在 namespaceStore。
+ * Expansion and selection are UI state and go to main as `view.update`; the node
+ * contents are read-only remote data and are cached in namespaceStore.
  */
 export function TreeView({ view }: { view: TreeViewState }): ReactElement {
   const { id: viewId, connId, expanded, selected } = view
+  const t = useT()
   const conn = useConnection(connId)
   const expandedSet = useMemo(() => new Set(expanded), [expanded])
   const hasChannel = bridgeExtras.hasIntrospect()
@@ -59,10 +62,10 @@ export function TreeView({ view }: { view: TreeViewState }): ReactElement {
         <span>{conn?.label ?? connId}</span>
         <span className="sep" />
         <button className="ghost" onClick={refresh} disabled={!hasChannel}>
-          ⟳ 刷新
+          ⟳ {t('tree.refresh')}
         </button>
         <span className="grow" />
-        <span style={{ color: 'var(--fg-faint)' }}>双击表打开</span>
+        <span style={{ color: 'var(--fg-faint)' }}>{t('tree.openHint')}</span>
       </div>
 
       <ViewError error={view.error} />
@@ -102,6 +105,7 @@ interface TreeLevelProps {
 
 function TreeLevel(props: TreeLevelProps): ReactElement | null {
   const { connId, parentId, depth, expandedSet, selected, onToggle, onSelect, onOpen } = props
+  const t = useT()
   const entry = useNodes(connId, parentId)
 
   useEffect(() => {
@@ -112,21 +116,22 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
   if (entry.status === 'error') {
     return (
       <div className="empty-hint" style={{ paddingLeft: 12 + depth * 14, textAlign: 'left' }}>
-        加载失败：{entry.error}
+        {/* `entry.error` is whatever the bridge threw — shown verbatim. */}
+        {t('tree.loadFailed', { error: entry.error ?? '' })}
       </div>
     )
   }
   if (entry.status === 'loading' && entry.nodes.length === 0) {
     return (
       <div className="tree-node" style={{ paddingLeft: 8 + depth * 14, color: 'var(--fg-faint)' }}>
-        加载中…
+        {t('tree.loading')}
       </div>
     )
   }
   if (entry.nodes.length === 0) {
     return (
       <div className="tree-node" style={{ paddingLeft: 8 + depth * 14, color: 'var(--fg-faint)' }}>
-        （空）
+        {t('tree.empty')}
       </div>
     )
   }
@@ -175,14 +180,17 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
 
 /* ------------------------------------------------------------------ */
 
-/** 桥没有 introspect 通道时的降级：给一条能用 SQL 自己浏览的出路 */
+/** Fallback when the bridge has no introspect channel: offer a way to browse with SQL. */
 function NoIntrospectChannel({ connId }: { connId: ConnId }): ReactElement {
+  const t = useT()
   const openQuery = (): void => {
     void dispatch('view.open', {
       spec: {
         kind: 'query',
         connId,
-        title: '对象浏览',
+        // The title is stored in the Workspace and read back by MCP, so it is a
+        // canonical English literal rather than a translated string.
+        title: 'Browse objects',
         text: LIST_TABLES_SQL,
         run: true,
       },
@@ -190,13 +198,12 @@ function NoIntrospectChannel({ connId }: { connId: ConnId }): ReactElement {
   }
   return (
     <div className="empty-hint">
-      <div>命名空间树不可用。</div>
+      <div>{t('tree.unavailable')}</div>
       <div style={{ marginTop: 6, textAlign: 'left', maxWidth: 320 }}>
-        Command Bus 目前没有 introspect 命令，preload 也没有提供 <code>introspect</code> 扩展通道，
-        renderer 拿不到子节点。
+        {t('tree.unavailableDetail')}
       </div>
       <button style={{ marginTop: 10 }} onClick={openQuery}>
-        改用 SQL 浏览对象
+        {t('tree.browseWithSql')}
       </button>
     </div>
   )

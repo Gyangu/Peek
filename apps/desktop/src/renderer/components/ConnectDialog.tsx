@@ -2,8 +2,14 @@ import { useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 import type { ConnectionConfig, DriverId } from '@peek/core'
 import { DRIVER_CAPABILITIES, DRIVER_IDS } from '@peek/core'
+import { useT, type MessageKey } from '../i18n'
 import { dispatch } from '../state/dispatch'
 
+/**
+ * Sample connection strings. Not translated: every one of them is syntax, and a
+ * placeholder that reads as prose in one language and as a URL in another is
+ * harder to copy from, not easier.
+ */
 const PLACEHOLDER: Record<DriverId, string> = {
   postgres: 'postgresql://user@localhost:5432/database',
   mysql: 'mysql://user@localhost:3306/database',
@@ -12,16 +18,24 @@ const PLACEHOLDER: Record<DriverId, string> = {
   qdrant: 'http://localhost:6333',
 }
 
-const FIELD_LABEL: Record<DriverId, string> = {
-  postgres: '连接串',
-  mysql: '连接串',
-  sqlite: '文件路径',
-  redis: '连接串',
-  qdrant: '服务地址',
-}
+/**
+ * Label of the primary field, which differs per driver (URL vs file path).
+ *
+ * `as const satisfies` rather than a plain annotation: the annotation would widen
+ * every entry to `MessageKey`, and `t()` cannot check the params of a key it only
+ * knows as "one of all of them".
+ */
+const FIELD_LABEL_KEY = {
+  postgres: 'connect.field.postgres',
+  mysql: 'connect.field.mysql',
+  sqlite: 'connect.field.sqlite',
+  redis: 'connect.field.redis',
+  qdrant: 'connect.field.qdrant',
+} as const satisfies Record<DriverId, MessageKey>
 
-/** 新建连接。conn.open 由 main 落地，这里只负责组装 ConnectionConfig。 */
+/** New connection. `conn.open` is landed by main; this only assembles the config. */
 export function ConnectDialog({ onClose }: { onClose: () => void }): ReactElement {
+  const t = useT()
   const [driverId, setDriverId] = useState<DriverId>('postgres')
   const [target, setTarget] = useState('')
   const [label, setLabel] = useState('')
@@ -47,7 +61,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }): ReactElemen
     <div className="modal-mask" onMouseDown={onClose}>
       <div className="modal" style={{ width: 520 }} onMouseDown={stop}>
         <div className="modal-head">
-          <span className="t">新建连接</span>
+          <span className="t">{t('connect.title')}</span>
           <span style={{ flex: 1 }} />
           <button className="ghost" onClick={onClose}>
             ✕
@@ -55,7 +69,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }): ReactElemen
         </div>
         <div className="modal-body">
           <div className="form-row">
-            <label htmlFor="peek-driver">驱动</label>
+            <label htmlFor="peek-driver">{t('connect.driver')}</label>
             <select
               id="peek-driver"
               value={driverId}
@@ -64,6 +78,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }): ReactElemen
                 setTarget('')
               }}
             >
+              {/* Driver ids are identifiers: `postgres` reads the same everywhere. */}
               {DRIVER_IDS.map((d) => (
                 <option key={d} value={d}>
                   {d}
@@ -72,10 +87,11 @@ export function ConnectDialog({ onClose }: { onClose: () => void }): ReactElemen
             </select>
           </div>
           <div className="form-hint">
-            能力：{DRIVER_CAPABILITIES[driverId].join(' · ')}
+            {/* Capability names are part of the driver contract, never translated. */}
+            {t('connect.capabilities', { list: DRIVER_CAPABILITIES[driverId].join(' · ') })}
           </div>
           <div className="form-row">
-            <label htmlFor="peek-target">{FIELD_LABEL[driverId]}</label>
+            <label htmlFor="peek-target">{t(FIELD_LABEL_KEY[driverId])}</label>
             <input
               id="peek-target"
               className="mono"
@@ -92,24 +108,22 @@ export function ConnectDialog({ onClose }: { onClose: () => void }): ReactElemen
             />
           </div>
           <div className="form-row">
-            <label htmlFor="peek-label">显示名</label>
+            <label htmlFor="peek-label">{t('connect.label')}</label>
             <input
               id="peek-label"
               value={label}
-              placeholder="留空则自动生成"
+              placeholder={t('connect.labelPlaceholder')}
               onChange={(e) => {
                 setLabel(e.target.value)
               }}
             />
           </div>
-          <div className="form-hint">
-            连接串里的密码只存在 main 进程；发回界面的配置一律脱敏。
-          </div>
+          <div className="form-hint">{t('connect.privacyNote')}</div>
         </div>
         <div className="modal-foot">
-          <button onClick={onClose}>取消</button>
+          <button onClick={onClose}>{t('connect.cancel')}</button>
           <button className="primary" disabled={busy || target.trim() === ''} onClick={submit}>
-            {busy ? '连接中…' : '连接'}
+            {busy ? t('connect.connecting') : t('connect.submit')}
           </button>
         </div>
       </div>

@@ -2,30 +2,33 @@ import { create } from 'zustand'
 import type { CommandInput, CommandName, CommandResultData } from '@peek/core'
 import { parseCommandInput } from '@peek/core'
 import { tryBridge } from '../bridge'
+import { tStatic } from '../i18n'
 import { notify, notifyError } from './notifyStore'
 import { readWorkspace, resync } from './workspaceStore'
 
 /**
- * 命令下发。**这是 renderer 改变任何状态的唯一途径**——
- * 视图层只采集用户意图，交给 main 落地，等 patch 回来才更新界面。
- * 这里绝不做任何本地乐观更新。
+ * Sending commands. **This is the only way the renderer changes anything** — the
+ * view layer collects intent, main lands it, and the UI moves once the patch
+ * arrives. No optimistic local updates, ever.
  */
 
 interface BusyState {
-  /** 在途命令数，状态栏用它显示忙碌指示 */
+  /** Commands in flight; the status bar shows this as a busy indicator. */
   inflight: number
 }
 
 export const useBusyStore = create<BusyState>(() => ({ inflight: 0 }))
 
-/** 命令返回的 rev 比镜像新、但 patch 迟迟不到时的兜底重对齐延时 */
+/** How long to wait for a patch before realigning, when a command returned a
+ *  revision newer than the mirror's. */
 const PATCH_GRACE_MS = 400
 
 export async function dispatch<K extends CommandName>(
   name: K,
   input: CommandInput<K>,
 ): Promise<CommandResultData<K> | null> {
-  // 入口先过 zod 校验（与 MCP 共用同一把尺子），不合法就不打扰 main
+  // Validate with zod at the door (the same ruler MCP is measured by) so main is
+  // never bothered with malformed input
   const parsed = parseCommandInput(name, input)
   if (!parsed.ok) {
     notifyError(parsed.error, name)
@@ -34,7 +37,9 @@ export async function dispatch<K extends CommandName>(
 
   const bridge = tryBridge()
   if (!bridge) {
-    notify('error', '命令未发出', 'preload 桥不可用，无法与 main 通信')
+    // Not a component: `tStatic` reads the locale once, which is exactly right for
+    // a toast whose wording is fixed at push time.
+    notify('error', tStatic('app.command.notSent'), tStatic('app.command.bridgeUnavailable'))
     return null
   }
 
@@ -48,19 +53,26 @@ export async function dispatch<K extends CommandName>(
     scheduleRevCheck(res.rev)
     return res.data
   } catch (e) {
-    notify('error', `命令 ${name} 执行异常`, e instanceof Error ? e.message : String(e))
+    notify('error', tStatic('app.command.threw', { name }), e instanceof Error ? e.message : String(e))
     return null
   } finally {
     useBusyStore.setState((s) => ({ inflight: Math.max(0, s.inflight - 1) }))
   }
 }
 
-/** 命令已落地到 rev，但 patch 没广播到 —— 兜底拉一次快照，避免镜像永久落后 */
+/**
+ * The command landed at `rev` but no patch arrived — pull a snapshot so the
+ * mirror cannot fall permanently behind.
+ *
+ * The reason string is an internal diagnostic and stays an English literal: it
+ * ends up in a toast detail and in bug reports, where a revision number needs to
+ * read the same everywhere.
+ */
 function scheduleRevCheck(rev: number): void {
   const local = readWorkspace()?.rev ?? -1
   if (local >= rev) return
   setTimeout(() => {
     const now = readWorkspace()?.rev ?? -1
-    if (now < rev) void resync(`命令已落地到 rev ${rev}，镜像仍停在 ${now}`)
+    if (now < rev) void resync(`command landed at rev ${rev}, mirror still at ${now}`)
   }, PATCH_GRACE_MS)
 }

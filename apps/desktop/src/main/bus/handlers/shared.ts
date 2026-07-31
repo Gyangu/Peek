@@ -20,56 +20,70 @@ import {
 } from '@peek/core'
 import { plain } from '../../store/workspace-store'
 import { putView, removeView, runningResultOf, startResult } from '../../store/mutations'
-import { fail } from '../failure'
+import { failMsg } from '../failure'
 import { firstEmptyPanel, firstPanel, setPanelView, splitPanel } from '../layout-ops'
 import type { ReduceCtx } from '../types'
 
-/** 向量视图默认 topK */
+/** Default topK for a vector view */
 const DEFAULT_TOP_K = 10
 
 /* ================================================================== */
-/* 取用与校验                                                           */
+/* Lookups and validation                                              */
 /* ================================================================== */
 
 export function requireConnection(draft: Draft<Workspace>, connId: ConnId): Draft<ConnectionState> {
   const conn = draft.connections[connId]
-  if (!conn) fail('NOT_FOUND', `连接 ${connId} 不存在`)
+  if (!conn) failMsg('NOT_FOUND', 'error.conn.notFound', { connId })
   return conn
 }
 
 export function requireView(draft: Draft<Workspace>, viewId: ViewId): Draft<ViewState> {
   const view = draft.views[viewId]
-  if (!view) fail('NOT_FOUND', `视图 ${viewId} 不存在`)
+  if (!view) failMsg('NOT_FOUND', 'error.view.notFound', { viewId })
   return view
 }
 
-/** 连接必须已 ready 且具备某能力，否则给出可执行的错误（而不是让驱动层报奇怪的错） */
+/**
+ * The connection must be ready and have the capability. Fails with something
+ * actionable rather than letting the driver layer report whatever it reports.
+ */
 export function requireReadyWithCapability(conn: Draft<ConnectionState>, cap: Capability): void {
   if (conn.status !== 'ready') {
-    fail('CONFLICT', `连接 ${conn.label} 当前状态是 ${conn.status}，还不能执行`, {
-      detail: conn.error?.message,
-    })
+    failMsg(
+      'CONFLICT',
+      'error.conn.notReady',
+      { label: conn.label, status: conn.status },
+      // The underlying failure is driver text: passed through, never translated.
+      { detail: conn.error?.message },
+    )
   }
   if (!conn.capabilities.includes(cap)) {
-    fail('UNSUPPORTED_CAPABILITY', `驱动 ${conn.driverId} 不支持 ${cap}`)
+    failMsg('UNSUPPORTED_CAPABILITY', 'error.conn.unsupportedCapability', {
+      driverId: conn.driverId,
+      capability: cap,
+    })
   }
 }
 
-/** 能否自动取数：连上了且有对应能力。不满足时视图安静地停在 idle，不报错。 */
+/**
+ * Whether an automatic fetch is possible: connected, and the capability is there.
+ * When it is not, the view sits quietly at idle instead of raising an error.
+ */
 function canFetch(draft: Draft<Workspace>, connId: ConnId, cap: Capability): boolean {
   const conn = draft.connections[connId]
   return conn !== undefined && conn.status === 'ready' && conn.capabilities.includes(cap)
 }
 
 /**
- * 决定视图落到哪个面板：显式指定 → 焦点面板 → 第一个空面板 → 第一个面板。
- * 显式指定但不存在时报 NOT_FOUND（AI 用了过期的 panelId 要能立刻知道）。
+ * Where a view lands: explicit panel → focused panel → first empty panel → first panel.
+ * An explicit panel that does not exist is a NOT_FOUND, so an AI holding a stale
+ * panelId finds out immediately.
  */
 export function resolvePanel(draft: Draft<Workspace>, panelId?: PanelId): PanelNode {
   const layout = plain(draft.layout)
   if (panelId !== undefined) {
     const explicit = findPanel(layout, panelId)
-    if (!explicit) fail('NOT_FOUND', `面板 ${panelId} 不存在`)
+    if (!explicit) failMsg('NOT_FOUND', 'error.panel.notFound', { panelId })
     return explicit
   }
   const focused = draft.focusedPanel
@@ -77,20 +91,20 @@ export function resolvePanel(draft: Draft<Workspace>, panelId?: PanelId): PanelN
     const hit = findPanel(layout, focused)
     if (hit) return hit
   }
-  return firstEmptyPanel(layout) ?? firstPanel(layout) ?? fail('INTERNAL', '布局树里没有任何面板')
+  return firstEmptyPanel(layout) ?? firstPanel(layout) ?? failMsg('INTERNAL', 'error.layout.noPanels')
 }
 
 /* ================================================================== */
-/* 开视图                                                              */
+/* Opening views                                                       */
 /* ================================================================== */
 
 export interface OpenViewOptions {
   panelId?: PanelId
-  /** 目标面板已有视图时：true 覆盖，false 另劈一个面板。默认 true */
+  /** When the target panel already holds a view: true replaces it, false splits off a new panel. Default true. */
   replace?: boolean
-  /** 默认 true */
+  /** Default true */
   focus?: boolean
-  /** query 视图开完立刻执行 */
+  /** Run a query view as soon as it opens */
   run?: boolean
 }
 
@@ -100,7 +114,8 @@ export function openView(
   ctx: ReduceCtx,
   opts: OpenViewOptions = {},
 ): ViewOpenResult {
-  // 连接必须存在（可以还没 ready —— 视图先开着，连上再取数）
+  // The connection must exist, but need not be ready yet: the view opens now and
+  // fetches once the connection comes up.
   requireConnection(draft, spec.connId)
 
   const target = resolvePanel(draft, opts.panelId)
@@ -114,7 +129,7 @@ export function openView(
         newPanelId: ctx.ids.panel(),
         newSplitId: ctx.ids.split(),
       })
-      if (!outcome) fail('INTERNAL', `面板 ${target.id} 无法劈分`)
+      if (!outcome) failMsg('INTERNAL', 'error.panel.splitFailed', { panelId: target.id })
       draft.layout = outcome.layout as Draft<Workspace>['layout']
       panelId = outcome.panelId
     } else {
@@ -135,13 +150,13 @@ export function openView(
   return result
 }
 
-/** 关掉一个视图：从面板摘下、从 views 删除，顺手取消它还在跑的结果集 */
+/** Close a view: detach it from its panel, drop it from `views`, cancel any result it still has running. */
 export function closeView(draft: Draft<Workspace>, viewId: ViewId, ctx: ReduceCtx): PanelId | null {
   const view = draft.views[viewId]
   if (!view) return null
   const running = runningResultOf(draft, viewId)
   if (running !== null) {
-    // best-effort：取消失败不影响关视图这件事
+    // Best effort: a failed cancel must not stop the view from closing.
     ctx.plan({ type: 'cancel', connId: view.connId, resultId: running, soft: true })
   }
   return removeView(draft, viewId)
@@ -179,12 +194,13 @@ function buildViewState(spec: ViewOpenSpec, id: ViewId): ViewState {
 }
 
 /* ================================================================== */
-/* 起取数                                                              */
+/* Starting a fetch                                                    */
 /* ================================================================== */
 
 /**
- * 视图开启/更新后的自动取数。
- * 连接没 ready 或驱动没这个能力时**不报错**，视图停在 idle，等连上再刷新。
+ * Automatic fetch after a view opens or changes.
+ * When the connection is not ready, or the driver lacks the capability, this is
+ * **not** an error: the view stays idle and picks up on the next refresh.
  */
 export function autoFetch(
   draft: Draft<Workspace>,
@@ -210,26 +226,35 @@ export function autoFetch(
   }
 }
 
-/** 结果集元信息 + 视图状态的统一起手式 */
+/**
+ * The common opening move: allocate result metadata and move the view into loading.
+ *
+ * `summary` is workspace state that MCP reads, so it stays English — see the
+ * language rule in `docs/PLAN.md` and `@peek/core/error-messages`.
+ */
 function beginResult(
   draft: Draft<Workspace>,
   view: Draft<ViewState>,
   ctx: ReduceCtx,
   summary: string,
 ): ResultId {
-  // 换页 / 重跑之前，先把这个视图上一个仍在跑的结果集取消掉。
-  // 必须在改写 view.resultId 之前做：一旦指向新结果集，旧的就再也没人能寻址取消
-  // （query.cancel 只按 view.resultId 定位），它会继续占着服务端游标、连接和只读事务；
-  // 而 renderer 那边没有任何视图给它上报视口，背压对它完全失效，
-  // 这条孤儿流会全速跑完把 200MB 缓存预算吃掉（PLAN 第 8 节）。
+  // Cancel the view's previous in-flight result before paging or re-running.
+  // This has to happen before `view.resultId` is overwritten: once it points at
+  // the new result, nobody can address the old one to cancel it any more
+  // (query.cancel only locates results through view.resultId). It would keep
+  // holding a server-side cursor, a connection and a read-only transaction —
+  // and because no view in the renderer reports a viewport for it, backpressure
+  // no longer applies at all. That orphaned stream runs flat out and eats the
+  // whole 200MB cache budget (PLAN section 8).
   const prev = runningResultOf(draft, view.id)
   if (prev !== null) {
-    // soft：取消失败只是告警，不能把本次取数命令判死
+    // soft: a failed cancel is a warning, it must not sink this fetch command.
     ctx.plan({ type: 'cancel', connId: view.connId, resultId: prev, soft: true })
   }
 
   const resultId = ctx.ids.result()
-  // 注意用 kind 判断而不是 `'resultId' in view`：属性可选，没赋过值时 in 是 false
+  // Switch on `kind` rather than `'resultId' in view`: the property is optional,
+  // so `in` is false until something assigns it.
   if (view.kind === 'table' || view.kind === 'query' || view.kind === 'vector') {
     view.resultId = resultId
   }
@@ -249,7 +274,7 @@ function beginResult(
 
 export function startScan(draft: Draft<Workspace>, view: Draft<TableViewState>, ctx: ReduceCtx): ResultId {
   const ref = plain(view.ref)
-  const resultId = beginResult(draft, view, ctx, `扫描 ${collectionRefLabel(ref)}`)
+  const resultId = beginResult(draft, view, ctx, `Scan ${collectionRefLabel(ref)}`)
   ctx.plan({
     type: 'scan',
     connId: view.connId,
@@ -270,7 +295,7 @@ export function startVectorSearch(
   view: Draft<VectorViewState>,
   ctx: ReduceCtx,
 ): ResultId {
-  const resultId = beginResult(draft, view, ctx, `向量检索 ${view.collection} topK ${view.topK}`)
+  const resultId = beginResult(draft, view, ctx, `Vector search ${view.collection} topK ${view.topK}`)
   ctx.plan({
     type: 'vectorSearch',
     connId: view.connId,

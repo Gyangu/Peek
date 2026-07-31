@@ -7,30 +7,31 @@ import { basicSetup } from 'codemirror'
 import type { DriverId } from '@peek/core'
 
 export interface SqlEditorProps {
-  /** 权威文本，来自 Workspace 镜像 */
+  /** The authoritative text, from the Workspace mirror. */
   value: string
   driverId: DriverId
-  /** Cmd/Ctrl+Enter 执行 */
+  /** Cmd/Ctrl+Enter runs the statement. */
   onRun: (text: string) => void
-  /** 失焦时把编辑缓冲提交回 main（view.update） */
+  /** On blur, commit the edit buffer back to main (view.update). */
   onCommit: (text: string) => void
-  /** 编辑区高度（像素），由 QueryView 的分隔条控制 */
+  /** Editor height in pixels, controlled by the QueryView divider. */
   height: number
 }
 
 /**
- * CodeMirror 6 SQL 编辑器。
+ * The CodeMirror 6 SQL editor.
  *
- * 关于"不做本地乐观更新"：编辑器里的字符是**未提交的输入缓冲**，
- * 不是 Workspace 状态。真正的状态变更只在执行（query.run 带 text）
- * 或失焦（view.update）时才发出去。外部（比如 MCP）改了 text，
- * 这里会把新文本灌回编辑器。
+ * On "no optimistic local updates": the characters in the editor are an
+ * **uncommitted input buffer**, not Workspace state. A real state change is only
+ * sent on run (query.run carries the text) or on blur (view.update). When the
+ * text changes from the outside — MCP, say — the new text is pushed back into
+ * the editor here.
  */
 export function SqlEditor(props: SqlEditorProps): ReactElement {
   const { value, driverId, onRun, onCommit, height } = props
   const hostRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
-  // 回调放 ref 里，避免每次渲染重建整套扩展
+  // Callbacks live in refs so a render does not rebuild the whole extension set
   const runRef = useRef(onRun)
   const commitRef = useRef(onCommit)
   runRef.current = onRun
@@ -76,10 +77,10 @@ export function SqlEditor(props: SqlEditorProps): ReactElement {
       view.destroy()
       viewRef.current = null
     }
-    // 方言与编辑器实例绑定；文本的后续同步走下面那个 effect
+    // The dialect is bound to the editor instance; text keeps syncing in the effect below
   }, [driverId])
 
-  // 外部改了权威文本（MCP / 其他视图）→ 灌回编辑器
+  // The authoritative text changed elsewhere (MCP, another view) → push it in
   useEffect(() => {
     const view = viewRef.current
     if (!view) return

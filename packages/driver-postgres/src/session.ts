@@ -2,7 +2,7 @@ import {
   DEFAULT_PAGE_LIMIT,
   DRIVER_CAPABILITIES,
   MAX_PAGE_LIMIT,
-  peekError,
+  peekErrorMsg,
   type ByteRange,
   type Capability,
   type ChunkDone,
@@ -29,34 +29,43 @@ import { buildScanSql, quoteIdent } from './sql'
 import { PG_TYPE_QUERY, PgTypeCatalog } from './type-catalog'
 
 /**
- * 一个活的 PostgreSQL 连接。
+ * One live PostgreSQL connection.
  *
- * 连接管理：用 pg.Pool 而不是单 Client。原因是取消必须走**另一条连接**发
- * pg_cancel_backend——单连接时长查询把唯一的连接占死，取消请求根本发不出去。
+ * Connection management uses pg.Pool rather than a single Client, because
+ * cancellation has to send pg_cancel_backend over **a different connection** —
+ * with one connection, a long query occupies the only one there is and the
+ * cancel request can never leave.
  *
- * 池子里跑两类活：
- * - 数据面：每个 PgCursor 独占一条连接直到游标关闭；
- * - 控制面：introspect / describeCollection / valuePeek / ping 各借用一次即还。
+ * Two kinds of work share the pool:
+ * - data plane: each PgCursor holds a connection exclusively until it closes;
+ * - control plane: introspect / describeCollection / valuePeek / ping each borrow
+ *   one and hand it straight back.
  *
- * **取消不走池**：游标可能把池占满，那恰恰是最需要取消的时刻。cancel() 另开一条
- * 一次性 Client 发 pg_cancel_backend，多一次握手换"永远能取消"（见 cancel()）。
+ * **Cancellation does not use the pool.** Cursors may well have exhausted it, and
+ * that is precisely the moment cancelling matters most. cancel() opens a
+ * throwaway Client of its own to send pg_cancel_backend: one extra handshake buys
+ * "cancel always works" (see cancel()).
  */
 
-/** 结果来源登记的上限，超了按插入顺序淘汰最老的（只影响 valuePeek 回源） */
+/** Cap on tracked result sources; past it the oldest is evicted in insertion order (only affects valuePeek re-fetching) */
 const MAX_TRACKED_SOURCES = 32
 
-/** pg 允许的最大 int，statement_timeout 之类别越界 */
+/** Largest int pg accepts, so statement_timeout and friends never overflow */
 const MAX_INT32 = 2_147_483_647
 
 /**
- * 池容量。游标是独占的（一个结果流一条连接），控制面（introspect / peek / ping）
- * 也从这里借，所以留了余量：同时开 4 个大结果视图时仍有连接可以做元信息查询。
+ * Pool capacity. Cursors are exclusive (one connection per result stream) and the
+ * control plane (introspect / peek / ping) borrows from the same pool, so there
+ * is headroom: with four large result views open at once, metadata queries can
+ * still get a connection.
  */
 const POOL_MAX = 8
 
 /**
- * 取消专用连接的建连上限。ConnectionManager 的 cancelMs 只有 2s，超时就升级成杀进程，
- * 所以这条握手必须比它先失败（失败后退化成直接关游标，见 cancel()）。
+ * Connect timeout for the cancellation-only connection. ConnectionManager's
+ * cancelMs is just 2s and escalates to killing the process when it expires, so
+ * this handshake has to fail first (falling back to closing the cursor directly,
+ * see cancel()).
  */
 const CANCEL_CONNECT_TIMEOUT_MS = 1_500
 
@@ -66,7 +75,7 @@ function clampInt(value: number | undefined, min: number, max: number): number |
   return Math.min(max, Math.max(min, Math.trunc(value)))
 }
 
-/** 只把有值的字段塞进 PoolConfig：pg 会把显式 undefined 当成"用户指定了空" */
+/** Only set fields that actually have a value: pg reads an explicit undefined as "the user asked for empty" */
 function buildPoolConfig(cfg: PostgresConnectionConfig): PoolConfig {
   const out: PoolConfig = {
     max: POOL_MAX,
@@ -97,15 +106,15 @@ export class PostgresSession implements DriverSession {
   readonly serverInfo: ServerInfo
 
   private readonly pool: Pool
-  /** 建池用的配置，cancel 另开旁路连接时复用 */
+  /** The config the pool was built from, reused for cancel's side-channel connection */
   private readonly poolConfig: PoolConfig
   private readonly catalog: PgTypeCatalog
   private readonly introspector: PgIntrospector
   private readonly peeker: PgValuePeeker
 
-  /** 执行中的游标，cancel / close 靠它 */
+  /** Cursors currently running; cancel / close work through this */
   private readonly active = new Map<ResultId, PgCursor>()
-  /** 结果集来源语句，valuePeek 的 resultCell 回源用 */
+  /** Source statement per result set, used to resolve valuePeek's resultCell refs */
   private readonly sources = new Map<ResultId, ResultSource>()
 
   private closed = false
@@ -136,17 +145,18 @@ export class PostgresSession implements DriverSession {
   }
 
   /* ---------------------------------------------------------------- */
-  /* 建连                                                              */
+  /* Connecting                                                        */
   /* ---------------------------------------------------------------- */
 
   static async connect(
     cfg: PostgresConnectionConfig,
     signal?: AbortSignal,
   ): Promise<PostgresSession> {
-    if (signal?.aborted) throw peekError('CANCELLED', '建连已取消')
+    if (signal?.aborted) throw peekErrorMsg('CANCELLED', 'error.conn.connectCancelled')
     const poolConfig = buildPoolConfig(cfg)
     const pool = new Pool(poolConfig)
-    // 池里的空闲连接被服务端掐断时会抛 error 事件，不接住会直接崩进程
+    // The server dropping an idle pooled connection raises an error event;
+    // leaving it unhandled takes the whole process down
     pool.on('error', () => {})
 
     const searchPath = cfg.searchPath
@@ -181,7 +191,7 @@ export class PostgresSession implements DriverSession {
               version() AS full`,
     )
     const row = res.rows.length > 0 ? res.rows[0] : undefined
-    if (!row) throw peekError('CONNECTION_FAILED', '无法读取服务端信息')
+    if (!row) throw peekErrorMsg('CONNECTION_FAILED', 'error.conn.serverInfoUnavailable')
     const flavor = /cockroach/i.test(row.full)
       ? 'CockroachDB'
       : /yugabyte/i.test(row.full)
@@ -194,7 +204,7 @@ export class PostgresSession implements DriverSession {
   }
 
   /* ---------------------------------------------------------------- */
-  /* 生命周期                                                          */
+  /* Lifecycle                                                         */
   /* ---------------------------------------------------------------- */
 
   async close(): Promise<void> {
@@ -217,7 +227,7 @@ export class PostgresSession implements DriverSession {
   }
 
   private assertOpen(): void {
-    if (this.closed) throw peekError('CONNECTION_LOST', '连接已关闭')
+    if (this.closed) throw peekErrorMsg('CONNECTION_LOST', 'error.conn.closed')
   }
 
   /* ---------------------------------------------------------------- */
@@ -234,7 +244,7 @@ export class PostgresSession implements DriverSession {
     return this.introspector.describeCollection(ref)
   }
 
-  /** 手动刷新：清掉 introspect 缓存（PLAN 第 8 节） */
+  /** Manual refresh: drop the introspect cache (PLAN section 8) */
   invalidateIntrospectCache(): void {
     this.introspector.invalidate()
   }
@@ -246,7 +256,7 @@ export class PostgresSession implements DriverSession {
   async query(req: TabularQueryRequest): Promise<Cursor> {
     this.assertOpen()
     const text = req.text.trim()
-    if (text.length === 0) throw peekError('BAD_REQUEST', '查询语句为空')
+    if (text.length === 0) throw peekErrorMsg('BAD_REQUEST', 'error.query.emptyText')
     const params = req.params ? [...req.params] : []
     return this.startCursor(req.resultId, text, params, {
       ...(clampInt(req.maxRows, 0, Number.MAX_SAFE_INTEGER) === undefined
@@ -270,10 +280,11 @@ export class PostgresSession implements DriverSession {
     this.assertOpen()
     const rel = PgIntrospector.requireRelation(req.ref)
 
-    // cursorToken 是上一页末尾的绝对 offset，给了就覆盖 offset
+    // cursorToken is the absolute offset at the end of the previous page; when
+    // present it overrides offset
     const tokenOffset = req.cursorToken === undefined ? undefined : Number(req.cursorToken)
     if (req.cursorToken !== undefined && !Number.isFinite(tokenOffset)) {
-      throw peekError('BAD_REQUEST', `非法的 cursorToken: ${req.cursorToken}`)
+      throw peekErrorMsg('BAD_REQUEST', 'error.sql.invalidCursorToken', { token: req.cursorToken })
     }
     const offset = clampInt(tokenOffset ?? req.offset ?? 0, 0, Number.MAX_SAFE_INTEGER) ?? 0
     const limit = clampInt(req.limit ?? DEFAULT_PAGE_LIMIT, 0, MAX_PAGE_LIMIT) ?? DEFAULT_PAGE_LIMIT
@@ -289,7 +300,7 @@ export class PostgresSession implements DriverSession {
 
     const hints = await this.introspector.columnHints(rel)
 
-    // 取满 limit 说明后面大概率还有，给出下一页的续拉游标
+    // A full page usually means there is more, so hand back a cursor for the next one
     const finish = (rows: number): Pick<ChunkDone, 'truncated' | 'nextCursor'> =>
       rows >= limit && limit > 0 ? { nextCursor: String(offset + rows) } : {}
 
@@ -320,7 +331,7 @@ export class PostgresSession implements DriverSession {
     },
   ): Promise<Cursor> {
     if (this.active.has(resultId)) {
-      throw peekError('CONFLICT', `结果集 ${resultId} 已在执行中`)
+      throw peekErrorMsg('CONFLICT', 'error.query.alreadyRunning', { resultId })
     }
     this.trackSource(resultId, { text, params, columns: null })
 
@@ -332,7 +343,7 @@ export class PostgresSession implements DriverSession {
       params,
       ...opts,
       onClosed: (): void => {
-        // 关闭时把首帧 schema 留给 valuePeek，省一次探测
+        // Hand the first-frame schema over to valuePeek on close, saving it a probe
         const src = this.sources.get(resultId)
         if (src && src.columns === null && cursor.schema) src.columns = [...cursor.schema]
         this.active.delete(resultId)
@@ -371,14 +382,17 @@ export class PostgresSession implements DriverSession {
   /* ---------------------------------------------------------------- */
 
   /**
-   * 真取消：走另一条连接发 pg_cancel_backend 打断服务端正在跑的语句，
-   * 正在 await 的 FETCH 会以 57014 失败，被收敛成 CANCELLED。
-   * 未在执行中返回 false，不抛错（契约要求）。
+   * Real cancellation: send pg_cancel_backend over a separate connection to
+   * interrupt the statement running on the server. The FETCH being awaited then
+   * fails with 57014, which maps to CANCELLED. Returns false, without throwing,
+   * when nothing is running (the contract requires this).
    *
-   * **这条连接不能从池里借**：每个游标独占一条池连接直到关闭，池被游标占满时
-   * pool.connect() 会一直排队到 connectionTimeoutMillis（15s），
-   * 而上层的 cancelMs 只有 2s，超时后会直接杀掉整个 driver 进程，
-   * 把这条连接上的所有视图一起判死。取消是低频操作，多一次握手换"永远能取消"。
+   * **This connection must not come from the pool.** Each cursor holds a pooled
+   * connection until it closes, so once cursors have filled the pool,
+   * pool.connect() queues for the full connectionTimeoutMillis (15s) — while the
+   * layer above allows only cancelMs (2s) before it kills the entire driver
+   * process, taking every view on this connection down with it. Cancelling is
+   * rare; one extra handshake buys "cancel always works".
    */
   async cancel(resultId: ResultId): Promise<boolean> {
     const cursor = this.active.get(resultId)
@@ -392,26 +406,29 @@ export class PostgresSession implements DriverSession {
     try {
       await this.sendCancelRequest(pid)
     } catch {
-      // 取消请求本身失败（权限不足 / 连不上）时退化成直接关游标
+      // If the cancel request itself fails (insufficient privilege, cannot
+      // connect), fall back to just closing the cursor
       await cursor.close().catch(() => {})
     }
     return true
   }
 
-  /** 旁路连接发 pg_cancel_backend，用完立刻断开，绝不与游标抢池里的连接 */
+  /** Send pg_cancel_backend over a side-channel connection, disconnecting right after; never competes with cursors for the pool */
   private async sendCancelRequest(pid: number): Promise<void> {
     const client = new Client({
       ...this.poolConfig,
       connectionTimeoutMillis: CANCEL_CONNECT_TIMEOUT_MS,
       application_name: `${this.poolConfig.application_name ?? 'peek'}-cancel`,
     })
-    // 建连失败会以 error 事件的形式再抛一次，不接住会崩进程
+    // A failed connect surfaces a second time as an error event; unhandled, it
+    // crashes the process
     client.on('error', () => {})
     await client.connect()
     try {
       await client.query('SELECT pg_cancel_backend($1::int4)', [pid])
     } finally {
-      // 不等 end()：取消请求已经发出去了，关连接的往返没必要计进 cancelMs 预算
+      // Do not await end(): the cancel request is already out, and the teardown
+      // round trip should not eat into the cancelMs budget
       void client.end().catch(() => {})
     }
   }

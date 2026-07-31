@@ -13,8 +13,9 @@ export { viewHandlers } from './view'
 export * from './shared'
 
 /**
- * 全部 12 条命令的 handler。
- * `satisfies Required<CommandHandlerMap>` 保证漏实现一条就编译不过。
+ * Handlers for all 12 commands.
+ * `satisfies Required<CommandHandlerMap>` makes a missing implementation a
+ * compile error.
  */
 export const coreHandlers = {
   ...connHandlers,

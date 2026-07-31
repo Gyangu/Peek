@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "peek PostgreSQL 驱动：introspect + tabularQuery + collectionScan + valuePeek + cancel",
+  "description": "peek PostgreSQL driver: introspect + tabularQuery + collectionScan + valuePeek + cancel",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

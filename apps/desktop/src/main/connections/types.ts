@@ -22,97 +22,101 @@ import type {
 import type { Timeouts } from './classify'
 
 /* ================================================================== */
-/* 1. 连接的运行时视图（main 内部用，不进 Workspace）                      */
+/* 1. Runtime view of a connection (internal to main, never in Workspace) */
 /* ================================================================== */
 
 /**
- * 连接管理器自己维护的运行时记录。
- * Workspace 里的 ConnectionState 是**真源**，由 Command Bus 维护；
- * 这里只是进程侧的镜像，靠事件把变化推给 Bus。
+ * The runtime record the Connection Manager keeps for itself.
+ * `ConnectionState` in the Workspace is the **source of truth** and is owned by
+ * the Command Bus; this is only the process-side mirror, which pushes its
+ * changes to the bus through events.
  */
 export interface ConnectionRuntime {
   connId: ConnId
   driverId: DriverId
   label: string
   status: ConnStatus
-  /** ready 后由 host 回填的实际能力集 */
+  /** The real capability set, filled in by the host once ready */
   capabilities: Capability[]
   serverInfo?: ServerInfo
   error?: PeekError
-  /** driver host 的 utilityProcess pid */
+  /** The driver host's utilityProcess pid */
   pid?: number
   readyAt?: number
-  /** 正在流的结果集（用于崩溃时批量报错、断连时清理） */
+  /** Result sets currently streaming (used to fail them all on a crash, and to clean up on disconnect) */
   activeResults: ResultId[]
 }
 
 /* ================================================================== */
-/* 2. 副作用接口（注入给 Command Bus）                                    */
+/* 2. The side-effect interface (injected into the Command Bus)         */
 /* ================================================================== */
 
 export interface ConnectOptions {
-  /** 复用已有连接 id（重连场景）；不给则新建 */
+  /** Reuse an existing connection id (reconnect); a new one is minted when absent */
   connId?: ConnId
-  /** 覆盖建连超时；不给则用 config.connectTimeoutMs 或默认值 */
+  /** Override the connect timeout; falls back to config.connectTimeoutMs or the default */
   timeoutMs?: number
 }
 
 export interface ConnectOutcome {
   connId: ConnId
-  /** 连上之后驱动实际声明的能力集 */
+  /** The capability set the driver actually reports once connected */
   capabilities: Capability[]
   serverInfo?: ServerInfo
   pid?: number
 }
 
 export interface CancelOutcome {
-  /** 目标确实被取消了（本来就已结束时为 false） */
+  /** The target really was cancelled (false when it had already finished) */
   cancelled: boolean
-  /** 是否走了"强制取消 = 杀进程"这条路（PLAN 第 3 节） */
+  /** Whether this went down the "forced cancel = kill the process" path (PLAN section 3) */
   killed: boolean
 }
 
-/** 发起一次流式取数（query / scan / vectorSearch）的返回 */
+/** The return value of starting a streaming fetch (query / scan / vectorSearch) */
 export interface StartResultOutcome {
   resultId: ResultId
 }
 
 /**
- * 连接管理器对 Command Bus 暴露的副作用接口。
+ * The side-effect interface the Connection Manager exposes to the Command Bus.
  *
- * 约定：
- * - **所有方法失败时 reject 的都是 PeekError 形状**（不是 Error 实例），
- *   调用方直接 `toPeekError(e)` 即可（core 的 toPeekError 会原样返回 PeekError）。
- * - query/scan/vectorSearch 只返回 resultId；**数据帧不经过 main**，
- *   由 driver host 通过 MessagePort 直发 renderer（PLAN 第 3 节）。
- * - 参数形状与 `@peek/core` 的 `HostRpcMap` 完全一致，避免两边各写一遍。
+ * Conventions:
+ * - **Every method rejects with a PeekError shape**, never an Error instance, so
+ *   callers can simply apply `toPeekError(e)` (core's version returns a PeekError
+ *   unchanged).
+ * - query/scan/vectorSearch return only a resultId; **data frames bypass main**
+ *   and go from the driver host straight to the renderer over a MessagePort
+ *   (PLAN section 3).
+ * - Parameter shapes match `HostRpcMap` in `@peek/core` exactly, so neither side
+ *   has to restate them.
  */
 export interface ConnectionEffects {
-  /** 建连：spawn utilityProcess → ready 握手 → connect RPC */
+  /** Connect: spawn the utilityProcess → ready handshake → connect RPC */
   connect(config: ConnectionConfig, options?: ConnectOptions): Promise<ConnectOutcome>
 
-  /** 优雅断连并回收进程；连接不存在时静默返回 */
+  /** Disconnect gracefully and reclaim the process; returns silently when the connection does not exist */
   disconnect(connId: ConnId): Promise<void>
 
-  /** 命名空间树懒加载：parentId 为 null 取根层 */
+  /** Lazy loading of the namespace tree; a null parentId fetches the root level */
   introspect(connId: ConnId, parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]>
 
-  /** 集合结构描述（列定义、主键、行数估算） */
+  /** Structural description of a collection (column definitions, primary key, estimated row count) */
   describeCollection(connId: ConnId, ref: CollectionRef): Promise<CollectionSchemaInfo>
 
-  /** 发起自由查询，返回 resultId */
+  /** Start an ad-hoc query; returns a resultId */
   runQuery(connId: ConnId, params: HostParams<'query.run'>): Promise<StartResultOutcome>
 
-  /** 发起集合扫描，返回 resultId */
+  /** Start a collection scan; returns a resultId */
   scan(connId: ConnId, params: HostParams<'collection.scan'>): Promise<StartResultOutcome>
 
-  /** 发起向量检索，返回 resultId */
+  /** Start a vector search; returns a resultId */
   vectorSearch(connId: ConnId, params: HostParams<'vector.search'>): Promise<StartResultOutcome>
 
-  /** 按 key 取类型化的值（redis 检查器） */
+  /** Fetch a typed value by key (the redis inspector) */
   getValue(connId: ConnId, ref: ValueRef): Promise<KeyValueResult>
 
-  /** 大 value 按需取全量 */
+  /** Fetch a large value in full, on demand */
   peekValue(
     connId: ConnId,
     ref: ValueRef,
@@ -120,26 +124,27 @@ export interface ConnectionEffects {
   ): Promise<PeekedValue>
 
   /**
-   * 取消某个结果集。
-   * 先走驱动的协作式 cancel；超时或驱动不支持时**升级为杀进程**（PLAN 第 3 节）。
+   * Cancel a result set.
+   * Tries the driver's cooperative cancel first; on timeout, or when the driver
+   * does not support it, **escalates to killing the process** (PLAN section 3).
    */
   cancel(connId: ConnId, resultId: ResultId, options?: { force?: boolean }): Promise<CancelOutcome>
 
-  /** 健康检查 */
+  /** Health check */
   ping(connId: ConnId): Promise<HostResult<'ping'>>
 
-  /** 只读：某连接当前的运行时状态 */
+  /** Read-only: one connection's current runtime state */
   getRuntime(connId: ConnId): ConnectionRuntime | null
 
-  /** 只读：全部连接 */
+  /** Read-only: every connection */
   listRuntimes(): ConnectionRuntime[]
 
-  /** 只读：连接是否具备某能力（连上之后以驱动实际声明为准） */
+  /** Read-only: whether a connection has a capability (once connected, the driver's own declaration wins) */
   hasCapability(connId: ConnId, capability: Capability): boolean
 }
 
 /* ================================================================== */
-/* 3. 事件表（连接管理器 → Command Bus / 通知层）                         */
+/* 3. Event table (Connection Manager → Command Bus / notifications)    */
 /* ================================================================== */
 
 export interface ResultDoneInfo {
@@ -150,43 +155,45 @@ export interface ResultDoneInfo {
 }
 
 /**
- * 连接管理器发出的事件。
- * Command Bus 订阅 status / result.* 把变化写回 Workspace 真源并广播 patch；
- * 通知层订阅 log / crashed 弹 toast。
+ * Events emitted by the Connection Manager.
+ * The Command Bus subscribes to status / result.* and writes the changes back
+ * into the Workspace source of truth, broadcasting patches; the notification
+ * layer subscribes to log / crashed and raises toasts.
  */
 export interface ConnectionEventMap extends Record<string, unknown> {
-  /** 连接状态机变化（idle → connecting → ready / error） */
+  /** Connection state machine transition (idle → connecting → ready / error) */
   status: { connId: ConnId; status: ConnStatus; error?: PeekError; pid?: number }
-  /** 首帧 schema 到手，main 用来回填 ResultMeta.schema */
+  /** The first frame's schema arrived; main uses it to fill in ResultMeta.schema */
   'result.schema': { connId: ConnId; resultId: ResultId; schema: ColumnDef[] }
-  /** 结果集正常收尾 */
+  /** The result set finished normally */
   'result.done': { connId: ConnId; resultId: ResultId; info: ResultDoneInfo }
-  /** 结果集按设计暂停（背压空闲超时）——**不是错误**，已发出的行全部有效 */
+  /** The result set paused by design (backpressure idle timeout) — **not an error**; every row already emitted is valid */
   'result.paused': { connId: ConnId; resultId: ResultId; paused: ResultPause }
-  /** 结果集异常终止 */
+  /** The result set terminated abnormally */
   'result.error': { connId: ConnId; resultId: ResultId; error: PeekError }
-  /** 长查询的行数心跳 */
+  /** Row-count heartbeat for long-running queries */
   'result.progress': { connId: ConnId; resultId: ResultId; rows: number }
-  /** driver host 的日志（含 stdout/stderr 转发） */
+  /** Driver host logs (including forwarded stdout/stderr) */
   log: { connId: ConnId; level: NotifyLevel; message: string; detail?: string }
-  /** driver host 非预期退出：进程已回收，连接不可用 */
+  /** The driver host exited unexpectedly: the process has been reaped and the connection is unusable */
   crashed: { connId: ConnId; error: PeekError; code: number; expected: boolean }
-  /** 数据面端口已移交给 renderer（排查用） */
+  /** The data-plane port has been handed to the renderer (for troubleshooting) */
   'port.attached': { connId: ConnId; pid?: number }
 }
 
 /* ================================================================== */
-/* 4. 管理器构造选项                                                    */
+/* 4. Manager construction options                                     */
 /* ================================================================== */
 
 export interface ConnectionManagerOptions {
   /**
-   * driver host 构建产物所在目录。默认取 main bundle 自身所在目录（out/main）。
-   * 可用环境变量 PEEK_DRIVER_HOST_DIR 覆盖，方便测试。
+   * Directory holding the driver host build output. Defaults to the directory of
+   * the main bundle itself (out/main). Override with the PEEK_DRIVER_HOST_DIR
+   * environment variable, which is handy in tests.
    */
   hostDir?: string
-  /** 覆盖各阶段超时 */
+  /** Override the per-stage timeouts */
   timeouts?: Partial<Timeouts>
-  /** 把 driver host 的 stdout/stderr 转成 log 事件（默认 true） */
+  /** Turn the driver host's stdout/stderr into log events (default true) */
   forwardStdio?: boolean
 }

@@ -12,9 +12,10 @@ import {
 const NOOP_UNSUB = (): void => {}
 
 /**
- * 订阅某个结果集的状态。
- * 返回的快照对象只在 version 变化时换新引用，
- * 因此滚动（不改变 version）不会触发任何重渲染。
+ * Subscribe to the state of one result set.
+ *
+ * The snapshot object only takes a new reference when `version` changes, so
+ * scrolling — which leaves the version alone — triggers no re-render at all.
  */
 export function useResult(resultId: ResultId | null | undefined): ResultSnapshot {
   const subscribe = useCallback(

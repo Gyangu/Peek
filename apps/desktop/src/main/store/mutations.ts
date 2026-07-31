@@ -19,17 +19,18 @@ import { clearViewFromPanels } from '../bus/layout-ops'
 import { plain } from './workspace-store'
 
 /**
- * 纯 draft 变更函数集合。
+ * The set of pure draft mutations.
  *
- * 命令 handler 的"纯状态阶段"和 Connection Manager / driver host 事件回填
- * 都只能通过这些函数改真源，保证状态机转换只有一处实现。
+ * Both a command handler's pure state phase and the write-back from Connection
+ * Manager / driver host events must go through these functions, which is what
+ * keeps every state machine transition to a single implementation.
  */
 
-/** 结果集元信息保留上限：只是元信息（不含数据本体），超了从最老的已结束结果开始丢 */
+/** Cap on retained result metadata — metadata only, never row data. Past the cap, the oldest finished results are evicted first. */
 export const MAX_RESULT_META = 200
 
 /* ------------------------------------------------------------------ */
-/* 连接                                                                */
+/* Connections                                                         */
 /* ------------------------------------------------------------------ */
 
 export function putConnection(draft: Draft<Workspace>, conn: ConnectionState): void {
@@ -44,7 +45,7 @@ export interface ConnectionReadyPatch {
   error?: PeekError
 }
 
-/** 连接状态机迁移：idle → connecting → ready / error */
+/** Connection state machine transition: idle → connecting → ready / error */
 export function setConnectionStatus(
   draft: Draft<Workspace>,
   connId: ConnId,
@@ -63,8 +64,9 @@ export function setConnectionStatus(
 }
 
 /**
- * 移除连接。closeViews 为 true 时连带关掉它名下所有视图（并从面板上摘掉）。
- * 返回被关掉的视图 id，供命令结果与副作用（取消在跑的结果集）使用。
+ * Remove a connection. With `closeViews` true, every view belonging to it is
+ * closed as well (and detached from its panel). Returns the closed view ids, for
+ * the command result and for the side effects that cancel running result sets.
  */
 export function removeConnection(
   draft: Draft<Workspace>,
@@ -93,14 +95,14 @@ export function removeConnection(
 }
 
 /* ------------------------------------------------------------------ */
-/* 视图                                                                */
+/* Views                                                               */
 /* ------------------------------------------------------------------ */
 
 export function putView(draft: Draft<Workspace>, view: ViewState): void {
   draft.views[view.id] = view as Draft<ViewState>
 }
 
-/** 删除视图并把它从所在面板上摘掉（面板本身保留，只是变空） */
+/** Delete a view and detach it from its panel (the panel itself stays, just empty). */
 export function removeView(draft: Draft<Workspace>, viewId: ViewId): PanelId | null {
   const detached = clearViewFromPanels(plain(draft.layout), viewId)
   if (detached.panelId !== null) draft.layout = detached.layout as Draft<Workspace>['layout']
@@ -108,7 +110,7 @@ export function removeView(draft: Draft<Workspace>, viewId: ViewId): PanelId | n
   return detached.panelId
 }
 
-/** 视图当前挂着的、仍在跑的结果集（关视图/换视图时要顺手取消） */
+/** The still-running result set a view currently holds (cancel it when the view closes or is replaced). */
 export function runningResultOf(draft: Draft<Workspace>, viewId: ViewId): ResultId | null {
   const view = draft.views[viewId]
   if (!view || !('resultId' in view) || view.resultId === undefined) return null
@@ -117,7 +119,8 @@ export function runningResultOf(draft: Draft<Workspace>, viewId: ViewId): Result
 }
 
 /* ------------------------------------------------------------------ */
-/* 结果集元信息（数据本体永远只走 MessagePort，这里只存控制面）              */
+/* Result metadata (row data only ever travels the MessagePort;         */
+/* this is the control plane)                                          */
 /* ------------------------------------------------------------------ */
 
 export function startResult(draft: Draft<Workspace>, meta: ResultMeta): void {
@@ -156,7 +159,8 @@ export function finishResult(draft: Draft<Workspace>, resultId: ResultId, done: 
   if (view && ownsResult(view, resultId)) {
     view.status = 'ready'
     delete view.error
-    // 续拉游标只对集合浏览有意义（redis SCAN / qdrant scroll）
+    // A continuation cursor only means anything for collection browsing
+    // (redis SCAN / qdrant scroll).
     if (view.kind === 'table') view.cursorToken = done.nextCursor
   }
 }
@@ -168,14 +172,18 @@ export interface ResultPausePatch {
 }
 
 /**
- * 结果流**按设计暂停**（背压空闲超时，驱动已主动释放服务端游标与连接）。
+ * The result stream paused **by design** (backpressure idle timeout; the driver
+ * has already released the server-side cursor and its connection).
  *
- * 这是 `done` 的兄弟而不是 `error` 的兄弟：
- * - 已加载的行**全部有效**，视图保持 ready（绿色），不弹红色错误条；
- * - 打上 truncated + resumable，读方（UI / MCP）据此提示"重新执行可继续取数"。
+ * This is a sibling of `done`, not of `error`:
+ * - every row already loaded is **valid**, so the view stays ready (green) and
+ *   no red error bar appears;
+ * - it is marked truncated + resumable, which is how readers (UI and MCP) know
+ *   to say "re-run to keep fetching".
  *
- * 唯一的例外：已经进过终态的结果集不再被暂停覆盖（比如取消与暂停竞态时，
- * 先到的那个说了算，不能让"取消"被改写成"暂停"）。
+ * One exception: a result set that already reached a terminal state is never
+ * overwritten by a pause. When a cancel and a pause race, whichever arrived
+ * first wins — a cancel must not be rewritten into a pause.
  */
 export function pauseResult(
   draft: Draft<Workspace>,
@@ -199,19 +207,21 @@ export function pauseResult(
   }
 }
 
-/** 该视图当前是否正挂着这个结果集（inspector / tree 没有 resultId 字段） */
+/** Whether the view currently holds this result set (inspector / tree views have no resultId field). */
 function ownsResult(view: Draft<ViewState>, resultId: ResultId): boolean {
   return 'resultId' in view && view.resultId === resultId
 }
 
 /**
- * 结果流异常终止。
+ * The result stream terminated abnormally.
  *
- * CANCELLED 走与 cancelResult 完全一致的判定：**取消不是错误**。
- * driver host 的 StreamPump 被取消时唯一的终止途径就是发 result.error(CANCELLED)，
- * 这条路径必然会到达这里；若在这里把视图打成 error，用户点了"取消"却看到红色错误条，
- * MCP 的 read_workspace 也会把视图汇报成 status=error，让 AI 误判成查询失败。
- * 结果元信息与视图状态的判定只有这一处，保证两者不会给出相反结论。
+ * CANCELLED is judged exactly as cancelResult judges it: **a cancel is not an
+ * error**. When the driver host's StreamPump is cancelled, its only way to
+ * terminate is to emit result.error(CANCELLED), so that path always lands here.
+ * Marking the view as error here would mean the user clicks "cancel" and gets a
+ * red error bar, and MCP's read_workspace would report status=error, leading the
+ * AI to conclude the query failed. Result metadata and view status are decided in
+ * this one place precisely so the two can never disagree.
  */
 export function failResult(draft: Draft<Workspace>, resultId: ResultId, error: PeekError): void {
   const cancelled = error.code === 'CANCELLED'
@@ -244,7 +254,7 @@ export function cancelResult(draft: Draft<Workspace>, resultId: ResultId): void 
   }
 }
 
-/** 只保留最近的结果元信息；正在跑的和还被视图引用的永远不丢 */
+/** Keep only the most recent result metadata; running results and any still referenced by a view are never evicted. */
 export function pruneResults(draft: Draft<Workspace>, max: number = MAX_RESULT_META): void {
   const all = Object.values(draft.results)
   if (all.length <= max) return
@@ -267,10 +277,10 @@ export function pruneResults(draft: Draft<Workspace>, max: number = MAX_RESULT_M
 }
 
 /* ------------------------------------------------------------------ */
-/* 焦点                                                                */
+/* Focus                                                               */
 /* ------------------------------------------------------------------ */
 
-/** 焦点面板被移除后的兜底：回落到树里的第一个面板 */
+/** Fallback after the focused panel is removed: fall back to the first panel in the tree. */
 export function ensureFocusedPanel(draft: Draft<Workspace>): void {
   const panels = collectPanels(plain(draft.layout))
   if (panels.length === 0) {

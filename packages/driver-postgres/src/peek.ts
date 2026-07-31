@@ -1,6 +1,7 @@
 import {
   VALUE_PEEK_MAX_BYTES,
   peekError,
+  peekErrorMsg,
   type ByteRange,
   type ColumnDef,
   type PeekedValue,
@@ -14,17 +15,19 @@ import { ParamList, qualifiedName, quoteIdent, toByteaExpr, wrapResultRow } from
 import type { PgTypeCatalog } from './type-catalog'
 
 /**
- * valuePeek：按 ValueRef 取回被截断的完整值。
+ * valuePeek: fetch the full value behind a truncated cell, addressed by ValueRef.
  *
- * 关键点是**字节切片在服务端完成**——把目标标量统一转成 bytea 再 substring，
- * 这样即使单元格是 200MB 的 jsonb，也只有请求的那一段过网，不会把驱动进程撑爆。
+ * The essential part is that **the byte slicing happens on the server** — the
+ * target scalar is coerced to bytea and then `substring`ed, so even a 200MB jsonb
+ * cell puts only the requested window on the wire instead of blowing up the
+ * driver process.
  */
 
-/** 一次查询/扫描的来源语句，供 resultCell 回源 */
+/** The statement behind a query or scan, kept so a resultCell can be resolved back to its source */
 export interface ResultSource {
   text: string
   params: unknown[]
-  /** 首帧 schema；未知时 peek 会自己探一次 */
+  /** First-frame schema; when unknown, peek probes for it once */
   columns: ColumnDef[] | null
 }
 
@@ -36,10 +39,10 @@ export interface PeekDeps {
 }
 
 interface ScalarTarget {
-  /** 产出单个标量列 b 的 SQL（已含 FROM / WHERE / LIMIT 1） */
+  /** SQL yielding the single scalar column `b` (FROM / WHERE / LIMIT 1 included) */
   inner: string
   params: ParamList
-  /** 目标列的类型信息，决定编码方式 */
+  /** Type information for the target column; decides the encoding */
   column: Pick<ColumnDef, 'logical' | 'nativeType'>
 }
 
@@ -88,7 +91,7 @@ export class PgValuePeeker {
     }
 
     const row = rows.length > 0 ? rows[0] : undefined
-    if (!row) throw peekError('NOT_FOUND', '目标值不存在（行已被删除或结果集已变化）')
+    if (!row) throw peekErrorMsg('NOT_FOUND', 'error.value.gone')
 
     const total = row.total === null ? 0 : Number(row.total)
     const part = row.part ?? new Uint8Array(0)
@@ -112,7 +115,7 @@ export class PgValuePeeker {
     }
   }
 
-  /** 把 ValueRef 翻译成"产出单个 bytea 标量 b"的子查询 */
+  /** Translate a ValueRef into a subquery that yields the single bytea scalar `b` */
   private async resolve(ref: ValueRef): Promise<ScalarTarget> {
     switch (ref.kind) {
       case 'resultCell':
@@ -121,9 +124,12 @@ export class PgValuePeeker {
         return this.resolveRelationCell(ref)
       case 'redisValue':
       case 'qdrantPoint':
+        // No catalog key covers this: it can only be reached by pointing a
+        // PostgreSQL connection at another driver's ValueRef, which is a wiring
+        // bug rather than something a user can act on. Plain English literal.
         throw peekError(
           'BAD_REQUEST',
-          `PostgreSQL 驱动不支持 ${ref.kind} 形式的 ValueRef`,
+          `The PostgreSQL driver does not support ${ref.kind} value references`,
         )
     }
   }
@@ -133,12 +139,15 @@ export class PgValuePeeker {
   ): Promise<ScalarTarget> {
     const src = this.deps.sources.get(ref.resultId)
     if (!src) {
-      throw peekError('NOT_FOUND', `结果集 ${ref.resultId} 已失效，无法回源取值`)
+      throw peekErrorMsg('NOT_FOUND', 'error.result.stale', { resultId: ref.resultId })
     }
     const columns = src.columns ?? (await this.probeColumns(src))
     const col = columns[ref.col]
     if (!col) {
-      throw peekError('BAD_REQUEST', `列下标越界: ${ref.col}（共 ${columns.length} 列）`)
+      throw peekErrorMsg('BAD_REQUEST', 'error.value.columnOutOfRange', {
+        col: ref.col,
+        total: columns.length,
+      })
     }
 
     const p = new ParamList()
@@ -153,7 +162,7 @@ export class PgValuePeeker {
     }
   }
 
-  /** 用 LIMIT 0 探一次 RowDescription，只拿列信息，不拉数据 */
+  /** Probe the RowDescription with LIMIT 0: column information only, no rows */
   private async probeColumns(src: ResultSource): Promise<ColumnDef[]> {
     const sql = `SELECT * FROM (${src.text}) AS _peek_probe LIMIT 0`
     try {
@@ -180,16 +189,16 @@ export class PgValuePeeker {
     const info = await this.deps.introspector.describeCollection(ref.collection)
     const col = info.columns.find((c) => c.name === ref.column)
     if (!col) {
-      throw peekError('NOT_FOUND', `列不存在: ${ref.column}`)
+      throw peekErrorMsg('NOT_FOUND', 'error.value.columnNotFound', { column: ref.column })
     }
     const pkEntries = Object.entries(ref.pk)
     if (pkEntries.length === 0) {
-      throw peekError('BAD_REQUEST', 'relationCell 必须给出主键值')
+      throw peekErrorMsg('BAD_REQUEST', 'error.value.primaryKeyRequired')
     }
     const known = new Set(info.columns.map((c) => c.name))
     const p = new ParamList()
     const conds = pkEntries.map(([k, v]) => {
-      if (!known.has(k)) throw peekError('BAD_REQUEST', `主键列不存在: ${k}`)
+      if (!known.has(k)) throw peekErrorMsg('BAD_REQUEST', 'error.value.primaryKeyNotFound', { column: k })
       return `${quoteIdent(k)} = ${p.add(v)}`
     })
     const bexpr = toByteaExpr(quoteIdent(ref.column), col.nativeType === 'bytea')

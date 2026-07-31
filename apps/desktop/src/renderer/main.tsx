@@ -1,19 +1,26 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './components/App'
+import { initLocale } from './i18n'
 import { startRenderer } from './state/sync'
 import './styles.css'
 
 /**
- * renderer 入口。
+ * Renderer entry point.
  *
- * 接线（patch 订阅、MessagePort 接收）在 React 之外完成，
- * 保证 StrictMode 的双跑 effect 不会造成重复订阅。
+ * The wiring (patch subscription, MessagePort intake) happens outside React so
+ * that StrictMode's double-invoked effects cannot produce duplicate subscriptions.
  */
+
+// Before the first render, so the window never paints English and then swaps.
+initLocale()
+
 startRenderer()
 
 const root = document.getElementById('root')
-if (!root) throw new Error('找不到挂载点 #root')
+// Not localized on purpose: this fires before React (and the catalog) matter, and
+// nobody but a developer is ever meant to see it.
+if (!root) throw new Error('Mount point #root not found')
 
 createRoot(root).render(
   <StrictMode>

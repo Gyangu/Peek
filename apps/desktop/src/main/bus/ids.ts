@@ -17,9 +17,9 @@ import {
 } from '@peek/core'
 
 /**
- * id 生成器。handler 的纯状态阶段只通过它拿新 id ——
- * 这样"纯函数"这件事在测试里是可兑现的：注入一个自增的假工厂，
- * 同样的输入就能得到逐字节相同的 Workspace。
+ * Id factory. A handler's pure state phase mints new ids only through this,
+ * which is what makes "pure function" a claim tests can actually cash: inject a
+ * counting fake and the same input yields a byte-identical Workspace.
  */
 export interface IdFactory {
   conn(): ConnId
@@ -37,7 +37,7 @@ export const defaultIdFactory: IdFactory = {
   result: newResultId,
 }
 
-/** 测试用：可复现的自增 id 工厂 */
+/** For tests: a reproducible counting id factory. */
 export function createSeqIdFactory(prefix = 't'): IdFactory {
   const counters = new Map<string, number>()
   const next = (kind: string): string => {

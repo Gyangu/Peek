@@ -1,6 +1,6 @@
 /**
- * list_connections —— 只读工具：列出当前所有连接及其能力。
- * 直接读 main 的 Workspace Store，不经 Command Bus。
+ * list_connections — read-only tool: list every current connection and its capabilities.
+ * Reads main's Workspace Store directly, bypassing the Command Bus.
  */
 
 import { z } from 'zod'
@@ -9,18 +9,19 @@ import { defineReadTool } from '../executor'
 import { briefConnection, toJson } from '../summary'
 
 const InputSchema = z.object({
-  /** 只看某个状态的连接 */
+  /** Only list connections in this status. */
   status: z.enum(['idle', 'connecting', 'ready', 'error']).optional(),
 })
 
 export default defineReadTool({
   kind: 'read',
   name: 'list_connections',
-  title: '列出连接',
+  title: 'List connections',
   description:
-    '列出 peek 当前已建立的数据库连接：connId、标签、驱动、状态、实际能力集、脱敏后的连接目标。' +
-    '需要 connId 的其他工具（introspect / open_view / run_query）先调这个拿 id。' +
-    '返回里还带 driverCapabilities（各驱动连接前的能力预判表）。',
+    'List the database connections peek currently holds: connId, label, driver, status, actual ' +
+    'capability set, and the redacted connection target. ' +
+    'Call this first to get an id for the tools that need a connId (introspect / open_view / run_query). ' +
+    'The response also carries driverCapabilities, the per-driver table of capabilities expected before connecting.',
   inputSchema: InputSchema,
   annotations: { readOnlyHint: true, openWorldHint: false },
   read(input, ctx) {
@@ -31,8 +32,8 @@ export default defineReadTool({
 
     const head =
       conns.length === 0
-        ? '当前没有任何连接。用 connect 工具新建一个（例如 postgres：{"config":{"driverId":"postgres","url":"postgresql://user@host:5432/db"}}）。'
-        : `共 ${conns.length} 个连接（workspace rev=${snap.rev}）：`
+        ? 'There are no connections yet. Create one with the connect tool (for postgres: {"config":{"driverId":"postgres","url":"postgresql://user@host:5432/db"}}).'
+        : `${conns.length} connection(s) (workspace rev=${snap.rev}):`
 
     return {
       text: `${head}\n\n${toJson({ connections: conns, driverCapabilities: DRIVER_CAPABILITIES })}`,

@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "peek Electron 桌面外壳：main / preload / renderer",
+  "description": "peek Electron shell: main / preload / renderer",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

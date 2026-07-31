@@ -13,7 +13,8 @@ import { collectionRefLabel, defaultConnectionLabel, redactConnectionConfig } fr
 import type { PeekError } from './errors'
 import { newPanelId, type ConnId, type PanelId, type ResultId, type SplitId, type ViewId } from './ids'
 
-// 品牌类型在这里 re-export，方便按 PLAN 第 5 节从 workspace 直接取
+// The branded types are re-exported here so they can be pulled straight from
+// workspace, the way PLAN §5 describes them.
 export {
   type ConnId,
   type PanelId,
@@ -23,36 +24,37 @@ export {
 } from './ids'
 
 /* ================================================================== */
-/* 1. 连接状态机                                                        */
+/* 1. Connection state machine                                         */
 /* ================================================================== */
 
-/** PLAN 第 5 节的连接状态机：idle → connecting → ready / error */
+/** The connection state machine from PLAN §5: idle → connecting → ready / error */
 export type ConnStatus = 'idle' | 'connecting' | 'ready' | 'error'
 
 export interface ConnectionState {
   id: ConnId
   driverId: DriverId
-  /** 用户可见名 */
+  /** User-visible name */
   label: string
   /**
-   * 完整连接配置（含密码）。**只允许存在于 main 进程的真源里**。
-   * 任何要发给 renderer / MCP 的地方一律先过 redactConnectionConfig。
+   * The full connection config, password included. **It may exist only inside
+   * main's source of truth.** Anything headed for the renderer or MCP goes through
+   * redactConnectionConfig first.
    */
   config: ConnectionConfig
   status: ConnStatus
-  /** ready 后由 driver host 回填的实际能力集 */
+  /** The capabilities the driver host reported once ready */
   capabilities: Capability[]
   serverInfo?: ServerInfo
-  /** status === 'error' 时有值 */
+  /** Set when status === 'error' */
   error?: PeekError
-  /** 建连成功时间戳（ms） */
+  /** Timestamp of a successful connect (ms) */
   readyAt?: number
-  /** driver host 的 utilityProcess pid，便于排查 */
+  /** Pid of the driver host's utilityProcess, handy when debugging */
   pid?: number
 }
 
 /* ================================================================== */
-/* 2. 视图状态（PLAN 第 5 节五种 kind）                                   */
+/* 2. View state (the five kinds from PLAN §5)                         */
 /* ================================================================== */
 
 export type ViewStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -60,53 +62,53 @@ export type ViewStatus = 'idle' | 'loading' | 'ready' | 'error'
 export interface ViewBase {
   id: ViewId
   connId: ConnId
-  /** 标签页标题；不填由 UI 从内容推 */
+  /** Tab title; when absent the UI derives one from the content */
   title?: string
   status: ViewStatus
   error?: PeekError
 }
 
-/** 集合浏览：表、keyspace、collection 统一走这个 */
+/** Collection browsing: tables, keyspaces and collections all use this one */
 export interface TableViewState extends ViewBase {
   kind: 'table'
   ref: CollectionRef
   filter?: FilterSpec[]
   sort?: SortSpec[]
   page: { offset: number; limit: number }
-  /** 当前正在流的结果集 */
+  /** The result set currently streaming */
   resultId?: ResultId
-  /** 续拉游标（redis SCAN / qdrant scroll） */
+  /** Continuation cursor (redis SCAN / qdrant scroll) */
   cursorToken?: string
 }
 
-/** 自由查询（SQL 等） */
+/** Free-form query (SQL and friends) */
 export interface QueryViewState extends ViewBase {
   kind: 'query'
   text: string
   resultId?: ResultId
 }
 
-/** 单值/单行检查器 */
+/** Single-value / single-row inspector */
 export interface InspectorViewState extends ViewBase {
   kind: 'inspector'
   ref: ValueRef
 }
 
-/** 命名空间树 */
+/** Namespace tree */
 export interface TreeViewState extends ViewBase {
   kind: 'tree'
-  /** 已展开的 NamespaceNode.id */
+  /** NamespaceNode.ids that are expanded */
   expanded: string[]
-  /** 当前选中的 NamespaceNode.id */
+  /** The currently selected NamespaceNode.id */
   selected?: string
 }
 
-/** 向量检索 */
+/** Vector search */
 export interface VectorViewState extends ViewBase {
   kind: 'vector'
   collection: string
   queryVec?: number[]
-  /** 文本入口（由上层 embed 后填 queryVec；驱动不做 embedding） */
+  /** Text entry point; a layer above embeds it and fills queryVec — drivers never do embedding */
   queryText?: string
   topK: number
   filter?: FilterSpec[]
@@ -124,19 +126,19 @@ export type ViewKind = ViewState['kind']
 
 export const VIEW_KINDS = ['table', 'query', 'inspector', 'tree', 'vector'] as const
 
-/** 按 kind 取到具体的 ViewState 子类型 */
+/** Narrow ViewState down to one concrete kind */
 export type ViewStateOf<K extends ViewKind> = Extract<ViewState, { kind: K }>
 
 /* ================================================================== */
-/* 3. 平铺布局树                                                        */
+/* 3. Tiled layout tree                                                */
 /* ================================================================== */
 
 export interface SplitNode {
   type: 'split'
-  /** layout.setRatio 靠它定位（PLAN 里的树没画 id，实现上必须有才能被 Command 寻址） */
+  /** How layout.setRatio addresses this node. PLAN's tree drawing omits ids, but commands cannot address a split without one. */
   id: SplitId
   dir: 'row' | 'col'
-  /** 各子节点占比，长度与 children 相同，和为 1 */
+  /** Share of space per child; same length as `children`, summing to 1 */
   ratio: number[]
   children: LayoutNode[]
 }
@@ -144,74 +146,77 @@ export interface SplitNode {
 export interface PanelNode {
   type: 'panel'
   id: PanelId
-  /** null 表示空面板 */
+  /** null means an empty panel */
   viewId: ViewId | null
 }
 
 export type LayoutNode = SplitNode | PanelNode
 
 /* ================================================================== */
-/* 4. 结果集元信息                                                      */
+/* 4. Result-set metadata                                              */
 /* ================================================================== */
 
 /**
- * 结果集状态机。
+ * Result-set state machine.
  *
- * 五个取值里 `paused` 是唯一一个"没跑完但一切正常"的终态：
- * 背压把流停住、驱动主动释放了服务端游标与连接，**已加载的行全部有效**。
- * 它刻意不与 `error` 合流——AI 与用户都必须能一眼分清
- * 「查询失败了」和「只是停下来了，数据是好的」。
+ * Of the five values, `paused` is the only terminal state meaning "unfinished, yet
+ * nothing is wrong": backpressure stopped the stream and the driver deliberately
+ * released the server-side cursor and connection, so **every row already loaded is
+ * valid**. It is deliberately kept separate from `error` — both the AI and the user
+ * must be able to tell "the query failed" from "it just stopped, and the data is
+ * good" at a glance.
  *
- *   running ─┬─► done       正常收尾
- *            ├─► paused     背压空闲超时，可重跑续取（truncated + resumable）
- *            ├─► error      真失败（SQL 报错、连接断、丢帧…）
- *            └─► cancelled  用户/上层主动取消
+ *   running ─┬─► done       finished normally
+ *            ├─► paused     backpressure idle timeout; re-run to keep fetching (truncated + resumable)
+ *            ├─► error      a real failure (SQL error, dropped connection, missing frame, …)
+ *            └─► cancelled  cancelled on purpose by the user or a layer above
  */
 export type ResultStatus = 'running' | 'done' | 'paused' | 'error' | 'cancelled'
 
-/** 终态判定只有这一处实现，避免各处各写一遍 `!== 'running'` 后跑偏 */
+/** The only place "is it settled?" is implemented, so nobody re-derives `!== 'running'` and drifts */
 export function isSettledResultStatus(status: ResultStatus): boolean {
   return status !== 'running'
 }
 
-/** 数据可信（已加载的行都是真数据）；只有 error 不满足 */
+/** Whether the loaded rows can be trusted as real data; only `error` fails this */
 export function hasUsableRows(status: ResultStatus): boolean {
   return status !== 'error'
 }
 
 /**
- * 结果集的**元信息**，不含数据本体。数据只走 MessagePort 直达 renderer 缓存。
- * main 持有这份元信息，MCP 的 read_workspace 靠它汇报"跑了什么、多少行、多久"。
+ * **Metadata** about a result set, never the data itself — data goes straight over
+ * the MessagePort into the renderer's cache. Main holds this metadata, and MCP's
+ * read_workspace uses it to report what ran, how many rows, and how long it took.
  */
 export interface ResultMeta {
   id: ResultId
   connId: ConnId
-  /** 触发这次执行的视图 */
+  /** The view that triggered this execution */
   viewId: ViewId
   status: ResultStatus
-  /** 首帧到达后回填 */
+  /** Filled in once the first frame arrives */
   schema?: ColumnDef[]
-  /** 已确认收到的行数 */
+  /** Rows confirmed received */
   rows: number
   startedAt: number
   elapsedMs?: number
-  /** 还有更多数据没取（maxRows 上限 / 背压暂停） */
+  /** More data remains unfetched (hit the maxRows ceiling, or paused by backpressure) */
   truncated?: boolean
-  /** 重新执行即可继续取数；`status === 'paused'` 时恒为 true */
+  /** Re-running continues the fetch; always true when `status === 'paused'` */
   resumable?: boolean
-  /** status === 'paused' 时的人可读原因 */
+  /** Human-readable reason, set when status === 'paused' */
   pausedReason?: string
   error?: PeekError
-  /** 语句/扫描的简短描述，给 MCP 看的 */
+  /** Short description of the statement or scan, for MCP to read */
   summary?: string
 }
 
 /* ================================================================== */
-/* 5. Workspace（main 持真源）                                          */
+/* 5. Workspace (main holds the source of truth)                       */
 /* ================================================================== */
 
 export interface Workspace {
-  /** 修订号，每落地一条 Command +1；patch 广播带上它，renderer 用来检测漏包 */
+  /** Revision number, +1 per committed Command; patch broadcasts carry it so the renderer can detect a dropped update */
   rev: number
   connections: Record<ConnId, ConnectionState>
   layout: LayoutNode
@@ -221,8 +226,8 @@ export interface Workspace {
 }
 
 /**
- * 空工作区：一个根面板，无视图。
- * @param rootPanelId 可传入固定 id 让测试可复现
+ * An empty workspace: one root panel, no views.
+ * @param rootPanelId pass a fixed id to keep tests reproducible
  */
 export function createEmptyWorkspace(rootPanelId?: PanelId): Workspace {
   const panelId = rootPanelId ?? newPanelId()
@@ -237,10 +242,11 @@ export function createEmptyWorkspace(rootPanelId?: PanelId): Workspace {
 }
 
 /* ------------------------------------------------------------------ */
-/* 布局树只读工具（纯函数，main 和 renderer 都能用）                       */
+/* Read-only layout-tree helpers (pure functions, usable from main and  */
+/* renderer alike)                                                      */
 /* ------------------------------------------------------------------ */
 
-/** 深度优先收集全部面板节点，顺序即视觉顺序 */
+/** Collect every panel node depth-first; the order is the visual order */
 export function collectPanels(node: LayoutNode, out: PanelNode[] = []): PanelNode[] {
   if (node.type === 'panel') {
     out.push(node)
@@ -269,7 +275,7 @@ export function findSplit(node: LayoutNode, splitId: SplitId): SplitNode | null 
   return null
 }
 
-/** 找到承载某视图的面板 */
+/** Find the panel hosting a given view */
 export function findPanelOfView(node: LayoutNode, viewId: ViewId): PanelNode | null {
   for (const panel of collectPanels(node)) {
     if (panel.viewId === viewId) return panel
@@ -277,7 +283,7 @@ export function findPanelOfView(node: LayoutNode, viewId: ViewId): PanelNode | n
   return null
 }
 
-/** 把 ratio 归一化到和为 1；长度不匹配时退化成等分 */
+/** Normalize ratios so they sum to 1; fall back to an even split on a length mismatch */
 export function normalizeRatio(ratio: readonly number[], count: number): number[] {
   if (ratio.length !== count || ratio.some((r) => !Number.isFinite(r) || r <= 0)) {
     return Array.from({ length: count }, () => 1 / count)
@@ -287,7 +293,8 @@ export function normalizeRatio(ratio: readonly number[], count: number): number[
 }
 
 /* ================================================================== */
-/* 6. 对外快照（MCP / renderer 只读视角，已脱敏）                          */
+/* 6. Outward-facing snapshot (read-only view for MCP and the renderer, */
+/*    already redacted)                                                 */
 /* ================================================================== */
 
 export interface ConnectionSummary {
@@ -296,7 +303,7 @@ export interface ConnectionSummary {
   label: string
   status: ConnStatus
   capabilities: Capability[]
-  /** 已脱敏 */
+  /** Redacted */
   config: ConnectionConfig
   serverInfo?: ServerInfo
   error?: PeekError
@@ -306,11 +313,11 @@ export interface ViewSummary {
   id: ViewId
   kind: ViewKind
   connId: ConnId
-  /** 当前挂在哪个面板；null 表示未挂载 */
+  /** The panel it currently sits in; null means unmounted */
   panelId: PanelId | null
   title: string
   status: ViewStatus
-  /** 一句话描述当前视图在看什么，供 AI 感知界面 */
+  /** One sentence about what this view is showing, so the AI can perceive the window */
   describe: string
   resultId?: ResultId
   error?: PeekError
@@ -325,44 +332,54 @@ export interface WorkspaceSnapshot {
   results: ResultMeta[]
 }
 
-/** 视图的一句话描述，read_workspace 和 UI 标题都用它 */
+/**
+ * One-sentence description of a view, used by read_workspace and by UI titles.
+ *
+ * **Always English, never localized.** MCP reads this string, so it has to stay
+ * stable and locale-independent; a window that wants the view kind spelled out in
+ * the user's language uses the `view.kind.*` messages instead.
+ */
 export function describeView(view: ViewState): string {
   switch (view.kind) {
     case 'table':
-      return `表格 ${collectionRefLabel(view.ref)} · offset ${view.page.offset} limit ${view.page.limit}`
+      return `Table ${collectionRefLabel(view.ref)} · offset ${view.page.offset} limit ${view.page.limit}`
     case 'query': {
       const oneLine = view.text.replace(/\s+/g, ' ').trim()
-      return `查询 ${oneLine.length > 120 ? `${oneLine.slice(0, 120)}…` : oneLine}`
+      return `Query ${oneLine.length > 120 ? `${oneLine.slice(0, 120)}…` : oneLine}`
     }
     case 'inspector':
-      return `检查器 ${view.ref.kind}`
+      return `Inspector ${view.ref.kind}`
     case 'tree':
-      return `命名空间树 · 展开 ${view.expanded.length} 个节点`
+      return `Namespace tree · ${view.expanded.length} nodes expanded`
     case 'vector':
-      return `向量检索 ${view.collection} · topK ${view.topK}`
+      return `Vector search ${view.collection} · topK ${view.topK}`
   }
 }
 
-/** 视图标题：显式 title 优先，否则从内容推 */
+/**
+ * Title of a view: an explicit `title` wins, otherwise one is derived from the
+ * content. English only, for the same reason as `describeView`.
+ */
 export function viewTitle(view: ViewState): string {
   if (view.title) return view.title
   switch (view.kind) {
     case 'table':
       return collectionRefLabel(view.ref)
     case 'query':
-      return '查询'
+      return 'Query'
     case 'inspector':
-      return '检查器'
+      return 'Inspector'
     case 'tree':
-      return '对象树'
+      return 'Object tree'
     case 'vector':
-      return `向量 · ${view.collection}`
+      return `Vector · ${view.collection}`
   }
 }
 
 /**
- * 把真源 Workspace 收敛成可以离开 main 的只读快照（脱敏 + 摊平）。
- * MCP 的 read_workspace 和 state.read 都返回这个。
+ * Reduce the source-of-truth Workspace to a read-only snapshot that is safe to
+ * leave main: redacted and flattened. Both MCP's read_workspace and state.read
+ * return this.
  */
 export function snapshotWorkspace(ws: Workspace): WorkspaceSnapshot {
   const panels = collectPanels(ws.layout)
@@ -372,7 +389,8 @@ export function snapshotWorkspace(ws: Workspace): WorkspaceSnapshot {
   }
 
   const connections: ConnectionSummary[] = Object.values(ws.connections).map((c) => {
-    // 先脱敏再推 label：label 为空时会退化到连接串，原始连接串里有明文口令
+    // Redact before deriving the label: an empty label falls back to the connection
+    // URL, and the raw URL carries a plaintext password.
     const config = redactConnectionConfig(c.config)
     return {
       id: c.id,

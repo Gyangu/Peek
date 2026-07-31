@@ -9,14 +9,16 @@ import type {
 } from '@peek/core'
 
 /**
- * 副作用意图。
+ * Side-effect intents.
  *
- * handler 的**纯状态阶段只登记意图**（`ctx.plan(...)`），不碰任何 I/O；
- * Command Bus 在状态落地之后统一交给 effects.ts 执行。
- * 好处：handler 全是可单测的纯函数，而"真正去连库/跑查询"集中在一处。
+ * A handler's **pure state phase only registers intents** (`ctx.plan(...)`) and
+ * touches no I/O; once the state change has landed, the Command Bus hands the
+ * batch to effects.ts. The payoff: handlers stay unit-testable pure functions,
+ * and "actually connect / actually query" lives in exactly one place.
  *
- * 约束：意图里只能放**普通数据**。从 draft 上读出来的对象必须先过 `plain()`，
- * 否则 produce 结束后 draft 代理被吊销，执行阶段一访问就炸。
+ * Constraint: an intent may carry **plain data only**. Anything read off the
+ * draft must go through `plain()` first — otherwise the draft proxy is revoked
+ * when `produce` returns, and the effect phase blows up on first access.
  */
 export type EffectIntent =
   | { type: 'connect'; connId: ConnId; config: ConnectionConfig; timeoutMs?: number; soft?: boolean }
@@ -60,5 +62,5 @@ export type EffectIntent =
 
 export type EffectIntentType = EffectIntent['type']
 
-/** 登记副作用意图的口子，注入给 handler 的纯状态阶段 */
+/** The hook for registering a side-effect intent, injected into a handler's pure state phase. */
 export type PlanEffect = (intent: EffectIntent) => void

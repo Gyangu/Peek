@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "peek 冻结共享契约：Command、Workspace 状态、capability 接口、chunk 协议、IPC 协议",
+  "description": "peek frozen shared contract: commands, Workspace state, capability interfaces, chunk protocol, IPC protocol",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

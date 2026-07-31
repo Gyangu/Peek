@@ -2,14 +2,15 @@ import type { Draft } from 'immer'
 import { findPanel, type LayoutCloseResult, type ViewId, type Workspace } from '@peek/core'
 import { plain } from '../../store/workspace-store'
 import { ensureFocusedPanel } from '../../store/mutations'
-import { fail } from '../failure'
+import { failMsg } from '../failure'
 import { closePanel, setSplitRatio, splitPanel } from '../layout-ops'
 import type { CommandHandlerMap } from '../types'
 import { closeView, openView } from './shared'
 
 /**
- * layout.* 的纯状态实现。布局操作全部无副作用，
- * 是"AI 摆布局"这条链路上唯一会动的东西（PLAN 第 5 / 6 节）。
+ * The pure state implementation of layout.*. Layout operations have no side
+ * effects at all, and they are the only thing that moves along the "AI arranges
+ * the workspace" path (PLAN sections 5 and 6).
  */
 export const layoutHandlers = {
   'layout.split': {
@@ -22,7 +23,7 @@ export const layoutHandlers = {
         newPanelId: ctx.ids.panel(),
         newSplitId: ctx.ids.split(),
       })
-      if (!outcome) fail('NOT_FOUND', `面板 ${input.panelId} 不存在`)
+      if (!outcome) failMsg('NOT_FOUND', 'error.panel.notFound', { panelId: input.panelId })
 
       draft.layout = outcome.layout as Draft<Workspace>['layout']
       draft.focusedPanel = outcome.panelId
@@ -37,7 +38,7 @@ export const layoutHandlers = {
   'layout.focus': {
     reduce(draft, input) {
       if (!findPanel(plain(draft.layout), input.panelId)) {
-        fail('NOT_FOUND', `面板 ${input.panelId} 不存在`)
+        failMsg('NOT_FOUND', 'error.panel.notFound', { panelId: input.panelId })
       }
       draft.focusedPanel = input.panelId
       return { panelId: input.panelId }
@@ -48,8 +49,15 @@ export const layoutHandlers = {
     reduce(draft, input) {
       const outcome = setSplitRatio(plain(draft.layout), input.splitId, input.ratio)
       if (!outcome.ok) {
-        if (outcome.reason === 'notFound') fail('NOT_FOUND', `split ${input.splitId} 不存在`)
-        fail('BAD_REQUEST', `ratio 长度应为 ${outcome.expected}，收到 ${input.ratio.length}`)
+        if (outcome.reason === 'notFound') {
+          failMsg('NOT_FOUND', 'error.layout.splitNotFound', { splitId: input.splitId })
+        }
+        // `expected` is always set on a lengthMismatch, but the type does not say
+        // so; String() keeps the rendering identical either way.
+        failMsg('BAD_REQUEST', 'error.layout.ratioLength', {
+          expected: String(outcome.expected),
+          actual: input.ratio.length,
+        })
       }
       draft.layout = outcome.layout as Draft<Workspace>['layout']
       return { splitId: input.splitId, ratio: outcome.ratio }
@@ -59,11 +67,12 @@ export const layoutHandlers = {
   'layout.close': {
     reduce(draft, input, ctx) {
       const outcome = closePanel(plain(draft.layout), input.panelId)
-      if (!outcome) fail('NOT_FOUND', `面板 ${input.panelId} 不存在`)
+      if (!outcome) failMsg('NOT_FOUND', 'error.panel.notFound', { panelId: input.panelId })
 
       const closedViewIds: ViewId[] = []
-      // 先删视图（会顺带取消在跑的结果集），再换上新布局：
-      // closeView 内部也会改 layout，顺序反了会被覆盖掉
+      // Remove the view first (which also cancels any running result set), then
+      // install the new layout: closeView edits the layout too, so the reverse
+      // order would overwrite its work.
       if (outcome.viewId !== null && input.closeView !== false) {
         closeView(draft, outcome.viewId, ctx)
         closedViewIds.push(outcome.viewId)

@@ -5,12 +5,13 @@ import { dispatch } from '../state/dispatch'
 import { useLayout } from '../state/workspaceStore'
 import { PanelView } from './Panel'
 
-/** 分屏时单个子区域的最小像素尺寸 */
+/** Smallest a child region may get while dragging a divider. */
 const MIN_CHILD_PX = 80
 
 /**
- * 平铺布局渲染。布局即状态：这里只把 LayoutNode 树画出来，
- * 尺寸调整通过 layout.setRatio 命令回到 main，不在本地改树。
+ * Renders the tiled layout. Layout *is* state: this only draws the LayoutNode
+ * tree, and every resize goes back to main as a `layout.setRatio` command — the
+ * tree is never edited locally.
  */
 export function LayoutTree(): ReactElement {
   const layout = useLayout()
@@ -55,13 +56,14 @@ function childKey(node: LayoutNode, index: number): string {
 }
 
 /* ------------------------------------------------------------------ */
-/* 分隔条：拖拽时只画一条跟手的辅助线（纯视觉），松手才发 layout.setRatio。   */
-/* 这样既有实时反馈，又不做本地乐观更新 —— 布局树的唯一真源仍在 main。       */
+/* Divider: dragging paints a guide line that follows the cursor (purely   */
+/* visual); `layout.setRatio` is sent on release. Live feedback without an  */
+/* optimistic local update — the layout tree's source of truth stays in main. */
 /* ------------------------------------------------------------------ */
 
 interface DividerProps {
   splitId: SplitId
-  /** 分隔条右/下方那个子节点的下标 */
+  /** Index of the child immediately right of / below the divider. */
   index: number
   dir: 'row' | 'col'
 }

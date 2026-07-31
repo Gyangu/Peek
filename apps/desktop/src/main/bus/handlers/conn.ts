@@ -8,13 +8,14 @@ import {
   type ConnectionState,
 } from '@peek/core'
 import { putConnection, removeConnection } from '../../store/mutations'
-import { fail } from '../failure'
+import { failMsg } from '../failure'
 import type { CommandHandlerMap } from '../types'
 import { openView } from './shared'
 
 /**
- * conn.* 的纯状态部分。真正的建连/断连是副作用，
- * 这里只登记意图（ctx.plan），由 effects.ts 通过注入的 ConnectionService 执行。
+ * The pure state part of conn.*. Actually connecting and disconnecting are side
+ * effects: this file only registers intents (ctx.plan), which effects.ts runs
+ * through the injected ConnectionService.
  */
 export const connHandlers = {
   'conn.open': {
@@ -25,14 +26,18 @@ export const connHandlers = {
       const conn: ConnectionState = {
         id: connId,
         driverId: input.config.driverId,
-        // 注意：label 必须从**脱敏后**的 config 推。core 的 defaultConnectionLabel
-        // 在没有 database/host 时会直接返回 url，而 url 里带着明文口令 ——
-        // label 是要广播给 renderer 和 MCP 的，从原始 config 推就等于把口令送出去。
+        // The label must be derived from the **redacted** config. core's
+        // defaultConnectionLabel falls back to the url when there is no
+        // database/host, and the url carries a cleartext password — since the
+        // label is broadcast to the renderer and to MCP, deriving it from the
+        // raw config would ship the password along with it.
         label: defaultConnectionLabel(redactConnectionConfig(input.config)),
-        // 明文配置只留在 main 的真源里；出 main 的一切都走 redact（见 store/sanitize.ts）
+        // The cleartext config lives only in main's source of truth; everything
+        // leaving main goes through redaction (see store/sanitize.ts).
         config: input.config,
         status: 'connecting',
-        // 连上之前先按驱动预判能力，ready 后由 driver host 回填实际能力集
+        // Predict capabilities from the driver until we are connected; the
+        // driver host fills in the real set once the connection is ready.
         capabilities: existing?.capabilities ?? [...DRIVER_CAPABILITIES[input.config.driverId]],
       }
       putConnection(draft, conn)
@@ -51,13 +56,15 @@ export const connHandlers = {
         capabilities: conn.capabilities,
       }
       if (input.openTree) {
-        // 树视图先开着；连上之后由 renderer 拉第一层（introspect 不是 Command）
+        // Open the tree view right away; once connected the renderer fetches the
+        // first level (introspect is not a Command).
         result.treeViewId = openView(draft, { kind: 'tree', connId }, ctx, {}).viewId
       }
       return result
     },
 
-    // 建连是异步的，返回值里的 status / capabilities 以副作用跑完后的真源为准
+    // Connecting is asynchronous, so status / capabilities in the result come
+    // from the source of truth after the effects have run.
     finalize(data, state) {
       const conn = state.connections[data.connId]
       if (!conn) return data
@@ -72,12 +79,15 @@ export const connHandlers = {
 
   'conn.close': {
     reduce(draft, input, ctx) {
-      if (!draft.connections[input.connId]) fail('NOT_FOUND', `连接 ${input.connId} 不存在`)
+      if (!draft.connections[input.connId]) {
+        failMsg('NOT_FOUND', 'error.conn.notFound', { connId: input.connId })
+      }
 
       const closeViews = input.closeViews !== false
       const { closedViewIds, abortedResultIds } = removeConnection(draft, input.connId, closeViews)
 
-      // 关连接 = 回收 driver host 进程，在跑的结果集自然终止；这里只是 best-effort 通知
+      // Closing a connection reclaims the driver host process, so any running
+      // result set dies with it; these cancels are only a best-effort courtesy.
       for (const resultId of abortedResultIds) {
         ctx.plan({ type: 'cancel', connId: input.connId, resultId, soft: true })
       }
@@ -89,7 +99,7 @@ export const connHandlers = {
   },
 } satisfies CommandHandlerMap
 
-/** sqlite 没有 connectTimeoutMs 字段，按 driverId 收窄着取 */
+/** sqlite configs have no connectTimeoutMs field, so narrow before reading it. */
 function connectTimeoutOf(config: ConnectionConfig): number | undefined {
   return 'connectTimeoutMs' in config ? config.connectTimeoutMs : undefined
 }

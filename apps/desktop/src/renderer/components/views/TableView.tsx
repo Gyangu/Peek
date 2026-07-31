@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import type { ReactElement } from 'react'
 import type { SortSpec, TableViewState } from '@peek/core'
 import { collectionRefLabel } from '@peek/core'
+import { useT } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
 import { DataGrid } from '../DataGrid'
 import { ViewError } from '../ViewError'
@@ -9,11 +10,13 @@ import { ViewError } from '../ViewError'
 const PAGE_SIZES = [100, 200, 500, 1000, 5000]
 
 /**
- * 集合浏览视图（表 / keyspace / collection 统一走这个）。
- * 所有交互都翻译成 view.update 命令，界面等 patch 回来再变。
+ * Collection browser (tables, keyspaces and vector collections all land here).
+ * Every interaction becomes a `view.update` command; the UI only changes once the
+ * patch comes back.
  */
 export function TableView({ view }: { view: TableViewState }): ReactElement {
   const { id: viewId, connId, ref, sort, filter, page, resultId } = view
+  const t = useT()
   const sortKey = JSON.stringify(sort ?? [])
 
   const onSortColumn = useCallback(
@@ -56,12 +59,13 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
   return (
     <>
       <div className="toolbar">
+        {/* A collection label such as `public.orders` is an identifier, never translated. */}
         <span className="mono" title={collectionRefLabel(ref)}>
           {collectionRefLabel(ref)}
         </span>
         <span className="sep" />
-        <button className="ghost" onClick={refresh} title="重新取数">
-          ⟳ 刷新
+        <button className="ghost" onClick={refresh} title={t('table.refreshTitle')}>
+          ⟳ {t('table.refresh')}
         </button>
         <span className="sep" />
         <button
@@ -71,7 +75,7 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
             setOffset(page.offset - page.limit)
           }}
         >
-          ← 上一页
+          ← {t('table.prevPage')}
         </button>
         <span className="mono">
           {page.offset + 1} – {page.offset + page.limit}
@@ -82,7 +86,7 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
             setOffset(page.offset + page.limit)
           }}
         >
-          下一页 →
+          {t('table.nextPage')} →
         </button>
         <span className="sep" />
         <select
@@ -90,18 +94,19 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
           onChange={(e) => {
             setLimit(Number(e.target.value))
           }}
-          title="每页行数"
+          title={t('table.pageSizeTitle')}
         >
           {PAGE_SIZES.map((n) => (
             <option key={n} value={n}>
-              {n} 行/页
+              {t('table.pageSize', { n })}
             </option>
           ))}
         </select>
         {filter && filter.length > 0 ? (
           <>
             <span className="sep" />
-            <span title={JSON.stringify(filter)}>筛选 {filter.length} 条</span>
+            {/* The tooltip is the raw filter JSON — evidence, shown as it is. */}
+            <span title={JSON.stringify(filter)}>{t('table.filters', { count: filter.length })}</span>
           </>
         ) : null}
         <span className="grow" />
@@ -114,7 +119,7 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
         resultId={resultId}
         sort={sort}
         onSortColumn={onSortColumn}
-        emptyHint="等待 main 发起扫描…"
+        emptyHint={t('table.waitingForScan')}
       />
     </>
   )

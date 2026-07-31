@@ -1,18 +1,20 @@
 import type { ResultId } from './ids'
 import type { PeekError } from './errors'
-// 注意：这里是"仅类型"的循环引用（chunk ↔ capability），编译后完全擦除，无运行时循环。
+// Note: this is a *type-only* cycle (chunk ↔ capability). It is erased at compile
+// time, so there is no runtime circular import.
 import type { ValueRef } from './capability'
 
 export type { ResultId } from './ids'
 
 /* ------------------------------------------------------------------ */
-/* 列定义                                                              */
+/* Column definitions                                                  */
 /* ------------------------------------------------------------------ */
 
 /**
- * 逻辑类型：跨驱动统一的一层薄归类，只用来决定渲染方式
- * （右对齐？等宽？折叠 JSON？走 valuePeek？），不承担语义精度。
- * 需要精确类型时看 nativeType。
+ * Logical type: a thin, driver-independent bucketing whose only job is to decide
+ * how a value renders (right-align? monospace? collapse the JSON? offer
+ * valuePeek?). It carries no semantic precision — read `nativeType` when you need
+ * the exact type.
  */
 export type LogicalType =
   | 'string'
@@ -32,78 +34,84 @@ export type LogicalType =
   | 'unknown'
 
 export interface ColumnDef {
-  /** 列名（结果集内唯一；驱动遇到重名需自行去重，如 name, name__2） */
+  /** Column name, unique within the result set; a driver hitting duplicates must disambiguate itself (name, name__2) */
   name: string
-  /** 渲染用的逻辑类型 */
+  /** Logical type, used for rendering */
   logical: LogicalType
-  /** 驱动原始类型名，如 pg 的 'int8' / 'jsonb' / 'timestamptz' */
+  /** The driver's own type name, e.g. pg's 'int8' / 'jsonb' / 'timestamptz' */
   nativeType: string
   nullable?: boolean
-  /** 该列可能出现被截断的大值（前端提前准备 valuePeek 入口） */
+  /** This column may contain truncated large values (so the frontend can wire up a valuePeek entry point ahead of time) */
   peekable?: boolean
-  /** 主键列（collectionScan 时驱动可给出，前端用来做行定位） */
+  /** Part of the primary key; drivers may report it during collectionScan and the frontend uses it to address rows */
   primaryKey?: boolean
 }
 
 /* ------------------------------------------------------------------ */
-/* chunk 帧（列式）                                                     */
+/* Chunk frames (columnar)                                             */
 /* ------------------------------------------------------------------ */
 
 export interface ChunkDone {
-  /** 本结果集累计行数 */
+  /** Total rows in this result set */
   rows: number
-  /** 从发起到收尾的总耗时（毫秒），由 driver host 计时 */
+  /** Milliseconds from start to finish, measured by the driver host */
   elapsedMs: number
-  /** 因 maxRows 上限被截断（还有更多数据没取） */
+  /** Cut short by the maxRows ceiling (more data is still available) */
   truncated?: boolean
-  /** 续拉游标（redis SCAN cursor / qdrant next_page_offset）；有值表示可继续 */
+  /** Continuation cursor (redis SCAN cursor / qdrant next_page_offset); present means more can be fetched */
   nextCursor?: string
 }
 
 /**
- * 结果流的一帧。**列式**存储，为将来换 Arrow / ArrayBuffer 留位。
+ * One frame of a result stream. Stored **column-wise**, which leaves room to move
+ * to Arrow / ArrayBuffer later.
  *
- * 约定（实现者必须遵守）：
- * - `schema` 只在 seq === 0 的首帧出现，之后的帧不再重复。
- * - `cols.length === schema.length`，每个 `cols[i].length === rowCount`。
- * - 最后一帧带 `done`。**结果集的正常终止有且只有这一种信号**——
- *   空结果集也要发一帧（cols 为各列的空数组、rowCount 为 0、带 done）。
- * - 异常终止走 `ResultStreamMessage` 的 error 分支，此时不会再有带 done 的帧。
- * - seq 从 0 开始连续递增，接收端据此检测丢帧。
+ * Contract (implementers must honour all of it):
+ * - `schema` appears only on the first frame, the one with seq === 0; later frames
+ *   never repeat it.
+ * - `cols.length === schema.length`, and every `cols[i].length === rowCount`.
+ * - The last frame carries `done`. **That is the one and only signal that a result
+ *   set ended normally** — even an empty result set must emit a frame (one empty
+ *   array per column, rowCount 0, with `done`).
+ * - Abnormal termination goes through the error branch of `ResultStreamMessage`;
+ *   no frame with `done` follows it.
+ * - `seq` starts at 0 and increments by one, so the receiver can detect a dropped
+ *   frame.
  */
 export interface ChunkFrame {
   resultId: ResultId
   seq: number
-  /** 仅首帧携带 */
+  /** First frame only */
   schema?: ColumnDef[]
-  /** 按列存：cols[列下标][行下标] */
+  /** Column-major: cols[columnIndex][rowIndex] */
   cols: unknown[][]
-  /** 本帧行数（cols 可能为空数组，所以行数必须显式给） */
+  /** Rows in this frame (`cols` may itself be empty, so the count has to be explicit) */
   rowCount: number
-  /** 仅末帧携带 */
+  /** Last frame only */
   done?: ChunkDone
 }
 
 /* ------------------------------------------------------------------ */
-/* 大值截断                                                            */
+/* Truncation of large values                                          */
 /* ------------------------------------------------------------------ */
 
-/** 截断标记的判别字段名，值必须是字面量 true */
+/** Name of the discriminant field; its value must be the literal `true` */
 export const TRUNCATED_MARKER = '__peekTruncated' as const
 
 /**
- * 单元格里放不下的大值（长文本 / bytea / 向量本体）在 chunk 里以此形态出现。
- * 驱动负责只发预览，全量走 valuePeek 按需拉。
+ * How a value too large for a cell (long text / bytea / a vector) appears inside a
+ * chunk. The driver sends a preview only; the full value is pulled on demand
+ * through valuePeek.
  */
 export interface TruncatedValue {
   readonly __peekTruncated: true
-  /** 预览内容，已按 VALUE_PREVIEW_BYTES 截断 */
+  /** The preview, already cut to VALUE_PREVIEW_BYTES */
   preview: string
-  /** preview 的编码方式；bytes 类走 base64 */
+  /** How `preview` is encoded; byte-ish types use base64 */
   encoding: 'utf8' | 'base64'
-  /** 原始值的完整字节长度（可知时） */
+  /** Full byte length of the original value, when it can be determined */
   byteLength?: number
-  /** 拉全量用的定位符 */
+  /** Address to fetch the value in full */
   ref?: ValueRef
 }
 
@@ -122,92 +130,99 @@ export function truncatedValue(
 }
 
 /* ------------------------------------------------------------------ */
-/* 结果流消息（driver host ──MessagePort──► renderer）                   */
+/* Result-stream messages (driver host ──MessagePort──► renderer)       */
 /* ------------------------------------------------------------------ */
 
 /**
- * 结果流**按设计暂停**的描述。
+ * Description of a result stream that **paused by design**.
  *
- * 与 error 的区别是硬性的语义边界：
- * - error  = 这次执行失败了，已拿到的数据不完整且可能不可信；
- * - paused = 执行本身没有任何问题，只是背压把它停住了（视口不动 / 缓存到顶），
- *   服务端游标与连接已被主动释放。**已加载的行全部有效**，重跑即可继续取数。
+ * The line between this and an error is a hard semantic boundary:
+ * - error  = the execution failed; what arrived is incomplete and possibly untrustworthy.
+ * - paused = nothing went wrong; backpressure simply stopped the stream (the
+ *   viewport stopped moving, or the cache filled up) and the server-side cursor and
+ *   connection were released on purpose. **Every row already loaded is valid**, and
+ *   re-running the query resumes fetching.
  *
- * 之所以要单独一种消息而不是复用 error：AI 通过 MCP 拿到回执时必须能分清
- * 「查询挂了」和「只是停下来了、已加载的 90 万行是好的」。
+ * The reason this is its own message instead of a reuse of `error`: when the AI
+ * reads the receipt over MCP it has to be able to tell "the query died" apart from
+ * "it just stopped, and the 900,000 rows already loaded are good".
  */
 export interface ResultPause {
-  /** 暂停时已发出的累计行数 */
+  /** Rows emitted before the pause */
   rows: number
-  /** 从发起到暂停的耗时（毫秒） */
+  /** Milliseconds from start to pause */
   elapsedMs: number
-  /** 暂停原因；目前只有"空闲 ack 超时" */
+  /** Why it paused; currently only "idle ack timeout" */
   reason: 'idleAck'
-  /** 人可读说明 */
+  /** Human-readable explanation */
   message: string
-  /** 恒为 true：重新执行即可从头继续取数（PG 侧游标已关，不能断点续传） */
+  /** Always true: re-running fetches the data again from the start (PG's cursor is closed, so there is no true resume-from-offset) */
   resumable: true
 }
 
-/** host → renderer：数据面。控制面（状态机变更）另走 main。 */
+/** host → renderer: the data plane. The control plane (state-machine changes) goes through main instead. */
 export type ResultStreamMessage =
   | { t: 'chunk'; frame: ChunkFrame }
   | { t: 'error'; resultId: ResultId; error: PeekError }
-  /** 背压把流停住了：这不是错误，已收到的行完全有效 */
+  /** Backpressure stopped the stream: not an error, and the rows already received are entirely valid */
   | { t: 'paused'; resultId: ResultId; paused: ResultPause }
 
-/** renderer → host：背压与取消。 */
+/** renderer → host: backpressure and cancellation. */
 export type ResultStreamAck =
-  /** 确认已消费到 seq（含），host 据此推进 ack 窗口 */
+  /** Confirms consumption through `seq` (inclusive); the host advances its ack window on this */
   | { t: 'ack'; resultId: ResultId; seq: number }
-  /** 主动取消，host 关游标 */
+  /** Explicit cancellation; the host closes the cursor */
   | { t: 'cancel'; resultId: ResultId }
 
 /* ------------------------------------------------------------------ */
-/* 性能预算常量（PLAN 第 8 节，红线）                                     */
+/* Performance-budget constants (PLAN §8 — these are hard limits)      */
 /* ------------------------------------------------------------------ */
 
-/** 背压 ack 窗口：未确认 chunk 数达到这个值就暂停拉取 */
+/** Backpressure ack window: once this many chunks are unacknowledged, stop pulling */
 export const ACK_WINDOW = 4
 
-/** chunk 目标字节尺寸下限 256KB */
+/** Lower bound on a chunk's target byte size: 256KB */
 export const CHUNK_TARGET_BYTES_MIN = 256 * 1024
-/** chunk 目标字节尺寸上限 1MB */
+/** Upper bound on a chunk's target byte size: 1MB */
 export const CHUNK_TARGET_BYTES_MAX = 1024 * 1024
-/** chunk 目标行数下限 */
+/** Lower bound on a chunk's target row count */
 export const CHUNK_TARGET_ROWS_MIN = 500
-/** chunk 目标行数上限 */
+/** Upper bound on a chunk's target row count */
 export const CHUNK_TARGET_ROWS_MAX = 2000
-/** 尚未量出行宽时的起手行数 */
+/** Opening row count, used before any row width has been measured */
 export const CHUNK_DEFAULT_ROWS = 1000
 
-/** 单个大 value 的预览截断长度：4KB */
+/** Preview cutoff for a single large value: 4KB */
 export const VALUE_PREVIEW_BYTES = 4 * 1024
 
-/** renderer 结果缓存上限 ~200MB，超了按 LRU 淘汰远端 chunk */
+/** Renderer result-cache ceiling, ~200MB; past it, distant chunks are evicted LRU */
 export const RESULT_CACHE_MAX_BYTES = 200 * 1024 * 1024
 
-/** valuePeek 单次拉取的最大字节数，避免一次性拉爆内存 */
+/** Maximum bytes one valuePeek call may fetch, so a single value cannot blow up memory */
 export const VALUE_PEEK_MAX_BYTES = 8 * 1024 * 1024
 
 /**
- * MCP 侧 `run_query` 在调用方没给 maxRows 时的服务端默认上限。
+ * Server-side default ceiling applied when an MCP `run_query` caller omits maxRows.
  *
- * 没有这道闸，AI 一条 `select *` 打在千万行表上就必然走进背压暂停路径
- * （视口只覆盖几十行，前方永远堆着几十万行未消费）。给一个明确的默认值 +
- * `truncated: true`，让"没说要多少行"退化成"给你前 20 万行，还有更多"。
- * 人在界面上手动执行不受此限（那条路径有真实视口在推进）。
+ * Without this gate, one `select *` from the AI against a ten-million-row table
+ * lands in the backpressure-pause path every time: the viewport covers a few dozen
+ * rows, so hundreds of thousands of rows sit permanently unconsumed ahead of it.
+ * An explicit default plus `truncated: true` turns "you didn't say how many rows"
+ * into "here are the first 200,000, and there are more". Running a statement by
+ * hand in the window is not subject to this — that path has a real viewport driving
+ * consumption forward.
  */
 export const MCP_DEFAULT_MAX_ROWS = 200_000
 
-/** collectionScan / 表格视图的默认分页大小 */
+/** Default page size for collectionScan and the table view */
 export const DEFAULT_PAGE_LIMIT = 200
-/** 单次请求允许的最大 limit */
+/** Largest limit a single request may ask for */
 export const MAX_PAGE_LIMIT = 100_000
 
 /**
- * 根据已观测到的平均行字节数，算出下一批该取多少行。
- * 驱动实现统一调这个函数，保证四个库的 chunk 尺寸行为一致。
+ * Given the average row size observed so far, decide how many rows the next batch
+ * should hold. Every driver calls this one function, which is what keeps chunk
+ * sizing consistent across all four databases.
  */
 export function adaptiveChunkRows(avgRowBytes: number): number {
   if (!Number.isFinite(avgRowBytes) || avgRowBytes <= 0) return CHUNK_DEFAULT_ROWS

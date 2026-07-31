@@ -1,10 +1,11 @@
 /* ==================================================================
- * peek 全局样式：深色主题、紧凑的数据工具密度（TablePlus / Beekeeper 观感）。
- * 不引任何 UI 库，全部手写。数据值一律等宽字体。
+ * peek global styles: dark theme at the compact density of a data tool
+ * (the TablePlus / Beekeeper feel). No UI library — all of it hand-written.
+ * Data values are always set in a monospace face.
  * ================================================================== */
 
 :root {
-  /* 层次背景：越靠上层越亮 */
+  /* Layered backgrounds: the higher the layer, the lighter it is. */
   --bg: #16181c;
   --bg-1: #1b1e23;
   --bg-2: #21252b;
@@ -141,7 +142,7 @@ textarea:focus {
 }
 
 /* ------------------------------------------------------------------ */
-/* 外壳                                                                */
+/* Shell                                                                 */
 /* ------------------------------------------------------------------ */
 
 .app {
@@ -156,7 +157,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 10px 0 82px; /* 给 macOS 红绿灯留位 */
+  padding: 0 10px 0 82px; /* leave room for the macOS traffic lights */
   background: var(--bg-1);
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
@@ -191,7 +192,7 @@ textarea:focus {
 }
 
 /* ------------------------------------------------------------------ */
-/* 侧栏                                                                */
+/* Sidebar                                                               */
 /* ------------------------------------------------------------------ */
 
 .sidebar {
@@ -304,7 +305,7 @@ textarea:focus {
 }
 
 /* ------------------------------------------------------------------ */
-/* 平铺布局                                                             */
+/* Tiled layout                                                          */
 /* ------------------------------------------------------------------ */
 
 .layout-root {
@@ -381,7 +382,7 @@ textarea:focus {
 }
 
 /* ------------------------------------------------------------------ */
-/* 面板                                                                */
+/* Panels                                                                */
 /* ------------------------------------------------------------------ */
 
 .panel {
@@ -454,7 +455,7 @@ textarea:focus {
 }
 
 /* ------------------------------------------------------------------ */
-/* 视图通用工具条                                                        */
+/* Shared view toolbar                                                   */
 /* ------------------------------------------------------------------ */
 
 .toolbar {
@@ -503,24 +504,30 @@ textarea:focus {
 }
 
 /* ------------------------------------------------------------------ */
-/* 虚拟化表格                                                           */
+/* Virtualized grid                                                      */
 /* ------------------------------------------------------------------ */
 
 /*
- * 纵轴 hidden 是本方案的地基（见 renderer/components/vscroll.ts 顶部）：
- * DOM 里不存在任何与 rowCount 相关的高度，Chromium 那条 ~1677 万 px 的
- * 布局上限就无从触发。横轴保持原生 auto —— 总宽最多几十万 px，
- * colVirt 与 sticky 行号栏因此一个字节都不用改。
+ * Hiding the vertical axis is the foundation of the whole scheme (see the top of
+ * renderer/components/vscroll.ts): with no height in the DOM derived from
+ * rowCount, Chromium's ~16.7M px layout ceiling can never be reached. The
+ * horizontal axis stays native `auto` — total width tops out in the hundreds of
+ * thousands of pixels, so colVirt and the sticky row-number gutter need no
+ * changes whatsoever.
  */
 /*
- * 浮层锚点。**不可滚动**，所以挂在它下面的 absolute 元素（自绘滚动条、覆盖层）
- * 永远钉在面板上。
+ * The overlay anchor. **Not scrollable**, which is what keeps the absolutely
+ * positioned elements under it (the hand-drawn scrollbar, the overlay) pinned to
+ * the panel.
  *
- * 之前它们是 .grid 的后代：.grid 是横向滚动容器，其 absolute 后代属于可滚动内容，
- * getBoundingClientRect 里 x 恒等于 `容器右缘 - scrollLeft`（Electron 43 实测：
- * scrollLeft=0 → [889,900]，=1000 → [-111,-100]，=4000 → [-3111,-3100]），
- * 再叠加 .grid 的 contain:layout paint 一裁，横向一滚滚动条就整个消失且点不到。
- * 对列多一点的表（totalWidth > 面板宽）这是常态，必须从结构上根治。
+ * They used to be descendants of .grid: .grid is a horizontal scroll container,
+ * its absolute descendants count as scrollable content, and their x in
+ * getBoundingClientRect is always `container right edge - scrollLeft` (measured
+ * in Electron 43: scrollLeft=0 → [889,900], =1000 → [-111,-100], =4000 →
+ * [-3111,-3100]). Add .grid's `contain: layout paint` clipping and one horizontal
+ * scroll makes the scrollbar vanish and stop responding to clicks. For a table
+ * with a few more columns (totalWidth > panel width) that is the normal case, so
+ * the cure has to be structural.
  */
 .grid-wrap {
   position: relative;
@@ -538,7 +545,8 @@ textarea:focus {
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-y: contain;
-  /* 行进出 DOM 时不许 Chromium 偷偷补偿 scrollTop（配合 DataGrid 里的 scrollTop 守卫） */
+  /* Chromium must not quietly compensate scrollTop as rows enter and leave the
+     DOM (paired with the scrollTop guard in DataGrid). */
   overflow-anchor: none;
   position: relative;
   background: var(--bg);
@@ -552,8 +560,9 @@ textarea:focus {
 }
 
 /*
- * 行画布。高度 0 ⇒ 不参与任何滚动尺寸计算；
- * 驱动器每帧只写它一次 transform（量级 < 98,304px，合成层，无布局无重绘）。
+ * The row surface. Height 0, so it contributes nothing to any scroll dimension;
+ * the driver writes its transform once per frame (magnitude < 98,304px,
+ * composited, no layout and no repaint).
  */
 .grid-surface {
   position: absolute;
@@ -564,8 +573,8 @@ textarea:focus {
   will-change: transform;
 }
 
-/* --- 自绘纵向滚动条（原生的已经不存在了）---
- * 定位基准是 .grid-wrap（不是 .grid！），理由见 .grid-wrap 上的注释。 */
+/* --- The hand-drawn vertical scrollbar (there is no native one any more) ---
+ * Positioned against .grid-wrap, *not* .grid — see the note on .grid-wrap. */
 .grid-vsb {
   position: absolute;
   top: var(--head-h);
@@ -689,7 +698,7 @@ textarea:focus {
   height: var(--row-h);
   display: block;
   white-space: nowrap;
-  font-size: 0; /* 抹掉 inline-block 之间的空白节点 */
+  font-size: 0; /* collapse the whitespace nodes between inline-blocks */
 }
 
 .grid-row:hover .grid-cell {
@@ -771,7 +780,8 @@ textarea:focus {
   background: var(--bg-sel) !important;
 }
 
-/* 同样挂在 .grid-wrap 下，否则横向滚动时"执行中…/0 行"提示会跟着滑走 */
+/* Also under .grid-wrap; otherwise the "Running… / 0 rows" hint slides away with
+   a horizontal scroll. */
 .grid-overlay {
   position: absolute;
   inset: 0;
@@ -783,7 +793,7 @@ textarea:focus {
 }
 
 /* ------------------------------------------------------------------ */
-/* 查询视图                                                             */
+/* Query view                                                            */
 /* ------------------------------------------------------------------ */
 
 .query-view {
@@ -827,7 +837,7 @@ textarea:focus {
   background: var(--accent);
 }
 
-/* CodeMirror 深色主题（手写，不引 theme 包） */
+/* CodeMirror dark theme, hand-written rather than pulling in a theme package. */
 .cm-editor {
   background: var(--bg);
   color: var(--fg);
@@ -889,7 +899,7 @@ textarea:focus {
 }
 
 /* ------------------------------------------------------------------ */
-/* 树视图                                                              */
+/* Tree view                                                             */
 /* ------------------------------------------------------------------ */
 
 .tree {
@@ -956,7 +966,7 @@ textarea:focus {
 }
 
 /* ------------------------------------------------------------------ */
-/* 检查器 / 值弹层                                                       */
+/* Inspector and value modal                                             */
 /* ------------------------------------------------------------------ */
 
 .inspector {
@@ -1077,7 +1087,7 @@ textarea:focus {
 }
 
 /* ------------------------------------------------------------------ */
-/* 状态栏 + 通知                                                        */
+/* Status bar and notifications                                          */
 /* ------------------------------------------------------------------ */
 
 .statusbar {

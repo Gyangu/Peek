@@ -6,44 +6,47 @@ import { PgTypeCatalog } from '../type-catalog'
 import { estimateCellBytes, normalizeCell } from '../values'
 import { nodeId, parseNodeId } from '../introspect'
 
-describe('标识符转义', () => {
-  it('双引号翻倍，注入串无法逃逸', () => {
+describe('identifier quoting', () => {
+  it('doubles embedded quotes so an injection string cannot escape', () => {
     assert.equal(quoteIdent('harness'), '"harness"')
     assert.equal(quoteIdent('a"b'), '"a""b"')
-    // 经典注入尝试：整段被当成一个标识符，语义上就是"找不到这张表"
+    // The classic injection attempt: the whole thing becomes one identifier,
+    // which semantically just means "no such table"
     assert.equal(quoteIdent('t"; DROP TABLE x; --'), '"t""; DROP TABLE x; --"')
   })
 
-  it('允许空格与中文，拒绝空串', () => {
+  it('allows spaces and non-ASCII names, rejects the empty string', () => {
     assert.equal(quoteIdent('my table'), '"my table"')
+    // Deliberate fixture: a non-ASCII identifier. Do not "translate" it — the
+    // point of this case is that a name outside ASCII survives quoting intact.
     assert.equal(quoteIdent('用户表'), '"用户表"')
     assert.throws(() => quoteIdent(''))
   })
 })
 
-describe('筛选参数化', () => {
-  it('值一律进 $n，不进 SQL 文本', () => {
+describe('filter parameterization', () => {
+  it('values always become $n, never SQL text', () => {
     const p = new ParamList()
     const frag = renderFilter({ column: 'name', op: 'eq', value: "x'; DROP TABLE y; --" }, p)
     assert.equal(frag, '"name" = $1')
     assert.deepEqual(p.list, ["x'; DROP TABLE y; --"])
   })
 
-  it('in 展开成逐个占位符，空数组退化成 false', () => {
+  it('in expands to one placeholder per element; an empty array degrades to false', () => {
     const p = new ParamList()
     assert.equal(renderFilter({ column: 'id', op: 'in', value: [1, 2, 3] }, p), '"id" IN ($1, $2, $3)')
     assert.deepEqual(p.list, [1, 2, 3])
     assert.equal(renderFilter({ column: 'id', op: 'in', value: [] }, new ParamList()), 'false')
   })
 
-  it('contains 用 strpos，不把用户输入当通配符', () => {
+  it('contains uses strpos, so user input is not read as a wildcard', () => {
     const p = new ParamList()
     const frag = renderFilter({ column: 'body', op: 'contains', value: '100%' }, p)
     assert.equal(frag, 'strpos("body"::text, $1) > 0')
     assert.deepEqual(p.list, ['100%'])
   })
 
-  it('isNull 不吃参数，缺 value 的比较会被拒', () => {
+  it('isNull takes no parameter, and a comparison missing its value is rejected', () => {
     const p = new ParamList()
     assert.equal(renderFilter({ column: 'c', op: 'isNull' }, p), '"c" IS NULL')
     assert.equal(p.count, 0)
@@ -51,15 +54,15 @@ describe('筛选参数化', () => {
   })
 })
 
-describe('排序与扫描语句', () => {
-  it('ORDER BY 拼接方向与 NULLS 位置', () => {
+describe('ordering and scan statements', () => {
+  it('ORDER BY renders direction and NULLS placement', () => {
     assert.equal(
       renderOrderBy([{ column: 'a', dir: 'desc', nulls: 'last' }, { column: 'b', dir: 'asc' }]),
       ' ORDER BY "a" DESC NULLS LAST, "b" ASC',
     )
   })
 
-  it('collectionScan 的 limit/offset 也是参数', () => {
+  it('collectionScan passes limit/offset as parameters too', () => {
     const sql = buildScanSql({
       ref: { kind: 'relation', schema: 'public', name: 'harness' },
       filter: [{ column: 'name', op: 'like', value: 'a%' }],
@@ -76,8 +79,8 @@ describe('排序与扫描语句', () => {
   })
 })
 
-describe('节点 id 编解码', () => {
-  it('名字里带点/冒号/百分号也能可逆', () => {
+describe('node id encoding', () => {
+  it('stays reversible for names containing dots, colons and percent signs', () => {
     const id = nodeId.relation('we.ird:%', 'tab.le')
     const parsed = parseNodeId(id)
     assert.deepEqual(parsed, { kind: 'relation', schema: 'we.ird:%', name: 'tab.le' })
@@ -86,7 +89,7 @@ describe('节点 id 编解码', () => {
   })
 })
 
-describe('类型目录', () => {
+describe('type catalog', () => {
   const catalog = new PgTypeCatalog()
   catalog.load([
     { oid: 20, typname: 'int8', typcategory: 'N', typelem: 0 },
@@ -97,7 +100,7 @@ describe('类型目录', () => {
     { oid: 1009, typname: '_text', typcategory: 'A', typelem: 25 },
   ])
 
-  it('OID 映射到逻辑类型与原始类型名', () => {
+  it('maps OIDs to logical types and native type names', () => {
     assert.equal(catalog.logical(20), 'bigint')
     assert.equal(catalog.logical(23), 'number')
     assert.equal(catalog.logical(17), 'bytes')
@@ -105,14 +108,14 @@ describe('类型目录', () => {
     assert.equal(catalog.logical(1184), 'timestamp')
     assert.equal(catalog.logical(1009), 'array')
     assert.equal(catalog.nativeType(1184), 'timestamptz')
-    // 未知 OID 不能崩，退化成可读占位
+    // An unknown OID must not blow up; it degrades to a readable placeholder
     assert.equal(catalog.logical(999999), 'unknown')
     assert.equal(catalog.nativeType(999999), 'oid:999999')
   })
 })
 
-describe('大值截断', () => {
-  it('超过 4KB 的文本只发预览并带回源 ref', () => {
+describe('large value truncation', () => {
+  it('text over 4KB travels as a preview carrying a re-fetch ref', () => {
     const big = 'x'.repeat(VALUE_PREVIEW_BYTES + 100)
     const out = normalizeCell(big, {
       logical: 'string',
@@ -125,7 +128,7 @@ describe('大值截断', () => {
     assert.deepEqual(out.ref, { kind: 'resultCell', resultId: 'res_1', row: 3, col: 1 })
   })
 
-  it('4KB 以内原样返回，不造 ref 对象', () => {
+  it('anything within 4KB is returned as is, with no ref object built', () => {
     let refCalls = 0
     const out = normalizeCell('short', {
       logical: 'string',
@@ -138,7 +141,7 @@ describe('大值截断', () => {
     assert.equal(refCalls, 0)
   })
 
-  it('bytea 转 base64，超限时截断', () => {
+  it('bytea becomes base64, truncated when over the limit', () => {
     const small = normalizeCell(Buffer.from([1, 2, 3]), { logical: 'bytes' })
     assert.equal(small, Buffer.from([1, 2, 3]).toString('base64'))
     const huge = normalizeCell(Buffer.alloc(VALUE_PREVIEW_BYTES + 10, 7), { logical: 'bytes' })
@@ -147,7 +150,7 @@ describe('大值截断', () => {
     assert.equal(huge.byteLength, VALUE_PREVIEW_BYTES + 10)
   })
 
-  it('行宽估算把截断值只按预览算', () => {
+  it('row width estimation counts only the preview of a truncated value', () => {
     const huge = normalizeCell('y'.repeat(100_000), { logical: 'string' })
     assert.ok(estimateCellBytes(huge) < VALUE_PREVIEW_BYTES + 200)
     assert.equal(estimateCellBytes(null), 1)

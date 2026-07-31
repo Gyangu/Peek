@@ -3,14 +3,21 @@ import { isTruncatedValue } from '@peek/core'
 import { isPendingCell } from '../state/resultCache'
 
 /* ==================================================================
- * 单元格渲染工具。
- * 全部是纯函数、无组件、无闭包分配 —— 表格热路径每帧要跑几百次。
+ * Cell rendering helpers.
+ *
+ * Pure functions throughout — no components, no closure allocation — because the
+ * grid's hot path calls them hundreds of times per frame.
+ *
+ * None of the output here is localized, and that is the point: NULL, the pending
+ * marker, hex dumps and JSON are how the *data* is spelled, not prose about it. A
+ * user comparing a cell against psql output or a JSON payload needs both sides to
+ * read the same.
  * ================================================================== */
 
 export const NULL_TEXT = 'NULL'
 export const PENDING_TEXT = '···'
 
-/** 单元格文本。只做展示，绝不修改原值。 */
+/** Text for one cell. Presentation only; the value itself is never modified. */
 export function cellText(v: unknown): string {
   if (isPendingCell(v)) return PENDING_TEXT
   if (v === null || v === undefined) return NULL_TEXT
@@ -35,7 +42,7 @@ export function cellText(v: unknown): string {
   }
 }
 
-/** 单元格 CSS class（决定对齐与配色），返回常量字符串，无分配 */
+/** CSS class for one cell (alignment and colour). Returns constants, allocates nothing. */
 export function cellClass(v: unknown, logical: LogicalType | undefined): string {
   if (isPendingCell(v)) return 'grid-cell pending'
   if (v === null || v === undefined) return 'grid-cell null'
@@ -53,7 +60,7 @@ export function cellClass(v: unknown, logical: LogicalType | undefined): string 
   }
 }
 
-/** 值可以点开细看（截断值、JSON、长文本） */
+/** Whether the value is worth opening up: truncated values, JSON, long text. */
 export function isExpandable(v: unknown): boolean {
   if (isPendingCell(v) || v === null || v === undefined) return false
   if (isTruncatedValue(v)) return true
@@ -62,7 +69,7 @@ export function isExpandable(v: unknown): boolean {
   return false
 }
 
-/** 弹层里的全量文本（JSON 会 pretty 化） */
+/** Full text for the modal; JSON is pretty-printed. */
 export function fullValueText(v: unknown): string {
   if (isPendingCell(v)) return PENDING_TEXT
   if (v === null || v === undefined) return NULL_TEXT
@@ -132,7 +139,7 @@ function jsonReplacer(_key: string, value: unknown): unknown {
 }
 
 /* ------------------------------------------------------------------ */
-/* 状态栏用的小工具                                                      */
+/* Small helpers for the status bar                                       */
 /* ------------------------------------------------------------------ */
 
 export function formatBytes(n: number): string {
@@ -149,6 +156,16 @@ export function formatMs(ms: number | undefined): string {
   return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`
 }
 
+/**
+ * Thousands grouping for row counts.
+ *
+ * Pinned to en-US rather than the active locale, and `t()` never groups numbers
+ * on its own (see `formatTemplate` in core): a row count is an address into the
+ * grid, and it has to line up with the row-number gutter, the scrollbar bubble
+ * and whatever the user reads back to a colleague. Grouping is presentation, but
+ * a number that changes shape with the UI language is a number two people cannot
+ * compare.
+ */
 export function formatCount(n: number): string {
   return n.toLocaleString('en-US')
 }

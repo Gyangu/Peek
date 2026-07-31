@@ -1,9 +1,10 @@
 /**
- * MCP 层的公共类型（PLAN 第 7 节）。
+ * Shared types for the MCP layer (PLAN section 7).
  *
- * 设计原则：**工具层是薄壳**。一个工具 = 一份 zod inputSchema + 一个到 Command 的映射，
- * 除此之外不允许有业务逻辑。只读工具（read_workspace / list_connections）不经 Command Bus，
- * 直接读 main 的 Workspace Store（PLAN 第 3 节：零 renderer 往返）。
+ * Design principle: **the tool layer is a thin shell**. A tool is exactly one zod inputSchema
+ * plus a mapping onto Commands; no business logic is allowed beyond that. Read-only tools
+ * (read_workspace / list_connections) bypass the Command Bus and read main's Workspace Store
+ * directly (PLAN section 3: zero renderer round-trips).
  */
 
 import type { z } from 'zod'
@@ -22,10 +23,11 @@ import type {
 } from '@peek/core'
 
 /* ================================================================== */
-/* 1. 注入依赖（不 import Command Bus 实例，一律构造函数注入）              */
+/* 1. Injected dependencies (never import a Command Bus instance —      */
+/*    everything arrives through the factory arguments)                 */
 /* ================================================================== */
 
-/** Command Bus 入口。source 由调用方给，MCP 侧一律传 'mcp'。 */
+/** Entry point into the Command Bus. The caller supplies `source`; the MCP side always passes 'mcp'. */
 export type CommandDispatch = <K extends CommandName>(
   name: K,
   input: CommandInput<K>,
@@ -33,37 +35,39 @@ export type CommandDispatch = <K extends CommandName>(
 ) => Promise<CommandResultFor<K>>
 
 /**
- * 命名空间树读取器。
+ * Namespace tree reader.
  *
- * 注意：`introspect` 不是 Command（COMMAND_NAMES 里没有它），它是 driver host 的 RPC
- * （HostRpcMap['introspect.children']）。所以 introspect 工具走这条注入的只读通道，
- * 由 Connection Manager 把请求转给对应连接的 driver host。
+ * Note: `introspect` is not a Command (it is absent from COMMAND_NAMES) — it is a driver host
+ * RPC (HostRpcMap['introspect.children']). The introspect tool therefore goes through this
+ * injected read-only channel, and the Connection Manager forwards the request to the driver
+ * host that owns the connection.
  */
 export type IntrospectReader = (req: {
   connId: ConnId
-  /** null 表示根层 */
+  /** null means the root level */
   parentId: string | null
   refresh?: boolean
 }) => Promise<NamespaceNode[]>
 
-/** 结果集的行切片（给 AI 看的前 N 行，全量数据在界面里） */
+/** A slice of result rows (the first N rows shown to the AI; the full data lives in the UI). */
 export interface ResultRowsSlice {
   columns: ColumnDef[]
-  /** 行式（每行按 columns 顺序），已按 limit 截断 */
+  /** Row-major (each row follows the `columns` order), already cut down to `limit`. */
   rows: unknown[][]
-  /** 结果集已知的总行数（还在跑时为当前已收到的行数） */
+  /** Total rows known for this result (while still running, the count received so far). */
   totalRows: number
-  /** 因 limit 截断（还有更多行没给 AI 看） */
+  /** Cut short by `limit` (more rows exist that the AI has not been shown). */
   truncated: boolean
 }
 
 /**
- * 结果集行读取器。
+ * Result row reader.
  *
- * 注意：数据面（chunk）走 MessagePort 直达 renderer，**main 手里没有行数据**
- * （PLAN 第 3 节）。所以 run_query 想回前 N 行，必须由集成层注入这个读取器
- * （典型实现：向 renderer 要它缓存里的头几个 chunk）。不注入时 run_query
- * 依然可用，只是退化成只回 ResultMeta（行数 / 耗时 / 状态）。
+ * Note: the data plane (chunks) flows over a MessagePort straight to the renderer, so
+ * **main never holds row data** (PLAN section 3). For run_query to echo back the first N rows,
+ * the integration layer must inject this reader (typical implementation: ask the renderer for
+ * the first few chunks in its cache). Without it run_query still works, it just degrades to
+ * returning ResultMeta only (row count / elapsed time / status).
  */
 export type ResultRowsReader = (req: {
   resultId: ResultId
@@ -78,37 +82,37 @@ export interface McpLogger {
 }
 
 /* ================================================================== */
-/* 2. 工具执行上下文                                                     */
+/* 2. Tool execution context                                            */
 /* ================================================================== */
 
 export interface ToolContext {
   readonly dispatch: CommandDispatch
-  /** main 的 Workspace 真源快照（已脱敏） */
+  /** Snapshot of main's Workspace source of truth (already redacted). */
   readonly getSnapshot: () => WorkspaceSnapshot
   readonly introspect?: IntrospectReader
   readonly readResultRows?: ResultRowsReader
   readonly logger: McpLogger
-  /** 可注入，便于测试 */
+  /** Injectable, for tests. */
   readonly now: () => number
-  /** 可注入，便于测试；默认 setTimeout */
+  /** Injectable, for tests; defaults to setTimeout. */
   readonly sleep: (ms: number) => Promise<void>
 }
 
 /* ================================================================== */
-/* 3. 工具产出                                                          */
+/* 3. Tool output                                                       */
 /* ================================================================== */
 
-/** 工具的统一产出。executor 负责翻成 MCP 的 CallToolResult。 */
+/** The uniform tool output. The executor turns it into an MCP CallToolResult. */
 export interface ToolOutput {
-  /** 给模型看的正文（人可读优先，必要时内嵌 JSON） */
+  /** Body shown to the model (human-readable first, with embedded JSON where useful). */
   text: string
-  /** 结构化附件，序列化后作为第二段 text 返回；不给则不附 */
+  /** Structured attachment, serialized and returned as a second text block; omitted if absent. */
   data?: unknown
-  /** 工具级错误（不是协议级错误：server 绝不因此崩） */
+  /** Tool-level error (not a protocol-level one: the server never crashes over this). */
   isError?: boolean
 }
 
-/** 单条 Command 的执行结果（executor 汇总用） */
+/** Outcome of a single Command (the executor aggregates these). */
 export interface CommandOutcome {
   name: CommandName
   ok: boolean
@@ -118,10 +122,10 @@ export interface CommandOutcome {
 }
 
 /* ================================================================== */
-/* 4. 工具定义                                                          */
+/* 4. Tool definitions                                                  */
 /* ================================================================== */
 
-/** 与 MCP SDK 的 ToolAnnotations 对齐的一小撮字段（不直接依赖 SDK 类型） */
+/** The handful of fields that mirror the MCP SDK's ToolAnnotations (without depending on the SDK type). */
 export interface ToolAnnotationsLite {
   title?: string
   readOnlyHint?: boolean
@@ -131,21 +135,21 @@ export interface ToolAnnotationsLite {
 }
 
 interface ToolSpecBase<S extends z.ZodType> {
-  /** MCP 工具名，snake_case */
+  /** MCP tool name, snake_case. */
   name: string
   title?: string
   description: string
-  /** zod schema，同时用于 MCP 的 inputSchema（SDK 直接吃 zod v4） */
+  /** zod schema, doubling as the MCP inputSchema (the SDK consumes zod v4 directly). */
   inputSchema: S
   annotations?: ToolAnnotationsLite
 }
 
-/** 映射到若干 Command 的工具（薄壳的典型形态） */
+/** A tool that maps onto one or more Commands (the canonical thin-shell shape). */
 export interface CommandToolSpec<S extends z.ZodType> extends ToolSpecBase<S> {
   kind: 'command'
-  /** 把工具入参映射成一串 Command，executor 按序 dispatch，遇错即停 */
+  /** Map the tool input onto a list of Commands; the executor dispatches them in order and stops at the first failure. */
   toCommands(input: z.output<S>, ctx: ToolContext): Command[] | Promise<Command[]>
-  /** 可选：把命令结果渲染成给 AI 看的正文；不给则用默认渲染 */
+  /** Optional: render the command results into the body shown to the AI; falls back to the default renderer. */
   render?(
     outcomes: CommandOutcome[],
     input: z.output<S>,
@@ -153,7 +157,7 @@ export interface CommandToolSpec<S extends z.ZodType> extends ToolSpecBase<S> {
   ): ToolOutput | Promise<ToolOutput>
 }
 
-/** 只读工具：直接读 Workspace Store / 注入的只读通道，不经 dispatch */
+/** Read-only tool: reads the Workspace Store or an injected read-only channel, never dispatches. */
 export interface ReadToolSpec<S extends z.ZodType> extends ToolSpecBase<S> {
   kind: 'read'
   read(input: z.output<S>, ctx: ToolContext): ToolOutput | Promise<ToolOutput>
@@ -162,8 +166,9 @@ export interface ReadToolSpec<S extends z.ZodType> extends ToolSpecBase<S> {
 export type ToolSpec<S extends z.ZodType> = CommandToolSpec<S> | ReadToolSpec<S>
 
 /**
- * 泛型擦除后的工具形态。注册表里存的是这个：
- * 具体入参类型被 defineTool 闭包吃掉，外部只看到 `run(unknown)`。
+ * The generic-erased tool shape — this is what the registry stores:
+ * the concrete input type is captured inside the defineTool closure, and the outside world
+ * only ever sees `run(unknown)`.
  */
 export interface PeekTool {
   readonly name: string

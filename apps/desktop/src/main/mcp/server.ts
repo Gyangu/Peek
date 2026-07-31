@@ -1,12 +1,13 @@
 /**
- * MCP Streamable HTTP server（PLAN 第 7 节）。
+ * MCP Streamable HTTP server (PLAN section 7).
  *
- * - 绑 127.0.0.1:7332（端口可配），**绝不绑 0.0.0.0**
- * - bearer token 校验，token 落在 ~/.peek/mcp.json（0600）
- * - 每个 HTTP session 一个 StreamableHTTPServerTransport + McpServer 实例
- * - 优雅关闭：先停监听，再关所有 session，最后掐残留 socket
+ * - Binds 127.0.0.1:7332 (port configurable) and **never binds 0.0.0.0**
+ * - Bearer token authentication, with the token stored in ~/.peek/mcp.json (0600)
+ * - One StreamableHTTPServerTransport + McpServer instance per HTTP session
+ * - Graceful shutdown: stop listening, close every session, then kill lingering sockets
  *
- * 依赖注入：不 import Command Bus 实例，全部通过 createMcpServer 参数传入。
+ * Dependency injection: no Command Bus instance is imported here; everything arrives through
+ * the createMcpServer options.
  */
 
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http'
@@ -43,48 +44,48 @@ import type {
 } from './types'
 
 /* ================================================================== */
-/* 常量                                                                */
+/* Constants                                                            */
 /* ================================================================== */
 
-/** 单次 POST 体积上限（JSON-RPC 报文不该大，超了直接 413） */
+/** Per-POST body cap (JSON-RPC messages should be small; anything larger gets a 413). */
 const MAX_BODY_BYTES = 4 * 1024 * 1024
-/** 同时存活的 session 上限，超了淘汰最久未活动的 */
+/** Cap on concurrently live sessions; beyond it, the least recently active one is evicted. */
 const MAX_SESSIONS = 16
-/** session 闲置超时：30 分钟 */
+/** Session idle timeout: 30 minutes. */
 const SESSION_IDLE_MS = 30 * 60 * 1000
-/** 闲置清扫周期 */
+/** How often idle sessions are swept. */
 const SWEEP_INTERVAL_MS = 60 * 1000
-/** 关闭时等待 socket 自然结束的宽限期 */
+/** Grace period allowing sockets to close on their own during shutdown. */
 const CLOSE_GRACE_MS = 2000
 
-/** 只认这些 Host/Origin，防 DNS rebinding */
+/** Only these Host/Origin values are accepted, as DNS rebinding protection. */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]', '0:0:0:0:0:0:0:1'])
 
 /* ================================================================== */
-/* 对外类型                                                             */
+/* Public types                                                         */
 /* ================================================================== */
 
 export interface CreateMcpServerOptions {
-  /** Command Bus 入口 */
+  /** Entry point into the Command Bus. */
   dispatch: CommandDispatch
-  /** main 的 Workspace 真源快照（已脱敏） */
+  /** Snapshot of main's Workspace source of truth (already redacted). */
   getSnapshot: () => WorkspaceSnapshot
-  /** 可选：命名空间树读取（Connection Manager → driver host RPC） */
+  /** Optional: namespace tree reader (Connection Manager → driver host RPC). */
   introspect?: IntrospectReader
-  /** 可选：结果集取样行（renderer 缓存） */
+  /** Optional: sample rows from a result set (out of the renderer cache). */
   readResultRows?: ResultRowsReader
   host?: string
   port?: number
   path?: string
-  /** 显式指定 token；不给则复用 ~/.peek/mcp.json 里的，再没有就新生成 */
+  /** Explicit token; otherwise reuse the one in ~/.peek/mcp.json, or mint a new one. */
   token?: string
-  /** 默认 ~/.peek */
+  /** Defaults to ~/.peek. */
   configDir?: string
-  /** 关掉后不写 ~/.peek/mcp.json（测试用） */
+  /** Set to false to skip writing ~/.peek/mcp.json (used by tests). */
   writeConfigFile?: boolean
   serverInfo?: { name: string; version: string }
   logger?: McpLogger
-  /** 显式给一组工具；不给则自动收集 tools/*.ts */
+  /** Supply an explicit tool set; otherwise tools/*.ts are collected automatically. */
   tools?: PeekTool[]
 }
 
@@ -97,16 +98,16 @@ export interface McpServerHandle {
   readonly toolNames: readonly string[]
   readonly sessionCount: number
   readonly listening: boolean
-  /** 启动监听并写 ~/.peek/mcp.json；失败 reject PeekError */
+  /** Start listening and write ~/.peek/mcp.json; rejects with a PeekError on failure. */
   start(): Promise<McpEndpointFile>
-  /** 优雅关闭 */
+  /** Graceful shutdown. */
   close(): Promise<void>
 }
 
 const noopLogger: McpLogger = { log: () => {} }
 
 /* ================================================================== */
-/* 实现                                                                */
+/* Implementation                                                       */
 /* ================================================================== */
 
 interface SessionEntry {
@@ -143,7 +144,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
   let closing = false
   let sweeper: NodeJS.Timeout | null = null
 
-  /* ---------------- session 生命周期 ---------------- */
+  /* ---------------- Session lifecycle ---------------- */
 
   async function closeSession(id: string): Promise<void> {
     const entry = sessions.get(id)
@@ -152,9 +153,9 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
     try {
       await entry.server.close()
     } catch (err) {
-      logger.log('warn', `关闭 MCP session ${id} 出错`, err)
+      logger.log('warn', `Error while closing MCP session ${id}`, err)
     }
-    logger.log('debug', `MCP session 关闭：${id}（剩余 ${sessions.size}）`)
+    logger.log('debug', `MCP session closed: ${id} (${sessions.size} remaining)`)
   }
 
   async function evictIfNeeded(): Promise<void> {
@@ -164,7 +165,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
         if (oldest === null || entry.lastSeenAt < oldest.lastSeenAt) oldest = entry
       }
       if (!oldest) break
-      logger.log('warn', `MCP session 数达上限 ${MAX_SESSIONS}，淘汰最久未活动的 ${oldest.id}`)
+      logger.log('warn', `MCP session limit ${MAX_SESSIONS} reached, evicting least recently active ${oldest.id}`)
       await closeSession(oldest.id)
     }
   }
@@ -176,14 +177,14 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (sessionId) => {
         sessions.set(sessionId, { id: sessionId, transport, server, lastSeenAt: Date.now() })
-        logger.log('info', `MCP session 建立：${sessionId}`)
+        logger.log('info', `MCP session established: ${sessionId}`)
       },
       onsessionclosed: (sessionId) => {
         void closeSession(sessionId)
       },
     })
     transport.onerror = (err) => {
-      logger.log('warn', 'MCP transport 错误', err)
+      logger.log('warn', 'MCP transport error', err)
     }
     transport.onclose = () => {
       const sid = transport.sessionId
@@ -199,7 +200,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
     return transport
   }
 
-  /* ---------------- HTTP 层 ---------------- */
+  /* ---------------- HTTP layer ---------------- */
 
   function sendJson(res: ServerResponse, status: number, body: unknown, headers?: Record<string, string>): void {
     const text = JSON.stringify(body)
@@ -217,7 +218,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
 
   function hostnameOf(value: string | undefined): string | null {
     if (!value) return null
-    // Host 头形如 '127.0.0.1:7332' 或 '[::1]:7332'
+    // The Host header looks like '127.0.0.1:7332' or '[::1]:7332'.
     try {
       const url = new URL(`http://${value}`)
       return url.hostname
@@ -231,7 +232,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
     return LOOPBACK_HOSTS.has(hostname) || hostname === host
   }
 
-  /** DNS rebinding 防护：Host 必须是回环，Origin（如果有）也必须是回环 */
+  /** DNS rebinding protection: Host must be loopback, and Origin (when present) must be too. */
   function checkHostHeaders(req: IncomingMessage): boolean {
     if (!isLoopback(hostnameOf(req.headers.host))) return false
     const origin = req.headers.origin
@@ -270,7 +271,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
       req.on('data', (chunk: Buffer) => {
         size += chunk.length
         if (size > MAX_BODY_BYTES) {
-          finish({ ok: false, status: 413, code: -32600, message: '请求体过大' })
+          finish({ ok: false, status: 413, code: -32600, message: 'Request body too large' })
           req.destroy()
           return
         }
@@ -279,17 +280,17 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
       req.on('end', () => {
         const raw = Buffer.concat(chunks).toString('utf8')
         if (raw.length === 0) {
-          finish({ ok: false, status: 400, code: -32700, message: 'Parse error: 空请求体' })
+          finish({ ok: false, status: 400, code: -32700, message: 'Parse error: empty request body' })
           return
         }
         try {
           finish({ ok: true, value: JSON.parse(raw) })
         } catch {
-          finish({ ok: false, status: 400, code: -32700, message: 'Parse error: 非法 JSON' })
+          finish({ ok: false, status: 400, code: -32700, message: 'Parse error: malformed JSON' })
         }
       })
       req.on('error', (err) => {
-        finish({ ok: false, status: 400, code: -32600, message: `读取请求体失败：${err.message}` })
+        finish({ ok: false, status: 400, code: -32600, message: `Failed to read request body: ${err.message}` })
       })
     })
   }
@@ -303,23 +304,23 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (closing) {
-      sendRpcError(res, 503, -32000, 'peek MCP server 正在关闭')
+      sendRpcError(res, 503, -32000, 'peek MCP server is shutting down')
       return
     }
 
     if (!checkHostHeaders(req)) {
-      sendRpcError(res, 403, -32000, 'Forbidden: 只接受来自本机回环地址的请求')
+      sendRpcError(res, 403, -32000, 'Forbidden: only requests from the local loopback address are accepted')
       return
     }
 
     const pathname = (req.url ?? '/').split('?')[0] ?? '/'
     if (pathname !== path) {
-      sendRpcError(res, 404, -32601, `Not Found: MCP 端点是 ${path}`)
+      sendRpcError(res, 404, -32601, `Not Found: the MCP endpoint is ${path}`)
       return
     }
 
     if (!checkAuth(req)) {
-      sendRpcError(res, 401, -32000, 'Unauthorized: 需要 Authorization: Bearer <token>（见 ~/.peek/mcp.json）', {
+      sendRpcError(res, 401, -32000, 'Unauthorized: Authorization: Bearer <token> is required (see ~/.peek/mcp.json)', {
         'www-authenticate': 'Bearer realm="peek"',
       })
       return
@@ -347,7 +348,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
       } else if (isInitializeRequest(body.value)) {
         transport = await createSession()
       } else {
-        sendRpcError(res, 400, -32000, 'Bad Request: 缺少 mcp-session-id，且不是 initialize 请求')
+        sendRpcError(res, 400, -32000, 'Bad Request: missing mcp-session-id, and this is not an initialize request')
         return
       }
       await transport.handleRequest(req, res, body.value)
@@ -356,7 +357,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
 
     if (method === 'GET' || method === 'DELETE') {
       if (sessionId === null) {
-        sendRpcError(res, 400, -32000, 'Bad Request: 缺少 mcp-session-id')
+        sendRpcError(res, 400, -32000, 'Bad Request: missing mcp-session-id')
         return
       }
       const entry = sessions.get(sessionId)
@@ -375,7 +376,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
   const httpServer: HttpServer = createServer((req, res) => {
     handle(req, res).catch((err: unknown) => {
       const error = toPeekError(err)
-      logger.log('error', `MCP 请求处理失败：${error.message}`, error.detail)
+      logger.log('error', `MCP request handling failed: ${error.message}`, error.detail)
       if (!res.headersSent) {
         sendRpcError(res, 500, -32603, `Internal error: ${error.message}`)
       } else {
@@ -390,21 +391,21 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
   })
 
   httpServer.on('error', (err) => {
-    logger.log('error', 'MCP HTTP server 错误', err)
+    logger.log('error', 'MCP HTTP server error', err)
   })
 
-  /* ---------------- 启动 / 关闭 ---------------- */
+  /* ---------------- Startup / shutdown ---------------- */
 
   async function start(): Promise<McpEndpointFile> {
-    if (listening) throw asPeekError(peekError('CONFLICT', 'MCP server 已在运行'))
+    if (listening) throw asPeekError(peekError('CONFLICT', 'MCP server is already running'))
     await new Promise<void>((resolve, reject) => {
       const onError = (err: Error): void => {
         httpServer.removeListener('listening', onListening)
         reject(
           asPeekError(
             errnoCode(err) === 'EADDRINUSE'
-              ? peekError('CONFLICT', `端口 ${port} 已被占用，MCP server 无法启动`, {
-                  detail: '可能已有另一个 peek 在跑；也可以换端口启动。',
+              ? peekError('CONFLICT', `Port ${port} is already in use, the MCP server cannot start`, {
+                  detail: 'Another peek instance may already be running; you can also start on a different port.',
                 })
               : toPeekError(err),
           ),
@@ -416,7 +417,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
       }
       httpServer.once('error', onError)
       httpServer.once('listening', onListening)
-      // 明确绑回环地址：MCP 端点不对外网暴露
+      // Bind the loopback address explicitly: the MCP endpoint is never exposed off-machine.
       httpServer.listen(port, host)
     })
 
@@ -425,7 +426,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
       const deadline = Date.now() - SESSION_IDLE_MS
       for (const entry of [...sessions.values()]) {
         if (entry.lastSeenAt < deadline) {
-          logger.log('info', `MCP session ${entry.id} 闲置超时，回收`)
+          logger.log('info', `MCP session ${entry.id} idled out, reclaiming it`)
           void closeSession(entry.id)
         }
       }
@@ -447,7 +448,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
           }
         : writeEndpointFile({ configDir, host, port, path, token })
 
-    logger.log('info', `MCP server 已启动：${file.url}（${tools.length} 个工具）`)
+    logger.log('info', `MCP server started: ${file.url} (${tools.length} tools)`)
     return file
   }
 
@@ -462,7 +463,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
     if (listening) {
       await new Promise<void>((resolve) => {
         httpServer.close(() => resolve())
-        // keep-alive 连接不会自己断，宽限期后强制掐掉
+        // keep-alive connections never close on their own; force them after the grace period.
         setTimeout(() => {
           for (const socket of sockets) socket.destroy()
         }, CLOSE_GRACE_MS).unref?.()
@@ -470,7 +471,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
       listening = false
     }
     sockets.clear()
-    logger.log('info', 'MCP server 已关闭')
+    logger.log('info', 'MCP server closed')
   }
 
   return {
@@ -491,14 +492,17 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
   }
 }
 
-/** 从任意错误里取 errno code（EADDRINUSE 等），不用 any */
+/** Pull the errno code (EADDRINUSE and friends) out of an arbitrary error, without using `any`. */
 function errnoCode(err: unknown): string | undefined {
   if (typeof err !== 'object' || err === null) return undefined
   const code = (err as { code?: unknown }).code
   return typeof code === 'string' ? code : undefined
 }
 
-/** PeekError 是纯数据结构，抛出前包一层 Error 以便有 stack；两边信息都保留 */
+/**
+ * PeekError is a plain data structure, so wrap it in an Error before throwing to get a stack;
+ * both halves of the information are preserved.
+ */
 function asPeekError(error: PeekError): Error & { peek: PeekError } {
   const wrapped = new Error(`[${error.code}] ${error.message}`) as Error & { peek: PeekError }
   wrapped.peek = error
@@ -506,19 +510,19 @@ function asPeekError(error: PeekError): Error & { peek: PeekError } {
 }
 
 /* ================================================================== */
-/* 给 AI 的使用说明（MCP initialize 时下发）                              */
+/* Usage instructions for the AI (sent during MCP initialize)           */
 /* ================================================================== */
 
-const INSTRUCTIONS = `peek 是一个数据库 viewer 桌面应用，这些工具直接驱动它的界面。人和 AI 走同一条指令通道，你做的每一步用户都能在屏幕上看到。
+const INSTRUCTIONS = `peek is a desktop database viewer, and these tools drive its user interface directly. Humans and AI share one command channel, so every step you take is visible to the user on screen.
 
-典型流程：
-1. read_workspace —— 先看当前界面：布局、每个面板里的视图、连了哪些库。
-2. list_connections / connect —— 没有连接就先连（postgres 给 {"driverId":"postgres","url":"postgresql://user@host:5432/db"}）。
-3. introspect —— 展开命名空间树拿到表的 ref（不给 parentId 是根层）。
-4. open_view —— 把表开成 table 视图，或开 query 视图写 SQL。
-5. run_query —— 跑查询；回执只给前 20 行，完整结果在界面里，用户自己滚。
+Typical flow:
+1. read_workspace — look at the current UI first: the layout, the view in each panel, which databases are connected.
+2. list_connections / connect — connect first if there is no connection yet (for postgres, pass {"driverId":"postgres","url":"postgresql://user@host:5432/db"}).
+3. introspect — expand the namespace tree to obtain a table's ref (omit parentId for the root level).
+4. open_view — open a table as a table view, or open a query view to write SQL.
+5. run_query — run a query; the receipt carries only the first 20 rows, the full result lives in the UI for the user to scroll.
 
-注意：
-- 所有工具都是只读语义的数据浏览（第一版不做数据写回）。
-- 结果集数据不会整份塞给你，需要更多行就改 previewRows，或让用户在界面上看。
-- 出错时返回结构化的 PeekError（code + message + detail），按 code 判断该重试还是改参数。`
+Notes:
+- Every tool is read-only data browsing (this first version does not write data back).
+- Result set data is never handed to you in full: raise previewRows if you need more rows, or let the user look at the UI.
+- Failures return a structured PeekError (code + message + detail); use the code to decide whether to retry or to change your arguments.`

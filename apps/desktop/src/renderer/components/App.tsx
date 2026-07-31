@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import type { ReactElement } from 'react'
+import { useT } from '../i18n'
 import { dispatch } from '../state/dispatch'
 import { readWorkspace, useWorkspaceStore } from '../state/workspaceStore'
 import { LayoutTree } from './LayoutTree'
@@ -8,6 +9,7 @@ import { StatusBar } from './StatusBar'
 import { Toasts } from './Toasts'
 
 export function App(): ReactElement {
+  const t = useT()
   useGlobalKeys()
   const ready = useWorkspaceStore((s) => s.ready)
   const bridgeMissing = useWorkspaceStore((s) => s.bridgeMissing)
@@ -19,11 +21,11 @@ export function App(): ReactElement {
         <span className="spacer" />
         {bridgeMissing ? (
           <span className="no-drag" style={{ color: 'var(--err)' }}>
-            preload 桥未就绪
+            {t('app.bridgeNotReady')}
           </span>
         ) : !ready ? (
           <span className="no-drag" style={{ color: 'var(--fg-faint)' }}>
-            同步状态中…
+            {t('app.syncing')}
           </span>
         ) : null}
       </div>
@@ -42,8 +44,11 @@ export function App(): ReactElement {
 }
 
 /**
- * 全局快捷键。注意：这里同样只发命令，不动状态。
- * ⌘⏎ 由查询视图的 CodeMirror keymap 自己处理，不在这里抢。
+ * Global shortcuts. Like everything else in the renderer, they only send
+ * commands — they never touch state directly.
+ *
+ * ⌘⏎ is deliberately left alone: the query view's CodeMirror keymap owns it, and
+ * intercepting it here would fire while the editor still holds focus.
  */
 function useGlobalKeys(): void {
   useEffect(() => {
@@ -54,7 +59,7 @@ function useGlobalKeys(): void {
       if (!ws) return
       const panelId = ws.focusedPanel
       if (!panelId) return
-      // ⌘\ 左右分屏，⌘⇧\ 上下分屏，⌘W 关闭当前面板
+      // ⌘\ splits left/right, ⌘⇧\ splits top/bottom, ⌘W closes the focused panel
       if (e.key === '\\') {
         e.preventDefault()
         void dispatch('layout.split', { panelId, dir: e.shiftKey ? 'col' : 'row' })

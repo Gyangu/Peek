@@ -1,8 +1,9 @@
-// node --test 用的解析钩子。用法：
+// Resolution hook for `node --test`. Usage:
 //   node --import ./src/__tests__/register.mjs --test src/__tests__/*.test.ts
 //
-// 仓库统一 moduleResolution=bundler，相对 import 不写扩展名；node 自己不认这种写法，
-// 这里补上 .ts / index.ts 的探测。类型擦除由 node 内置完成，钩子只管"找到文件"。
+// The repo standardises on moduleResolution=bundler, so relative imports carry no
+// extension — a spelling node does not accept on its own. This hook probes for
+// .ts / index.ts. Type stripping is node's own job; the hook only finds the file.
 import { existsSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import { fileURLToPath } from 'node:url'

@@ -6,16 +6,19 @@ import {
 } from '@peek/core'
 
 /**
- * 单元格值归一化。
+ * Cell value normalization.
  *
- * 两个职责：
- * 1. 保证放进 ChunkFrame 的值是**结构化克隆安全**的（MessagePort 直传 renderer）。
- *    Buffer 统一转 base64 字符串，避免各端对 Uint8Array 的处理分歧。
- * 2. 超过 VALUE_PREVIEW_BYTES(4KB) 的大值只发预览，标记 TruncatedValue，
- *    全量走 valuePeek（PLAN 第 8 节红线）。
+ * Two jobs:
+ * 1. Guarantee that everything placed in a ChunkFrame is **structured-clone
+ *    safe**, since frames go straight to the renderer over a MessagePort.
+ *    Buffers become base64 strings so no end has to agree on how to handle a
+ *    Uint8Array.
+ * 2. Anything over VALUE_PREVIEW_BYTES (4KB) travels as a preview only, flagged
+ *    as a TruncatedValue; the full value is fetched on demand through valuePeek
+ *    (a hard rule from PLAN section 8).
  */
 
-/** 估算一个值在传输时的字节数，用于 adaptiveChunkRows */
+/** Estimate a value's wire size in bytes; feeds adaptiveChunkRows */
 export function estimateCellBytes(value: unknown): number {
   if (value === null || value === undefined) return 1
   switch (typeof value) {
@@ -34,7 +37,7 @@ export function estimateCellBytes(value: unknown): number {
   }
   if (value instanceof Date) return 24
   if (value instanceof Uint8Array) return value.byteLength
-  // TruncatedValue：只算预览部分
+  // TruncatedValue: only the preview counts
   const rec = value as Record<string, unknown>
   const preview = rec['preview']
   if (rec['__peekTruncated'] === true && typeof preview === 'string') {
@@ -57,7 +60,7 @@ function safeJson(value: unknown): string | null {
   }
 }
 
-/** 按字节截断 utf8 文本（可能切断多字节字符，解码时用非严格模式兜住） */
+/** Truncate utf8 text at a byte boundary (this can split a multi-byte character, which non-strict decoding absorbs) */
 function previewOfText(text: string, limit: number): string {
   const buf = Buffer.from(text, 'utf8')
   if (buf.byteLength <= limit) return text
@@ -67,12 +70,13 @@ function previewOfText(text: string, limit: number): string {
 export interface NormalizeContext {
   logical: LogicalType
   /**
-   * 被截断时才调用，返回回源定位符。
-   * 做成惰性是因为百万行 × 几十列的场景下，为每个单元格预先造一个 ValueRef 对象
-   * 光 GC 就能吃掉整个首帧预算。
+   * Called only when the value is truncated; returns the locator used to fetch it
+   * again. It is lazy because at a million rows × dozens of columns, eagerly
+   * building one ValueRef object per cell would burn the entire first-frame
+   * budget on garbage collection alone.
    */
   makeRef?: () => ValueRef | undefined
-  /** 预览上限，默认 VALUE_PREVIEW_BYTES */
+  /** Preview ceiling; defaults to VALUE_PREVIEW_BYTES */
   limit?: number
 }
 
@@ -82,8 +86,9 @@ function refOf(ctx: NormalizeContext): { ref?: ValueRef } {
 }
 
 /**
- * 把 pg 解析出来的值转成可直传 renderer 的形态。
- * 返回 TruncatedValue 表示该单元格被截断，前端需要时走 valuePeek 拉全量。
+ * Convert a value parsed by pg into something the renderer can receive directly.
+ * A TruncatedValue return means the cell was cut short; the UI pulls the whole
+ * thing through valuePeek when it needs it.
  */
 export function normalizeCell(value: unknown, ctx: NormalizeContext): unknown {
   const limit = ctx.limit ?? VALUE_PREVIEW_BYTES
@@ -113,7 +118,7 @@ export function normalizeCell(value: unknown, ctx: NormalizeContext): unknown {
     })
   }
 
-  // json / jsonb / 数组 / 复合类型：pg 已解析成 JS 对象
+  // json / jsonb / arrays / composite types: pg already parsed these into JS objects
   if (typeof value === 'object') {
     const text = safeJson(value)
     if (text === null) return String(value)

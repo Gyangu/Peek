@@ -21,7 +21,7 @@ import { createSeqIdFactory } from '../ids'
 import { createUnavailableDeps, type CommandDeps } from '../deps'
 
 /* ------------------------------------------------------------------ */
-/* 测试装置                                                             */
+/* Test harness                                                        */
 /* ------------------------------------------------------------------ */
 
 interface DepsCalls {
@@ -93,20 +93,20 @@ async function connect(h: Harness): Promise<ConnId> {
 }
 
 /* ------------------------------------------------------------------ */
-/* 校验与错误收敛                                                        */
+/* Validation and error collapsing                                     */
 /* ------------------------------------------------------------------ */
 
-test('入参不合法回结构化错误，不抛异常，也不动状态', async () => {
+test('invalid input yields a structured error: nothing thrown, nothing changed', async () => {
   const h = harness()
   const before = h.store.rev
   const res = await h.bus.dispatch('layout.focus', { panelId: 123 }, 'mcp')
   assert.equal(res.ok, false)
   if (res.ok) return
   assert.equal(res.error.code, 'BAD_REQUEST')
-  assert.equal(h.store.rev, before, '校验失败不 bump rev')
+  assert.equal(h.store.rev, before, 'a validation failure does not bump rev')
 })
 
-test('找不到目标回 NOT_FOUND，且 reduce 的半成品被整体丢弃', async () => {
+test('a missing target yields NOT_FOUND, and the half-applied reduce is discarded wholesale', async () => {
   const h = harness()
   const res = await h.bus.dispatch('layout.close', { panelId: 'panel_ghost' }, 'ui')
   assert.equal(res.ok, false)
@@ -114,7 +114,7 @@ test('找不到目标回 NOT_FOUND，且 reduce 的半成品被整体丢弃', as
   assert.equal(res.error.code, 'NOT_FOUND')
 })
 
-test('UI 与 MCP 走同一条路径，只有日志里的 source 不同', async () => {
+test('UI and MCP travel the same path; only the source in the log differs', async () => {
   const h = harness()
   const connId = await connect(h)
   await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
@@ -132,13 +132,13 @@ test('UI 与 MCP 走同一条路径，只有日志里的 source 不同', async (
 /* conn.*                                                             */
 /* ------------------------------------------------------------------ */
 
-test('conn.open：connecting → ready，能力集由驱动回填', async () => {
+test('conn.open: connecting → ready, with capabilities filled in by the driver', async () => {
   const h = harness()
   const res = await h.bus.dispatch('conn.open', { config: PG_CONFIG, openTree: true }, 'mcp')
   assert.equal(res.ok, true)
   if (!res.ok) return
 
-  assert.equal(res.data.status, 'ready', 'finalize 用副作用后的真源修正了返回值')
+  assert.equal(res.data.status, 'ready', 'finalize corrected the result against the post-effect source of truth')
   assert.deepEqual(res.data.capabilities, PG_CAPS)
   assert.equal(res.data.serverInfo?.version, '16.4')
   assert.ok(res.data.treeViewId)
@@ -150,7 +150,7 @@ test('conn.open：connecting → ready，能力集由驱动回填', async () => 
   assert.equal(conn.config.driverId, 'postgres')
 })
 
-test('conn.open 失败：状态落到 error，命令回 CONNECTION_FAILED', async () => {
+test('conn.open failure: status lands on error and the command reports CONNECTION_FAILED', async () => {
   const h = harness({ openFails: true })
   const res = await h.bus.dispatch('conn.open', { config: PG_CONFIG }, 'ui')
   assert.equal(res.ok, false)
@@ -163,7 +163,7 @@ test('conn.open 失败：状态落到 error，命令回 CONNECTION_FAILED', asyn
   assert.equal(conns[0].error?.code, 'CONNECTION_FAILED')
 })
 
-test('conn.close：连带关掉名下视图并断开驱动', async () => {
+test('conn.close: closes the views it owns and disconnects the driver', async () => {
   const h = harness()
   const connId = await connect(h)
   const opened = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
@@ -182,7 +182,7 @@ test('conn.close：连带关掉名下视图并断开驱动', async () => {
 /* view.* / query.*                                                   */
 /* ------------------------------------------------------------------ */
 
-test('view.open table：自动起一次 scan，视图落到焦点面板', async () => {
+test('view.open table: starts a scan automatically and lands the view in the focused panel', async () => {
   const h = harness()
   const connId = await connect(h)
   const res = await h.bus.dispatch(
@@ -205,7 +205,7 @@ test('view.open table：自动起一次 scan，视图落到焦点面板', async 
   assert.equal(collectPanels(state.layout)[0].viewId, res.data.viewId)
 })
 
-test('view.open：连接没 ready 时不取数，视图安静地停在 idle', async () => {
+test('view.open: with the connection not ready, nothing is fetched and the view sits quietly at idle', async () => {
   const h = harness({ openFails: true })
   await h.bus.dispatch('conn.open', { config: PG_CONFIG }, 'ui')
   const connId = Object.keys(h.store.getState().connections)[0] as ConnId
@@ -222,7 +222,7 @@ test('view.open：连接没 ready 时不取数，视图安静地停在 idle', as
   assert.equal(h.store.getState().views[res.data.viewId].status, 'idle')
 })
 
-test('view.open replace=false：占用的面板会被劈开而不是覆盖', async () => {
+test('view.open replace=false: an occupied panel is split rather than overwritten', async () => {
   const h = harness()
   const connId = await connect(h)
   const first = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
@@ -240,7 +240,7 @@ test('view.open replace=false：占用的面板会被劈开而不是覆盖', asy
   assert.notEqual(first.data.panelId, second.data.panelId)
 })
 
-test('view.open 覆盖同一面板：旧视图被关掉', async () => {
+test('view.open over the same panel: the old view is closed', async () => {
   const h = harness()
   const connId = await connect(h)
   const first = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
@@ -254,7 +254,7 @@ test('view.open 覆盖同一面板：旧视图被关掉', async () => {
   assert.equal(collectPanels(state.layout).length, 1)
 })
 
-test('view.update：翻页触发重取，且作废旧的续拉游标', async () => {
+test('view.update: paging refetches and invalidates the old continuation cursor', async () => {
   const h = harness()
   const connId = await connect(h)
   const opened = await h.bus.dispatch(
@@ -284,7 +284,7 @@ test('view.update：翻页触发重取，且作废旧的续拉游标', async () 
   assert.equal(view.kind === 'table' && view.page.offset, 200)
 })
 
-test('view.update：换页前先取消上一个还在跑的结果集', async () => {
+test('view.update: cancels the previous running result set before paging', async () => {
   const h = harness()
   const connId = await connect(h)
   const opened = await h.bus.dispatch(
@@ -305,15 +305,15 @@ test('view.update：换页前先取消上一个还在跑的结果集', async () 
   assert.equal(res.ok, true)
   if (!res.ok) return
 
-  assert.deepEqual(h.calls.cancel, [firstResult], '旧结果集必须在换页时被取消')
+  assert.deepEqual(h.calls.cancel, [firstResult], 'the old result set must be cancelled when paging')
   const state = h.store.getState()
   assert.equal(state.results[firstResult!].status, 'cancelled')
   assert.equal(state.results[res.data.resultId!].status, 'running')
-  // 取消的是旧结果集，不能把视图本身打回 idle
+  // The old result set was cancelled, which must not knock the view itself back to idle
   assert.equal(state.views[opened.data.viewId].status, 'loading')
 })
 
-test('query.run 连按两次：前一次的结果集被取消，不留孤儿流', async () => {
+test('query.run twice in a row: the previous result set is cancelled, leaving no orphaned stream', async () => {
   const h = harness()
   const connId = await connect(h)
   const first = await h.bus.dispatch('query.run', { connId, text: 'select pg_sleep(60)' }, 'ui')
@@ -332,7 +332,7 @@ test('query.run 连按两次：前一次的结果集被取消，不留孤儿流'
   assert.equal(h.store.getState().results[first.data.resultId].status, 'cancelled')
 })
 
-test('driver 报 CANCELLED：视图回 idle，不出现红色错误条', async () => {
+test('the driver reports CANCELLED: the view returns to idle with no red error bar', async () => {
   const h = harness()
   const connId = await connect(h)
   const run = await h.bus.dispatch('query.run', { connId, text: 'select pg_sleep(60)' }, 'ui')
@@ -342,18 +342,18 @@ test('driver 报 CANCELLED：视图回 idle，不出现红色错误条', async (
   const cancelled = await h.bus.dispatch('query.cancel', { resultId: run.data.resultId }, 'ui')
   assert.equal(cancelled.ok, true)
 
-  // driver host 的 StreamPump 取消后必然再发一条 result.error(CANCELLED)
+  // Once cancelled, the driver host's StreamPump always emits a result.error(CANCELLED)
   h.store.apply((draft) => {
-    failResult(draft, run.data.resultId, peekError('CANCELLED', '结果流已被取消'))
+    failResult(draft, run.data.resultId, peekError('CANCELLED', 'The result stream was cancelled'))
   }, { source: 'system' })
 
   const state = h.store.getState()
-  assert.equal(state.views[run.data.viewId].status, 'idle', '取消不是错误')
+  assert.equal(state.views[run.data.viewId].status, 'idle', 'a cancel is not an error')
   assert.equal(state.views[run.data.viewId].error, undefined)
   assert.equal(state.results[run.data.resultId].status, 'cancelled')
 })
 
-test('driver 报真错误：视图仍然落到 error 并带上结构化错误', async () => {
+test('the driver reports a real error: the view lands on error carrying the structured error', async () => {
   const h = harness()
   const connId = await connect(h)
   const run = await h.bus.dispatch('query.run', { connId, text: 'select boom' }, 'ui')
@@ -361,7 +361,11 @@ test('driver 报真错误：视图仍然落到 error 并带上结构化错误', 
   if (!run.ok) return
 
   h.store.apply((draft) => {
-    failResult(draft, run.data.resultId, peekError('SYNTAX_ERROR', '列 boom 不存在', { driverCode: '42703' }))
+    failResult(
+      draft,
+      run.data.resultId,
+      peekError('SYNTAX_ERROR', 'column "boom" does not exist', { driverCode: '42703' }),
+    )
   }, { source: 'system' })
 
   const state = h.store.getState()
@@ -370,7 +374,7 @@ test('driver 报真错误：视图仍然落到 error 并带上结构化错误', 
   assert.equal(state.results[run.data.resultId].status, 'error')
 })
 
-test('view.update：补丁 kind 与视图不符回 BAD_REQUEST', async () => {
+test('view.update: a patch kind that does not match the view yields BAD_REQUEST', async () => {
   const h = harness()
   const connId = await connect(h)
   const opened = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
@@ -387,7 +391,7 @@ test('view.update：补丁 kind 与视图不符回 BAD_REQUEST', async () => {
   assert.equal(res.error.code, 'BAD_REQUEST')
 })
 
-test('query.run：没有 viewId 时按 connId + text 新开查询视图', async () => {
+test('query.run: with no viewId, connId + text opens a new query view', async () => {
   const h = harness()
   const connId = await connect(h)
   const res = await h.bus.dispatch('query.run', { connId, text: 'select 1' }, 'mcp')
@@ -402,7 +406,7 @@ test('query.run：没有 viewId 时按 connId + text 新开查询视图', async 
   assert.equal(h.store.getState().results[res.data.resultId].summary, 'select 1')
 })
 
-test('query.run：连接没 ready 时回 CONFLICT', async () => {
+test('query.run: an unready connection yields CONFLICT', async () => {
   const h = harness({ openFails: true })
   await h.bus.dispatch('conn.open', { config: PG_CONFIG }, 'ui')
   const connId = Object.keys(h.store.getState().connections)[0] as ConnId
@@ -414,7 +418,7 @@ test('query.run：连接没 ready 时回 CONFLICT', async () => {
   assert.equal(h.calls.runQuery.length, 0)
 })
 
-test('query.cancel：在跑的结果集被取消，已结束的如实回 false', async () => {
+test('query.cancel: a running result set is cancelled; a finished one honestly reports false', async () => {
   const h = harness()
   const connId = await connect(h)
   const run = await h.bus.dispatch('query.run', { connId, text: 'select pg_sleep(60)' }, 'ui')
@@ -432,10 +436,10 @@ test('query.cancel：在跑的结果集被取消，已结束的如实回 false',
   assert.equal(again.ok, true)
   if (!again.ok) return
   assert.equal(again.data.cancelled, false)
-  assert.equal(h.calls.cancel.length, 1, '已结束的不再打扰驱动')
+  assert.equal(h.calls.cancel.length, 1, 'a finished result set does not disturb the driver again')
 })
 
-test('view.close：面板保留，在跑的结果集被顺手取消', async () => {
+test('view.close: the panel stays and the running result set is cancelled along the way', async () => {
   const h = harness()
   const connId = await connect(h)
   const run = await h.bus.dispatch('query.run', { connId, text: 'select 1' }, 'ui')
@@ -454,7 +458,7 @@ test('view.close：面板保留，在跑的结果集被顺手取消', async () =
 /* layout.*                                                           */
 /* ------------------------------------------------------------------ */
 
-test('layout.split：可以顺手在新面板里开视图，焦点跟过去', async () => {
+test('layout.split: can open a view in the new panel at the same time, and focus follows', async () => {
   const h = harness()
   const connId = await connect(h)
   const res = await h.bus.dispatch(
@@ -471,7 +475,7 @@ test('layout.split：可以顺手在新面板里开视图，焦点跟过去', as
   assert.equal(collectPanels(state.layout).length, 2)
 })
 
-test('layout.close：关掉焦点面板后焦点自动回落', async () => {
+test('layout.close: focus falls back automatically after the focused panel closes', async () => {
   const h = harness()
   const split = await h.bus.dispatch('layout.split', { panelId: h.rootPanel, dir: 'row' }, 'ui')
   assert.equal(split.ok, true)
@@ -482,10 +486,10 @@ test('layout.close：关掉焦点面板后焦点自动回落', async () => {
   assert.equal(res.ok, true)
   const state = h.store.getState()
   assert.equal(collectPanels(state.layout).length, 1)
-  assert.equal(state.focusedPanel, h.rootPanel, '焦点回落到仅剩的面板')
+  assert.equal(state.focusedPanel, h.rootPanel, 'focus fell back to the only remaining panel')
 })
 
-test('layout.close：关掉最后一个面板只是清空它，视图一并关闭', async () => {
+test('layout.close: closing the last panel merely empties it, and its view closes too', async () => {
   const h = harness()
   const connId = await connect(h)
   const opened = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
@@ -504,7 +508,7 @@ test('layout.close：关掉最后一个面板只是清空它，视图一并关�
   assert.equal(state.focusedPanel, h.rootPanel)
 })
 
-test('layout.setRatio：ratio 长度不符回 BAD_REQUEST', async () => {
+test('layout.setRatio: a mismatched ratio length yields BAD_REQUEST', async () => {
   const h = harness()
   const split = await h.bus.dispatch('layout.split', { panelId: h.rootPanel, dir: 'row' }, 'ui')
   assert.equal(split.ok, true)
@@ -529,7 +533,7 @@ test('layout.setRatio：ratio 长度不符回 BAD_REQUEST', async () => {
 /* state.read                                                         */
 /* ------------------------------------------------------------------ */
 
-test('state.read：只读、不 bump rev、config 已脱敏', async () => {
+test('state.read: read-only, no rev bump, config already redacted', async () => {
   const h = harness()
   const connId = await connect(h)
   const revBefore = h.store.rev
@@ -537,7 +541,7 @@ test('state.read：只读、不 bump rev、config 已脱敏', async () => {
   const res = await h.bus.dispatch('state.read', {}, 'mcp')
   assert.equal(res.ok, true)
   if (!res.ok) return
-  assert.equal(h.store.rev, revBefore, '只读命令不产生新 rev')
+  assert.equal(h.store.rev, revBefore, 'a read-only command produces no new rev')
 
   const conn = res.data.snapshot.connections[0]
   assert.equal(conn.id, connId)
@@ -545,7 +549,7 @@ test('state.read：只读、不 bump rev、config 已脱敏', async () => {
   assert.equal(conn.config.driverId === 'postgres' && conn.config.url?.includes('example-password'), false)
 })
 
-test('state.read：include 与 viewId 能裁剪返回内容', async () => {
+test('state.read: include and viewId narrow what comes back', async () => {
   const h = harness()
   const connId = await connect(h)
   const opened = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
@@ -569,10 +573,10 @@ test('state.read：include 与 viewId 能裁剪返回内容', async () => {
 })
 
 /* ------------------------------------------------------------------ */
-/* Command 日志                                                        */
+/* The Command log                                                     */
 /* ------------------------------------------------------------------ */
 
-test('Command 日志：环形缓冲、口令脱敏、失败也记账', async () => {
+test('Command log: ring buffer, redacted passwords, failures recorded too', async () => {
   const h = harness()
   await h.bus.dispatch('conn.open', { config: PG_CONFIG }, 'mcp')
   await h.bus.dispatch('layout.focus', { panelId: 'panel_ghost' }, 'ui')
@@ -586,7 +590,7 @@ test('Command 日志：环形缓冲、口令脱敏、失败也记账', async () 
 
   const open = entries[0]
   const logged = open.input as { config: { password: string; url: string } }
-  assert.equal(logged.config.password, '***', '口令绝不能进日志')
+  assert.equal(logged.config.password, '***', 'a password must never reach the log')
   assert.equal(logged.config.url.includes('example-password'), false)
   assert.equal(open.ok, true)
   assert.equal(typeof open.elapsedMs, 'number')
@@ -596,10 +600,10 @@ test('Command 日志：环形缓冲、口令脱敏、失败也记账', async () 
 })
 
 /* ------------------------------------------------------------------ */
-/* Store：patch 与脱敏                                                  */
+/* Store: patches and redaction                                        */
 /* ------------------------------------------------------------------ */
 
-test('store：每条命令 rev +1，订阅者收到连续的 patch', async () => {
+test('store: every command bumps rev by 1 and subscribers receive contiguous patches', async () => {
   const h = harness()
   const seen: { fromRev: number; rev: number }[] = []
   h.store.subscribe((change) => {
@@ -607,14 +611,14 @@ test('store：每条命令 rev +1，订阅者收到连续的 patch', async () =>
   })
 
   await connect(h)
-  assert.ok(seen.length >= 2, 'conn.open 至少产生 connecting 与 ready 两批 patch')
+  assert.ok(seen.length >= 2, 'conn.open produces at least two patch batches: connecting and ready')
   for (let i = 1; i < seen.length; i += 1) {
-    assert.equal(seen[i].fromRev, seen[i - 1].rev, 'rev 必须连续，否则 renderer 会判定漏包')
+    assert.equal(seen[i].fromRev, seen[i - 1].rev, 'revs must be contiguous, or the renderer decides it dropped a batch')
   }
   assert.equal(seen[seen.length - 1].rev, h.store.rev)
 })
 
-test('store：广播出去的 patch 与快照都不含明文口令', async () => {
+test('store: neither broadcast patches nor snapshots carry a cleartext password', async () => {
   const h = harness()
   const patches: unknown[] = []
   h.store.subscribe((change) => {
@@ -623,31 +627,31 @@ test('store：广播出去的 patch 与快照都不含明文口令', async () =>
   await connect(h)
 
   const dumped = JSON.stringify(patches)
-  assert.equal(dumped.includes('example-password'), false, 'patch 泄露了口令')
+  assert.equal(dumped.includes('example-password'), false, 'the patches leaked the password')
   assert.equal(dumped.includes('***'), true)
 
   const snapshot = JSON.stringify(redactWorkspace(h.store.getState()))
-  assert.equal(snapshot.includes('example-password'), false, '快照泄露了口令')
-  // 真源里必须留着明文，Connection Manager 重连要用
+  assert.equal(snapshot.includes('example-password'), false, 'the snapshot leaked the password')
+  // The source of truth must keep the cleartext: the Connection Manager needs it to reconnect
   assert.equal(JSON.stringify(h.store.getState()).includes('example-password'), true)
 })
 
-test('store：reduce 抛错时状态完全不动（原子性）', async () => {
+test('store: when reduce throws, state does not move at all (atomicity)', async () => {
   const h = harness()
   const connId = await connect(h)
   const before = h.store.getState()
 
-  // panelId 不存在 → openView 在挂载前就抛错，此前登记的 view 必须一起作废
+  // The panelId does not exist, so openView throws before mounting; the view registered just before must be voided with it
   const res = await h.bus.dispatch(
     'view.open',
     { spec: { kind: 'tree', connId }, panelId: asPanelId('panel_ghost') },
     'mcp',
   )
   assert.equal(res.ok, false)
-  assert.equal(h.store.getState(), before, '失败的命令不产生任何新状态')
+  assert.equal(h.store.getState(), before, 'a failed command produces no new state')
 })
 
-test('未注册的 handler 回 INTERNAL 而不是崩掉', async () => {
+test('an unregistered handler yields INTERNAL instead of crashing', async () => {
   const h = harness()
   const bare = new CommandBus({ store: h.store, deps: createUnavailableDeps() })
   const res = await bare.dispatch('layout.focus', { panelId: h.rootPanel }, 'ui')
@@ -657,10 +661,10 @@ test('未注册的 handler 回 INTERNAL 而不是崩掉', async () => {
 })
 
 /* ------------------------------------------------------------------ */
-/* 视图 id 品牌类型的使用示例（编译期即可验证）                              */
+/* Branded view ids in use (verified at compile time)                   */
 /* ------------------------------------------------------------------ */
 
-test('品牌 id 在结果里保持类型', async () => {
+test('branded ids keep their type in results', async () => {
   const h = harness()
   const connId = await connect(h)
   const res = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')

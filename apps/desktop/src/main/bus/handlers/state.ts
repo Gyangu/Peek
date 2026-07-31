@@ -1,11 +1,13 @@
 import { snapshotWorkspace, type StateReadResult, type WorkspaceSnapshot } from '@peek/core'
-import { fail } from '../failure'
+import { failMsg } from '../failure'
 import type { CommandHandlerMap } from '../types'
 
 /**
- * state.read：只读命令。
- * 不 bump rev、不广播 patch，MCP 的 read_workspace 直接走它读 main 的真源
- * （零 renderer 往返，PLAN 第 3 节）。返回的快照已由 snapshotWorkspace 脱敏。
+ * state.read: a read-only command.
+ * It bumps no rev and broadcasts no patches. MCP's read_workspace goes straight
+ * through it to main's source of truth, with zero renderer round trips (PLAN
+ * section 3). The snapshot it returns has already been redacted by
+ * snapshotWorkspace.
  */
 export const stateHandlers = {
   'state.read': {
@@ -16,13 +18,15 @@ export const stateHandlers = {
       let views = include.has('views') ? full.views : []
       if (input.viewId !== undefined) {
         const one = full.views.find((v) => v.id === input.viewId)
-        if (!one) fail('NOT_FOUND', `视图 ${input.viewId} 不存在`)
+        if (!one) failMsg('NOT_FOUND', 'error.view.notFound', { viewId: input.viewId })
         views = [one]
       }
 
       const snapshot: WorkspaceSnapshot = {
         rev: full.rev,
-        // layout 体量只跟面板数相关（个位数），恒返回：AI 少一次往返就少一次误判
+        // The layout is only as large as the panel count (single digits), so it
+        // is always included: one fewer round trip is one fewer chance for the
+        // AI to guess wrong.
         layout: full.layout,
         focusedPanel: full.focusedPanel,
         connections: include.has('connections') ? full.connections : [],

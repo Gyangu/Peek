@@ -1,24 +1,25 @@
 /**
- * 微型类型安全事件发射器。
+ * A tiny type-safe event emitter.
  *
- * 不用 Node 的 EventEmitter：它的 listener 签名是 `(...args: any[]) => void`，
- * 在"禁止 any"的约束下没法安全用。这里用事件名 → payload 的映射表把类型钉死。
+ * Not Node's EventEmitter: its listener signature is `(...args: any[]) => void`,
+ * which cannot be used safely under a no-`any` rule. This pins types down with a
+ * map from event name to payload type instead.
  */
 
 export type Listener<P> = (payload: P) => void
 
-/** 事件表：键是事件名，值是该事件的 payload 类型 */
+/** Event table: keys are event names, values are that event's payload type */
 export class TypedEmitter<M extends Record<string, unknown>> {
   private readonly handlers = new Map<keyof M, Set<Listener<unknown>>>()
 
-  /** 订阅，返回取消订阅函数（幂等） */
+  /** Subscribe; returns an idempotent unsubscribe function. */
   on<K extends keyof M>(event: K, listener: Listener<M[K]>): () => void {
     let set = this.handlers.get(event)
     if (!set) {
       set = new Set<Listener<unknown>>()
       this.handlers.set(event, set)
     }
-    // 类型擦除后存储；emit 时按同一张表还原，外部看不到 unknown
+    // Stored type-erased and restored from the same table on emit; callers never see the unknown
     const erased = listener as Listener<unknown>
     set.add(erased)
     return () => {
@@ -29,13 +30,13 @@ export class TypedEmitter<M extends Record<string, unknown>> {
   emit<K extends keyof M>(event: K, payload: M[K]): void {
     const set = this.handlers.get(event)
     if (!set || set.size === 0) return
-    // 拷贝一份再遍历：处理器里退订不会影响本次派发
+    // Iterate over a copy: unsubscribing inside a handler must not disturb this dispatch
     for (const listener of [...set]) {
       try {
         listener(payload)
       } catch (err) {
-        // 事件处理器抛错不能反噬发射方（连接管理器要保持崩溃隔离）
-        console.error('[peek/connections] 事件处理器抛错', event, err)
+        // A throwing handler must not bite the emitter back (the Connection Manager has to stay crash-isolated)
+        console.error('[peek/connections] event handler threw', event, err)
       }
     }
   }

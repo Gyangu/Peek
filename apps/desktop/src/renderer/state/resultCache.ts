@@ -12,59 +12,75 @@ import type {
 import { RESULT_CACHE_MAX_BYTES, isTruncatedValue, peekError } from '@peek/core'
 
 /* ====================================================================
- * 结果集缓存：数据面的落点。
+ * The result cache: where the data plane lands.
  *
- * 设计要点（PLAN 第 8 节红线）：
- * - **列式原样保留**：chunk 帧里的 cols 数组直接持有，不做列转行、不做拷贝。
- *   取值按 (row, col) 二分定位 chunk 后直接下标访问，O(log n) 且零分配。
- * - **LRU 淘汰**：总字节超过 ~200MB 时，按 touched 时间淘汰远离视口的 chunk。
- *   被淘汰的 chunk 只丢数据、保留 startRow/rowCount 元信息，行号映射不会错位。
- * - **ack 背压**：每帧落地即 ack；缓存逼近上限或视口远远落后时压住 ack，
- *   host 侧未确认帧达到 ACK_WINDOW 就会自动停拉。
- * - 这是**纯 TS 模块，不是 React 状态**。组件通过 useSyncExternalStore 订阅，
- *   chunk 到达只 bump 一个版本号（rAF 合帧），不重建任何数据结构。
+ * Design rules (PLAN §8, the hard lines):
+ * - **Columnar, kept as received**: the `cols` arrays of a chunk frame are held
+ *   directly — no pivot to rows, no copy. A value is found by binary-searching
+ *   the chunk for (row, col) and indexing into it: O(log n) and zero allocation.
+ * - **LRU eviction**: once the total passes ~200MB, chunks far from the viewport
+ *   are evicted by `touched` time. An evicted chunk drops its data but keeps its
+ *   startRow/rowCount metadata, so row numbering never shifts.
+ * - **ack backpressure**: every frame is acked as it lands; the ack is held back
+ *   when the cache nears its ceiling or the viewport falls far behind, and the
+ *   host stops pulling by itself once ACK_WINDOW frames are unacknowledged.
+ * - This is a **plain TS module, not React state**. Components subscribe through
+ *   useSyncExternalStore, and an arriving chunk only bumps a version number
+ *   (coalesced per animation frame) — no data structure is ever rebuilt.
  * ==================================================================== */
 
-/** 超过这个水位开始淘汰 */
+/** Eviction starts above this watermark. */
 const EVICT_HIGH_WATER = Math.floor(RESULT_CACHE_MAX_BYTES * 0.85)
-/** 淘汰到这个水位为止 */
+/** Eviction stops once the total is back under this one. */
 const EVICT_TARGET = Math.floor(RESULT_CACHE_MAX_BYTES * 0.7)
 /**
- * 淘汰之后仍然超过这个水位就压住 ack。
+ * Still above this watermark after eviction? Hold the ack.
  *
- * **不要把它当成通用兜底**。判定发生在 enforceBudget 之后，而 enforceBudget 每帧
- * 都会把总量压回 EVICT_TARGET（140MB），所以它只在"淘汰腾不出空间"时才响——
- * 也就是**受保护集（视口 ±VIEWPORT_MARGIN_ROWS 行）自己就超过 180MB**。
- * 驱动侧单格超 VALUE_PREVIEW_BYTES(4KB) 一律截断成预览，因此这需要很宽的行：
- * 40 列 × 4KB 预览 ≈ 324KB/行，几百行就能撞上（resultCache.test.ts 里按这个
- * 真实约束构造）；而常见的窄表几千行连零头都到不了。
- * 结论：字节闸只管"宽行撑爆受保护集"这一种情形，
- * "视口不再推进"必须由下面的行数闸负责，不能指望它来兜。
+ * **This is not a general-purpose safety net.** The check runs after
+ * enforceBudget, which pushes the total back down to EVICT_TARGET (140MB) on
+ * every frame, so it can only fire when eviction has nothing left to free — that
+ * is, when the **protected set alone (the viewport ±VIEWPORT_MARGIN_ROWS rows)
+ * exceeds 180MB**. Since the driver truncates any cell over VALUE_PREVIEW_BYTES
+ * (4KB) to a preview, that takes genuinely wide rows: 40 columns × a 4KB preview
+ * is ~324KB per row, which a few hundred rows already reach (resultCache.test.ts
+ * builds its fixture from exactly that constraint), while an ordinary narrow
+ * table would not get close with thousands of rows.
+ * Conclusion: the byte gate covers one case only — wide rows blowing out the
+ * protected set. "The viewport has stopped advancing" is the row-count gate's
+ * job below, and must never be left to this one.
  */
 const ACK_HOLD_BYTES = Math.floor(RESULT_CACHE_MAX_BYTES * 0.9)
-/** 视口前方最多预留这么多行，超出就压住 ack（滚动时会自动放行） */
+/** How many rows may pile up ahead of the viewport before the ack is held (a
+ *  scroll releases it automatically). */
 const AHEAD_ROWS = 200_000
-/** 视口上下各保护这么多行不被淘汰 */
+/** How many rows above and below the viewport are protected from eviction. */
 const VIEWPORT_MARGIN_ROWS = 3000
 /**
- * atBottom 的保鲜期：超过这么久没有新的视口上报，就不再相信"视口贴在末端"。
+ * How long an `atBottom` report stays believable. Past this, "the viewport is
+ * pinned to the end" is no longer trusted.
  *
- * atBottom 会关掉行数闸（理由见 Viewport.atBottom），所以它必须是**会自己失效的信号**，
- * 不能是只进不出的闩：表格卸载（onViewport 置 null）、渲染进程被 backgroundThrottling
- * 掐掉 rAF、主线程长时间卡死——这三种情况下上报都会停，而 entry.viewport 会永远冻结在
- * 最后一次上报值。若那一次恰好是 atBottom:true，孤儿流就会全速扫完整张表
- * （内存有 LRU 兜底，但 PG 侧的 READ ONLY 事务与游标要一直开到扫完）。
+ * `atBottom` disables the row-count gate (see Viewport.atBottom), so it has to be
+ * a **signal that expires on its own** rather than a latch that only ever closes:
+ * an unmounted grid (onViewport set to null), a renderer whose rAF was starved by
+ * backgroundThrottling, a main thread wedged for a long time — in all three cases
+ * reporting simply stops and `entry.viewport` freezes on whatever came last. If
+ * that last report happened to say `atBottom: true`, an orphaned stream would
+ * scan the entire table at full speed (memory is covered by the LRU, but the
+ * PostgreSQL READ ONLY transaction and its cursor would stay open until the scan
+ * finished).
  *
- * 取值理由：真正活着的表格每来一批数据就会重算几何并同步上报（rAF 级，~16ms），
- * 3 秒的余量足够扛住 GC 抖动与一次长任务；而且"上报新鲜的 atBottom"本身就意味着
- * vp.end ≈ rowCount，行数闸对它是恒不成立的——所以这条规则只可能压住已经停止消费的流，
- * 不会误伤正在看数据的人。
+ * Why three seconds: a grid that is actually alive recomputes its geometry and
+ * reports synchronously on every batch of data (frame-rate, ~16ms), so 3s of slack
+ * absorbs GC jitter and one long task. And a *fresh* atBottom implies
+ * vp.end ≈ rowCount, which the row-count gate can never trip on anyway — so this
+ * rule can only ever hold back a stream nobody is consuming, never someone who is
+ * still reading.
  */
 const VIEWPORT_FRESH_MS = 3_000
 
 export type CacheStatus = 'idle' | 'running' | 'done' | 'paused' | 'error'
 
-/** 单元格未加载（尚未到达 / 已被 LRU 淘汰）的哨兵值 */
+/** Sentinel for a cell that is not loaded: not arrived yet, or LRU-evicted. */
 export const PENDING_CELL = Symbol('peek.pendingCell')
 
 export function isPendingCell(v: unknown): boolean {
@@ -73,13 +89,13 @@ export function isPendingCell(v: unknown): boolean {
 
 interface ChunkSlot {
   seq: number
-  /** 结果集内的全局起始行号 */
+  /** Global start row within the result set. */
   startRow: number
   rowCount: number
-  /** 列式数据本体；null 表示已被 LRU 淘汰 */
+  /** The columnar data itself; null means the chunk was evicted. */
   cols: unknown[][] | null
   bytes: number
-  /** LRU 时间戳（全局单调计数） */
+  /** LRU timestamp (a global monotonic counter). */
   touched: number
   owner: ResultEntry
 }
@@ -88,27 +104,33 @@ interface Viewport {
   start: number
   end: number
   /**
-   * 视口已经贴到可滚动范围的**末端**，再往前推不动了。
+   * The viewport is pinned to the **end** of the scrollable range and cannot
+   * advance any further.
    *
-   * 这是 ack 背压的兜底信号：`rowCount - end > AHEAD_ROWS` 这条规则的前提是
-   * "视口还能往前走，只是用户没走"。一旦视口物理上到顶（全部内容都装得下、
-   * 或已经滚到最后一行），继续按行数压 ack 就是**把流饿死**——谁也没法再推进它。
+   * This is the escape hatch of the ack backpressure. The rule
+   * `rowCount - end > AHEAD_ROWS` assumes "the viewport could move forward, the
+   * user just has not moved it". Once the viewport physically cannot advance —
+   * everything fits, or it is already on the last row — holding the ack by row
+   * count **starves the stream**, because nobody can push it any further.
    *
-   * 只有**新鲜**的 atBottom 才作数（见 VIEWPORT_FRESH_MS / isAtBottomNow）：
-   * 一份陈旧的 atBottom:true 等于把背压整个关掉，那不是降级而是失效。
+   * Only a **fresh** atBottom counts (see VIEWPORT_FRESH_MS / isAtBottomNow): a
+   * stale `atBottom: true` disables backpressure entirely, which is not
+   * degradation but failure.
    */
   atBottom: boolean
-  /** 这条视口是什么时候上报的（Date.now）；atBottom 的保鲜判定用它 */
+  /** When this viewport was reported (Date.now); drives the freshness check. */
   at: number
 }
 
 /**
- * 结果集建立时的保守默认视口。
+ * The conservative viewport a result set starts with.
  *
- * 早先 viewport 初值是 null，而 shouldHoldAck 对 null 直接跳过行数规则，于是
- * "背压压不压得住"完全取决于 React 什么时候把表格渲染出来并上报视口——
- * 60 万行 1 秒跑完的场景里背压从未介入，只剩 180MB 字节水位一道兜底。
- * 给一个确定的初值之后，"什么时候压、压在哪"只取决于 rowCount，可预测可测试。
+ * The viewport used to start as null, and shouldHoldAck skipped the row-count
+ * rule entirely for null — which made "does backpressure hold" depend on when
+ * React got around to rendering the grid and reporting a viewport. With 600k rows
+ * arriving in a second, backpressure never engaged at all and the 180MB byte
+ * watermark was the only thing left. With a definite initial value, when and
+ * where the stream is held depends on rowCount alone: predictable, and testable.
  */
 const DEFAULT_VIEWPORT: Viewport = { start: 0, end: 0, atBottom: false, at: 0 }
 
@@ -128,10 +150,11 @@ interface ResultEntry {
   evictedChunks: number
   firstFrameAt: number
   lastHit: number
-  /** 永远非 null（建立时给 DEFAULT_VIEWPORT），背压行为因此与渲染时序解耦 */
+  /** Never null (DEFAULT_VIEWPORT at creation), which is what decouples
+   *  backpressure from render timing. */
   viewport: Viewport
   port: MessagePort | null
-  /** 被背压压住、等待放行的 ack seq */
+  /** The ack seq being held back by backpressure, waiting for release. */
   heldAck: number | null
   snapshot: ResultSnapshot | null
 }
@@ -143,7 +166,8 @@ export interface ResultSnapshot {
   readonly status: CacheStatus
   readonly done: ChunkDone | null
   readonly error: PeekError | null
-  /** status === 'paused' 时的描述；已加载的行仍然完全有效 */
+  /** Why the stream paused, when status is 'paused'. The rows already loaded
+   *  remain entirely valid. */
   readonly paused: ResultPause | null
   readonly bytes: number
   readonly evictedChunks: number
@@ -164,11 +188,12 @@ export const EMPTY_SNAPSHOT: ResultSnapshot = {
 }
 
 /* ------------------------------------------------------------------ */
-/* 模块级状态                                                           */
+/* Module state                                                          */
 /* ------------------------------------------------------------------ */
 
 const entries = new Map<ResultId, ResultEntry>()
-/** 视图先于首帧挂载时暂存的视口，结果集建立时补进去 */
+/** Viewports parked here when the view mounts before the first frame arrives;
+ *  they are folded in when the result set is created. */
 const pendingViewports = new Map<ResultId, Viewport>()
 const portsByConn = new Map<ConnId, MessagePort>()
 const listeners = new Map<ResultId, Set<() => void>>()
@@ -178,7 +203,7 @@ let totalBytes = 0
 let tick = 0
 
 /* ------------------------------------------------------------------ */
-/* 订阅（useSyncExternalStore 用）                                       */
+/* Subscriptions (for useSyncExternalStore)                               */
 /* ------------------------------------------------------------------ */
 
 export function subscribeResult(id: ResultId, cb: () => void): () => void {
@@ -196,7 +221,7 @@ export function subscribeResult(id: ResultId, cb: () => void): () => void {
   }
 }
 
-/** 订阅"缓存总体"变化（状态栏用） */
+/** Subscribe to cache-wide changes (used by the status bar). */
 export function subscribeCacheStats(cb: () => void): () => void {
   globalListeners.add(cb)
   return () => {
@@ -223,7 +248,8 @@ export function getCacheStats(): CacheStats {
   return statsSnapshot
 }
 
-/* --- 变更通知：chunk 到达按 rAF 合帧，终止事件立即广播 --- */
+/* --- Change notification: arriving chunks are coalesced per animation frame,
+   terminal events are broadcast immediately --- */
 
 const dirty = new Set<ResultId>()
 let rafHandle = 0
@@ -259,7 +285,7 @@ function emit(id: ResultId): void {
 }
 
 /* ------------------------------------------------------------------ */
-/* 读取接口                                                             */
+/* Read API                                                              */
 /* ------------------------------------------------------------------ */
 
 export function getResultSnapshot(id: ResultId | null | undefined): ResultSnapshot {
@@ -287,7 +313,7 @@ function findChunk(e: ResultEntry, row: number): ChunkSlot | null {
   const chunks = e.chunks
   const n = chunks.length
   if (n === 0 || row < 0 || row >= e.rowCount) return null
-  // 顺序扫描的局部性：先试上次命中的 chunk
+  // Sequential scans have locality: try the chunk that hit last time first
   if (e.lastHit < n) {
     const hint = chunks[e.lastHit]
     if (row >= hint.startRow && row < hint.startRow + hint.rowCount) return hint
@@ -308,8 +334,8 @@ function findChunk(e: ResultEntry, row: number): ChunkSlot | null {
 }
 
 /**
- * 取单元格。**热路径**：不分配对象、不做类型转换，
- * 未加载（未到达或已淘汰）时返回 PENDING_CELL 哨兵。
+ * Read one cell. **Hot path**: no allocation, no conversion. Returns the
+ * PENDING_CELL sentinel when the value is not loaded (not arrived, or evicted).
  */
 export function getCell(id: ResultId | null | undefined, row: number, col: number): unknown {
   if (!id) return PENDING_CELL
@@ -322,7 +348,8 @@ export function getCell(id: ResultId | null | undefined, row: number, col: numbe
   return column[row - c.startRow]
 }
 
-/** 这一行的数据在不在内存里（决定行组件要不要跟着 version 重渲染） */
+/** Whether this row's data is in memory — decides whether the row component has
+ *  to re-render along with the version. */
 export function isRowLoaded(id: ResultId | null | undefined, row: number): boolean {
   if (!id) return false
   const e = entries.get(id)
@@ -332,16 +359,21 @@ export function isRowLoaded(id: ResultId | null | undefined, row: number): boole
 }
 
 /* ------------------------------------------------------------------ */
-/* 视口 → LRU 保护 + 背压放行                                            */
+/* Viewport → LRU protection + backpressure release                       */
 /* ------------------------------------------------------------------ */
 
 /**
- * 表格上报当前视口。**每次上报都会刷新保鲜时间戳**，哪怕位置一个字节都没变——
- * atBottom 能不能继续关掉行数闸，靠的就是"上报还在继续"这件事本身。
+ * The grid reporting its current viewport. **Every report refreshes the freshness
+ * timestamp**, even when the position has not moved by a single pixel — whether
+ * atBottom may keep the row-count gate open rests on the fact that reports are
+ * still coming in at all.
  *
- * @param atBottom 视口已贴到可滚动范围末端、无法再前移。滚动层是唯一知道这件事的人
- *                 （它掌握 maxTop），所以必须由它带上来，不能在这里从行号猜。
- *                 消费者停止消费时（表格卸载/换结果集）必须显式补一条 atBottom=false。
+ * @param atBottom The viewport is pinned to the end of the scrollable range and
+ *                 cannot advance. Only the scroll layer knows this (it owns
+ *                 maxTop), so it has to be passed in; guessing it from row numbers
+ *                 here is not possible. A consumer that stops consuming (grid
+ *                 unmounted, result set swapped) must explicitly send a final
+ *                 report with atBottom=false.
  */
 export function setViewport(
   id: ResultId | null | undefined,
@@ -353,9 +385,11 @@ export function setViewport(
   const at = Date.now()
   const e = entries.get(id)
   if (!e) {
-    // 视图往往先于首帧挂载：先记下来，等结果集建立时补上，
-    // 否则整段流都会以"没有视口"的姿态跑，背压永远不生效。
-    // 时间戳一并记下：结果集建立时若这条已经放了很久，它的 atBottom 就不该再作数。
+    // The view usually mounts before the first frame: park the report and fold it
+    // in when the result set is created. Otherwise the whole stream runs as if it
+    // had no viewport and backpressure never engages.
+    // The timestamp is parked with it: if this report has been sitting here for a
+    // while by the time the result set exists, its atBottom must no longer count.
     pendingViewports.set(id, { start, end, atBottom, at })
     return
   }
@@ -363,7 +397,8 @@ export function setViewport(
   const moved = vp.start !== start || vp.end !== end
   e.viewport = { start, end, atBottom, at }
   if (moved) {
-    // 触碰视口范围内的 chunk，抬高它们的 LRU 时间戳（位置没变就不必再扫一遍 chunk 表）
+    // Touch the chunks within the viewport range to raise their LRU timestamps
+    // (an unchanged position needs no second pass over the chunk list)
     const lo = start - VIEWPORT_MARGIN_ROWS
     const hi = end + VIEWPORT_MARGIN_ROWS
     for (const c of e.chunks) {
@@ -374,27 +409,33 @@ export function setViewport(
 }
 
 /* ------------------------------------------------------------------ */
-/* 背压                                                                */
+/* Backpressure                                                          */
 /* ------------------------------------------------------------------ */
 
-/** atBottom 现在还作不作数：必须是"刚刚上报过"的 atBottom */
+/** Does atBottom still count? Only if it was reported just now. */
 function isAtBottomNow(e: ResultEntry): boolean {
   const vp = e.viewport
   return vp.atBottom && Date.now() - vp.at <= VIEWPORT_FRESH_MS
 }
 
 /**
- * 要不要压住 ack。两道闸，语义严格分开：
+ * Whether to hold the ack. Two gates, with strictly separate meanings:
  *
- * 1. **字节水位**：受保护集自己就撑爆了 180MB（宽行才够得着，见 ACK_HOLD_BYTES 上的注释）。
- * 2. **视口前瞻**（主力）：视口前方堆了 AHEAD_ROWS 行没人看。
+ * 1. **Byte watermark**: the protected set alone has blown past 180MB (only wide
+ *    rows can reach this — see the note on ACK_HOLD_BYTES).
+ * 2. **Viewport lookahead** (the workhorse): AHEAD_ROWS rows are stacked up ahead
+ *    of a viewport nobody is moving.
  *
- * 第 2 条要给"视口贴到末端"让路，否则是死结：视口物理上推不动了却还压着 ack →
- * 60 秒空闲 → 收摊，用户什么都没做错，数据却停在半路。
- * 但这个让路必须**新鲜**（isAtBottomNow）：一条过期的 atBottom 意味着消费者已经不在了
- * （表格卸载 / rAF 被掐 / 主线程卡死），此时让路等于把背压整个关掉——那是失效，不是降级。
- * 顺带一提，新鲜的 atBottom 恒有 `vp.end ≈ rowCount`，行数闸对它本来也不成立，
- * 所以这条规则只会压住"上报已经停了、前方却越堆越多"的流。
+ * Rule 2 has to yield to "the viewport is pinned to the end", or it deadlocks: a
+ * viewport that physically cannot advance, still holding the ack → 60 seconds idle
+ * → the stream is torn down, and the user's data stops halfway through without
+ * anyone having done anything wrong.
+ * But that concession must be **fresh** (isAtBottomNow): an expired atBottom means
+ * the consumer is gone (grid unmounted, rAF starved, main thread wedged), and
+ * yielding then disables backpressure outright — failure, not degradation.
+ * Note also that a fresh atBottom always implies `vp.end ≈ rowCount`, which the
+ * row-count gate could not trip on in the first place. So this rule only ever
+ * holds back a stream whose reports have stopped while the backlog keeps growing.
  */
 function shouldHoldAck(e: ResultEntry): boolean {
   if (totalBytes > ACK_HOLD_BYTES) return true
@@ -430,7 +471,7 @@ function flushAllHeldAcks(): void {
 }
 
 /* ------------------------------------------------------------------ */
-/* 写入：MessagePort 数据面                                              */
+/* Writes: the MessagePort data plane                                     */
 /* ------------------------------------------------------------------ */
 
 function ensureEntry(id: ResultId, connId: ConnId | null, port: MessagePort | null): ResultEntry {
@@ -474,11 +515,14 @@ function onFrame(frame: ChunkFrame, port: MessagePort, connId: ConnId | null): v
   const e = ensureEntry(frame.resultId, connId, port)
   if (e.firstFrameAt === 0) e.firstFrameAt = Date.now()
 
-  if (frame.seq < e.nextSeq) return // 重复帧，忽略
+  if (frame.seq < e.nextSeq) return // duplicate frame, ignore
   if (frame.seq > e.nextSeq) {
+    // A plain English literal, not a catalog key: this is an internal invariant
+    // breaking, the text is evidence for whoever debugs the data plane, and the
+    // error catalog in @peek/core has no key for it.
     e.error = peekError(
       'INTERNAL',
-      `结果流丢帧：期望 seq ${e.nextSeq}，实际收到 ${frame.seq}`,
+      `Result stream dropped a frame: expected seq ${e.nextSeq}, received ${frame.seq}`,
     )
     e.status = 'error'
     markDirty(e)
@@ -527,8 +571,9 @@ function onStreamError(resultId: ResultId, err: PeekError, port: MessagePort, co
 }
 
 /**
- * 背压把流停住了。**不是错误**：已落地的 chunk 一行都不丢，也不清 error 之外的任何东西。
- * 表格照常可看可滚，只是footer 从"接收中…"变成"已暂停"。
+ * Backpressure stopped the stream. **This is not an error**: not one landed row is
+ * lost and nothing but `error` is left untouched. The grid stays readable and
+ * scrollable; only the footer changes from "Receiving…" to "Paused".
  */
 function onStreamPaused(
   resultId: ResultId,
@@ -540,12 +585,13 @@ function onStreamPaused(
   if (e.status !== 'running') return
   e.paused = pause
   e.status = 'paused'
-  e.heldAck = null // 游标已关，再放行也没人收
+  e.heldAck = null // the cursor is closed; releasing an ack now would reach nobody
   markDirty(e)
   emitNow(e)
 }
 
-/** 结构校验：MessagePort 上来的东西一律当 unknown 收，收窄后再用 */
+/** Structural validation: anything off a MessagePort arrives as unknown and is
+ *  narrowed before use. */
 function asStreamMessage(data: unknown): ResultStreamMessage | null {
   if (typeof data !== 'object' || data === null) return null
   const rec = data as Record<string, unknown>
@@ -575,8 +621,8 @@ function asStreamMessage(data: unknown): ResultStreamMessage | null {
 }
 
 /**
- * 接上某个连接的数据面端口。由 preload 的 onResultPort 移交。
- * 同一 connId 重复移交时，旧端口关闭。
+ * Attach a connection's data-plane port, handed over by preload's onResultPort.
+ * A second handover for the same connId closes the previous port.
  */
 export function attachResultPort(connId: ConnId, port: MessagePort): void {
   const old = portsByConn.get(connId)
@@ -584,7 +630,7 @@ export function attachResultPort(connId: ConnId, port: MessagePort): void {
     try {
       old.close()
     } catch {
-      /* 端口可能已被对端关闭，忽略 */
+      /* The other end may already have closed it; ignore. */
     }
   }
   portsByConn.set(connId, port)
@@ -613,8 +659,9 @@ export function detachResultPort(connId: ConnId): void {
 }
 
 /**
- * 数据面主动取消（关游标）。控制面的取消走 query.cancel 命令，
- * 两条路互不冲突：这条只是让 host 尽快停止吐数据。
+ * Cancel from the data plane (closing the cursor). Control-plane cancellation goes
+ * through the `query.cancel` command; the two do not conflict, since this one only
+ * asks the host to stop emitting as soon as it can.
  */
 export function cancelResultStream(id: ResultId): void {
   const e = entries.get(id)
@@ -625,7 +672,7 @@ export function cancelResultStream(id: ResultId): void {
 }
 
 /* ------------------------------------------------------------------ */
-/* LRU 淘汰与生命周期                                                    */
+/* LRU eviction and lifecycle                                             */
 /* ------------------------------------------------------------------ */
 
 function isProtected(e: ResultEntry, c: ChunkSlot): boolean {
@@ -654,13 +701,14 @@ function enforceBudget(): void {
   }
   statsVersion += 1
   for (const e of touchedOwners) markDirty(e)
-  // 腾出空间后放行被压住的 ack
+  // Space has been freed, so release whatever acks were being held
   flushAllHeldAcks()
 }
 
 export function dropResult(id: ResultId): void {
-  // 先清暂存视口：视图开了又关、一帧都没到过的结果集根本没有 entry，
-  // 若跟着下面的早退一起跳过，这条记录就永远留在 map 里了
+  // Clear the parked viewport first: a result set whose view was opened and closed
+  // before a single frame arrived has no entry at all, and skipping this along with
+  // the early return below would leave the record in the map forever
   pendingViewports.delete(id)
   const e = entries.get(id)
   if (!e) return
@@ -675,14 +723,17 @@ export function dropResult(id: ResultId): void {
 }
 
 /**
- * main 的 results 表里已经不存在的结果集，缓存也一并回收。
- * graceMs：刚到首帧、main 的 patch 可能还没广播过来的新结果集给一段宽限期，
- * 避免"数据先到、元信息后到"时被误删。
+ * Reclaim cache entries for result sets main's `results` table no longer knows.
+ *
+ * `graceMs` gives a brand-new result set — one whose first frame just landed while
+ * main's patch may still be in flight — a window in which it is not collected, so
+ * "data first, metadata second" cannot delete it by mistake.
  */
 export function pruneResults(alive: ReadonlySet<string>, graceMs = 5000): void {
   const now = Date.now()
   let changed = false
-  // 只上报过视口、一帧都没到过的结果集不在 entries 里，得单独回收
+  // Result sets that only ever reported a viewport have no entry, so they are
+  // reclaimed separately
   for (const id of [...pendingViewports.keys()]) {
     if (!alive.has(id) && !entries.has(id)) pendingViewports.delete(id)
   }
@@ -697,11 +748,11 @@ export function pruneResults(alive: ReadonlySet<string>, graceMs = 5000): void {
 }
 
 /* ------------------------------------------------------------------ */
-/* 字节估算（抽样，避免为了算大小把数据再遍历一遍）                          */
+/* Byte estimation — sampled, so sizing does not mean walking the data again */
 /* ------------------------------------------------------------------ */
 
 const SAMPLE_ROWS = 24
-/** 每个值的固定开销（引用 + 对象头的粗估） */
+/** Fixed per-value overhead: a rough estimate of a reference plus an object header. */
 const VALUE_OVERHEAD = 16
 
 function estimateValueBytes(v: unknown): number {
@@ -720,7 +771,7 @@ function estimateValueBytes(v: unknown): number {
       if (v instanceof Date) return 24
       if (ArrayBuffer.isView(v)) return v.byteLength + 48
       if (Array.isArray(v)) return v.length * 24 + 48
-      return 320 // 普通对象（jsonb 等）的粗估
+      return 320 // rough estimate for a plain object (jsonb and friends)
     }
     default:
       return VALUE_OVERHEAD

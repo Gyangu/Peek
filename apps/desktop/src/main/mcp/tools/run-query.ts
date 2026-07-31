@@ -1,9 +1,10 @@
 /**
- * run_query —— 执行一条自由查询（映射到 query.run）。
+ * run_query — execute a free-form query (maps onto query.run).
  *
- * 返回给 AI 的是**截断后的前 N 行 + 总行数**，完整数据留在界面里（PLAN 第 8 节）。
- * 行数据本身走 MessagePort 直达 renderer，main 手里没有；所以取样行依赖注入的
- * readResultRows。没注入时退化成只回结果集元信息（状态/行数/耗时）。
+ * What the AI gets back is **the first N rows plus the total row count**; the full data stays in
+ * the UI (PLAN section 8). Row data itself goes over a MessagePort straight to the renderer and
+ * main never holds it, so the sample rows depend on the injected readResultRows. Without it the
+ * tool degrades to returning result metadata only (status / row count / elapsed time).
  */
 
 import { z } from 'zod'
@@ -19,15 +20,15 @@ import { toJson } from '../summary'
 import { renderRowsTable, waitForResult } from '../wait'
 import type { ResultRowsSlice } from '../types'
 
-/** 默认给 AI 看多少行 */
+/** How many rows the AI is shown by default. */
 const DEFAULT_PREVIEW_ROWS = 20
-/** 默认等待查询终态的时长 */
+/** Default time to wait for the query to reach a settled status. */
 const DEFAULT_WAIT_MS = 30_000
 
 const InputSchema = commandSchemas['query.run'].safeExtend({
-  /** 回执里最多展示多少行（不影响界面，界面拿全量） */
+  /** Max rows to show in the receipt (does not affect the UI, which receives everything). */
   previewRows: z.number().int().min(0).max(200).optional(),
-  /** 最多等多久（毫秒）拿终态；超时不代表查询失败，界面会继续跑 */
+  /** Max time (ms) to wait for a settled status; timing out does not mean the query failed — the UI keeps running it. */
   waitMs: z.number().int().min(0).max(120_000).optional(),
 })
 
@@ -39,13 +40,15 @@ const QueryRunResultShape = z.object({
 export default defineCommandTool({
   kind: 'command',
   name: 'run_query',
-  title: '执行查询',
+  title: 'Run a query',
   description:
-    '在某个连接上执行一条查询语句（SQL 等）并把结果显示在 peek 的 query 视图里。' +
-    '给 connId + text 会自动新开一个 query 视图；给已有 query 视图的 viewId 则在原视图里跑。' +
-    '回执只带前 previewRows 行（默认 20）与总行数，完整结果在界面上看。' +
-    `不给 maxRows 时服务端按 ${MCP_DEFAULT_MAX_ROWS} 行封顶并标记已截断——` +
-    '要更多请显式给 maxRows，并注意界面视口不推进时流会进入 paused（数据仍有效）。',
+    'Run a query statement (SQL or equivalent) on a connection and show the result in a peek query view. ' +
+    'Passing connId + text opens a new query view; passing the viewId of an existing query view runs it there. ' +
+    'The receipt carries only the first previewRows rows (20 by default) plus the total row count — ' +
+    'the full result is available in the UI. ' +
+    `Without maxRows the server caps the query at ${MCP_DEFAULT_MAX_ROWS} rows and marks it truncated; ` +
+    'pass maxRows explicitly for more, and note that the stream enters paused (data still valid) ' +
+    'when the viewport in the UI stops advancing.',
   inputSchema: InputSchema,
   annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
   toCommands(input) {
@@ -53,8 +56,10 @@ export default defineCommandTool({
     return [
       {
         name: 'query.run',
-        // 服务端默认上限：没说要多少行 ⇒ 给前 MCP_DEFAULT_MAX_ROWS 行 + truncated。
-        // 否则一条 select * 打在大表上必然走进背压暂停路径（无头调用没有真实视口在推进）。
+        // Server-side default cap: when no row count is requested, return the first
+        // MCP_DEFAULT_MAX_ROWS rows and mark the result truncated. Otherwise a `select *`
+        // against a large table inevitably lands in the backpressure-pause path, because a
+        // headless caller has no real viewport advancing.
         input: { ...cmdInput, maxRows: cmdInput.maxRows ?? MCP_DEFAULT_MAX_ROWS },
       },
     ]
@@ -63,7 +68,7 @@ export default defineCommandTool({
     const parsed = QueryRunResultShape.safeParse(outcomeData(outcomes, 'query.run'))
     if (!parsed.success) {
       return errorOutput(
-        peekError('INTERNAL', 'query.run 返回值不可解析', { detail: toJson(outcomes) }),
+        peekError('INTERNAL', 'The return value of query.run could not be parsed', { detail: toJson(outcomes) }),
       )
     }
     const { resultId, viewId } = parsed.data
@@ -73,24 +78,24 @@ export default defineCommandTool({
 
     const { meta, settled } = await waitForResult(ctx, resultId, waitMs)
 
-    const headBits = [`查询已在视图 ${viewId} 执行，结果集 ${resultId}`]
+    const headBits = [`Query ran in view ${viewId}, result ${resultId}`]
     if (meta) {
-      headBits.push(`状态 ${meta.status}`)
-      headBits.push(`${meta.rows} 行`)
+      headBits.push(`status ${meta.status}`)
+      headBits.push(`${meta.rows} rows`)
       if (meta.elapsedMs !== undefined) headBits.push(`${meta.elapsedMs}ms`)
       if (meta.truncated) {
         headBits.push(
           meta.status === 'paused'
-            ? '已截断（背压暂停）'
-            : `已按 maxRows=${maxRows} 截断`,
+            ? 'truncated (backpressure pause)'
+            : `truncated at maxRows=${maxRows}`,
         )
       }
     } else {
-      headBits.push('尚未拿到结果集元信息')
+      headBits.push('no result metadata yet')
     }
-    if (!settled) headBits.push(`等待 ${waitMs}ms 未见终态，界面仍在加载`)
+    if (!settled) headBits.push(`waited ${waitMs}ms without a settled status, the UI is still loading`)
 
-    /* --- 真失败：唯一置 isError 的分支 --- */
+    /* --- A real failure: the only branch that sets isError --- */
     if (meta?.status === 'error' && meta.error) {
       return {
         text: `${headBits.join(' · ')}\n\n[${meta.error.code}] ${meta.error.message}` +
@@ -101,18 +106,19 @@ export default defineCommandTool({
     }
 
     /*
-     * paused / cancelled 都**不是** isError：查询本身没问题，已加载的行全部有效。
-     * 这句提示是 AI 区分「查询挂了」和「只是停下来了」的唯一依据，措辞不要弱化。
+     * paused and cancelled are **not** isError: nothing is wrong with the query, and every row
+     * loaded so far is valid. This notice is the AI's only cue for telling "the query broke"
+     * apart from "the query merely stopped" — do not soften the wording.
      */
     let notice = ''
     if (meta?.status === 'paused') {
       notice =
-        `\n\n⏸ 已暂停（不是失败）：${meta.pausedReason ?? '背压空闲超时'}。`
-        + `已加载的 ${meta.rows} 行是完整有效的数据，可以直接使用；`
-        + '后面还有更多行没取。要继续请重新执行（可配合更大的 maxRows，'
-        + '或在界面上把表格滚到底部再跑）。'
+        `\n\n⏸ Paused (not a failure): ${meta.pausedReason ?? 'backpressure idle timeout'}. `
+        + `The ${meta.rows} rows already loaded are complete, valid data you can use as they are; `
+        + 'more rows remain unfetched. To continue, run the query again (optionally with a larger '
+        + 'maxRows, or scroll the grid to the bottom in the UI first).'
     } else if (meta?.status === 'cancelled') {
-      notice = '\n\n■ 已取消（不是失败）：已加载的行有效，后面的数据没有取。'
+      notice = '\n\n■ Cancelled (not a failure): the rows already loaded are valid; the remaining data was not fetched.'
     }
 
     let table = ''
@@ -120,24 +126,24 @@ export default defineCommandTool({
     if (previewRows > 0 && ctx.readResultRows && meta && meta.rows > 0) {
       try {
         slice = await ctx.readResultRows({ resultId, limit: previewRows })
-        table = `\n\n前 ${slice.rows.length} 行（共 ${slice.totalRows} 行${slice.truncated ? '，已截断' : ''}）：\n${renderRowsTable(slice)}`
+        table = `\n\nFirst ${slice.rows.length} rows (of ${slice.totalRows}${slice.truncated ? ', truncated' : ''}):\n${renderRowsTable(slice)}`
       } catch (err) {
-        ctx.logger.log('warn', 'readResultRows 失败', err)
-        table = '\n\n（取样行失败，完整结果请在界面查看）'
+        ctx.logger.log('warn', 'readResultRows failed', err)
+        table = '\n\n(Failed to sample rows; view the full result in the UI.)'
       }
     } else if (previewRows > 0 && !ctx.readResultRows) {
-      table = '\n\n（未接线 readResultRows：行数据只在界面缓存里，这里只能给元信息）'
+      table = '\n\n(readResultRows is not wired up: row data lives only in the UI cache, so only metadata is available here.)'
     }
 
     const columns = meta?.schema?.map((c) => `${c.name}:${c.logical}`).join(', ') ?? ''
     return {
-      text: `${headBits.join(' · ')}${columns ? `\n列：${columns}` : ''}${notice}${table}`,
+      text: `${headBits.join(' · ')}${columns ? `\nColumns: ${columns}` : ''}${notice}${table}`,
       data: {
         resultId: String(resultId),
         viewId: String(viewId),
         status: meta?.status ?? 'running',
         rows: meta?.rows ?? 0,
-        /** 数据是否可信：只有 error 为 false，paused/cancelled 都是 true */
+        /** Whether the data can be trusted: false only for error; paused/cancelled are both true. */
         rowsUsable: meta?.status !== 'error',
         truncated: meta?.truncated === true,
         resumable: meta?.resumable === true,

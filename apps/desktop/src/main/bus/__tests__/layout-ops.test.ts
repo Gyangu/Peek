@@ -20,7 +20,7 @@ import {
 } from '../layout-ops'
 
 /* ------------------------------------------------------------------ */
-/* 构造辅助                                                             */
+/* Construction helpers                                                */
 /* ------------------------------------------------------------------ */
 
 const P = (n: string): PanelId => asPanelId(`panel_${n}`)
@@ -50,26 +50,26 @@ const splitOpts = (panelId: string, dir: 'row' | 'col', extra: Record<string, un
 /* split                                                              */
 /* ------------------------------------------------------------------ */
 
-test('split：根面板被劈开后升级成 split，占比对半', () => {
+test('split: splitting the root panel promotes it to a split with an even ratio', () => {
   const outcome = splitPanel(panel('a', 'view_1'), splitOpts('a', 'row'))
   assert.ok(outcome)
   const root = asSplit(outcome.layout)
   assert.equal(root.dir, 'row')
   assert.deepEqual(panelIds(root), ['panel_a', 'panel_new'])
   assert.deepEqual(root.ratio, [0.5, 0.5])
-  // 原面板上的视图不动
+  // The view on the original panel is untouched
   assert.equal(collectPanels(root)[0].viewId, 'view_1')
   assert.equal(outcome.splitId, 'split_new')
   assert.equal(outcome.panelId, 'panel_new')
 })
 
-test('split：insert=before 时新面板排在前面', () => {
+test('split: insert=before puts the new panel first', () => {
   const outcome = splitPanel(panel('a'), splitOpts('a', 'col', { insert: 'before' }))
   assert.ok(outcome)
   assert.deepEqual(panelIds(outcome.layout), ['panel_new', 'panel_a'])
 })
 
-test('split：显式 ratio 被归一化，长度不符则退化为均分', () => {
+test('split: an explicit ratio is normalized; a mismatched length falls back to an even split', () => {
   const ok = splitPanel(panel('a'), splitOpts('a', 'row', { ratio: [3, 1] }))
   assert.deepEqual(asSplit(ok!.layout).ratio, [0.75, 0.25])
 
@@ -77,7 +77,7 @@ test('split：显式 ratio 被归一化，长度不符则退化为均分', () =>
   assert.deepEqual(asSplit(bad!.layout).ratio, [0.5, 0.5])
 })
 
-test('split：同方向并入父 split 而不是嵌套，份额从被劈面板身上对半切', () => {
+test('split: the same direction merges into the parent split instead of nesting, halving the split panel share', () => {
   const root: LayoutNode = {
     type: 'split',
     id: asSplitId('split_root'),
@@ -89,13 +89,13 @@ test('split：同方向并入父 split 而不是嵌套，份额从被劈面板�
   assert.ok(outcome)
   const next = asSplit(outcome.layout)
 
-  assert.equal(next.children.length, 3, '并入父 split，不产生嵌套')
+  assert.equal(next.children.length, 3, 'merged into the parent split, no nesting')
   assert.deepEqual(panelIds(next), ['panel_a', 'panel_new', 'panel_b'])
   assert.deepEqual(next.ratio, [0.25, 0.25, 0.5])
-  assert.equal(outcome.splitId, 'split_root', '返回的是被并入的既有 split')
+  assert.equal(outcome.splitId, 'split_root', 'returns the existing split it merged into')
 })
 
-test('split：换方向时就地嵌套出新 split', () => {
+test('split: a direction change nests a new split in place', () => {
   const root: LayoutNode = {
     type: 'split',
     id: asSplitId('split_root'),
@@ -113,7 +113,7 @@ test('split：换方向时就地嵌套出新 split', () => {
   assert.equal(outcome.splitId, 'split_new')
 })
 
-test('split：目标面板不存在时返回 null，且不修改入参', () => {
+test('split: returns null when the target panel does not exist, and does not mutate its argument', () => {
   const root = panel('a')
   assert.equal(splitPanel(root, splitOpts('zzz', 'row')), null)
   assert.deepEqual(root, panel('a'))
@@ -123,15 +123,15 @@ test('split：目标面板不存在时返回 null，且不修改入参', () => {
 /* close                                                              */
 /* ------------------------------------------------------------------ */
 
-test('close：最后一个面板不被摘除，只清空视图', () => {
+test('close: the last panel is not removed, only emptied', () => {
   const outcome = closePanel(panel('a', 'view_1'), P('a'))
   assert.ok(outcome)
-  assert.equal(outcome.removedPanelId, null, '布局至少要留一个面板')
+  assert.equal(outcome.removedPanelId, null, 'a layout always keeps at least one panel')
   assert.equal(outcome.viewId, 'view_1')
   assert.deepEqual(outcome.layout, panel('a'))
 })
 
-test('close：两子节点的 split 塌缩成兄弟节点本身', () => {
+test('close: a two-child split collapses into the surviving sibling', () => {
   const root: LayoutNode = {
     type: 'split',
     id: asSplitId('split_root'),
@@ -146,7 +146,7 @@ test('close：两子节点的 split 塌缩成兄弟节点本身', () => {
   assert.deepEqual(outcome.layout, panel('b', 'view_b'))
 })
 
-test('close：三子节点时只去掉一个，剩余占比重新归一化到 1', () => {
+test('close: with three children only one goes, and the remaining ratio renormalizes to 1', () => {
   const root: LayoutNode = {
     type: 'split',
     id: asSplitId('split_root'),
@@ -165,7 +165,7 @@ test('close：三子节点时只去掉一个，剩余占比重新归一化到 1'
   )
 })
 
-test('close：嵌套结构里塌缩只影响那一层', () => {
+test('close: in a nested tree the collapse affects only that level', () => {
   const root: LayoutNode = {
     type: 'split',
     id: asSplitId('split_root'),
@@ -186,11 +186,11 @@ test('close：嵌套结构里塌缩只影响那一层', () => {
   assert.ok(outcome)
   const next = asSplit(outcome.layout)
   assert.deepEqual(panelIds(next), ['panel_a', 'panel_b'])
-  assert.equal(next.children[1].type, 'panel', '内层 split 塌缩')
-  assert.deepEqual(next.ratio, [0.5, 0.5], '外层占比不受影响')
+  assert.equal(next.children[1].type, 'panel', 'the inner split collapsed')
+  assert.deepEqual(next.ratio, [0.5, 0.5], 'the outer ratio is unaffected')
 })
 
-test('close：面板不存在返回 null', () => {
+test('close: returns null when the panel does not exist', () => {
   assert.equal(closePanel(panel('a'), P('zzz')), null)
 })
 
@@ -198,7 +198,7 @@ test('close：面板不存在返回 null', () => {
 /* setRatio                                                           */
 /* ------------------------------------------------------------------ */
 
-test('setRatio：归一化并只改目标 split', () => {
+test('setRatio: normalizes, and changes only the target split', () => {
   const root: LayoutNode = {
     type: 'split',
     id: asSplitId('split_root'),
@@ -223,7 +223,7 @@ test('setRatio：归一化并只改目标 split', () => {
   assert.deepEqual(asSplit(outcome.layout).ratio, [0.5, 0.5])
 })
 
-test('setRatio：长度不符不静默均分，而是明确报 lengthMismatch', () => {
+test('setRatio: a mismatched length reports lengthMismatch instead of silently evening out', () => {
   const root: LayoutNode = {
     type: 'split',
     id: asSplitId('split_root'),
@@ -242,10 +242,10 @@ test('setRatio：长度不符不静默均分，而是明确报 lengthMismatch', 
 })
 
 /* ------------------------------------------------------------------ */
-/* 面板 ↔ 视图                                                          */
+/* Panels and views                                                    */
 /* ------------------------------------------------------------------ */
 
-test('setPanelView / clearViewFromPanels：挂载与摘除', () => {
+test('setPanelView / clearViewFromPanels: mount and detach', () => {
   const root: LayoutNode = {
     type: 'split',
     id: asSplitId('split_root'),
@@ -256,7 +256,7 @@ test('setPanelView / clearViewFromPanels：挂载与摘除', () => {
   const mounted = setPanelView(root, P('b'), asViewId('view_1'))
   assert.ok(mounted)
   assert.equal(collectPanels(mounted)[1].viewId, 'view_1')
-  assert.equal(collectPanels(root)[1].viewId, null, '不修改入参')
+  assert.equal(collectPanels(root)[1].viewId, null, 'does not mutate its argument')
 
   const cleared = clearViewFromPanels(mounted, asViewId('view_1'))
   assert.equal(cleared.panelId, 'panel_b')
@@ -269,7 +269,7 @@ test('setPanelView / clearViewFromPanels：挂载与摘除', () => {
   assert.equal(setPanelView(root, P('zzz'), null), null)
 })
 
-test('firstEmptyPanel：优先落到空面板', () => {
+test('firstEmptyPanel: prefers an empty panel', () => {
   const root: LayoutNode = {
     type: 'split',
     id: asSplitId('split_root'),

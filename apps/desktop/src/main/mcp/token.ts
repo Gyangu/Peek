@@ -1,10 +1,11 @@
 /**
- * MCP 接入信息落盘：`~/.peek/mcp.json`（文件权限 0600，目录 0700）。
+ * Persisting the MCP endpoint details to `~/.peek/mcp.json` (file mode 0600, directory 0700).
  *
- * token 一旦生成就**复用**——用户执行过
+ * Once generated, the token is **reused**: after a user has run
  *   claude mcp add peek --transport http http://127.0.0.1:7332/mcp \
  *     --header "Authorization: Bearer <token>"
- * 之后，重启 peek 不应让配置失效。只有文件缺失/损坏时才重新生成。
+ * restarting peek must not invalidate their configuration. A new token is minted only when the
+ * file is missing or corrupt.
  */
 
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -20,14 +21,14 @@ export interface McpEndpointFile {
   path: string
   url: string
   token: string
-  /** 写文件时的进程 pid，便于排查是谁在占端口 */
+  /** The pid of the process that wrote the file, so it is easy to tell who holds the port. */
   pid: number
   updatedAt: string
-  /** 给用户直接复制的接入命令 */
+  /** A ready-to-copy command for the user to register the endpoint. */
   hint: string
 }
 
-/** token 至少这么长才认为是有效的历史 token */
+/** Minimum length for a persisted token to be considered valid and reusable. */
 const MIN_TOKEN_LEN = 32
 
 export function defaultConfigDir(): string {
@@ -42,7 +43,7 @@ export function generateToken(): string {
   return randomBytes(32).toString('base64url')
 }
 
-/** 读出历史 token（文件不存在/损坏/token 太短都返回 null） */
+/** Read back a previously persisted token (returns null if the file is missing, corrupt, or the token is too short). */
 export function readExistingToken(configDir: string): string | null {
   try {
     const raw = readFileSync(configFilePath(configDir), 'utf8')
@@ -64,7 +65,7 @@ export interface WriteEndpointInput {
   token: string
 }
 
-/** 写入接入信息；目录 0700、文件 0600 */
+/** Write the endpoint details out; directory 0700, file 0600. */
 export function writeEndpointFile(input: WriteEndpointInput): McpEndpointFile {
   const url = `http://${input.host}:${input.port}${input.path}`
   const file: McpEndpointFile = {
@@ -82,21 +83,21 @@ export function writeEndpointFile(input: WriteEndpointInput): McpEndpointFile {
   mkdirSync(input.configDir, { recursive: true, mode: 0o700 })
   const target = configFilePath(input.configDir)
   writeFileSync(target, `${JSON.stringify(file, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
-  // mode 只在创建时生效，已存在的文件要显式收紧
+  // `mode` only applies at creation time, so an existing file must be tightened explicitly.
   try {
     chmodSync(target, 0o600)
   } catch {
-    // Windows 上 chmod 基本无意义，失败不影响功能
+    // chmod is largely meaningless on Windows; failing here does not break anything.
   }
   return file
 }
 
-/** 常数时间比较 bearer token，避免时序侧信道 */
+/** Constant-time bearer token comparison, to avoid a timing side channel. */
 export function tokenMatches(expected: string, actual: string): boolean {
   const a = Buffer.from(expected, 'utf8')
   const b = Buffer.from(actual, 'utf8')
   if (a.length !== b.length) {
-    // 长度不同也走一次比较，保持耗时稳定
+    // Still run one comparison even when the lengths differ, to keep the timing stable.
     timingSafeEqual(a, a)
     return false
   }

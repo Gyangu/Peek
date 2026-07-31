@@ -4,30 +4,31 @@ import { IPC, type ConnId, type ResultPortMessage } from '@peek/core'
 import type { DriverHostProcess } from './host-process'
 
 /**
- * 数据面直连（PLAN 第 3 节的性能关键路径）。
+ * The direct data-plane link (PLAN section 3's performance-critical path).
  *
  * ```
- * driver host ──MessagePort──► renderer      // chunk 数据，绝不经过 main
- *      ▲                                     // main 只做"端口移交"这一次动作
- *      └── main（控制面：connect / query.run / cancel）
+ * driver host ──MessagePort──► renderer      // chunk data; never passes through main
+ *      ▲                                     // main only ever performs the handover
+ *      └── main (control plane: connect / query.run / cancel)
  * ```
  *
- * 实现要点：
- * - `MessageChannelMain` 的两端都是 `MessagePortMain`：
- *   port1 通过 `utilityProcess.postMessage(msg, [port1])` 移交给 driver host，
- *   port2 通过 `webContents.postMessage(channel, msg, [port2])` 移交给 renderer，
- *   renderer 侧在 preload 里从 `event.ports[0]` 拿到标准 `MessagePort`。
- * - 移交之后 main 侧的引用即被 neuter，**不可能**再截获数据帧，
- *   这正是"避免大数据双跳序列化"的物理保证。
- * - renderer 可能还没起来（建连早于窗口 ready），port2 先寄存在这里；
- *   renderer 一旦 attach 就立刻交付。
- * - renderer 重新加载（刷新 / 热更）会让旧 port2 失效，此时必须**换一条新通道**，
- *   两端重新移交。
+ * Implementation notes:
+ * - Both ends of a `MessageChannelMain` are `MessagePortMain`s: port1 goes to the
+ *   driver host via `utilityProcess.postMessage(msg, [port1])`, port2 goes to the
+ *   renderer via `webContents.postMessage(channel, msg, [port2])`, and preload
+ *   picks up a standard `MessagePort` from `event.ports[0]` on the renderer side.
+ * - Once transferred, main's reference is neutered, so main **cannot** intercept
+ *   a data frame even in principle. That is the physical guarantee behind
+ *   "no double serialization hop for large data".
+ * - The renderer may not exist yet (a connection can open before the window is
+ *   ready), so port2 is parked here and delivered the moment the renderer attaches.
+ * - A renderer reload (refresh / HMR) invalidates the old port2, at which point a
+ *   **brand new channel** must be opened and both ends handed over again.
  */
 export class DataPlaneLink {
-  /** 已建好但还没交给 renderer 的那一端 */
+  /** The end that has been created but not yet given to the renderer */
   private pendingPort: MessagePortMain | null = null
-  /** 是否已经交付过 renderer（交付过就说明 main 手里没有可用端口了） */
+  /** Whether it has already been delivered (if so, main no longer holds a usable port) */
   private delivered = false
   private closed = false
 
@@ -41,12 +42,13 @@ export class DataPlaneLink {
   }
 
   /**
-   * 新建一条通道并把 host 那一端立刻移交过去。
-   * host 拿到端口就可以开始吐 chunk（renderer 还没接上时消息在端口里排队）。
+   * Open a new channel and hand the host end over immediately.
+   * With the port in hand the host can start emitting chunks; while the renderer
+   * is not attached yet, messages simply queue up in the port.
    */
   open(): void {
     if (this.closed) return
-    // 旧的没交出去就先丢掉，避免端口泄漏
+    // Drop any undelivered port first, so none leaks
     this.pendingPort?.close()
     this.pendingPort = null
 
@@ -63,9 +65,10 @@ export class DataPlaneLink {
   }
 
   /**
-   * 把 renderer 那一端交付出去。
-   * 已经交付过（renderer 重载）时会自动重开一条新通道再交付。
-   * @returns 是否成功交付
+   * Deliver the renderer end.
+   * If it was already delivered (a renderer reload), a fresh channel is opened
+   * automatically and that one is delivered instead.
+   * @returns whether delivery succeeded
    */
   deliver(wc: WebContents, pid?: number): boolean {
     if (this.closed) return false
@@ -73,7 +76,7 @@ export class DataPlaneLink {
 
     if (this.pendingPort === null) {
       if (!this.delivered) return false
-      // renderer 重载：旧端口已随旧文档销毁，换一条新的
+      // Renderer reload: the old port died with the old document, so make a new one
       this.open()
     }
     const port = this.pendingPort
@@ -89,7 +92,7 @@ export class DataPlaneLink {
     return true
   }
 
-  /** 幂等释放 */
+  /** Idempotent release */
   close(): void {
     this.closed = true
     this.pendingPort?.close()

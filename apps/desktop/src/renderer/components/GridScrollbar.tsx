@@ -1,17 +1,21 @@
 import { useCallback, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react'
+import { useT } from '../i18n'
 import { ROW_H, thumbGeom, type ScrollSnapshot, type VScrollDriver } from './vscroll'
 
 /* ==================================================================
- * 自绘纵向滚动条。
+ * The hand-drawn vertical scrollbar.
  *
- * 为什么必须自绘：`.grid` 已经是 overflow-y:hidden（纵轴脱离 DOM 尺寸，
- * 见 vscroll.ts 顶部），原生纵向滚动条根本不存在。
+ * Why it has to be hand-drawn: `.grid` is `overflow-y: hidden` (the vertical axis
+ * has no DOM size at all — see the top of vscroll.ts), so there is no native
+ * vertical scrollbar to have.
  *
- * 拖拽粒度的物理下限：600px 轨道 / 100 万行 ≈ 1px 1736 行，
- * 1000 万行 ≈ 1px 17361 行。**这和原生滚动条一模一样**，是"有限长度轨道映射
- * 无限行"的固有属性，不是自绘引入的。区别在于自绘能补救：
- * Shift 拖拽 10× 精调、Option 拖拽 50× 精调、拖拽时实时显示行号气泡。
+ * The physical floor on drag precision: a 600px track over 1M rows is ~1736 rows
+ * per pixel, and ~17,361 rows per pixel over 10M. **A native scrollbar is exactly
+ * the same**; that ratio is inherent to mapping unbounded rows onto a bounded
+ * track, not something this implementation introduces. What it does add is a way
+ * out: Shift-drag for 10× precision, Option-drag for 50×, and a live row-number
+ * bubble while dragging.
  * ================================================================== */
 
 interface DragState {
@@ -23,11 +27,12 @@ interface DragState {
 export interface GridScrollbarProps {
   driver: VScrollDriver
   snap: ScrollSnapshot
-  /** thumb 元素的 ref 回调：驱动器直接写它的 transform，不经过 React */
+  /** ref callback for the thumb: the driver writes its transform directly, bypassing React. */
   thumbRef: (el: HTMLDivElement | null) => void
 }
 
 export function GridScrollbar(p: GridScrollbarProps): ReactElement | null {
+  const t = useT()
   const { driver, snap, thumbRef } = p
   const dragRef = useRef<DragState | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -54,7 +59,7 @@ export function GridScrollbar(p: GridScrollbarProps): ReactElement | null {
       const m = driver.metrics
       const g = thumbGeom(m, m.bodyH)
       if (g.travel <= 0) return
-      // Shift 10×、Option 50× 精调：1px = 1736 行的粗调必须有细调兜底
+      // Shift 10×, Option 50×: a coarse mode of 1736 rows per pixel needs a fine one
       const gain = e.altKey ? 0.02 : e.shiftKey ? 0.1 : 1
       driver.scrollTo(d.startTop + ((e.clientY - d.grabY) * gain * m.maxTop) / g.travel)
       setBubbleRow(driver.metrics.visibleFirst)
@@ -75,7 +80,7 @@ export function GridScrollbar(p: GridScrollbarProps): ReactElement | null {
       const g = thumbGeom(m, m.bodyH)
       if (!g.visible) return
       const y = e.clientY - e.currentTarget.getBoundingClientRect().top
-      // 对齐 macOS：默认翻一屏，Option-click 直接跳到点击处
+      // Matching macOS: page by default, Option-click jumps straight to the spot
       if (e.altKey) {
         driver.scrollTo(g.travel > 0 ? ((y - g.height / 2) / g.travel) * m.maxTop : 0)
       } else {
@@ -102,7 +107,7 @@ export function GridScrollbar(p: GridScrollbarProps): ReactElement | null {
         aria-valuemin={0}
         aria-valuemax={snap.rowCount}
         aria-valuenow={snap.visibleFirst + 1}
-        aria-label="表格纵向滚动"
+        aria-label={t('grid.scrollbarLabel')}
         tabIndex={-1}
       />
       {dragging ? (
