@@ -1441,6 +1441,93 @@ body.view-dragging.view-drag-nodrop * {
   border-top: 1px solid var(--border);
 }
 
+/* The settings dialog: a category rail on the left, one section on the right.
+
+   A fixed height rather than one that follows the section, because the sections
+   are very different sizes — the MCP one is four times the About one — and a
+   dialog that resized as you clicked through it would move the rail out from
+   under the cursor. */
+.settings-modal {
+  width: min(760px, 90vw);
+  height: min(560px, 84vh);
+}
+
+.settings-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.settings-nav {
+  flex: 0 0 auto;
+  width: 148px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 6px;
+  background: var(--bg-2);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.settings-nav-item {
+  text-align: left;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-dim);
+}
+
+.settings-nav-item:hover {
+  background: var(--bg-3, var(--bg-1));
+  color: var(--fg);
+}
+
+.settings-nav-item.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+.settings-pane {
+  flex: 1;
+  min-width: 0;
+}
+
+/* One sentence of orientation at the top of a section: what these controls are
+   for, before the first label. */
+.settings-intro {
+  color: var(--fg-dim);
+  margin-bottom: 12px;
+}
+
+/* The sections use wider labels than the connect dialog — "Collection scan" and
+   "Connections" do not fit the 88px the form rows default to. */
+.settings-pane .form-row label {
+  width: 116px;
+}
+
+.settings-pane .form-hint {
+  margin-left: 124px;
+}
+
+/* Button rows line up with the fields they act on, not with the label column.
+   `.conn-actions` comes from the sidebar, where there is no label gutter to
+   miss. */
+.settings-pane .conn-actions {
+  margin-left: 124px;
+  margin-bottom: 10px;
+}
+
+/* A two-option picker stretched across a 760px dialog reads as two unrelated
+   buttons with a gap, not as one control. It only needs to be as wide as its
+   widest option. */
+.settings-pane .segmented {
+  flex: 0 0 auto;
+  min-width: 200px;
+}
+
 /* The conversation catalogue, as a rail down the right-hand side.
 
    Mirrors `.sidebar` on purpose — same border treatment, same head, same row

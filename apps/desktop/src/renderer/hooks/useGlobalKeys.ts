@@ -17,6 +17,7 @@
 import { useEffect } from 'react'
 import { findPanel, type PanelNode } from '@peek/core'
 import { dispatch } from '../state/dispatch'
+import { openSettings } from '../state/settingsDialogStore'
 import { readWorkspace } from '../state/workspaceStore'
 import { directionPlacement, findPanelInDirection, panelIdAt, type Direction } from './layout-nav'
 import { chordOf, resolveShortcut, type ShortcutAction } from './shortcuts'
@@ -33,6 +34,13 @@ export function useGlobalKeys(): void {
         return
       }
       e.preventDefault()
+      // The one action here that is not a Command. "A dialog is open" is not
+      // Workspace state — nothing persistent changes, and MCP has no use for the
+      // panel a human would have clicked through. See `settingsDialogStore`.
+      if (action.kind === 'openSettings') {
+        openSettings()
+        return
+      }
       runAction(action)
     }
     window.addEventListener('keydown', onKey)

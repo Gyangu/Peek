@@ -6,11 +6,11 @@ import { useErrorText, useT, type TFunction } from '../i18n'
 import { connCanUse, connHas } from '../state/capabilities'
 import { dispatch } from '../state/dispatch'
 import { invalidateConnection } from '../state/namespaceStore'
+import { openSettings } from '../state/settingsDialogStore'
 import { useConnections } from '../state/workspaceStore'
 import { buildConnectionRows, type ConnectionRow } from './connectionRows'
 import { ConnectDialog } from './ConnectDialog'
 import { FirstRunGuide } from './FirstRunGuide'
-import { McpSettingsDialog } from './McpSettingsDialog'
 
 /**
  * Connection list sidebar.
@@ -34,7 +34,6 @@ export function Sidebar(): ReactElement {
   const t = useT()
   const conns = useConnections()
   const [dialog, setDialog] = useState<{ initial?: SavedConnection } | null>(null)
-  const [settings, setSettings] = useState(false)
   const [active, setActive] = useState<string | null>(null)
   const [saved, setSaved] = useState<SavedConnection[]>([])
   const [secretsAvailable, setSecretsAvailable] = useState(true)
@@ -65,16 +64,6 @@ export function Sidebar(): ReactElement {
         <span>{t('sidebar.connections')}</span>
         <button
           className="ghost"
-          title={t('sidebar.settings')}
-          aria-label={t('sidebar.settings')}
-          onClick={() => {
-            setSettings(true)
-          }}
-        >
-          ⚙
-        </button>
-        <button
-          className="ghost"
           title={t('sidebar.newConnection')}
           aria-label={t('sidebar.newConnection')}
           onClick={() => {
@@ -91,7 +80,7 @@ export function Sidebar(): ReactElement {
               openConnectDialog()
             }}
             onOpenSettings={() => {
-              setSettings(true)
+              openSettings('mcp')
             }}
           />
         ) : (
@@ -123,13 +112,6 @@ export function Sidebar(): ReactElement {
           onClose={() => {
             setDialog(null)
             reloadBook()
-          }}
-        />
-      ) : null}
-      {settings ? (
-        <McpSettingsDialog
-          onClose={() => {
-            setSettings(false)
           }}
         />
       ) : null}

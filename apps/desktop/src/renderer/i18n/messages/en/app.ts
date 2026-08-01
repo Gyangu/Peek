@@ -37,8 +37,6 @@ export const app = {
     'Reloading rebuilds it from the state held in the main process. Connections stay open and nothing is lost.',
   'app.crash.reload': 'Reload the window',
 
-  'app.language.title': 'Language',
-
   /* ---- Error centre ------------------------------------------------
    * The panel that remembers failures past the toast that announced them.
    * `code`, view ids and connection labels inside an entry are identifiers and

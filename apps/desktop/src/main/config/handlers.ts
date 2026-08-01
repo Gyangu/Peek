@@ -1,7 +1,7 @@
 /**
- * The four commands that read and edit what peek keeps on disk.
+ * The six commands that read and edit what peek keeps on disk.
  *
- * All four are `read` handlers: they touch no Workspace state, bump no `rev` and
+ * All six are `read` handlers: they touch no Workspace state, bump no `rev` and
  * broadcast no patch, exactly like `state.read`. The connection book is not part
  * of the window's state — it is a file that outlives the session, and a window
  * that mirrored it would have two copies of the same list to keep in step for no
@@ -22,21 +22,35 @@ import { MCP_DEFAULT_HOST, MCP_DEFAULT_PORT, MCP_HTTP_PATH } from '@peek/core'
 import type {
   ConnBookForgetResult,
   ConnBookListResult,
+  ExecutionBudgets,
   McpConfigureResult,
   McpReadResult,
   McpStatus,
+  SettingsReadResult,
+  SettingsWriteResult,
 } from '@peek/core'
 import type { CommandHandlerMap } from '../bus/types'
+// Straight at the module, not through `../connections`: that barrel re-exports
+// `host-process.ts`, which imports Electron's `app`, and pulling Electron in
+// here would make these handlers unloadable in a plain Node test. `timeouts.ts`
+// itself touches neither a file nor Electron, by its own contract.
+import { getTimeoutSettings, setTimeoutSettings } from '../connections/timeouts'
 import type { ConnectionBook } from './connection-book'
 import type { McpController } from './mcp-controller'
+import { connectionsFilePath, settingsFilePath } from './paths'
+import type { SettingsStore } from './settings'
 
 export interface ConfigHandlerOptions {
   book: ConnectionBook
   mcp: McpController
+  settings: SettingsStore
+  configDir: string
+  /** `app.getVersion()`, injected so this module never imports Electron. */
+  version: string
 }
 
 export function createConfigHandlers(options: ConfigHandlerOptions): CommandHandlerMap {
-  const { book, mcp } = options
+  const { book, mcp, settings, configDir, version } = options
 
   return {
     'conn.book.list': {
@@ -76,6 +90,54 @@ export function createConfigHandlers(options: ConfigHandlerOptions): CommandHand
         }
       },
     },
+
+    'settings.read': {
+      read: (): SettingsReadResult => ({
+        execution: executionBudgets(),
+        paths: {
+          configDir,
+          settingsFile: settingsFilePath(configDir),
+          connectionsFile: connectionsFilePath(configDir),
+          // Owned by the MCP server, which writes it; asking the controller
+          // keeps one spelling of that path in the process rather than two.
+          mcpFile: mcp.status().configFile,
+        },
+        version,
+      }),
+    },
+
+    'settings.write': {
+      read: (_state, input): SettingsWriteResult => {
+        // Order matters. `setTimeoutSettings` drops entries it considers
+        // invalid and returns what actually took effect, so applying first and
+        // persisting its answer is what keeps the file from recording a value
+        // the process is not honouring.
+        const applied = setTimeoutSettings(input.execution ?? {})
+        const execution: ExecutionBudgets = {
+          queryMs: applied.queryMs,
+          scanMs: applied.scanMs,
+          vectorSearchMs: applied.vectorSearchMs,
+        }
+        // Only the keys the caller asked about are persisted: the other two stay
+        // absent from the file so they keep following the built-in default if we
+        // ever retune it.
+        const persisted: Partial<ExecutionBudgets> = {}
+        for (const key of ['queryMs', 'scanMs', 'vectorSearchMs'] as const) {
+          if (input.execution?.[key] !== undefined) persisted[key] = execution[key]
+        }
+        if (Object.keys(persisted).length > 0) settings.update({ executionTimeouts: persisted })
+        return { execution }
+      },
+    },
+  }
+}
+
+function executionBudgets(): ExecutionBudgets {
+  const current = getTimeoutSettings()
+  return {
+    queryMs: current.queryMs,
+    scanMs: current.scanMs,
+    vectorSearchMs: current.vectorSearchMs,
   }
 }
 
@@ -124,5 +186,28 @@ export const unavailableConfigHandlers = {
       tokenRotated: false,
       previousPort: null,
     }),
+  },
+  // The timeouts are real even here — `connections/timeouts.ts` is a module-level
+  // singleton that needs no assembly — so these report the truth rather than
+  // zeroes. Only the paths are unknowable before a config dir is resolved.
+  'settings.read': {
+    read: (): SettingsReadResult => ({
+      execution: executionBudgets(),
+      paths: { configDir: '', settingsFile: '', connectionsFile: '', mcpFile: '' },
+      version: '',
+    }),
+  },
+  'settings.write': {
+    read: (_state, input): SettingsWriteResult => {
+      // Applied but not persisted: there is no settings file to write to yet.
+      const applied = setTimeoutSettings(input.execution ?? {})
+      return {
+        execution: {
+          queryMs: applied.queryMs,
+          scanMs: applied.scanMs,
+          vectorSearchMs: applied.vectorSearchMs,
+        },
+      }
+    },
   },
 } satisfies CommandHandlerMap

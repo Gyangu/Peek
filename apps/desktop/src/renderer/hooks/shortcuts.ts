@@ -20,6 +20,7 @@
  *   ⌘⌥ ← ↑ ↓ →    move focus geometrically
  *   ⌘⇧ ← ↑ ↓ →    move the focused view into the panel that way (swap on arrival)
  *   ⌘⌥⇧ ← ↑ ↓ →   move the focused view *past* that panel, into a new one
+ *   ⌘,            open settings
  *   Esc           leave the text editor, so the chords above become reachable again
  *
  * ## Two chords changed meaning when panels grew tabs
@@ -120,6 +121,8 @@ export type ShortcutAction =
   | { kind: 'cycleTab'; delta: 1 | -1 }
   /** Drop DOM focus so the window's chords are reachable again. */
   | { kind: 'leaveTextEntry' }
+  /** Open the settings dialog. The one action here that is not a Command. */
+  | { kind: 'openSettings' }
 
 /** Highest panel index reachable by a digit; ⌘⌥1 … ⌘⌥9. */
 export const MAX_PANEL_DIGIT = 9
@@ -163,6 +166,14 @@ export function resolveShortcut(chord: KeyChord, ctx: ShortcutContext): Shortcut
     if (chord.alt) return { kind: 'focusDirection', dir }
     if (chord.shift) return { kind: 'moveViewDirection', dir }
     return null
+  }
+
+  // ⌘, / Ctrl+, — settings, as in every desktop application. By `code` for the
+  // same reason as Backslash below, and deliberately **not** standing down
+  // inside a text editor: CodeMirror binds nothing on Mod+Comma, and "open
+  // settings" is not an editing operation that a query editor could own.
+  if (chord.code === 'Comma' && !chord.alt && !chord.shift) {
+    return { kind: 'openSettings' }
   }
 
   // Backslash by `code`, not by `key`: with Shift held a US layout reports '|',

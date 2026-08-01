@@ -1,9 +1,11 @@
 import type { ReactElement } from 'react'
 import { useAnnouncement, useGlobalKeys, useLayoutAnnouncer } from '../hooks'
 import { useT } from '../i18n'
+import { openSettings } from '../state/settingsDialogStore'
 import { useWorkspaceStore } from '../state/workspaceStore'
 import { ChatSessionsRail } from './chat'
 import { LayoutTree } from './LayoutTree'
+import { SettingsDialog } from './settings'
 import { Sidebar } from './Sidebar'
 import { StatusBar } from './StatusBar'
 import { Toasts } from './Toasts'
@@ -30,6 +32,20 @@ export function App(): ReactElement {
             {t('app.syncing')}
           </span>
         ) : null}
+        {/* The titlebar is the only surface that belongs to the window rather
+            than to a connection or a panel, which is exactly what settings are.
+            The gear used to sit on the connection list's title row, where it
+            read as "settings for connections". */}
+        <button
+          className="ghost"
+          title={t('settings.open')}
+          aria-label={t('settings.open')}
+          onClick={() => {
+            openSettings()
+          }}
+        >
+          ⚙
+        </button>
       </div>
 
       <div className="body">
@@ -45,6 +61,10 @@ export function App(): ReactElement {
       </div>
 
       <StatusBar />
+      {/* Mounted here, not inside the sidebar: it is opened from the titlebar,
+          from `⌘,` and from the first-run guide, and it must outlive any of
+          them unmounting. Renders nothing while closed. */}
+      <SettingsDialog />
       <Toasts />
       <LiveRegion />
     </div>

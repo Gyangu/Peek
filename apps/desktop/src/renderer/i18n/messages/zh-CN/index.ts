@@ -8,6 +8,7 @@ import { errors } from './errors'
 import { grid } from './grid'
 import { keyboard } from './keyboard'
 import { panel } from './panel'
+import { settings } from './settings'
 import { sidebar } from './sidebar'
 import { views } from './views'
 
@@ -19,6 +20,7 @@ import { views } from './views'
 export const zhCN: CatalogFor<Messages> = {
   ...app,
   ...sidebar,
+  ...settings,
   ...panel,
   ...grid,
   ...keyboard,

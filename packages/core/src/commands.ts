@@ -72,6 +72,8 @@ export const COMMAND_NAMES = [
   'conn.book.forget',
   'mcp.read',
   'mcp.configure',
+  'settings.read',
+  'settings.write',
 ] as const
 
 export type CommandName = (typeof COMMAND_NAMES)[number]
@@ -989,6 +991,47 @@ export const McpConfigureInputSchema = z
     message: 'mcp.configure needs a port, a token rotation, or both',
   })
 
+export const SettingsReadInputSchema = z.object({})
+
+/**
+ * A whole-fetch deadline, in milliseconds.
+ *
+ * `0` is legal and means **no deadline** — the honest spelling of "let it run",
+ * and the reason this is non-negative rather than positive. The ceiling matches
+ * the one main enforces (~1 hour), so a value that passes here is one main will
+ * actually keep rather than silently drop.
+ */
+const ExecutionTimeoutMsSchema = z.number().int().min(0).max(3_600_000)
+
+/**
+ * Change the settings that live in `~/.peek/settings.json`.
+ *
+ * Only execution budgets today. The stage timeouts of the driver-host protocol
+ * are deliberately absent: they bound one leg of an internal protocol and are
+ * the app protecting itself from a wedged process, not a preference — see
+ * `docs/design/2026-08-02-settings-panel.md` §3.2.
+ *
+ * Every member is optional and only what is present is changed, so a form that
+ * edits one field does not have to send the other two back unchanged and risk
+ * clobbering a concurrent edit.
+ */
+export const SettingsWriteInputSchema = z
+  .object({
+    execution: z
+      .object({
+        /** Free-form query (`query.run`) */
+        queryMs: ExecutionTimeoutMsSchema.optional(),
+        /** Collection scan (`collection.scan`) */
+        scanMs: ExecutionTimeoutMsSchema.optional(),
+        /** Vector search (`vector.search`) */
+        vectorSearchMs: ExecutionTimeoutMsSchema.optional(),
+      })
+      .optional(),
+  })
+  .refine((value) => value.execution !== undefined && Object.keys(value.execution).length > 0, {
+    message: 'settings.write needs at least one setting to change',
+  })
+
 /* ================================================================== */
 /* 3. Registry: command name → input schema                            */
 /* ================================================================== */
@@ -1028,6 +1071,8 @@ export const commandSchemas = {
   'conn.book.forget': ConnBookForgetInputSchema,
   'mcp.read': McpReadInputSchema,
   'mcp.configure': McpConfigureInputSchema,
+  'settings.read': SettingsReadInputSchema,
+  'settings.write': SettingsWriteInputSchema,
 } as const satisfies Record<CommandName, z.ZodType>
 
 export type CommandSchemas = typeof commandSchemas
@@ -1393,6 +1438,52 @@ export interface McpConfigureResult extends McpStatus {
   previousPort: number | null
 }
 
+/* ------------------------------------------------------------------ */
+/* Settings                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The whole-fetch deadlines in force, in milliseconds. `0` means no deadline.
+ *
+ * Named after the three things a driver can be asked to stream, because that is
+ * what the numbers actually bound — not "the UI", not "a view".
+ */
+export interface ExecutionBudgets {
+  queryMs: number
+  scanMs: number
+  vectorSearchMs: number
+}
+
+/**
+ * Where peek keeps what it keeps, as absolute paths.
+ *
+ * Reported rather than reconstructed by the caller: `~/.peek` moves with
+ * `PEEK_CONFIG_DIR`, and a renderer that spelled the path itself would be
+ * confidently wrong on exactly the machines where it matters.
+ */
+export interface SettingsPaths {
+  configDir: string
+  settingsFile: string
+  connectionsFile: string
+  mcpFile: string
+}
+
+export interface SettingsReadResult {
+  execution: ExecutionBudgets
+  paths: SettingsPaths
+  /** The app version, as Electron reports it. */
+  version: string
+}
+
+export interface SettingsWriteResult {
+  /**
+   * What actually took effect — not what was asked for. Invalid entries are
+   * dropped rather than rejected (see `setTimeoutSettings`), so this is the only
+   * honest answer to "what is the timeout now".
+   */
+  execution: ExecutionBudgets
+}
+
 export interface CommandResultMap {
   'conn.open': ConnOpenResult
   'conn.close': ConnCloseResult
@@ -1423,6 +1514,8 @@ export interface CommandResultMap {
   'conn.book.forget': ConnBookForgetResult
   'mcp.read': McpReadResult
   'mcp.configure': McpConfigureResult
+  'settings.read': SettingsReadResult
+  'settings.write': SettingsWriteResult
 }
 
 /** Compile-time assertion: every command needs a result type — miss one and this line goes red */

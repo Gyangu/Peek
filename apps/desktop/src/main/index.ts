@@ -16,6 +16,7 @@ import {
   resolveConfigDir,
   type ConnectionBook,
   type McpController,
+  type SettingsStore,
 } from './config'
 import {
   createAcpChatRuntime,
@@ -23,7 +24,7 @@ import {
   createContextSource,
   createDeltaEmitter,
 } from './chat-host'
-import { ConnectionManager } from './connections'
+import { ConnectionManager, setTimeoutSettings } from './connections'
 import { createMcpServer } from './mcp'
 import { WorkspaceStore, createResultEventSink } from './store'
 import { installDriverRpc, type DriverRpcOptions } from './driver-rpc'
@@ -420,7 +421,12 @@ function createWindow(): BrowserWindow {
 /* 5. MCP HTTP Server                                                  */
 /* ================================================================== */
 
-function buildMcpController(commandBus: CommandBus, rows: ResultRowsBroker, configDir: string): McpController {
+function buildMcpController(
+  commandBus: CommandBus,
+  rows: ResultRowsBroker,
+  configDir: string,
+  settings: SettingsStore,
+): McpController {
   // An integration knob, in the same spirit as PEEK_SMOKE_EXIT_MS below: a smoke
   // run has to be able to start beside an already-installed peek without taking
   // its port. It **overrides the stored preference** rather than writing to it,
@@ -430,7 +436,7 @@ function buildMcpController(commandBus: CommandBus, rows: ResultRowsBroker, conf
 
   return createMcpController({
     configDir,
-    settings: createSettingsStore(configDir),
+    settings,
     ...(Number.isInteger(portOverride) && portOverride > 0 ? { forcedPort: portOverride } : {}),
     create: ({ port, token }) =>
       createMcpServer({
@@ -526,12 +532,32 @@ function bootstrap(): void {
     })
   }
 
-  // Reads and edits of what is on disk: the connection book, and the MCP
-  // endpoint's port and token. `read` handlers, so none of them touch the
-  // Workspace — see config/handlers.ts.
-  const controller = buildMcpController(commandBus, rows, configDir)
+  // One store, shared. Two `createSettingsStore` calls over the same path would
+  // each cache the file, and the second write would silently drop the first.
+  const settings = createSettingsStore(configDir)
+
+  // Timeouts are a module-level singleton in `connections/timeouts.ts`, applied
+  // rather than injected. This must happen before any connection is opened —
+  // hence here, ahead of `createWindow()`. Invalid entries are dropped by
+  // `setTimeoutSettings` itself, so a hand-edited file cannot leave the app with
+  // no deadlines at all.
+  const persistedTimeouts = settings.read().executionTimeouts
+  if (persistedTimeouts) setTimeoutSettings(persistedTimeouts)
+
+  // Reads and edits of what is on disk: the connection book, the MCP endpoint's
+  // port and token, and the settings file. `read` handlers, so none of them
+  // touch the Workspace — see config/handlers.ts.
+  const controller = buildMcpController(commandBus, rows, configDir, settings)
   mcp = controller
-  commandBus.registerAll(createConfigHandlers({ book, mcp: controller }))
+  commandBus.registerAll(
+    createConfigHandlers({
+      book,
+      mcp: controller,
+      settings,
+      configDir,
+      version: app.getVersion(),
+    }),
+  )
 
   createWindow()
 

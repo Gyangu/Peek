@@ -271,6 +271,36 @@ describe('resolveShortcut — the editor wins the arrows', () => {
   })
 })
 
+describe('resolveShortcut — settings', () => {
+  it('⌘, and Ctrl+, both open settings', () => {
+    for (const mod of [{ meta: true }, { ctrl: true }]) {
+      assert.deepEqual(resolveShortcut(chord({ key: ',', code: 'Comma', ...mod }), WINDOW), {
+        kind: 'openSettings',
+      })
+    }
+  })
+
+  it('still opens settings from inside the query editor', () => {
+    // Unlike the arrow families, this one does not stand down: CodeMirror binds
+    // nothing on Mod+Comma, and "open settings" is not an editing operation the
+    // editor could plausibly own.
+    assert.deepEqual(resolveShortcut(chord({ key: ',', code: 'Comma', meta: true }), EDITOR), {
+      kind: 'openSettings',
+    })
+  })
+
+  it('is read off `code`, so a layout where Shift moves the comma cannot fire it', () => {
+    // ⌘⇧, is '<' on a US layout and something else elsewhere. Neither is settings.
+    assert.equal(resolveShortcut(chord({ key: '<', code: 'Comma', meta: true, shift: true }), WINDOW), null)
+    assert.equal(resolveShortcut(chord({ key: ',', code: 'Comma', meta: true, alt: true }), WINDOW), null)
+  })
+
+  it('a bare comma is just a comma', () => {
+    assert.equal(resolveShortcut(chord({ key: ',', code: 'Comma' }), WINDOW), null)
+    assert.equal(resolveShortcut(chord({ key: ',', code: 'Comma' }), EDITOR), null)
+  })
+})
+
 describe('shortcutHints', () => {
   it('spells the modifiers the way the keyboard in front of the user does', () => {
     assert.deepEqual(shortcutHints(true), {

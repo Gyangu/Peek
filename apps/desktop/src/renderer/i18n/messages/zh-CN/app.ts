@@ -22,8 +22,6 @@ export const app: CatalogFor<AppMessages> = {
   'app.crash.body': '重新加载会依据主进程中的状态重建窗口；连接保持不变，不会丢失任何内容。',
   'app.crash.reload': '重新加载窗口',
 
-  'app.language.title': '界面语言',
-
   /* ---- 错误中心 ---- */
   'app.errors.title': '错误日志',
   'app.errors.count': { other: '{count} 条错误' },

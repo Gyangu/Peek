@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 import type { ViewState } from '@peek/core'
 import { RESULT_CACHE_MAX_BYTES, collectPanels, collectionRefLabel, describeView, findPanel } from '@peek/core'
 import { isMacPlatform, shortcutHints } from '../hooks'
-import { LOCALES, setLocale, useLocale, useT, type TFunction } from '../i18n'
+import { useT, type TFunction } from '../i18n'
 import { dispatch, useBusyStore } from '../state/dispatch'
 import { useCacheStats, useResult } from '../state/useResult'
 import { useWorkspace, useWorkspaceStore } from '../state/workspaceStore'
@@ -96,8 +96,6 @@ export function StatusBar(): ReactElement {
       {/* The one place in the window that remembers a failure past the toast that
           announced it. Silent until something has actually gone wrong. */}
       <ErrorCenterButton />
-
-      <LanguageSwitch />
 
       <span className="seg mono" title={t('status.revTitle')}>
         rev {ws?.rev ?? '—'}
@@ -248,34 +246,6 @@ function describeViewLocalized(t: TFunction, view: ViewState): string {
 /* ------------------------------------------------------------------ */
 
 /**
- * The language switch.
- *
- * Cycles rather than opening a menu: with two locales a menu is more clicks than
- * the thing it opens, and the code stays correct for a third — the button always
- * shows the language you would get next.
- *
- * Locale names are endonyms and never go through `t()`; a picker that says
- * "Chinese" to someone who only reads Chinese helps nobody.
- */
-function LanguageSwitch(): ReactElement {
-  const t = useT()
-  const locale = useLocale()
-  const index = LOCALES.findIndex((l) => l.id === locale)
-  const next = LOCALES[(index + 1) % LOCALES.length] ?? LOCALES[0]
-  return (
-    <button
-      className="ghost seg"
-      title={t('app.language.title')}
-      onClick={() => {
-        setLocale(next.id)
-      }}
-    >
-      {next.label}
-    </button>
-  )
-}
-
-/**
  * New conversation, and the switch for the conversation rail.
  *
  * Two buttons rather than one, because they answer two different questions —
@@ -319,3 +289,4 @@ function ChatEntry(): ReactElement {
     </>
   )
 }
+
