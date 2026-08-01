@@ -1,4 +1,15 @@
-import { peekError, toPeekError, type PeekError, type PeekErrorCode } from '@peek/core'
+import {
+  classifyAbortError,
+  classifyNetworkError,
+  classifyTimeoutError,
+  isNetworkErrorCode,
+  peekError,
+  readErrno,
+  toPeekError,
+  type MapDriverErrorContext,
+  type PeekError,
+  type PeekErrorCode,
+} from '@peek/core'
 
 /**
  * Redis error classification.
@@ -10,14 +21,15 @@ import { peekError, toPeekError, type PeekError, type PeekErrorCode } from '@pee
  * verbatim with no `i18n` descriptor.
  *
  * Redis has no SQLSTATE. What it has is an error *prefix* — the first token of
- * the reply — which plays the same role and is what this maps on.
+ * the reply — which plays the same role and is what this maps on. That table is
+ * the only redis-specific part; aborts, socket errnos and bare timeout messages
+ * go through core's shared `classify*Error` helpers.
+ *
+ * The **order** below is load-bearing and therefore stays here rather than moving
+ * into a single core call: the reply prefix has to be tested before the timeout
+ * regex, or `ERR ... timed out` — a perfectly ordinary reply error — is relabelled
+ * a transport timeout.
  */
-
-/** node network-layer errnos → CONNECTION_FAILED */
-const NET_ERROR_CODES = new Set([
-  'ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ENETUNREACH',
-  'ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'EAI_AGAIN', 'EACCES',
-])
 
 /**
  * Redis reply-error prefixes worth distinguishing.
@@ -78,8 +90,7 @@ const PER_COMMAND_REFUSAL_PREFIXES = new Set(['NOPERM', 'ERR', 'WRONGTYPE', 'OOM
 /** True when the failure is the server refusing one command, not the connection failing */
 export function isRedisCommandRefusal(value: unknown): boolean {
   if (!(value instanceof Error)) return false
-  const errno = (value as unknown as Record<string, unknown>)['code']
-  if (typeof errno === 'string' && NET_ERROR_CODES.has(errno)) return false
+  if (isNetworkErrorCode(readErrno(value))) return false
   const prefix = redisErrorPrefix(value.message)
   return prefix !== undefined && PER_COMMAND_REFUSAL_PREFIXES.has(prefix)
 }
@@ -91,11 +102,9 @@ export function redisErrorPrefix(message: string): string | undefined {
   return /^[A-Z]{3,}$/.test(first) ? first : undefined
 }
 
-export interface MapRedisErrorContext {
+export interface MapRedisErrorContext extends MapDriverErrorContext {
   /** The command that failed, e.g. 'HSCAN user:42 0 COUNT 200'; goes into `detail` */
   command?: string
-  /** Code to use when nothing matches */
-  fallback?: PeekErrorCode
 }
 
 /**
@@ -107,17 +116,9 @@ export function mapRedisError(value: unknown, ctx: MapRedisErrorContext = {}): P
   const detail = ctx.command === undefined ? {} : { detail: `COMMAND: ${ctx.command}` }
 
   if (value instanceof Error) {
-    if (value.name === 'AbortError') {
-      return peekError('CANCELLED', value.message || 'Operation cancelled')
-    }
-    const errno = (value as unknown as Record<string, unknown>)['code']
-    if (typeof errno === 'string' && NET_ERROR_CODES.has(errno)) {
-      return peekError('CONNECTION_FAILED', value.message, {
-        driverCode: errno,
-        retryable: true,
-        ...detail,
-      })
-    }
+    const early = classifyAbortError(value) ?? classifyNetworkError(value, detail)
+    if (early !== null) return early
+
     const prefix = redisErrorPrefix(value.message)
     if (prefix !== undefined) {
       const code = PREFIX_CODES[prefix] ?? fallback
@@ -127,9 +128,8 @@ export function mapRedisError(value: unknown, ctx: MapRedisErrorContext = {}): P
         ...detail,
       })
     }
-    if (/timed? ?out/i.test(value.message)) {
-      return peekError('TIMEOUT', value.message, { retryable: true, ...detail })
-    }
+    const timedOut = classifyTimeoutError(value, detail)
+    if (timedOut !== null) return timedOut
     if (/connection is closed|socket closed|stream isn'?t writeable|disconnect/i.test(value.message)) {
       return peekError('CONNECTION_LOST', value.message, { retryable: true, ...detail })
     }

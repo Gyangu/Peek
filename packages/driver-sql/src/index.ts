@@ -52,7 +52,7 @@ export {
   type SqlIntrospectorOptions,
 } from './introspect'
 export { SqlValuePeeker, type SqlResultSource, type SqlValuePeekerOptions } from './peek'
-export { mapSqlError, RETRYABLE_NET_CODES, type MapSqlErrorContext } from './errors'
+export { mapSqlError, type MapSqlErrorContext } from './errors'
 export { normalizeCell, estimateCellBytes, type NormalizeContext } from './values'
 
 export type {

@@ -30,12 +30,11 @@
  *   re-sync). `core/ipc.ts` does not declare either yet; `transcriptStore.ts`
  *   probes for them at runtime and degrades visibly when they are missing,
  *   rather than showing an empty conversation that looks like a working one.
- * - **i18n** — the chat strings live in `messages.en.ts` / `messages.zh-CN.ts`
- *   here for now, so that parallel work does not collide in the shared catalog
- *   index. `i18n.ts` documents the three-line fold-in.
- *
- * One key this directory cannot supply: `view.kind.chat`, which `viewTitleOf`
- * needs for the tab title. It belongs in the shared catalog.
+ * - **i18n** — ordinary `useT()` from `../../i18n`, against `chat.*` keys in
+ *   `i18n/messages/{en,zh-CN}/chat.ts`. The panel used to carry a private
+ *   catalog and a `useChatT` of its own, to keep parallel work from colliding in
+ *   the shared index while it was being built; that has been folded in, and the
+ *   panel now has no i18n machinery of its own.
  */
 
 export { ChatView } from './ChatView'
@@ -74,6 +73,3 @@ export {
 
 /** For the data views: they own the "attach what is selected" gesture. */
 export { attachToChat, detachFromChat } from './chatCommands'
-
-export { chatEn, chatZhCN } from './i18n'
-export type { ChatMessageKey, ChatMessages } from './i18n'

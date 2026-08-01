@@ -4,7 +4,6 @@ import type { ChatAttachment, ChatAttachmentReceipt, ChatMessage } from '@peek/c
 import { useErrorText, useT } from '../../i18n'
 import { detailFor } from '../context-actions/chipDetail'
 import { attachmentKindKey, attachmentLabel } from './attachments'
-import { useChatT } from './i18n'
 import { Markdown } from './Markdown'
 import { ToolCallCard } from './ToolCallCard'
 
@@ -20,7 +19,7 @@ export const MessageItem = memo(function MessageItem({
 }: {
   message: ChatMessage
 }): ReactElement {
-  const t = useChatT()
+  const t = useT()
   const errorText = useErrorText(message.error)
   const isUser = message.role === 'user'
 
@@ -114,7 +113,7 @@ function stopKey(
  * appear.
  */
 function ThoughtBlock({ text }: { text: string }): ReactElement {
-  const t = useChatT()
+  const t = useT()
   const [open, setOpen] = useState(false)
   return (
     <div className={`chat-thought${open ? ' open' : ''}`}>
@@ -156,13 +155,12 @@ function AttachmentReceipt({
   attachment: ChatAttachment
   receipt: ChatAttachmentReceipt | undefined
 }): ReactElement {
-  const t = useChatT()
-  const tt = useT()
+  const t = useT()
   const detail = detailFor(
     receipt === undefined
       ? undefined
       : { ...(receipt.notice ? { notice: receipt.notice } : {}), ...(receipt.failed === true ? { failed: true } : {}) },
-    tt,
+    t,
   )
   return (
     <span className={`chat-chip receipt${receipt?.failed === true ? ' failed' : ''}`}>

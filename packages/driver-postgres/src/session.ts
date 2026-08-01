@@ -2,7 +2,9 @@ import {
   DEFAULT_PAGE_LIMIT,
   DRIVER_CAPABILITIES,
   MAX_PAGE_LIMIT,
+  decodeRowOffsetCursor,
   peekErrorMsg,
+  rowOffsetCursor,
   type ByteRange,
   type Capability,
   type ChunkDone,
@@ -68,6 +70,39 @@ const POOL_MAX = 8
  * see cancel()).
  */
 const CANCEL_CONNECT_TIMEOUT_MS = 1_500
+
+/**
+ * Ceiling on the cancellation sweep close() runs before it tears anything down.
+ *
+ * The sweep is the fast path, not the guarantee: one extra handshake plus a
+ * `pg_cancel_backend` round trip, and every cursor's cancel goes out in
+ * parallel. This budget exists for the case where that side channel is itself
+ * unavailable — the server is gone, or `max_connections` is exhausted — where
+ * waiting for it would make disconnect *slower* than it was before the sweep
+ * existed. Past the budget close() carries on with the teardown it always did.
+ */
+const CLOSE_CANCEL_BUDGET_MS = 2_000
+
+/**
+ * Wait for `work`, but never longer than `ms`, and never reject.
+ *
+ * Used only by close(), where both properties are the point: a teardown step
+ * that throws must not abandon the steps after it, and a teardown step that
+ * hangs must not hold the whole disconnect open. Work that outlives the budget
+ * is left running — the alternative is waiting for it, which is what the budget
+ * exists to avoid.
+ */
+function withBudget(work: Promise<unknown>, ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    timer.unref?.()
+    const done = (): void => {
+      clearTimeout(timer)
+      resolve()
+    }
+    work.then(done, done)
+  })
+}
 
 function clampInt(value: number | undefined, min: number, max: number): number | undefined {
   if (value === undefined) return undefined
@@ -207,9 +242,45 @@ export class PostgresSession implements DriverSession {
   /* Lifecycle                                                         */
   /* ---------------------------------------------------------------- */
 
+  /**
+   * Close the session — and stop the server working on results nobody will ever
+   * collect.
+   *
+   * **The cancellation sweep is not optional politeness.** Closing a cursor sends
+   * ROLLBACK on that cursor's own connection, and a connection with a statement
+   * in flight will not look at ROLLBACK until the statement finishes. So on a
+   * disconnect (or an app quit) taken while a scan is running, the ROLLBACK
+   * queued behind it, close() never returned, and the backend kept executing.
+   * Measured against a real server: quit the app during `SELECT pg_sleep(120)`
+   * and two minutes later `pg_stat_activity` still showed that backend `active`
+   * on `FETCH FORWARD`. Every local resource was reclaimed correctly; the
+   * database was the one still paying, and a two-hour analytical query could not
+   * be stopped by closing peek.
+   *
+   * `cancel()` already had the answer — pg_cancel_backend over a connection of
+   * its own, precisely because the cursor's connection is busy — so this is a
+   * matter of spending it here too, *before* anything waits on a busy connection.
+   * Once the cancel lands the in-flight FETCH fails with 57014, the ROLLBACK gets
+   * its turn, and the whole teardown proceeds at its normal speed.
+   *
+   * Ordering is the entire fix: cancel every active result, then close cursors,
+   * then end the pool.
+   */
   async close(): Promise<void> {
     if (this.closed) return
+    // Set before the first await: `assertOpen` is what stops a new cursor being
+    // started underneath the sweep and surviving it.
     this.closed = true
+
+    // Bounded, because a side channel that cannot connect must not make
+    // disconnect slower than it used to be. `cancel()` and not a bespoke path:
+    // it already handles the cursor that has no backend pid yet, and it is the
+    // code the cancellation tests exercise.
+    await withBudget(
+      Promise.all([...this.active.keys()].map((id) => this.cancel(id).catch(() => false))),
+      CLOSE_CANCEL_BUDGET_MS,
+    )
+
     const cursors = [...this.active.values()]
     this.active.clear()
     this.sources.clear()
@@ -280,12 +351,13 @@ export class PostgresSession implements DriverSession {
     this.assertOpen()
     const rel = PgIntrospector.requireRelation(req.ref)
 
-    // cursorToken is the absolute offset at the end of the previous page; when
-    // present it overrides offset
-    const tokenOffset = req.cursorToken === undefined ? undefined : Number(req.cursorToken)
-    if (req.cursorToken !== undefined && !Number.isFinite(tokenOffset)) {
-      throw peekErrorMsg('BAD_REQUEST', 'error.sql.invalidCursorToken', { token: req.cursorToken })
-    }
+    // cursorToken is core's ScanCursor: an absolute row offset as the boundary,
+    // no intra-page skip (LIMIT/OFFSET addresses rows directly). Decoding it in
+    // core is what makes a token minted by another driver a BAD_REQUEST instead
+    // of a page of plausible-looking wrong rows.
+    const tokenOffset = req.cursorToken === undefined
+      ? undefined
+      : decodeRowOffsetCursor(req.cursorToken, 'postgres')
     const offset = clampInt(tokenOffset ?? req.offset ?? 0, 0, Number.MAX_SAFE_INTEGER) ?? 0
     const limit = clampInt(req.limit ?? DEFAULT_PAGE_LIMIT, 0, MAX_PAGE_LIMIT) ?? DEFAULT_PAGE_LIMIT
 
@@ -302,7 +374,7 @@ export class PostgresSession implements DriverSession {
 
     // A full page usually means there is more, so hand back a cursor for the next one
     const finish = (rows: number): Pick<ChunkDone, 'truncated' | 'nextCursor'> =>
-      rows >= limit && limit > 0 ? { nextCursor: String(offset + rows) } : {}
+      rows >= limit && limit > 0 ? { nextCursor: rowOffsetCursor('postgres', offset + rows) } : {}
 
     return this.startCursor(req.resultId, built.text, built.params, {
       columnHints: hints,

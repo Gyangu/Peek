@@ -5,8 +5,8 @@ import type {
   CollectionSchemaInfo,
   ConnectionConfig,
   FilterSpec,
-  KeyValueReadOptions,
   KeyValueResult,
+  KeyValueWindow,
   NamespaceNode,
   PeekedValue,
   ServerInfo,
@@ -169,12 +169,13 @@ export type DriverRpcRequest =
   | { kind: 'keyValue'; connId: ConnId; ref: ValueRef; window?: KeyValueWindow }
 
 /**
- * The serializable half of `KeyValueReadOptions`: everything except the
- * AbortSignal, which cannot survive structured clone. Identical to
- * `HostParams<'keyvalue.get'>` minus the ref, and deliberately declared once so
- * the renderer, main and the host cannot drift apart on window semantics.
+ * `KeyValueWindow` — the serializable half of a read window — is declared in
+ * capability.ts, next to the `KeyValueReadOptions` union it validates into, and
+ * re-exported through the package barrel. It is deliberately *not*
+ * `Omit<KeyValueReadOptions, 'signal'>`: an Omit over a union collapses to the
+ * fields the members have in common, which for that union is `limit` alone.
  */
-export type KeyValueWindow = Omit<KeyValueReadOptions, 'signal'>
+export type { KeyValueWindow } from './capability'
 
 export type DriverRpcKind = DriverRpcRequest['kind']
 
@@ -387,14 +388,12 @@ export interface HostRpcMap {
     result: { resultId: ResultId }
   }
   'keyvalue.get': {
-    /** The window selectors mirror KeyValueReadOptions minus its AbortSignal, which cannot cross a process boundary */
-    params: {
-      ref: ValueRef
-      limit?: number
-      offset?: number
-      cursorToken?: string
-      match?: string
-    }
+    /**
+     * `ref` plus the flat `KeyValueWindow`. It stays flat across the boundary
+     * because a process boundary is where types stop being enforced; the host
+     * validates it into the `KeyValueReadOptions` union on arrival.
+     */
+    params: KeyValueWindow & { ref: ValueRef }
     result: { value: KeyValueResult }
   }
   'value.peek': {

@@ -1,4 +1,13 @@
-import { peekError, toPeekError, type PeekError, type PeekErrorCode } from '@peek/core'
+import {
+  classifyTransportError,
+  isNetworkErrorCode,
+  isRetryableErrorCode,
+  peekError,
+  toPeekError,
+  type MapDriverErrorContext,
+  type PeekError,
+  type PeekErrorCode,
+} from '@peek/core'
 
 /**
  * PostgreSQL error classification.
@@ -14,6 +23,11 @@ import { peekError, toPeekError, type PeekError, type PeekErrorCode } from '@pee
  * prose, it is evidence: the user searches for it, diffs it against the server
  * log, and spots the typo in it. `detail`, `driverCode` and `position` are
  * likewise never translated.
+ *
+ * Only the SQLSTATE table below is postgres-specific. Aborts, socket errnos and
+ * bare timeout messages are classified by `classifyTransportError` in core, which
+ * is shared with the other three drivers — see the note on it for why that split
+ * is where it is.
  */
 
 /** The shape of pg's DatabaseError (@types/pg marks every field optional; only these are used) */
@@ -49,12 +63,6 @@ function asPgError(value: unknown): PgErrorShape | null {
   if (typeof v['severity'] === 'string') out.severity = v['severity']
   return out
 }
-
-/** node network-layer errnos → CONNECTION_FAILED */
-const NET_ERROR_CODES = new Set([
-  'ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ENETUNREACH',
-  'ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'EAI_AGAIN', 'EACCES',
-])
 
 /**
  * SQLSTATE → PeekErrorCode.
@@ -112,18 +120,20 @@ function codeFromSqlState(sqlState: string, message: string): PeekErrorCode | nu
   }
 }
 
-/** Which failures are worth the user's time to retry */
+/**
+ * Which failures are worth the user's time to retry.
+ *
+ * The transport half is core's `isRetryableErrorCode`; the SQLSTATEs added on top
+ * are the postgres-only half — serialization failure, deadlock, lock_not_available.
+ */
 function isRetryable(code: PeekErrorCode, sqlState: string | undefined): boolean {
-  if (code === 'CONNECTION_FAILED' || code === 'CONNECTION_LOST' || code === 'TIMEOUT') return true
-  if (sqlState === '40001' || sqlState === '40P01' || sqlState === '55P03') return true
-  return false
+  if (isRetryableErrorCode(code)) return true
+  return sqlState === '40001' || sqlState === '40P01' || sqlState === '55P03'
 }
 
-export interface MapPgErrorContext {
+export interface MapPgErrorContext extends MapDriverErrorContext {
   /** The statement that failed; goes into `detail` to make the error diagnosable */
   sql?: string
-  /** Code to use when nothing matches */
-  fallback?: PeekErrorCode
 }
 
 /**
@@ -137,7 +147,7 @@ export function mapPgError(value: unknown, ctx: MapPgErrorContext = {}): PeekErr
   if (pg && pg.code) {
     const sqlState = pg.code
     // node network errors also land in `code`, but they are not 5-char SQLSTATEs
-    if (NET_ERROR_CODES.has(sqlState)) {
+    if (isNetworkErrorCode(sqlState)) {
       return peekError('CONNECTION_FAILED', pg.message, {
         driverCode: sqlState,
         retryable: true,
@@ -159,21 +169,7 @@ export function mapPgError(value: unknown, ctx: MapPgErrorContext = {}): PeekErr
     })
   }
 
-  // Not a pg error: AbortError, a timeout, or a plain Error
-  if (value instanceof Error) {
-    if (value.name === 'AbortError') return peekError('CANCELLED', value.message || 'Operation cancelled')
-    const errno = (value as unknown as Record<string, unknown>)['code']
-    if (typeof errno === 'string' && NET_ERROR_CODES.has(errno)) {
-      return peekError('CONNECTION_FAILED', value.message, { driverCode: errno, retryable: true })
-    }
-    if (/timeout/i.test(value.message)) {
-      return peekError('TIMEOUT', value.message, { retryable: true })
-    }
-  }
-  return toPeekError(value, fallback)
+  // Not a pg error: AbortError, a socket errno, or a bare timeout message
+  return classifyTransportError(value) ?? toPeekError(value, fallback)
 }
 
-/** Throw a structured error (keeps call sites terse) */
-export function throwPeek(code: PeekErrorCode, message: string, detail?: string): never {
-  throw peekError(code, message, detail === undefined ? undefined : { detail })
-}

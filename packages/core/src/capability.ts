@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { ChunkFrame, ColumnDef, TruncatedValue } from './chunk'
+import { peekError, type PeekError } from './errors'
 import { ResultIdSchema, type ResultId } from './ids'
 
 /* ================================================================== */
@@ -365,9 +366,27 @@ export function qdrantPayloadField(key: string): string {
  * fails to compile until this table is filled in: the exhaustiveness is the
  * point, not an edit someone can forget.
  *
- * A per-*collection* answer (this table is sortable, that one is not, in the same
- * driver) would belong on `CollectionSchemaInfo` and would refine this rather
- * than replace it. Nothing needs it yet.
+ * **And a per-*collection* answer, which the kind cannot give.** "Sortable" is
+ * not a property of being a vector collection: qdrant's `order_by` only works on
+ * a payload key that has an index, so within the one kind, one collection is
+ * orderable by `created_at` and the next by nothing at all. The kind table is the
+ * default; `CollectionSchemaInfo.browse` is where a driver says otherwise for a
+ * particular collection, and `resolveCollectionBrowseStyle` is how the two are
+ * combined. A driver that has nothing to add simply omits it.
+ *
+ * **How far the refinement currently reaches — read this before trusting it.**
+ * The refinement is *enforced*: `assertBrowseSupported` and
+ * `assertFilterSupported` normalize whatever style they are handed
+ * (`effectivelySortable` below), so an unorderable collection is refused
+ * identically whether the caller resolved the declaration first or passed it raw.
+ * It is **not yet advertised**: obtaining it costs a `describeCollection` round
+ * trip, so `ViewSummary.browse` (and through it the renderer's column headers and
+ * MCP's `browseAffordances`) still carries the kind-level answer alone. The
+ * consequence is real and worth stating rather than discovering: on a qdrant
+ * collection with no payload index the UI still draws a sortable header, and the
+ * click is refused. Closing that means routing `describeCollection`'s `browse`
+ * through main's cache into `ViewSummary` — see the issue notes; it is not
+ * something this file can do on its own.
  */
 export interface CollectionBrowseStyle {
   /** Column headers may offer ordering (the driver honours SortSpec) */
@@ -376,6 +395,43 @@ export interface CollectionBrowseStyle {
   offsetPaging: boolean
   /** `ChunkDone.nextCursor` is how the next page is reached */
   cursorPaging: boolean
+  /**
+   * The columns that may be ordered, when only some may be.
+   *
+   * `undefined` means "any column, as long as `sortable`" — the relational
+   * answer. An explicit list means exactly those and no others: qdrant fills it
+   * with the indexed payload keys, because ordering by an unindexed key is a
+   * server-side 400 and there is no reason to let the user discover that by
+   * clicking. An **empty** list therefore reads the same as `sortable: false`,
+   * and both `resolveCollectionBrowseStyle` and `assertBrowseSupported` normalize
+   * it to exactly that — see `effectivelySortable`, which is the one place that
+   * equivalence is written down.
+   */
+  sortableColumns?: readonly string[]
+  /**
+   * Ordering and continuing are mutually exclusive: an ordered browse is one
+   * page, with no `nextCursor` to follow.
+   *
+   * True for qdrant, where `order_by` and a start offset cannot be combined.
+   * The UI needs this *before* it draws a next-page button next to an active
+   * sort, and the driver needs it to refuse the combination consistently.
+   */
+  sortEndsPaging?: boolean
+  /**
+   * The result columns a filter may be attached to, when only some may be.
+   *
+   * `undefined` means "any column that exists" — the relational answer, where a
+   * predicate on a column is always expressible. An explicit list is what a
+   * schemaless store has to give: qdrant's default projection is `id` plus one
+   * opaque json `payload` column, and there is no predicate over the blob as a
+   * whole, so **no result column is filterable** until the caller projects a
+   * payload key into a column of its own. An empty list says exactly that, and it
+   * is the reason a column header on a vector view must not offer a filter.
+   *
+   * A filter that names a *stored field* rather than a result column is out of
+   * scope for this list — see `FilterTarget`.
+   */
+  filterableColumns?: readonly string[]
 }
 
 const BROWSE_STYLE: Readonly<Record<CollectionRef['kind'], CollectionBrowseStyle>> = {
@@ -386,11 +442,157 @@ const BROWSE_STYLE: Readonly<Record<CollectionRef['kind'], CollectionBrowseStyle
   keyPattern: { sortable: false, offsetPaging: false, cursorPaging: true },
   // scroll pages by point id; `order_by` and an offset are mutually exclusive
   // server-side, so ordering here means "one page, no continuation".
-  vectorCollection: { sortable: true, offsetPaging: false, cursorPaging: true },
+  vectorCollection: {
+    sortable: true,
+    offsetPaging: false,
+    cursorPaging: true,
+    sortEndsPaging: true,
+  },
 }
 
+/**
+ * The kind-level default. Unchanged signature on purpose: every caller that only
+ * has a `CollectionRef` — which is most of them, since a ref is what a view state
+ * carries — keeps working, and gets the answer that is right for the kind.
+ */
 export function collectionBrowseStyle(ref: CollectionRef): CollectionBrowseStyle {
   return BROWSE_STYLE[ref.kind]
+}
+
+/**
+ * "Sortable" as the two fields *together* mean it.
+ *
+ * `sortable: true` alongside an **empty** `sortableColumns` says "ordering is
+ * something this kind does, and this collection can be ordered by nothing at
+ * all" — which is `sortable: false` with extra steps. It is the shape qdrant
+ * naturally produces (`browseStyleOf` fills the list from the payload indexes,
+ * and a collection may have none), so it is not a hypothetical.
+ *
+ * This lives in its own function because two places have to agree about it, and
+ * for a while they did not: `resolveCollectionBrowseStyle` folded the empty list
+ * into `sortable: false`, while `assertBrowseSupported` — which is what a driver
+ * actually calls, usually with the raw declaration rather than the resolved one —
+ * read `sortable` on its own, sailed past the first check, and refused on the
+ * second with `this collection can only be ordered by ` and nothing after the
+ * "by". Same input, two answers, and the useless message was the visible half.
+ * Now both read this.
+ */
+function effectivelySortable(style: CollectionBrowseStyle): boolean {
+  const columns = style.sortableColumns
+  return style.sortable && (columns === undefined || columns.length > 0)
+}
+
+/**
+ * The kind default, refined by whatever the driver declared for this particular
+ * collection (`CollectionSchemaInfo.browse`).
+ *
+ * A declaration may only *narrow*: a driver cannot promise ordering for a kind
+ * that has none, because the rest of the system — the pager, the cursor
+ * bookkeeping in `handlers/view.ts` — is written against the kind. What it can do
+ * is say "not this one", which is the case the kind table structurally cannot
+ * express.
+ *
+ * **Who calls this.** Anyone holding both halves — a `CollectionSchemaInfo` and
+ * its ref — and wanting the single value they add up to: today that is
+ * `describeCollection`'s callers and the driver tests. A driver enforcing a scan
+ * does *not* have to call it first; `assertBrowseSupported` normalizes on its own
+ * (see `effectivelySortable`), so passing the raw declaration cannot produce a
+ * different verdict from passing the resolved one.
+ */
+export function resolveCollectionBrowseStyle(
+  ref: CollectionRef,
+  declared?: CollectionBrowseStyle,
+): CollectionBrowseStyle {
+  const base = collectionBrowseStyle(ref)
+  if (declared === undefined) return base
+  const columns = declared.sortableColumns
+  const sortable = base.sortable && effectivelySortable(declared)
+  const filterable = declared.filterableColumns ?? base.filterableColumns
+  return {
+    sortable,
+    offsetPaging: base.offsetPaging && declared.offsetPaging,
+    cursorPaging: base.cursorPaging && declared.cursorPaging,
+    ...(columns === undefined || !sortable ? {} : { sortableColumns: columns }),
+    ...(base.sortEndsPaging === true || declared.sortEndsPaging === true
+      ? { sortEndsPaging: true }
+      : {}),
+    ...(filterable === undefined ? {} : { filterableColumns: filterable }),
+  }
+}
+
+/** The part of a scan request that the browse style has an opinion about */
+export interface BrowseRequestShape {
+  sort?: readonly SortSpec[]
+  offset?: number
+  cursorToken?: string
+}
+
+/**
+ * Refuse a scan the browse style says cannot be honoured — **once, for every
+ * driver**.
+ *
+ * Before this, each driver hand-wrote its own rejection at its own point in its
+ * own `scan()`: redis raised one sentence about SCAN ordering, qdrant another
+ * about `order_by`, and postgres raised nothing because it has nothing to refuse.
+ * Three prose strings for one rule, and no way for the UI to predict any of them
+ * — the only way to learn that a keyspace could not be sorted was to sort it.
+ *
+ * Now every driver refuses from one table, in one wording, and the UI consults
+ * that same table (`collectionBrowseStyle`) before drawing a sortable header.
+ * **What the two share is the kind-level answer, and only that**: the
+ * per-collection refinement a driver declares in `CollectionSchemaInfo.browse`
+ * costs a `describeCollection` round trip and does not reach `ViewSummary`.
+ * Where that grain matters the UI resolves it by withdrawing the control rather
+ * than by guessing — `browseControls.ts` answers `sortable: false` for a vector
+ * collection, because the columns a qdrant table view draws (`id`, `payload`)
+ * are refused here on every collection, indexed or not. So no header reaches
+ * this function to be refused today; MCP callers still can, and are the reason
+ * the wording is English.
+ *
+ * What this function *does* guarantee is that the refinement is read the same way
+ * everywhere it is read at all: it normalizes through `effectivelySortable`, so a
+ * driver handing over the raw declaration (which qdrant's `scan` does) gets the
+ * identical verdict, and the identical sentence, as one that resolved it first.
+ *
+ * The text is English on purpose: `BAD_REQUEST` here means the *caller* built an
+ * impossible request, and the caller is either peek's own UI (a bug, for a
+ * developer to read) or an MCP client (whose surface is English forever).
+ */
+export function assertBrowseSupported(
+  style: CollectionBrowseStyle,
+  req: BrowseRequestShape,
+  ctx: { driverId: DriverId },
+): void {
+  const sort = req.sort ?? []
+  if (sort.length === 0) return
+
+  // Not `style.sortable`: an empty sortableColumns is "orderable by nothing",
+  // which belongs in this branch and not in the one that lists the alternatives.
+  if (!effectivelySortable(style)) {
+    throw peekError(
+      'BAD_REQUEST',
+      `The ${ctx.driverId} driver cannot order this collection; drop the sort,`
+      + ' or order the loaded page in the client',
+    )
+  }
+  const allowed = style.sortableColumns
+  if (allowed !== undefined) {
+    const rejected = sort.map((s) => s.column).filter((c) => !allowed.includes(c))
+    if (rejected.length > 0) {
+      throw peekError(
+        'BAD_REQUEST',
+        `Cannot order by ${rejected.join(', ')}: this collection can only be ordered by`
+        + ` ${allowed.join(', ')}`,
+      )
+    }
+  }
+  if (style.sortEndsPaging === true && (req.cursorToken !== undefined || (req.offset ?? 0) > 0)) {
+    throw peekError(
+      'BAD_REQUEST',
+      `An ordered ${ctx.driverId} browse is a single page and cannot be combined with paging;`
+      + ' drop the sort, or drop the offset and cursorToken',
+    )
+  }
 }
 
 /* ================================================================== */
@@ -404,13 +606,101 @@ export const FILTER_OPS = [
 export const FilterOpSchema = z.enum(FILTER_OPS)
 export type FilterOp = z.infer<typeof FilterOpSchema>
 
+/**
+ * What a `FilterSpec.column` names.
+ *
+ * The distinction only exists because a schemaless store forces it. In a
+ * relation the two readings coincide: `WHERE name = 'x'` works whether or not
+ * `name` was selected, and the column header the user clicked is the column the
+ * predicate lands on. In qdrant they come apart completely — `FilterSpec.column`
+ * has always meant a **payload key**, and the default result schema is `id` plus
+ * one opaque json `payload` column, so the key being filtered on is not among the
+ * result columns at all. "Click a column header to filter" therefore had nothing
+ * to attach to, and the type could not say why.
+ *
+ *   'column'  a column of the result set, exactly as frame 0 declares it. This is
+ *             what a header click produces, and it is checkable: a name that is
+ *             not in the schema is a BAD_REQUEST rather than a silent miss.
+ *   'field'   a stored field underneath, whether or not the projection surfaced
+ *             it. This is what an MCP caller who knows the database writes.
+ *
+ * Omitted means "resolve it": the name is a column when the result schema has
+ * one by that name, and a field otherwise. That keeps every existing caller
+ * working and still lets a caller who cares be explicit.
+ */
+export const FILTER_TARGETS = ['column', 'field'] as const
+export const FilterTargetSchema = z.enum(FILTER_TARGETS)
+export type FilterTarget = z.infer<typeof FilterTargetSchema>
+
 export const FilterSpecSchema = z.object({
   column: z.string().min(1),
   op: FilterOpSchema,
   /** isNull / isNotNull take no value; `in` takes an array */
   value: z.unknown().optional(),
+  /** Whether `column` names a result column or a stored field; see FilterTarget */
+  target: FilterTargetSchema.optional(),
 })
 export type FilterSpec = z.infer<typeof FilterSpecSchema>
+
+/**
+ * Resolve what one filter names, given the result columns it will run against.
+ *
+ * `resultColumns` is the frame-0 schema (or the projection about to become it),
+ * which is the only thing that can answer the question.
+ */
+export function filterTarget(
+  spec: FilterSpec,
+  resultColumns: readonly string[],
+): FilterTarget {
+  if (spec.target !== undefined) return spec.target
+  return resultColumns.includes(spec.column) ? 'column' : 'field'
+}
+
+/**
+ * Refuse a filter the result schema cannot support — the counterpart to
+ * `assertBrowseSupported`, for the other half of the toolbar.
+ *
+ * Two checks:
+ * 1. a filter that declares `target: 'column'` must name a column that exists.
+ *    A header click cannot name anything else, so a miss here is a bug in peek,
+ *    not a typo by the user;
+ * 2. that column must be one the style says is filterable. qdrant's json
+ *    `payload` column is the case this exists for: it is a column, it is on
+ *    screen, and a predicate on the blob as a whole is not a thing qdrant can
+ *    express — so the UI must not offer a filter control on that header, and the
+ *    driver must not pretend to honour one.
+ *
+ * A `field` filter is not checked here: by definition it names something the
+ * result schema does not show, and only the driver knows whether it exists.
+ */
+export function assertFilterSupported(
+  style: CollectionBrowseStyle,
+  filters: readonly FilterSpec[] | undefined,
+  resultColumns: readonly string[],
+  ctx: { driverId: DriverId },
+): void {
+  for (const spec of filters ?? []) {
+    if (filterTarget(spec, resultColumns) !== 'column') continue
+    if (!resultColumns.includes(spec.column)) {
+      throw peekError(
+        'BAD_REQUEST',
+        `No column named ${spec.column} in this result; the columns are`
+        + ` ${resultColumns.join(', ')}`,
+      )
+    }
+    const filterable = style.filterableColumns
+    if (filterable !== undefined && !filterable.includes(spec.column)) {
+      throw peekError(
+        'BAD_REQUEST',
+        `The ${ctx.driverId} driver cannot filter on the ${spec.column} column;`
+        + (filterable.length > 0
+          ? ` filterable columns are ${filterable.join(', ')}`
+          : ' project the underlying field into a column of its own first,'
+            + ' or send the predicate with target: "field"'),
+      )
+    }
+  }
+}
 
 export const SortSpecSchema = z.object({
   column: z.string().min(1),
@@ -464,6 +754,15 @@ export interface CollectionSchemaInfo {
   rowCountEstimate?: number
   indexes?: { name: string; columns: string[]; unique: boolean }[]
   comment?: string
+  /**
+   * How **this** collection browses, when that differs from what its kind
+   * implies. Omitted means the kind's answer stands.
+   *
+   * Read it through `resolveCollectionBrowseStyle(info.ref, info.browse)`, never
+   * on its own: a declaration narrows the kind default and is not a replacement
+   * for it.
+   */
+  browse?: CollectionBrowseStyle
 }
 
 /* ================================================================== */
@@ -632,17 +931,184 @@ export type KeyValuePayload =
   /** The key does not exist (or expired between the SCAN and the read) */
   | { shape: 'missing' }
 
-/** How much of a large value to read, and where from. All fields optional: the defaults are a sane first window. */
-export interface KeyValueReadOptions {
+/* ------------------------------------------------------------------ */
+/* How a value's window is addressed                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Which field addresses the *next* window of a shape.
+ *
+ *   'none'    the shape is not paged by elements at all (a scalar is paged by
+ *             bytes, through valuePeek; `missing` has nothing to page)
+ *   'offset'  an absolute element index — LRANGE / ZRANGE
+ *   'cursor'  an opaque continuation — HSCAN / SSCAN's cursor, XRANGE's entry id
+ *
+ * This is the single answer to "what do I put in the next request", and it is
+ * here rather than in the renderer because `KeyValueResult.nextCursor` is one
+ * string standing for three unrelated things: handing an HSCAN cursor back as an
+ * offset silently skips or repeats fields, and the mistake is invisible.
+ */
+export type KeyValueAddressing = 'none' | 'offset' | 'cursor'
+
+export function keyValueAddressing(shape: KeyValueShape): KeyValueAddressing {
+  switch (shape) {
+    case 'map':
+    case 'set':
+    case 'stream':
+      return 'cursor'
+    case 'list':
+    case 'sortedSet':
+      return 'offset'
+    case 'scalar':
+    case 'missing':
+      return 'none'
+  }
+}
+
+/** Fields that mean the same thing whatever the shape is */
+export interface KeyValueReadCommon {
   /** Elements in this window; defaults to DEFAULT_KEY_VALUE_ELEMENTS, capped at MAX_KEY_VALUE_ELEMENTS */
   limit?: number
-  /** Absolute element offset, for the index-addressable shapes (list, sortedSet, stream) */
-  offset?: number
-  /** Continuation cursor for the cursor-addressable shapes (map, set — HSCAN / SSCAN) */
-  cursorToken?: string
-  /** Glob filter over field names / members (HSCAN MATCH); ignored by shapes that cannot honour it */
-  match?: string
   signal?: AbortSignal
+}
+
+/**
+ * How much of a large value to read, and where from.
+ *
+ * **A union discriminated by the shape being read, not a flat bag.** It used to
+ * be a flat bag — `limit` / `offset` / `cursorToken` / `match`, all optional, all
+ * fillable — and that was a lie about the data: a hash is walked by an HSCAN
+ * cursor and a list by an index, the two are never interchangeable, and `{ shape:
+ * 'map', offset: 200 }` means nothing that a driver could honour. The flat type
+ * let a caller write it anyway, and the failure mode was not an error but *wrong
+ * rows*: an offset silently ignored, or a cursor read as the number `NaN`.
+ *
+ * So each shape declares only the fields it can honour, and the ones it cannot
+ * are typed `never`:
+ *
+ * | shape           | command             | window addressed by     | match |
+ * |-----------------|---------------------|-------------------------|-------|
+ * | scalar          | GET / GETRANGE      | bytes, via valuePeek    | —     |
+ * | missing         | —                   | —                       | —     |
+ * | map             | HSCAN               | an opaque cursor        | yes   |
+ * | set             | SSCAN               | an opaque cursor        | yes   |
+ * | list            | LRANGE start stop   | an absolute index       | —     |
+ * | sortedSet       | ZRANGE … WITHSCORES | an absolute index       | —     |
+ * | stream          | XRANGE (id …)       | an entry id, and/or an index | — |
+ *
+ * `stream` is the one shape that takes both, and it is not a hedge: XRANGE
+ * addresses by entry id, so the continuation is a cursor, while `offset` is
+ * honoured by over-reading and slicing locally. Both are real, so both are
+ * declared.
+ *
+ * The member with `shape?: undefined` is the **first** read, before anything is
+ * known about the key — it can carry a `limit` and nothing else, which is exactly
+ * right: you cannot ask for the second page of something you have not looked at.
+ */
+export type KeyValueReadOptions =
+  /** First window: the shape is not known yet, so nothing may address one */
+  | (KeyValueReadCommon & { shape?: undefined; offset?: never; cursorToken?: never; match?: never })
+  /** Not paged by elements at all */
+  | (KeyValueReadCommon & { shape: 'scalar' | 'missing'; offset?: never; cursorToken?: never; match?: never })
+  /** HSCAN / SSCAN: an opaque cursor, and a glob over field names / members */
+  | (KeyValueReadCommon & { shape: 'map' | 'set'; offset?: never; cursorToken?: string; match?: string })
+  /** LRANGE / ZRANGE: an absolute element index */
+  | (KeyValueReadCommon & { shape: 'list' | 'sortedSet'; offset?: number; cursorToken?: never; match?: never })
+  /** XRANGE: an entry id, optionally with a local skip inside the returned range */
+  | (KeyValueReadCommon & { shape: 'stream'; offset?: number; cursorToken?: string; match?: never })
+
+/**
+ * The **wire** form of a read window: flat, and deliberately so.
+ *
+ * `KeyValueReadOptions` is exclusive by construction because every in-process
+ * caller writes it as a literal and the compiler can check it. This one arrives
+ * as JSON from another process, where the compiler checks nothing — so it is a
+ * plain bag of optional fields that `keyValueReadOptions` below validates into
+ * the union exactly once, at the boundary. Two types, because there really are
+ * two problems: one is "make the mistake unwritable", the other is "catch it when
+ * someone writes it anyway".
+ *
+ * `shape` is optional here for the same reason it is optional in the union: the
+ * first read of a key does not know it yet. A caller that *does* know it — the
+ * inspector always does, it is holding the previous `KeyValueResult` — should
+ * send it, and gets its window validated against the shape rather than guessed.
+ */
+export interface KeyValueWindow {
+  shape?: KeyValueShape
+  limit?: number
+  offset?: number
+  cursorToken?: string
+  match?: string
+}
+
+/**
+ * Validate a wire window into `KeyValueReadOptions`, or throw BAD_REQUEST.
+ *
+ * Two checks, both of which the flat type cannot make:
+ * 1. the window must not address the same read two ways at once (an offset *and*
+ *    a cursor) unless the shape is one that genuinely takes both;
+ * 2. when `shape` is declared, the addressing has to be the one that shape uses —
+ *    an offset into a hash is not a small mistake to forgive, it is a request for
+ *    rows the server will never return.
+ *
+ * With no `shape` the window is accepted on its addressing alone; the driver
+ * still re-dispatches on the key's real TYPE, which is the only authority on it.
+ */
+export function keyValueReadOptions(
+  window: KeyValueWindow | undefined,
+  signal?: AbortSignal,
+): KeyValueReadOptions {
+  const common: KeyValueReadCommon = {
+    ...(window?.limit === undefined ? {} : { limit: window.limit }),
+    ...(signal === undefined ? {} : { signal }),
+  }
+  if (window === undefined) return common
+
+  const { shape, offset, cursorToken, match } = window
+  const hasOffset = offset !== undefined
+  const hasCursor = cursorToken !== undefined
+
+  switch (shape) {
+    case undefined:
+      // Unknown shape: infer the member from what was actually addressed. Both at
+      // once is only meaningful for a stream, so that is what it must be.
+      if (hasOffset && hasCursor) return { ...common, shape: 'stream', offset, cursorToken }
+      if (hasCursor) return { ...common, shape: 'map', cursorToken, ...(match === undefined ? {} : { match }) }
+      if (hasOffset) return { ...common, shape: 'list', offset }
+      return common
+    case 'scalar':
+    case 'missing':
+      if (hasOffset || hasCursor) throw badWindow(shape, 'is not paged by elements')
+      return { ...common, shape }
+    case 'map':
+    case 'set':
+      if (hasOffset) throw badWindow(shape, 'is walked by a cursor, not an offset')
+      return {
+        ...common,
+        shape,
+        ...(cursorToken === undefined ? {} : { cursorToken }),
+        ...(match === undefined ? {} : { match }),
+      }
+    case 'list':
+    case 'sortedSet':
+      if (hasCursor) throw badWindow(shape, 'is addressed by an element index, not a cursor')
+      return { ...common, shape, ...(offset === undefined ? {} : { offset }) }
+    case 'stream':
+      return {
+        ...common,
+        shape,
+        ...(offset === undefined ? {} : { offset }),
+        ...(cursorToken === undefined ? {} : { cursorToken }),
+      }
+  }
+}
+
+/**
+ * English on purpose: this is a programming error on the wire, not something a
+ * user typed, so it goes to the developer and to the MCP transcript verbatim.
+ */
+function badWindow(shape: KeyValueShape, why: string): PeekError {
+  return peekError('BAD_REQUEST', `A ${shape} value ${why}`)
 }
 
 export interface KeyValueResult {

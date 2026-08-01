@@ -85,6 +85,59 @@ test('a bare "ACP connection closed" is classified as a crashed agent', () => {
   assert.equal(error.retryable, true)
 })
 
+/* ==================================================================
+ * A crashed agent, judged structurally.
+ *
+ * The spike measured this: when the agent dies under an in-flight
+ * request the SDK rejects with `new Error("ACP connection closed")` —
+ * no JSON-RPC code, no `data`. And that string is not a contract. The
+ * same `close(error)` path is handed whatever the stream reader threw,
+ * so an EPIPE, an ECONNRESET or one reworded SDK release all arrive as
+ * an unrecognisable bare Error.
+ *
+ * Classification therefore used to rest entirely on a four-entry
+ * substring list, and a miss did not degrade gracefully: the user was
+ * told "the agent failed" with no detail and no retry hint, for peek's
+ * own child process having exited — something peek can simply look at.
+ * ================================================================== */
+
+test('a dead agent is a crash whatever the transport called it', () => {
+  // Deliberately matches no hint, present or future.
+  const raw = new Error('socket hang up while draining')
+  assert.equal(isConnectionClosed(raw), false, 'the text alone must not be enough — that is the point')
+  assert.equal(isConnectionClosed(raw, { agentAlive: false }), true)
+
+  const error = classifyAcpError(raw, [], { agentAlive: false })
+  assert.equal(error.code, 'DRIVER_CRASHED')
+  assert.equal(error.retryable, true)
+  assert.match(error.detail ?? '', /restarts/, 'the user must be told the conversation survives')
+})
+
+test('a JSON-RPC error is still the agent talking, even once it has exited', () => {
+  // The ordering trap the structural check must not fall into. An agent that
+  // answered `invalid params` and *then* died reported a real protocol fault;
+  // relabelling it as a crash hides a bug in peek's own request behind a
+  // "we restarted it, try again" that will fail identically every time.
+  const raw = { code: -32602, message: 'cwd must be an absolute path' }
+  assert.equal(isConnectionClosed(raw, { agentAlive: false }), false)
+  assert.equal(classifyAcpError(raw, [], { agentAlive: false }).code, 'BAD_REQUEST')
+})
+
+test('a live agent is never blamed for a crash it did not have', () => {
+  const raw = new Error('socket hang up while draining')
+  assert.equal(isConnectionClosed(raw, { agentAlive: true }), false)
+  assert.equal(classifyAcpError(raw, [], { agentAlive: true }).code, 'INTERNAL')
+})
+
+test('the hint list still covers the window before the exit is observed', () => {
+  // `agentAlive` reads the child's exit state, and the stream can close first.
+  // The fallback has to survive that gap, so it stays — and stays broader than
+  // the four strings it started as.
+  for (const text of ['ACP connection closed', 'write EPIPE', 'read ECONNRESET', 'premature close']) {
+    assert.equal(isConnectionClosed(new Error(text)), true, text)
+  }
+})
+
 test('a cancelled request maps to CANCELLED', () => {
   assert.equal(classifyAcpError({ code: -32800, message: 'Request cancelled' }).code, 'CANCELLED')
 })

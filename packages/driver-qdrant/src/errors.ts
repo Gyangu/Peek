@@ -1,4 +1,11 @@
-import { peekError, toPeekError, type PeekError, type PeekErrorCode } from '@peek/core'
+import {
+  classifyTransportError,
+  peekError,
+  toPeekError,
+  type MapDriverErrorContext,
+  type PeekError,
+  type PeekErrorCode,
+} from '@peek/core'
 
 /**
  * Qdrant error classification.
@@ -11,12 +18,12 @@ import { peekError, toPeekError, type PeekError, type PeekErrorCode } from '@pee
  * **Nothing here is localizable**: the server's message ("Not existing vector
  * name error: title") is evidence and passes through verbatim, with no `i18n`
  * descriptor. Peek-authored text uses the catalog keys in core.
+ *
+ * Only the status table below is qdrant-specific. Aborts, socket errnos (which
+ * undici hides one level down in `cause`) and bare timeout messages are
+ * classified by core's `classifyTransportError`, shared with the other three
+ * drivers.
  */
-
-const NET_ERROR_CODES = new Set([
-  'ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ENETUNREACH',
-  'ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT',
-])
 
 /**
  * HTTP status → PeekErrorCode.
@@ -81,10 +88,9 @@ function safeJson(value: unknown): string | undefined {
   }
 }
 
-export interface MapQdrantErrorContext {
+export interface MapQdrantErrorContext extends MapDriverErrorContext {
   /** The API call that failed, e.g. 'POST /collections/docs/points/scroll'; goes into `detail` */
   request?: string
-  fallback?: PeekErrorCode
 }
 
 /**
@@ -107,30 +113,5 @@ export function mapQdrantError(value: unknown, ctx: MapQdrantErrorContext = {}):
     })
   }
 
-  if (value instanceof Error) {
-    if (value.name === 'AbortError') {
-      return peekError('CANCELLED', value.message || 'Operation cancelled')
-    }
-    // undici wraps the socket error; the errno may be one level down in `cause`
-    const errno = readErrno(value)
-    if (errno !== undefined && NET_ERROR_CODES.has(errno)) {
-      return peekError('CONNECTION_FAILED', value.message, { driverCode: errno, retryable: true })
-    }
-    if (/timed? ?out/i.test(value.message)) {
-      return peekError('TIMEOUT', value.message, { retryable: true })
-    }
-  }
-
-  return toPeekError(value, fallback)
-}
-
-function readErrno(err: Error): string | undefined {
-  const direct = (err as unknown as Record<string, unknown>)['code']
-  if (typeof direct === 'string') return direct
-  const cause = (err as unknown as Record<string, unknown>)['cause']
-  if (typeof cause === 'object' && cause !== null) {
-    const nested = (cause as Record<string, unknown>)['code']
-    if (typeof nested === 'string') return nested
-  }
-  return undefined
+  return classifyTransportError(value) ?? toPeekError(value, fallback)
 }

@@ -7,6 +7,7 @@ import { useConnection, useResultMeta } from '../../state/workspaceStore'
 import { formatCount, formatMs } from '../../util/format'
 import { DataGrid } from '../DataGrid'
 import { ViewError } from '../ViewError'
+import { CacheGapNotice, CancelButton } from './ResultControls'
 
 // CodeMirror is the heaviest thing in the bundle, so it gets its own lazily
 // loaded chunk — the "cold start to interactive under 1.5s" budget (PLAN §8)
@@ -45,10 +46,6 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
     [viewId, text],
   )
 
-  const cancel = (): void => {
-    void dispatch('query.cancel', { viewId })
-  }
-
   const onResizeDown = (e: ReactMouseEvent): void => {
     dragRef.current = { startY: e.clientY, startH: editorH }
     const onMove = (ev: MouseEvent): void => {
@@ -80,9 +77,7 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
         >
           ▶ {t('query.run')}
         </button>
-        <button className="ghost" disabled={!running} onClick={cancel}>
-          ■ {t('query.cancel')}
-        </button>
+        <CancelButton viewId={viewId} conn={conn} running={running} />
         <span className="sep" />
         <span>{conn?.label ?? connId}</span>
         {meta ? (
@@ -110,6 +105,15 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
       <div className="h-resizer" onMouseDown={onResizeDown} />
 
       <ViewError error={view.error} />
+      {/* Re-running is the only refill a free-form query has: its rows came from a
+          cursor that closed when the statement finished. */}
+      <CacheGapNotice
+        resultId={resultId}
+        disabled={running || conn?.status !== 'ready'}
+        onRefetch={() => {
+          run(text)
+        }}
+      />
 
       <DataGrid connId={connId} view={view} resultId={resultId} emptyHint={t('query.empty')} />
     </div>

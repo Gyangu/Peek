@@ -1,16 +1,11 @@
 /**
- * English strings for the chat panel.
- *
- * This is the **source catalog**: its shape is the type every other locale must
- * satisfy, exactly as `i18n/messages/en/index.ts` is for the rest of the app.
- * See `i18n.ts` next door for why the chat slice currently lives here instead of
- * in `i18n/messages/`, and how to fold it in.
+ * The chat panel: transcript, composer, tool calls and the permission dialog.
  *
  * Rule that does not bend: strings an *agent* reads (tool names on the wire, MCP
  * arguments, ACP option ids) are never translated. Only what a *human* reads is
  * in here.
  */
-export const chatEn = {
+export const chat = {
   /* ---- Shell ------------------------------------------------------- */
   'chat.title': 'Chat',
   'chat.newSession': 'Waiting for the agent…',
@@ -158,5 +153,4 @@ export const chatEn = {
   'chat.error.title': 'The agent reported an error',
 } as const
 
-export type ChatMessages = typeof chatEn
-export type ChatMessageKey = keyof ChatMessages & string
+export type ChatMessages = typeof chat

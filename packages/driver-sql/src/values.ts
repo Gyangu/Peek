@@ -1,5 +1,6 @@
 import {
   VALUE_PREVIEW_BYTES,
+  canonicalCell,
   truncatedValue,
   type LogicalType,
   type ValueRef,
@@ -41,6 +42,12 @@ import {
  * So the rule is the one mysql2 already implements, applied to both: exact while
  * exact is possible, and a decimal string the moment it is not. Nothing is
  * rounded either way, which is the property that actually mattered.
+ *
+ * That rule now lives in `core/values.ts` as `canonicalCell`, because the same
+ * argument applies one level up: it was true across the two SQL dialects and
+ * false across the four drivers, where postgres handed the very same `BIGINT 1`
+ * over as `"1"`. This module keeps the size and byte-shape work; the question of
+ * *which JS type a LogicalType is* is core's to answer.
  */
 
 /** Values of these logical types can be huge, so the UI wires up a valuePeek entry point ahead of time */
@@ -80,8 +87,10 @@ function previewOfText(text: string, limit: number): string {
 }
 
 /** One cell → a chunk-safe value */
-export function normalizeCell(value: unknown, ctx: NormalizeContext): unknown {
+export function normalizeCell(raw: unknown, ctx: NormalizeContext): unknown {
   const limit = VALUE_PREVIEW_BYTES
+  // Canonical shape first (see core/values.ts); size and encoding after
+  const value = canonicalCell(raw, ctx.logical)
   if (value === null || value === undefined) return null
 
   switch (typeof value) {
@@ -97,7 +106,8 @@ export function normalizeCell(value: unknown, ctx: NormalizeContext): unknown {
     case 'boolean':
       return value
     case 'bigint':
-      // See the header: exact as a number while that is exact, decimal string after
+      // Only reachable when the column's logical type is not one canonicalCell
+      // narrows (an untyped expression, say); the same exact-or-string rule applies
       return value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER)
         ? Number(value)
         : value.toString(10)

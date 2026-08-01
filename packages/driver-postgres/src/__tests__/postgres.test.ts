@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 import {
+  encodeScanCursor,
   isPeekError,
   isTruncatedValue,
   newResultId,
+  rowOffsetCursor,
   type ChunkFrame,
   type Cursor,
   type PostgresConnectionConfig,
@@ -19,6 +21,15 @@ import { nodeId } from '../introspect'
  */
 
 const TEST_URL = process.env['PEEK_TEST_PG_URL'] ?? 'postgresql://postgres@localhost:5432/postgres'
+
+/** One row exercising every logical type whose JS shape the four drivers had disagreed on */
+const PG_LOGICAL_SQL = `
+  SELECT 1::int8                    AS small_big,
+         9007199254740993::int8     AS huge_big,
+         DATE '2026-08-01'          AS d,
+         TIME '00:01:02'            AS t,
+         TIMESTAMPTZ '2026-08-01 11:31:42Z' AS ts,
+         INTERVAL '1 day'           AS iv`
 
 const CONFIG: PostgresConnectionConfig = {
   driverId: 'postgres',
@@ -116,6 +127,35 @@ describe('driver-postgres against a real database', () => {
     }
   })
 
+  /**
+   * The canonical JS representation of a cell, asserted here against a real
+   * server. The rule itself, and the argument for it, is `core/values.ts`; the
+   * matching assertions live in the other three driver suites, because the point
+   * is precisely that all four agree.
+   *
+   *   BIGINT 1                 → the number 1, not the string "1"
+   *   BIGINT past 2^53         → exact decimal text, never a rounded number
+   *   a date / time / timestamp → a string, never a Date object
+   */
+  it('represents every logical type the way core says all four drivers must', async () => {
+    const frames = await drain(
+      await session.query({ resultId: newResultId(), text: PG_LOGICAL_SQL }),
+    )
+    const schema = frames[0]?.schema ?? []
+    const at = (name: string): unknown => frames[0]?.cols[schema.findIndex((c) => c.name === name)]?.[0]
+
+    // The reported divergence: this was `"1"` in postgres and `1` everywhere else
+    assert.equal(at('small_big'), 1)
+    assert.equal(typeof at('small_big'), 'number')
+    // …and the reason it cannot simply always be a number
+    assert.equal(at('huge_big'), '9007199254740993')
+
+    for (const name of ['d', 't', 'ts', 'iv']) {
+      const v = at(name)
+      assert.equal(typeof v, 'string', `${name} must travel as a string, not a Date`)
+    }
+  })
+
   it('describeCollection reports column definitions and the primary key', async () => {
     const info = await session.describeCollection({
       kind: 'relation',
@@ -175,20 +215,32 @@ describe('driver-postgres against a real database', () => {
     const first = await drain(await session.scan({ resultId: newResultId(), ref, limit: 2, sort: [{ column: 'id', dir: 'asc' }] }))
     const done = first[first.length - 1]?.done
     assert.equal(done?.rows, 2)
-    assert.equal(done?.nextCursor, '2')
+    // core's envelope around a row offset, not a bare number: the token names the
+    // driver that minted it, so another store's continuation cannot be replayed
+    // into this one (core/cursor.ts)
+    assert.equal(done?.nextCursor, rowOffsetCursor('postgres', 2))
 
     const second = await drain(await session.scan({
       resultId: newResultId(),
       ref,
       limit: 2,
       sort: [{ column: 'id', dir: 'asc' }],
-      cursorToken: done?.nextCursor ?? '0',
+      cursorToken: done?.nextCursor ?? '',
     }))
     assert.equal(second[second.length - 1]?.done?.rows, 2)
     const firstIds = first.flatMap((f) => f.cols[0] ?? [])
     const secondIds = second.flatMap((f) => f.cols[0] ?? [])
     assert.equal(firstIds.length, 2)
     assert.notDeepEqual(firstIds, secondIds, 'the second page must hold different rows')
+
+    await assert.rejects(
+      () => session.scan({
+        resultId: newResultId(),
+        ref,
+        cursorToken: encodeScanCursor({ driverId: 'qdrant', boundary: '"42"', skip: 0 }),
+      }),
+      (err: unknown) => isPeekError(err) && err.i18n?.key === 'error.sql.invalidCursorToken',
+    )
   })
 
   /* -------------------- tabularQuery: genuinely streamed -------------------- */

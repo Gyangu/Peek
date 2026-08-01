@@ -20,6 +20,7 @@ import {
   MCP_DEFAULT_HOST,
   MCP_DEFAULT_PORT,
   MCP_HTTP_PATH,
+  isPeekError,
   peekError,
   toPeekError,
   type PeekError,
@@ -420,7 +421,9 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
           asPeekError(
             errnoCode(err) === 'EADDRINUSE'
               ? peekError('CONFLICT', `Port ${port} is already in use, the MCP server cannot start`, {
-                  detail: 'Another peek instance may already be running; you can also start on a different port.',
+                  detail:
+                    'Another peek instance may already be running. peek looks for a free port nearby on startup; ' +
+                    'to pin one, set it under Settings → MCP endpoint (it is stored in ~/.peek/settings.json).',
                 })
               : toPeekError(err),
           ),
@@ -522,4 +525,23 @@ function asPeekError(error: PeekError): Error & { peek: PeekError } {
   const wrapped = new Error(`[${error.code}] ${error.message}`) as Error & { peek: PeekError }
   wrapped.peek = error
   return wrapped
+}
+
+/**
+ * The inverse of `asPeekError`, and the only correct way to read what `start()`
+ * rejected with.
+ *
+ * `toPeekError` alone is **not** enough here, and quietly was not: it recognizes
+ * a `PeekError` or a bare `Error`, but an `Error` that *carries* one is just an
+ * Error to it, so every rejection out of `start()` came back as `INTERNAL`. The
+ * caller's "is this port in use?" branch therefore never ran — the one piece of
+ * information that decides between "try the next port" and "tell the user and
+ * stop".
+ */
+export function startupError(error: unknown): PeekError {
+  if (typeof error === 'object' && error !== null) {
+    const carried = (error as { peek?: unknown }).peek
+    if (isPeekError(carried)) return carried
+  }
+  return toPeekError(error)
 }

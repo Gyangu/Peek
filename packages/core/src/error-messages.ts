@@ -185,10 +185,6 @@ export type ErrorMessageParams<K extends ErrorMessageKey> = MessageParams<ErrorM
 
 export const ERROR_MESSAGE_KEYS = Object.keys(ERROR_MESSAGES) as readonly ErrorMessageKey[]
 
-export function isErrorMessageKey(value: string): value is ErrorMessageKey {
-  return Object.prototype.hasOwnProperty.call(ERROR_MESSAGES, value)
-}
-
 /** Render an error key as canonical English. Used to fill `PeekError.message`. */
 export function formatErrorMessage(key: ErrorMessageKey, params?: Record<string, string | number>): string {
   const message: Message = ERROR_MESSAGES[key]

@@ -33,11 +33,24 @@
  *
  * Two separate mechanisms, and conflating them was a real bug once:
  *
- * 1. **Client capabilities** (`fs.readTextFile`, `fs.writeTextFile`, `terminal`
- *    are all declared false, and the corresponding `Client` methods are simply
- *    not implemented — an unimplemented optional method answers "method not
- *    found"). These govern what the agent may ask *peek* to do on its behalf.
- *    They say nothing whatsoever about the agent's own bundled tools.
+ * 1. **Client capabilities** (`fs.readTextFile`, `fs.writeTextFile` and
+ *    `terminal` are all declared false, and every one of the corresponding
+ *    `Client` methods is implemented here to *refuse* — see
+ *    `#refuseClientMethod`). These govern what the agent may ask *peek* to do on
+ *    its behalf. They say nothing whatsoever about the agent's own bundled tools.
+ *
+ *    Leaving those methods off the object does **not** refuse anything, which is
+ *    the trap this used to fall into. The SDK's `legacyClientApp` registers a
+ *    handler for `fs/read_text_file`, `fs/write_text_file` and all five
+ *    `terminal/*` methods unconditionally and calls the implementation with
+ *    `?.`, so an absent method answers `{"result":null}` (or `{"result":{}}`) —
+ *    a *success*. Measured on the wire with a probe agent: `fs/write_text_file`
+ *    came back `{"result":{}}` with nothing written anywhere. Only a method the
+ *    SDK has never heard of reached the -32601 the comment here used to claim.
+ *    Nothing was read, written or spawned either way — but an agent that ignores
+ *    `clientCapabilities` was told its write had succeeded, and would go on to
+ *    report a file it never created. Refusing out loud is both halves of the fix:
+ *    the agent learns the truth, and the attempt reaches the log.
  * 2. **The session sandbox** (`buildAgentSessionMeta` in `session-config.ts`,
  *    passed to `session/new`). This is what governs the agent's own Bash, Write,
  *    Edit and Read, and what stops the session inheriting the user's global
@@ -54,6 +67,7 @@
 import {
   ClientSideConnection,
   PROTOCOL_VERSION,
+  RequestError,
   ndJsonStream,
   type Client,
   type ContentBlock,
@@ -134,6 +148,18 @@ interface ChatSession {
   idleTimer: ReturnType<typeof setTimeout> | null
   /** Absolute ceiling on the turn, when configured. */
   maxTimer: ReturnType<typeof setTimeout> | null
+  /**
+   * Agent time left in the absolute budget.
+   *
+   * Kept as a remaining amount rather than a deadline because the clock stops:
+   * `promptMaxMs` bounds what the *agent* does, and a turn waiting on a
+   * permission dialog is waiting on a person. A plain deadline would spend the
+   * whole budget on a user who took their time over five prompts and then kill
+   * the turn for it.
+   */
+  maxRemainingMs: number
+  /** When the running max timer was started, so pausing can bank the difference. */
+  maxArmedAt: number
   /** Set when peek itself ended the turn, so the outcome is reported as ours. */
   localStop: { stopReason: NonNullable<ChatMessage['stopReason']>; error?: PeekError } | null
   /** Outstanding permission request ids, so a crash can settle them. */
@@ -282,7 +308,7 @@ export class AcpManager {
     session.streaming = true
     session.localStop = null
     this.#armIdle(session)
-    this.#armMax(session)
+    this.#startMax(session)
 
     // Deliberately not awaited: the turn runs on its own and reports through
     // deltas. Failures are handled inside #runTurn and never escape as an
@@ -481,9 +507,21 @@ export class AcpManager {
       },
       requestPermission: (params: RequestPermissionRequest): Promise<RequestPermissionResponse> =>
         this.#onRequestPermission(params),
-      // readTextFile / writeTextFile / createTerminal / … are intentionally
-      // absent. An optional method that is not implemented answers "method not
-      // found", which is exactly the refusal the declared capabilities promise.
+      // Every optional Client method peek declares it does not have, implemented
+      // to say so. Omitting them is not a refusal — see the note at the top of
+      // this file and `#refuseClientMethod`. The list has to stay in step with
+      // the handlers `legacyClientApp` registers unconditionally: the two `fs/*`
+      // methods and all five `terminal/*` ones. `elicitation/create` is *not*
+      // here, and must not be: the SDK registers that one only when the
+      // implementation provides it, so leaving it off already produces -32601.
+      readTextFile: (params) => this.#refuseClientMethod('fs/read_text_file', params.path),
+      writeTextFile: (params) => this.#refuseClientMethod('fs/write_text_file', params.path),
+      createTerminal: (params) => this.#refuseClientMethod('terminal/create', params.command),
+      terminalOutput: (params) => this.#refuseClientMethod('terminal/output', params.terminalId),
+      releaseTerminal: (params) => this.#refuseClientMethod('terminal/release', params.terminalId),
+      waitForTerminalExit: (params) =>
+        this.#refuseClientMethod('terminal/wait_for_exit', params.terminalId),
+      killTerminal: (params) => this.#refuseClientMethod('terminal/kill', params.terminalId),
     }
     const connection = new ClientSideConnection(() => client, stream)
     this.#connection = connection
@@ -653,6 +691,8 @@ export class AcpManager {
       streaming: false,
       idleTimer: null,
       maxTimer: null,
+      maxRemainingMs: 0,
+      maxArmedAt: 0,
       localStop: null,
       permissionIds: new Set<string>(),
       pendingCancel: false,
@@ -764,9 +804,16 @@ export class AcpManager {
         this.#finishTurn(session, local.stopReason, local.error)
         return
       }
+      // `agentAlive` is the structural half of crash detection, and it is peek's
+      // own observation rather than anything the agent said. The SDK rejects an
+      // in-flight `prompt()` with a bare `Error` carrying no code — see
+      // `CLOSED_HINTS` — so without this the same crash reads as "the agent
+      // failed" or as "the agent process exited" depending only on whether the
+      // transport's wording happened to be on a list.
+      const context = { agentAlive: this.running }
       const error = isAuthFailure(raw)
-        ? withAuthHelp(classifyAcpError(raw, this.#secrets))
-        : classifyAcpError(raw, this.#secrets)
+        ? withAuthHelp(classifyAcpError(raw, this.#secrets, context))
+        : classifyAcpError(raw, this.#secrets, context)
       this.#finishTurn(session, 'error', error)
       this.#deps.notify({
         level: 'error',
@@ -825,28 +872,84 @@ export class AcpManager {
     if (ms <= 0) return
     session.idleTimer = setTimeout(() => {
       session.idleTimer = null
-      if (!session.streaming) return
-      session.localStop = { stopReason: 'error', error: acpTimeout('The reply', ms) }
-      void this.cancel(session.chatId).catch(() => {
-        /* The turn is already being torn down; a failed cancel changes nothing. */
-      })
+      this.#killTurn(session, acpTimeout('The reply', ms))
     }, ms)
     session.idleTimer.unref?.()
   }
 
-  #armMax(session: ChatSession): void {
+  /**
+   * End a turn on peek's own authority, and say so.
+   *
+   * The saying-so is the part that was missing. A watchdog fires, `localStop` is
+   * set, `cancel()` runs, and `#finishTurn` commits `status: 'error'` — but the
+   * `PeekError` explaining *why* only reaches the transcript through
+   * `translator.finishTurn`, which drops it when no agent message was ever
+   * started. That is exactly the case the idle watchdog exists for: an agent that
+   * went silent produced no message to attach an error to, so the user watched a
+   * spinner for 90 seconds and then got a red status with no sentence anywhere.
+   *
+   * A toast is the same channel `#runTurn` already uses for a failed turn, so
+   * both ways a turn can end badly now look the same to the user.
+   */
+  #killTurn(session: ChatSession, error: PeekError): void {
+    if (!session.streaming) return
+    // Never clobber a reason already recorded — the first thing to give up on the
+    // turn owns the explanation.
+    session.localStop ??= { stopReason: 'error', error }
+    this.#deps.notify({
+      level: 'error',
+      message: error.message,
+      ...(error.detail ? { detail: error.detail } : {}),
+    })
+    void this.cancel(session.chatId).catch(() => {
+      /* The turn is already being torn down; a failed cancel changes nothing. */
+    })
+  }
+
+  /**
+   * Absolute ceiling on the turn.
+   *
+   * The counterpart to `#armIdle` and not a duplicate of it: the idle watchdog
+   * catches a turn that has gone quiet, this one catches a turn that has not —
+   * an agent looping happily, resetting the idle clock with every token it
+   * emits. See `AcpTimeouts.promptMaxMs` for the budget and why it is 30
+   * minutes.
+   *
+   * Started fresh for the turn, then paused and resumed around every permission
+   * dialog by `#pauseMax` / `#resumeMax`, so what it measures is the agent's own
+   * time and not a person's.
+   */
+  #startMax(session: ChatSession): void {
+    session.maxRemainingMs = this.#config.timeouts.promptMaxMs
+    this.#resumeMax(session)
+  }
+
+  #resumeMax(session: ChatSession): void {
     if (session.maxTimer) clearTimeout(session.maxTimer)
-    const ms = this.#config.timeouts.promptMaxMs
+    session.maxTimer = null
+    const total = this.#config.timeouts.promptMaxMs
+    if (total <= 0) return
+    const ms = session.maxRemainingMs
     if (ms <= 0) return
+    session.maxArmedAt = Date.now()
     session.maxTimer = setTimeout(() => {
       session.maxTimer = null
-      if (!session.streaming) return
-      session.localStop = { stopReason: 'error', error: acpTimeout('The turn', ms) }
-      void this.cancel(session.chatId).catch(() => {
-        /* Same as above. */
-      })
+      session.maxRemainingMs = 0
+      // Reported against the configured budget, not against `ms`: after a pause
+      // `ms` is a remainder, and "did not finish within 1,412,003 ms" describes
+      // an implementation detail rather than the rule that was applied.
+      this.#killTurn(session, acpTimeout('The turn', total))
     }, ms)
     session.maxTimer.unref?.()
+  }
+
+  /** Stop the absolute clock and bank what is left of the budget. */
+  #pauseMax(session: ChatSession): void {
+    if (!session.maxTimer) return
+    clearTimeout(session.maxTimer)
+    session.maxTimer = null
+    const spent = Date.now() - session.maxArmedAt
+    session.maxRemainingMs = Math.max(0, session.maxRemainingMs - spent)
   }
 
   #disarmIdle(session: ChatSession): void {
@@ -869,6 +972,31 @@ export class AcpManager {
   /* ---------------------------------------------------------------- */
   /* Client interface                                                  */
   /* ---------------------------------------------------------------- */
+
+  /**
+   * Answer a `Client` method peek has declared it does not have.
+   *
+   * Throwing a `RequestError` out of a handler is what puts a real JSON-RPC
+   * error on the wire: the SDK's responder turns a thrown `RequestError` into
+   * `{"error":{"code":-32601,…}}`, whereas an *absent* method turns into a
+   * successful `{"result":null}`. That difference is the whole reason this
+   * function exists — see the note at the top of the file.
+   *
+   * The warn is not decoration. An agent asking for a capability the handshake
+   * declared false is either broken or probing, and until now that request left
+   * no trace anywhere: nothing happened, nothing was logged, and the agent was
+   * told it had worked. A failure nobody can observe is the worst kind. The
+   * `subject` — a path, a command, a terminal id — comes from the agent, so it is
+   * sanitised and truncated before it goes near a log line.
+   */
+  #refuseClientMethod(method: string, subject: unknown): never {
+    const target =
+      typeof subject === 'string' || typeof subject === 'number'
+        ? sanitizeLine(String(subject), 200)
+        : undefined
+    this.#log('warn', `the agent called ${method}, which peek does not provide`, target)
+    throw RequestError.methodNotFound(method)
+  }
 
   /**
    * Stream handler. Synchronous by contract: translate, enqueue, return.
@@ -934,9 +1062,10 @@ export class AcpManager {
     session.batcher.flush()
     this.#patch(session.chatId, { status: 'awaiting-permission', pendingPermission: ticket.pending })
 
-    // The clock stops while a person is reading. `permissionMs` is the budget
+    // Both clocks stop while a person is reading. `permissionMs` is the budget
     // that applies here, and it is enforced by the ticket itself.
     this.#disarmIdle(session)
+    this.#pauseMax(session)
     let decision: PermissionDecision
     try {
       decision = await ticket.decision
@@ -949,7 +1078,10 @@ export class AcpManager {
       // `#armIdle` no-ops once `streaming` is false, and `#clearTimers` runs
       // after it in that case anyway.
       session.permissionIds.delete(ticket.pending.requestId)
-      if (session.streaming && session.permissionIds.size === 0) this.#armIdle(session)
+      if (session.streaming && session.permissionIds.size === 0) {
+        this.#armIdle(session)
+        this.#resumeMax(session)
+      }
     }
     this.#patch(session.chatId, {
       pendingPermission: null,

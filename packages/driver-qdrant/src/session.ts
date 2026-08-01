@@ -5,11 +5,15 @@ import {
   QDRANT_VECTOR_FIELD,
   VALUE_PEEK_MAX_BYTES,
   VECTOR_RESULT_COLUMNS,
+  assertBrowseSupported,
+  assertFilterSupported,
+  collectionBrowseStyle,
   parseQdrantField,
   peekError,
   peekErrorMsg,
   type ByteRange,
   type Capability,
+  type CollectionBrowseStyle,
   type CollectionRef,
   type CollectionScanRequest,
   type CollectionSchemaInfo,
@@ -20,6 +24,7 @@ import {
   type PeekedValue,
   type QdrantConnectionConfig,
   type ResultId,
+  type VectorCollectionRef,
   type ServerInfo,
   type ValueRef,
   type VectorSearchRequest,
@@ -366,6 +371,9 @@ export class QdrantSession implements DriverSession {
       ref: target,
       columns: shape.columns,
       primaryKey: [VECTOR_RESULT_COLUMNS.id],
+      // The default projection is `id` + one json `payload`, so nothing in this
+      // result is filterable; `columns` on the scan is what changes that
+      browse: browseStyleOf(target, info, shape.payloadColumns),
       ...(info.pointsCount === null ? {} : { rowCountEstimate: info.pointsCount }),
       // Payload indexes are qdrant's only index-like objects. They are reported
       // here rather than folded into the columns so a caller can see which keys
@@ -452,6 +460,16 @@ export class QdrantSession implements DriverSession {
       // PLAN section 4, non-negotiable: a listing never carries vector bodies
       withVector: false,
     })
+    // A filter that names a *result column* has to name one that exists and that
+    // qdrant can express a predicate on. A filter that names a stored payload
+    // field goes straight through, which is what every MCP caller writes and what
+    // `FilterSpec.column` has always meant here.
+    assertFilterSupported(
+      { ...collectionBrowseStyle(target), filterableColumns: filterableColumnsOf(payloadColumns) },
+      req.filter,
+      shape.columns.map((c) => c.name),
+      { driverId: 'qdrant' },
+    )
 
     const limit = clampInt(req.limit ?? DEFAULT_PAGE_LIMIT, 0, MAX_PAGE_LIMIT) ?? DEFAULT_PAGE_LIMIT
     const resume = req.cursorToken === undefined ? undefined : decodeScrollOffset(req.cursorToken)
@@ -464,10 +482,15 @@ export class QdrantSession implements DriverSession {
           + ` (the ceiling is ${MAX_EMULATED_OFFSET})`,
       )
     }
-    if (orderBy !== undefined && (resume !== undefined || skip > 0)) {
-      // Qdrant refuses `order_by` together with a start offset; saying so is
-      // better than passing it through and reading the server's version of it
-      throw peekError('BAD_REQUEST', 'A qdrant scroll cannot combine sort with paging')
+    if (orderBy !== undefined) {
+      // Qdrant refuses `order_by` together with a start offset, and refuses it
+      // outright on a payload key with no index. Both facts are declared on the
+      // browse style this collection reports through `describeCollection`, so the
+      // refusal here and the column header the UI draws come from one value.
+      // `describeInfo` is cached per session, so this costs nothing once the tree
+      // (or any earlier describe) has touched the collection.
+      const info = await this.collections.describeInfo(collection)
+      assertBrowseSupported(browseStyleOf(target, info), req, { driverId: 'qdrant' })
     }
 
     const withPayload: Schemas['WithPayloadInterface'] =
@@ -842,4 +865,46 @@ function safeJson(value: unknown): string | null {
 function toServerTimeout(timeoutMs: number | undefined): number | undefined {
   if (timeoutMs === undefined || !Number.isFinite(timeoutMs) || timeoutMs <= 0) return undefined
   return Math.max(1, Math.ceil(timeoutMs / 1000))
+}
+
+/**
+ * How one qdrant collection browses.
+ *
+ * The kind default already says "no offset paging, and an ordered scroll is a
+ * single page". What the kind cannot say is **which** keys are orderable, and
+ * that varies collection by collection: `order_by` requires a payload index on
+ * the key, and asking for one without it is a server-side 400. A collection with
+ * no payload indexes at all is therefore not sortable, full stop —
+ * `resolveCollectionBrowseStyle` reads the empty list as exactly that.
+ *
+ * This is the case the kind-keyed table structurally could not express, and the
+ * reason `CollectionSchemaInfo.browse` exists.
+ */
+function browseStyleOf(
+  ref: VectorCollectionRef,
+  info: QdrantCollectionInfo,
+  payloadColumns: readonly string[] = [],
+): CollectionBrowseStyle {
+  return {
+    ...collectionBrowseStyle(ref),
+    sortableColumns: info.payloadIndexes.map((p) => p.field),
+    filterableColumns: filterableColumnsOf(payloadColumns),
+  }
+}
+
+/**
+ * The result columns a filter may be attached to.
+ *
+ * `id` is one: it is addressed with `has_id`, which is a real qdrant predicate.
+ * The payload keys the caller chose to flatten are the others, because a
+ * predicate on a named key is exactly what qdrant's filter language expresses.
+ *
+ * What is deliberately **not** on the list is the catch-all json `payload`
+ * column, which is the whole of the default projection — there is no predicate
+ * over a payload blob as a whole, so a column header on a default vector browse
+ * has no filter to offer and must not pretend otherwise. `score` and `vector` are
+ * absent for the same reason: neither is filterable server-side.
+ */
+function filterableColumnsOf(payloadColumns: readonly string[]): string[] {
+  return [VECTOR_RESULT_COLUMNS.id, ...payloadColumns]
 }

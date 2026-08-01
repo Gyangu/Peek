@@ -4,9 +4,11 @@ import {
   DRIVER_CAPABILITIES,
   QDRANT_VECTOR_FIELD,
   buildVectorResultSchema,
+  encodeScanCursor,
   isPeekError,
   parseQdrantField,
   qdrantPayloadField,
+  tryDecodeScanCursor,
 } from '@peek/core'
 import { collectionNodeId, parseCollectionNodeId } from '../collections'
 import { qdrantDriver, requireQdrantConfig } from '../driver'
@@ -69,8 +71,40 @@ describe('driver-qdrant contract', () => {
     assert.equal(decodeScrollOffset(encodeScrollOffset('42')), '42')
     const uuid = '9d3f2b1a-0000-4000-8000-000000000001'
     assert.equal(decodeScrollOffset(encodeScrollOffset(uuid)), uuid)
-    // A token that is not JSON is read as a literal id, which cannot lose data
-    assert.equal(decodeScrollOffset(uuid), uuid)
+    // The boundary rides inside core's envelope, so the driver that minted it is
+    // part of the token
+    assert.deepEqual(tryDecodeScanCursor(encodeScrollOffset(42)), {
+      driverId: 'qdrant',
+      boundary: '42',
+      skip: 0,
+    })
+  })
+
+  /**
+   * The bug the shared envelope closes.
+   *
+   * `decodeScrollOffset` used to read *anything* that was not JSON as a literal
+   * string point id. So a redis continuation — or a stale postgres row offset, or
+   * a hand-typed string — became a point that does not exist, the scroll started
+   * from nowhere, and the caller got an empty page with no error. A wrong answer
+   * is worse than a refusal, so now it is a refusal.
+   */
+  it('refuses a continuation another driver minted instead of scrolling from nowhere', () => {
+    for (const foreign of [
+      encodeScanCursor({ driverId: 'redis', boundary: '238', skip: 17 }),
+      encodeScanCursor({ driverId: 'postgres', boundary: '400', skip: 0 }),
+      '9d3f2b1a-0000-4000-8000-000000000001',
+      'not a token at all',
+      '',
+    ]) {
+      try {
+        decodeScrollOffset(foreign)
+        assert.fail(`${foreign} must not be accepted as a qdrant scroll offset`)
+      } catch (err) {
+        assert.ok(isPeekError(err), 'the refusal has to be a structured error')
+        assert.equal(err.code, 'BAD_REQUEST')
+      }
+    }
   })
 
   it('keeps a numeric point id numeric', () => {

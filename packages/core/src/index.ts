@@ -7,6 +7,8 @@
  *   errors.ts         structured errors
  *   ids.ts            branded types and id generation
  *   chunk.ts          columnar result-stream protocol + performance-budget constants
+ *   values.ts         canonical JS representation of a cell, per LogicalType
+ *   cursor.ts         continuation-cursor semantics (page boundary + intra-page skip)
  *   capability.ts     driver capability model (Driver / DriverSession / Cursor / the Refs)
  *   driver-host.ts    driver-agnostic driver-host runtime (the ipc.ts protocol, implemented once)
  *   workspace.ts      Workspace state model (tiled layout / views / connection state machine)
@@ -20,9 +22,12 @@
 export * from './messages'
 export * from './error-messages'
 export * from './errors'
+export * from './untrusted-text'
 export * from './ids'
 export * from './chunk'
+export * from './values'
 export * from './capability'
+export * from './cursor'
 export * from './chat'
 export * from './workspace'
 export * from './layout-dnd'

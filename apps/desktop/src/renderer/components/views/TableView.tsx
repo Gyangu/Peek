@@ -4,8 +4,10 @@ import type { SortSpec, TableViewState } from '@peek/core'
 import { collectionRefLabel } from '@peek/core'
 import { useT } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
+import { useConnection, useResultMeta } from '../../state/workspaceStore'
 import { DataGrid } from '../DataGrid'
 import { ViewError } from '../ViewError'
+import { CacheGapNotice, CancelButton } from './ResultControls'
 import { refreshPatch, tableControls } from './browseControls'
 
 const PAGE_SIZES = [100, 200, 500, 1000, 5000]
@@ -27,8 +29,14 @@ const PAGE_SIZES = [100, 200, 500, 1000, 5000]
 export function TableView({ view }: { view: TableViewState }): ReactElement {
   const { id: viewId, connId, ref, sort, filter, page, resultId, cursorToken } = view
   const t = useT()
+  const conn = useConnection(connId)
+  const meta = useResultMeta(resultId)
   const sortKey = JSON.stringify(sort ?? [])
   const controls = tableControls(ref)
+
+  // Same test the query and vector views use: the result set is still streaming,
+  // or main has moved the view to loading and the first frame has not landed.
+  const running = meta?.status === 'running' || view.status === 'loading'
 
   const onSortColumn = useCallback(
     (column: string) => {
@@ -96,6 +104,10 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
         >
           ⟳ {t('table.refresh')}
         </button>
+        {/* A collection scan is the longest-running thing peek does — a million-row
+            table walks for minutes — and this view was the one with no way to stop
+            it. It has one now, on the same control the other two result views use. */}
+        <CancelButton viewId={viewId} conn={conn} running={running} />
         <span className="sep" />
         {controls.offsetPager ? (
           <>
@@ -160,6 +172,13 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
       </div>
 
       <ViewError error={view.error} />
+      {/* `refresh` re-runs this page of the scan; on a cursor-paged collection it
+          restarts from the first page, which `refreshPatch` already documents. */}
+      <CacheGapNotice
+        resultId={resultId}
+        disabled={running || conn?.status !== 'ready'}
+        onRefetch={refresh}
+      />
 
       {/* A grid with no `onSortColumn` has inert headers (DataGridProps), which is
           exactly what a collection the driver cannot order should offer. */}

@@ -14,7 +14,13 @@
  *    peek will display as text.
  */
 
-import { peekError, type PeekError } from '@peek/core'
+import {
+  ConnectionConfigSchema,
+  REDACTED,
+  peekError,
+  redactConnectionConfig,
+  type PeekError,
+} from '@peek/core'
 
 /* ================================================================== */
 /* JSON-RPC codes worth naming                                         */
@@ -46,8 +52,56 @@ const AUTH_HINTS = [
   '401',
 ] as const
 
-/** The agent process died mid-request; the SDK rejects with a bare Error. */
-const CLOSED_HINTS = ['connection closed', 'stream closed', 'write after end', 'epipe'] as const
+/**
+ * Last-resort text match for "the agent process died mid-request".
+ *
+ * ## Why a string match is here at all, and why it is no longer load-bearing
+ *
+ * The SDK rejects an in-flight request through `close(error)`, whose default is
+ * literally `new Error("ACP connection closed")` — no `code`, no `data`, nothing
+ * structured. Worse, `close` is also called with whatever the stream reader
+ * threw, so the text is not even a fixed string: an `EPIPE`, an `ECONNRESET` or
+ * a future SDK rewording all arrive here as an unrecognisable bare `Error` and
+ * used to be reported as a generic internal failure — "the agent failed" — for
+ * something peek could see plainly, because the child process it started was
+ * gone.
+ *
+ * {@link AcpFailureContext.agentAlive} is the fix and is now the primary signal:
+ * the caller *knows* whether its own child process is still running, and that
+ * fact does not depend on anyone's wording. This list stays as a fallback for
+ * the one case the structural check cannot cover — the request failing in the
+ * window between the stream closing and the OS reporting the exit — and is
+ * widened to the shapes actually observed on that path.
+ */
+const CLOSED_HINTS = [
+  'connection closed',
+  'connection is closed',
+  'stream closed',
+  'stream is closed',
+  'write after end',
+  'premature close',
+  'epipe',
+  'econnreset',
+  'err_stream_destroyed',
+  'the agent process exited',
+] as const
+
+/**
+ * What the caller knows about its own side of the connection.
+ *
+ * Deliberately not derived from the thrown value: everything in `raw` was
+ * authored by the agent or by the transport, and the whole point of this record
+ * is to carry a fact peek established for itself.
+ */
+export interface AcpFailureContext {
+  /**
+   * Whether peek's agent child process was still running when the request
+   * failed. `false` is authoritative — a request cannot fail for any reason
+   * other than the agent being gone once the agent is gone — and `undefined`
+   * means "not checked", which falls back to {@link CLOSED_HINTS}.
+   */
+  agentAlive?: boolean
+}
 
 /* ================================================================== */
 /* Redaction                                                           */
@@ -83,21 +137,121 @@ export function sanitizeLine(text: string, maxLen = 400): string {
   return stripped.length > maxLen ? `${stripped.slice(0, maxLen)}…` : stripped
 }
 
+/* ------------------------------------------------------------------ */
+/* Credentials inside a tool's arguments                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `scheme://user:password@host`, masked everywhere it occurs.
+ *
+ * Core's `redactUrlCredentials` does the same job but replaces only the first
+ * match, which is exactly right for a config field holding one URL. A tool
+ * argument is free-form — a single shell command can name two DSNs — so the sweep
+ * here is global, and it stops at whitespace so a bare `@` later in a sentence
+ * cannot drag the match across half the line.
+ */
+const URL_CREDENTIALS_RE = /(:\/\/[^:/@\s]*):[^@\s]*@/g
+
+function maskUrlCredentials(text: string): string {
+  return text.replace(URL_CREDENTIALS_RE, `$1:${REDACTED}@`)
+}
+
+/**
+ * Argument names whose **value** is a credential, whatever tool they belong to.
+ *
+ * The fallback for tools peek knows nothing about — a config shape it can parse
+ * is handled precisely, one field below. Deliberately anchored whole-name
+ * matches: `password` is a secret, `passwordPolicy` is not, and over-masking a
+ * permission prompt costs the user the ability to see what they are approving.
+ * `url` is **not** in this list: masking a whole URL would hide the host the user
+ * is being asked to allow, so URLs keep their shape and lose only the password.
+ */
+const SECRET_KEY_RE =
+  /^(?:password|passwd|pwd|secret|token|api[-_]?key|apikey|access[-_]?key|auth[-_]?token|authorization|bearer|credential|credentials|private[-_]?key|session[-_]?token|client[-_]?secret)$/i
+
+/** Deep enough for any real tool payload; a guard against a pathological nest, not a policy. */
+const MAX_PREVIEW_DEPTH = 8
+
+/**
+ * Walk a tool argument, masking secret-named fields and credentials in strings.
+ *
+ * The cycle guard is scoped to the current path (added on the way down, removed
+ * on the way up), so a value that legitimately appears twice is still rendered
+ * twice — only a real loop becomes a marker.
+ */
+function redactPreviewValue(value: unknown, depth: number, path: Set<object>): unknown {
+  if (typeof value === 'string') return maskUrlCredentials(value)
+  if (typeof value !== 'object' || value === null) return value
+  if (depth >= MAX_PREVIEW_DEPTH) return '…'
+  if (path.has(value)) return '[circular]'
+  path.add(value)
+  try {
+    if (Array.isArray(value)) return value.map((item) => redactPreviewValue(item, depth + 1, path))
+    const out: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value)) {
+      out[key] = SECRET_KEY_RE.test(key) ? REDACTED : redactPreviewValue(item, depth + 1, path)
+    }
+    return out
+  } finally {
+    path.delete(value)
+  }
+}
+
+/**
+ * Strip credentials out of a tool's raw arguments.
+ *
+ * ## Why this exists at all
+ *
+ * The preview built from these arguments is not a local string. It becomes
+ * `PendingPermission.inputPreview`, which is Workspace state: `summarizeChat`
+ * carries it into the outward snapshot that `read_workspace` hands to any MCP
+ * caller holding the bearer token, and the same field is broadcast to the
+ * renderer, for as long as the prompt stands. A cleartext DSN there is a secret
+ * published to a wider audience than the one that typed it — and the same field
+ * is already redacted on the way to the command log (`redactCommandInput`), so
+ * leaving this path open was a hole in an otherwise closed surface.
+ *
+ * ## Two passes, because they know different amounts
+ *
+ * The generic walk knows nothing about peek and masks by field name. The second
+ * pass is exact: `connect`'s `config` is a shape core can parse, so it goes
+ * through the same `redactConnectionConfig` every other outbound copy of a config
+ * uses — which also drops any key the schema does not declare.
+ */
+export function redactToolInput(rawInput: unknown): unknown {
+  if (typeof rawInput === 'string') return maskUrlCredentials(rawInput)
+  if (typeof rawInput !== 'object' || rawInput === null) return rawInput
+
+  const walked = redactPreviewValue(rawInput, 0, new Set<object>())
+  if (Array.isArray(walked) || typeof walked !== 'object' || walked === null) return walked
+
+  // Parsed from the *original* input: the walk has already masked the password,
+  // and a schema is stricter about everything else.
+  const parsed = ConnectionConfigSchema.safeParse((rawInput as Record<string, unknown>)['config'])
+  if (parsed.success) (walked as Record<string, unknown>)['config'] = redactConnectionConfig(parsed.data)
+  return walked
+}
+
 /**
  * A short, safe rendering of a tool's arguments, for a permission prompt.
  *
  * Never the full input: it can be arbitrarily large, it is untrusted, and a
- * permission dialog that scrolls is a permission dialog nobody reads.
+ * permission dialog that scrolls is a permission dialog nobody reads. Never the
+ * *raw* input either — see {@link redactToolInput}. The final sweep repeats the
+ * URL mask on the serialised form, which is what covers a payload the structural
+ * walk could not enter (a string of pre-serialised JSON, anything past the depth
+ * limit).
  */
 export function previewInput(rawInput: unknown, maxLen = 300): string {
+  const safe = redactToolInput(rawInput)
   let text: string
   try {
-    text = typeof rawInput === 'string' ? rawInput : JSON.stringify(rawInput)
+    text = typeof safe === 'string' ? safe : JSON.stringify(safe)
   } catch {
-    text = String(rawInput)
+    text = String(safe)
   }
   if (text === undefined || text === 'undefined') return ''
-  return sanitizeLine(text, maxLen)
+  return sanitizeLine(maskUrlCredentials(text), maxLen)
 }
 
 /* ================================================================== */
@@ -144,8 +298,16 @@ export function isAuthFailure(raw: unknown): boolean {
   return hasHint(`${messageOf(raw)} ${detailOf(raw) ?? ''}`, AUTH_HINTS)
 }
 
-/** True when the agent process went away underneath an in-flight request. */
-export function isConnectionClosed(raw: unknown): boolean {
+/**
+ * True when the agent process went away underneath an in-flight request.
+ *
+ * Structural first: a dead agent plus a rejection that carries no JSON-RPC code
+ * is a crash, whatever the text says. The code check matters — an agent that
+ * answered `-32602` and *then* exited reported a real protocol error, and
+ * relabelling it as a crash would send the user chasing the wrong thing.
+ */
+export function isConnectionClosed(raw: unknown, context: AcpFailureContext = {}): boolean {
+  if (context.agentAlive === false && typeof asRpcError(raw)?.code !== 'number') return true
   return hasHint(messageOf(raw), CLOSED_HINTS)
 }
 
@@ -166,7 +328,11 @@ export const AUTH_HELP =
  *
  * `secrets` are redacted from every string that ends up in the result.
  */
-export function classifyAcpError(raw: unknown, secrets: readonly string[] = []): PeekError {
+export function classifyAcpError(
+  raw: unknown,
+  secrets: readonly string[] = [],
+  context: AcpFailureContext = {},
+): PeekError {
   const message = sanitizeLine(redact(messageOf(raw), secrets))
   const rawDetail = detailOf(raw)
   const detail = rawDetail === undefined ? undefined : sanitizeLine(redact(rawDetail, secrets), 1_000)
@@ -184,7 +350,7 @@ export function classifyAcpError(raw: unknown, secrets: readonly string[] = []):
     return peekError('CANCELLED', message || 'The turn was cancelled.')
   }
 
-  if (isConnectionClosed(raw)) {
+  if (isConnectionClosed(raw, context)) {
     return peekError('DRIVER_CRASHED', message || 'The agent process exited.', {
       detail: 'The chat panel restarts the agent automatically; the conversation so far is preserved.',
       retryable: true,

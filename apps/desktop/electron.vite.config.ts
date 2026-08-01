@@ -1,5 +1,6 @@
+import { readFileSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import type { Plugin } from 'vite'
@@ -86,11 +87,17 @@ const require = __cjs_mod__.createRequire(import.meta.url);
    *
    * Not the `// -- CommonJS Shims --` comment: `vite:esbuild-transpile` runs
    * after this plugin and strips comments, so a marker-based check would read 0
-   * every time and quietly never fire. `__cjs_mod__` is an identifier, unique to
-   * electron-vite's shim, and survives transpile — esbuild only ever suffixes it
-   * (`__cjs_mod__2`) when deduplicating, which this pattern still counts.
+   * every time and quietly never fire.
+   *
+   * Nor the `__cjs_mod__` identifier, which is what this used to match: with
+   * `build.minify` on, esbuild's `minifyIdentifiers` renames every top-level
+   * binding of an ES chunk, so the shim's import becomes `import x from
+   * "node:module"` and an identifier-based pattern silently reads 0 forever —
+   * the exact "quietly never fires" failure the comment above warns about.
+   * A *default import of `node:module`* is the one part of the shim that no
+   * transform can rewrite away, and it is emitted exactly once per shim.
    */
-  const SHIM_IMPORT_RE = /__cjs_mod__\d*\s+from\s*["']node:module["']/g
+  const SHIM_IMPORT_RE = /import\s+[A-Za-z_$][\w$]*\s+from\s*["']node:module["']/g
 
   // electron-vite picks the variant by Electron major (>= 30 has
   // import.meta.filename / .dirname). Mirroring the rule rather than hardcoding
@@ -104,6 +111,46 @@ const require = __cjs_mod__.createRequire(import.meta.url);
   return {
     name: 'peek:cjs-shim-at-top',
     apply: 'build',
+    /**
+     * Drift detection, checked against the source of truth rather than inferred
+     * from the output.
+     *
+     * `generateBundle` below can only notice drift *after* it has already broken
+     * the build, and only when the breakage survives that far: with
+     * `build.minify` on, `vite:esbuild-transpile` runs first and reports the
+     * duplicate `__cjs_mod__` as a raw esbuild error, which says nothing about
+     * where the two copies came from. Reading electron-vite's own dist and
+     * asserting our copy is still a substring of it catches the same drift one
+     * step earlier, with the message that actually names the fix.
+     */
+    buildStart() {
+      const req = createRequire(import.meta.url)
+      let dist: string
+      try {
+        dist = dirname(req.resolve('electron-vite'))
+      } catch {
+        return // not resolvable from here; the generateBundle net still applies
+      }
+      const chunkDir = resolve(dist, 'chunks')
+      let found = false
+      try {
+        found = readdirSync(chunkDir)
+          .filter((f) => f.endsWith('.js'))
+          .some((f) => readFileSync(resolve(chunkDir, f), 'utf8').includes(shim.trimEnd()))
+      } catch {
+        // The dist layout moved. That is itself drift worth reporting, and
+        // falling through to this.error() below says so in the same words —
+        // an ENOENT stack would not.
+      }
+      if (!found) {
+        this.error(
+          "electron-vite's CommonJS shim text no longer matches the copy in cjsShimAtTopPlugin " +
+            '(electron.vite.config.ts). Its skip check is a substring match, so both copies will land ' +
+            'and the duplicate `const __filename` will fail the build. Re-copy the constant from ' +
+            `electron-vite ${resolve(dist, 'chunks')}/lib-*.js.`,
+        )
+      }
+    },
     renderChunk(code, _chunk, { format }) {
       if (format !== 'es') return null
       if (code.includes(shim) || !CJS_SYNTAX_RE.test(code)) return null
@@ -128,14 +175,55 @@ const require = __cjs_mod__.createRequire(import.meta.url);
   }
 }
 
+/* ==================================================================== */
+/* Minification                                                          */
+/* ==================================================================== */
+
+/**
+ * electron-vite forces `build.minify: false` on all three targets (see its
+ * `dist/chunks/lib-*.js` default configs), on the reasonable assumption that a
+ * desktop bundle is read off local disk. It still costs real bytes and real
+ * parse time — measured on this app, unminified → esbuild-minified:
+ *
+ *   renderer index      1,264,081 → 563,734 B  (-55%)
+ *   renderer SqlEditor    882,005 → 433,995 B  (-51%)
+ *   renderer CSS           57,917 →  32,550 B  (-44%)
+ *   main index            327,010 → 175,091 B  (-46%)
+ *   main driver-host    3,886,332 → 2,192,870 B (-44%)
+ *
+ * `esbuild` (not `terser`) because it is already in the dependency tree and the
+ * marginal gain from terser does not pay for a second minifier.
+ */
+const MINIFY = 'esbuild' as const
+
+/**
+ * Main-process esbuild options.
+ *
+ * `keepNames` is the whole point: `minifyIdentifiers` otherwise rewrites every
+ * function and class name in the chunk, and the main process is where stack
+ * traces are actually read — every uncaught rejection, every driver-host crash,
+ * every `PeekError` surfaced to MCP goes through one. The cost is a handful of
+ * `__name()` calls; measured on driver-host it is under 2% of the minified size,
+ * which is a bargain next to an unreadable trace.
+ *
+ * Not applied to the renderer: nothing reads a renderer stack in anger, React's
+ * component names come from its own displayName machinery, and the bytes are on
+ * the cold-start path.
+ *
+ * **Never applied to the preload** — see the comment on that target below.
+ */
+const NODE_ESBUILD = { keepNames: true } as const
+
 export default defineConfig({
   // main: the Electron main process. Hosts the Command Bus, the Workspace source of
   // truth, and the MCP HTTP server.
   main: {
     plugins: [externalizeDepsPlugin({ exclude: PEEK_BUNDLED }), cjsShimAtTopPlugin()],
     resolve: { alias: peekAlias },
+    esbuild: NODE_ESBUILD,
     build: {
       outDir: 'out/main',
+      minify: MINIFY,
       rollupOptions: {
         input: {
           // Main-process entry point
@@ -147,12 +235,40 @@ export default defineConfig({
     },
   },
 
-  // preload: exposes one narrow bridge and nothing else (invoke / onPatch / onResultPort)
+  /**
+   * preload: exposes one narrow bridge and nothing else (invoke / onPatch /
+   * onResultPort).
+   *
+   * **Deliberately not minified**, and this is not an oversight.
+   *
+   * `src/preload/index.ts` hands `bootstrapMainWorld` to
+   * `contextBridge.executeInMainWorld({ func })`. Electron implements that by
+   * taking the function's *source text* and evaluating it in the main world, so
+   * the function must be completely self-contained — it can reach nothing from
+   * the module around it, because none of that module exists over there.
+   *
+   * Minification breaks that rule the moment it hoists anything. Turning
+   * `keepNames` on here (harmless everywhere else) made esbuild emit
+   * `var a = (r, o) => Object.defineProperty(r, "name", …)` at module scope and
+   * rewrite the nested functions inside `bootstrapMainWorld` as `a(…)` — so the
+   * main world got `ReferenceError: a is not defined`, the bootstrap fell into
+   * its degraded branch, and **the data plane went away silently**: the window
+   * still opened, commands still worked, and result MessagePorts simply never
+   * arrived. Measured, not hypothesised.
+   *
+   * Plain `minify: 'esbuild'` without `keepNames` happens to leave the function
+   * self-contained today, but that is a property of the current minifier and of
+   * the current source, not a guarantee — a TypeScript downlevel helper or a
+   * future esbuild pass reintroduces the same silent failure. The entire prize
+   * is 4.6 kB on a file parsed once per window, against a failure mode that
+   * looks exactly like a working app. Not worth it.
+   */
   preload: {
     plugins: [externalizeDepsPlugin({ exclude: ['@peek/core'] })],
     resolve: { alias: peekAlias },
     build: {
       outDir: 'out/preload',
+      minify: false,
       rollupOptions: {
         input: { index: resolve(rootDir, 'src/preload/index.ts') },
         output: { format: 'cjs', entryFileNames: '[name].cjs' },
@@ -167,6 +283,12 @@ export default defineConfig({
     resolve: { alias: peekAlias },
     build: {
       outDir: 'out/renderer',
+      minify: MINIFY,
+      // Renderer only: CSS minification is a separate switch from `build.minify`
+      // in Vite (it defaults to the same value, but electron-vite pins
+      // `build.minify` to false *after* that default is resolved, so it has to
+      // be stated).
+      cssMinify: MINIFY,
       rollupOptions: {
         input: { index: resolve(rootDir, 'index.html') },
       },

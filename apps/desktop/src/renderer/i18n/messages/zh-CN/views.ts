@@ -2,6 +2,17 @@ import type { CatalogFor } from '../../types'
 import type { ViewsMessages } from '../en/views'
 
 export const views: CatalogFor<ViewsMessages> = {
+  /* ---- 三种结果视图共用的控件 ---- */
+  'result.cancel': '取消',
+  'result.cancelTitle': '停止这次请求；已经加载的行会保留',
+  'result.cancelUnsupported': '无法取消',
+  'result.cancelUnsupportedTitle':
+    '{driverId} 驱动无法中止已经开始的请求。peek 剩下的唯一手段是杀掉驱动进程，那会一并关闭这个连接——所以这里不提供按钮。要停下来请关闭连接，或者等请求超时。',
+  'result.cacheGap': '这些行已被缓存淘汰。',
+  'result.cacheGapDetail':
+    '为了守住内存预算，这段数据被淘汰了。它们无法单独取回——当初的游标已经关闭——重跑一次请求才能重新看到。',
+  'result.cacheGapRefetch': '重新执行',
+
   'table.refresh': '刷新',
   'table.refreshTitle': '重新取数',
   'table.refreshCursorTitle': '从第一页重新取数',
@@ -17,7 +28,6 @@ export const views: CatalogFor<ViewsMessages> = {
   'table.waitingForScan': '等待 main 发起扫描…',
 
   'query.run': '执行',
-  'query.cancel': '取消',
   'query.runHint': '⌘⏎ 执行',
   'query.empty': '写一条语句并执行',
 
@@ -74,7 +84,6 @@ export const views: CatalogFor<ViewsMessages> = {
   'inspector.field.field': '字段',
 
   'vector.run': '检索',
-  'vector.cancel': '取消',
   'vector.queryVector': '查询向量 {dim} 维',
   'vector.textQuery': '文本入口',
   'vector.pointId': '相似于点',

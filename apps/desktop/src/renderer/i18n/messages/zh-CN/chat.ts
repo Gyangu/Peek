@@ -1,11 +1,8 @@
-import type { Message } from '@peek/core'
-import type { ChatMessages } from './messages.en'
+import type { CatalogFor } from '../../types'
+import type { ChatMessages } from '../en/chat'
 
 /**
  * Simplified Chinese for the chat panel.
- *
- * Typed as `Record<keyof ChatMessages, Message>`, so leaving a key out is a
- * compile error — the same guarantee the app-wide catalogs give.
  *
  * Translation notes:
  *   - tool identifiers (`open_view`, `mcp__peek__…`) stay verbatim; they are what
@@ -14,7 +11,7 @@ import type { ChatMessages } from './messages.en'
  *   - “这个窗口” is used rather than “本应用”, because the point of those labels is
  *     that the agent changed *the panel in front of you*, not the program.
  */
-export const chatZhCN: Record<keyof ChatMessages, Message> = {
+export const chat: CatalogFor<ChatMessages> = {
   /* ---- Shell ------------------------------------------------------- */
   'chat.title': '对话',
   'chat.newSession': '正在等待 agent…',

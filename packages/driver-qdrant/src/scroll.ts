@@ -2,6 +2,8 @@ import {
   CHUNK_DEFAULT_ROWS,
   VECTOR_RESULT_COLUMNS,
   adaptiveChunkRows,
+  decodeScanCursor,
+  encodeScanCursor,
   peekError,
   peekErrorMsg,
   type ChunkDone,
@@ -287,24 +289,37 @@ export class QdrantPointCursor implements Cursor {
 }
 
 /**
- * Encode / decode a scroll continuation, preserving the id's type.
- * `42` → `'42'` would be indistinguishable from the string id `'42'`, so JSON is
- * the wire form: `42` → `'42'` is wrong, `42` → `'42'` via JSON.stringify gives
- * `'42'` for the number and `'"42"'` for the string, which round-trips.
+ * Encode / decode a scroll continuation as core's `ScanCursor`.
+ *
+ * The boundary is the next point id, JSON-encoded so the id's *type* survives:
+ * `42` and `'42'` are different points to qdrant, and both spell `42` in plain
+ * text. `JSON.stringify` gives `42` for the number and `"42"` for the string,
+ * which round-trips.
+ *
+ * The `skip` half of a `ScanCursor` is always 0 here, and that is not an
+ * oversight: scroll's `offset` is inclusive, so the driver resumes *at* the first
+ * point it has not emitted rather than after a page boundary — the probe row it
+ * keeps buffered is what makes that possible. The field is still part of the
+ * token because the envelope is shared, and because sharing the envelope is what
+ * makes a redis token handed to qdrant a BAD_REQUEST. It used to be read as a
+ * string point id, scrolled from a point that does not exist, and answered with
+ * an empty page.
  */
 export function encodeScrollOffset(offset: string | number): string {
-  return JSON.stringify(offset)
+  return encodeScanCursor({ driverId: 'qdrant', boundary: JSON.stringify(offset), skip: 0 })
 }
 
 export function decodeScrollOffset(token: string): string | number {
+  const boundary = decodeScanCursor(token, 'qdrant').boundary
   try {
-    const parsed: unknown = JSON.parse(token)
+    const parsed: unknown = JSON.parse(boundary)
     if (typeof parsed === 'string' || typeof parsed === 'number') return parsed
   } catch {
-    // Not JSON: an older or hand-written token. Treat it as a literal string id,
-    // which is the only reading that cannot lose data.
+    // A boundary that is not JSON cannot have been minted by encodeScrollOffset.
+    // Reading it as a literal string id is the only interpretation that cannot
+    // lose data, and the envelope has already established which driver it is from.
   }
-  return token
+  return boundary
 }
 
 /* ================================================================== */

@@ -1,0 +1,252 @@
+import { useState } from 'react'
+import type { ReactElement } from 'react'
+import { useErrorText, useT, type TFunction } from '../../i18n'
+import {
+  clearErrorLog,
+  closeErrorCenter,
+  formatErrorLog,
+  formatEntry,
+  startErrorCollection,
+  toggleErrorCenter,
+  useErrorLog,
+  type ErrorEntry,
+  type ErrorSource,
+} from './errorLog'
+
+/**
+ * The error centre: the window's memory of what went wrong.
+ *
+ * ## Why a panel and not more toasts
+ *
+ * A toast answers "something just failed" and is gone in seconds; `ViewError`
+ * answers "this pane is broken" and only for the pane you are looking at. Neither
+ * answers **"what went wrong while I was reading the other tab"**, which in a
+ * database tool is most of the question — a scan that died, a connection that
+ * dropped, a tool call an agent made in a pane that is not on screen. This keeps
+ * the last hundred failures with their code, message, detail and origin, and lets
+ * them be copied out in one press.
+ *
+ * ## Where it lives
+ *
+ * Anchored to the status bar rather than mounted at the app root, because that is
+ * where the counter that opens it belongs: the bar is already the window's line of
+ * ambient state, and a badge sitting in it is discoverable without being loud.
+ * `startErrorCollection` runs at module load — one guarded subscription for the
+ * life of the window, unaffected by StrictMode double-mounting.
+ */
+
+startErrorCollection()
+
+/* ================================================================== */
+/* The status-bar trigger                                              */
+/* ================================================================== */
+
+/** The badge in the status bar. Silent until something has actually failed. */
+export function ErrorCenterButton(): ReactElement | null {
+  const t = useT()
+  const count = useErrorLog((s) => s.entries.length)
+  const unseen = useErrorLog((s) => s.unseen)
+  const open = useErrorLog((s) => s.open)
+
+  if (count === 0) return null
+  return (
+    <>
+      <button
+        className={unseen > 0 ? 'ghost seg err' : 'ghost seg'}
+        title={t('app.errors.openTitle')}
+        aria-expanded={open}
+        onClick={toggleErrorCenter}
+      >
+        ⚠ {unseen > 0 ? t('app.errors.unseen', { count: unseen }) : t('app.errors.count', { count })}
+      </button>
+      {open ? <ErrorCenterPanel /> : null}
+    </>
+  )
+}
+
+/* ================================================================== */
+/* The panel                                                           */
+/* ================================================================== */
+
+function ErrorCenterPanel(): ReactElement {
+  const t = useT()
+  const entries = useErrorLog((s) => s.entries)
+  const [copied, setCopied] = useState<number | 'all' | null>(null)
+
+  const copy = (text: string, mark: number | 'all'): void => {
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopied(mark)
+        setTimeout(() => {
+          setCopied((c) => (c === mark ? null : c))
+        }, COPIED_FEEDBACK_MS)
+      })
+      .catch(() => {
+        // A clipboard the OS refused is not worth a second error in the error log.
+        setCopied(null)
+      })
+  }
+
+  // Newest first: the thing that just broke is the thing being looked for.
+  const ordered = [...entries].reverse()
+
+  return (
+    <div className="error-center" role="dialog" aria-label={t('app.errors.title')} style={PANEL_STYLE}>
+      <div className="toolbar" style={HEADER_STYLE}>
+        <strong>{t('app.errors.title')}</strong>
+        <span className="grow" />
+        <button
+          className="ghost"
+          onClick={() => {
+            copy(formatErrorLog(entries), 'all')
+          }}
+        >
+          {copied === 'all' ? t('app.errors.copied') : t('app.errors.copyAll')}
+        </button>
+        <button className="ghost" onClick={clearErrorLog}>
+          {t('app.errors.clear')}
+        </button>
+        <button className="ghost" title={t('app.errors.close')} onClick={closeErrorCenter}>
+          ✕
+        </button>
+      </div>
+
+      <div style={LIST_STYLE}>
+        {ordered.length === 0 ? (
+          <div style={{ padding: '12px', color: 'var(--fg-faint)' }}>{t('app.errors.empty')}</div>
+        ) : (
+          ordered.map((entry) => (
+            <ErrorRow
+              key={entry.id}
+              entry={entry}
+              copied={copied === entry.id}
+              onCopy={() => {
+                copy(formatEntry(entry), entry.id)
+              }}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * One failure.
+ *
+ * The language rules are `ViewError`'s, for the same reasons: `code` is an
+ * identifier and is shown raw, the message is localized only when peek wrote it
+ * (`useErrorText` passes driver text through untouched), and `detail` is evidence
+ * and never translated. Entries that arrived as toasts carry no structured error —
+ * their text was resolved when the toast was raised — so those render as-is.
+ */
+function ErrorRow({
+  entry,
+  copied,
+  onCopy,
+}: {
+  entry: ErrorEntry
+  copied: boolean
+  onCopy: () => void
+}): ReactElement {
+  const t = useT()
+  const localized = useErrorText(entry.error)
+  const text = entry.error ? localized : entry.message
+  return (
+    <div className="error-row" style={ROW_STYLE}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+        <span className="mono" style={{ color: 'var(--fg-faint)' }}>
+          {formatClock(entry.ts)}
+        </span>
+        <span className="mono" title={t('app.errors.sourceTitle')} style={SOURCE_STYLE}>
+          {sourceLabel(t, entry.source)}
+        </span>
+        <strong className="mono">{entry.code}</strong>
+        {entry.context === undefined ? null : (
+          // An identifier (view id / connection label): never translated.
+          <span className="mono" style={{ color: 'var(--fg-faint)' }}>
+            {entry.context}
+          </span>
+        )}
+        <span className="grow" />
+        <button className="ghost" onClick={onCopy}>
+          {copied ? t('app.errors.copied') : t('app.errors.copyEntry')}
+        </button>
+      </div>
+      <div>{text}</div>
+      {entry.detail === undefined ? null : (
+        <div className="detail" style={DETAIL_STYLE}>
+          {entry.detail}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+const COPIED_FEEDBACK_MS = 1200
+
+function sourceLabel(t: TFunction, source: ErrorSource): string {
+  switch (source) {
+    case 'ui':
+      return t('app.errors.source.ui')
+    case 'mcp':
+      return t('app.errors.source.mcp')
+    case 'system':
+      return t('app.errors.source.system')
+  }
+}
+
+/**
+ * Wall-clock time, in the reader's locale.
+ *
+ * The clipboard copy uses an ISO timestamp instead — a report that travels needs
+ * an unambiguous instant, and a panel being read in place needs a glanceable one.
+ */
+function formatClock(ts: number): string {
+  return new Date(ts).toLocaleTimeString()
+}
+
+/*
+ * Inline styles rather than stylesheet rules, on purpose and only here: this
+ * component is a self-contained overlay that no other component positions, and
+ * splitting eight declarations into styles.css would put half of it in a file
+ * owned by everybody. The colours are all existing custom properties, so it
+ * follows the theme like everything else.
+ */
+const PANEL_STYLE = {
+  position: 'fixed',
+  right: '8px',
+  bottom: '32px',
+  width: 'min(720px, calc(100vw - 16px))',
+  maxHeight: 'min(60vh, 520px)',
+  display: 'flex',
+  flexDirection: 'column',
+  background: 'var(--bg-elevated, var(--bg))',
+  border: '1px solid var(--border)',
+  borderRadius: '6px',
+  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.35)',
+  zIndex: 60,
+} as const
+
+const HEADER_STYLE = { flex: '0 0 auto' } as const
+
+const LIST_STYLE = { overflowY: 'auto', overflowX: 'hidden' } as const
+
+const ROW_STYLE = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '2px',
+  padding: '6px 10px',
+  borderTop: '1px solid var(--border)',
+} as const
+
+const SOURCE_STYLE = { color: 'var(--fg-faint)' } as const
+
+const DETAIL_STYLE = {
+  color: 'var(--fg-faint)',
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+} as const

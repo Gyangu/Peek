@@ -181,14 +181,20 @@ export type ResultStreamAck =
 /** Backpressure ack window: once this many chunks are unacknowledged, stop pulling */
 export const ACK_WINDOW = 4
 
-/** Lower bound on a chunk's target byte size: 256KB */
-export const CHUNK_TARGET_BYTES_MIN = 256 * 1024
+/*
+ * The chunk-sizing bounds are deliberately *not* exported, unlike the budget
+ * constants around them (`ACK_WINDOW`, `VALUE_PREVIEW_BYTES`, `CHUNK_DEFAULT_ROWS`),
+ * which drivers and the renderer genuinely share. `pickChunkRows` below is the
+ * only intended answer to "how big should the next chunk be"; exporting the raw
+ * numbers invites a driver to re-derive that answer slightly differently.
+ */
+
 /** Upper bound on a chunk's target byte size: 1MB */
-export const CHUNK_TARGET_BYTES_MAX = 1024 * 1024
+const CHUNK_TARGET_BYTES_MAX = 1024 * 1024
 /** Lower bound on a chunk's target row count */
-export const CHUNK_TARGET_ROWS_MIN = 500
+const CHUNK_TARGET_ROWS_MIN = 500
 /** Upper bound on a chunk's target row count */
-export const CHUNK_TARGET_ROWS_MAX = 2000
+const CHUNK_TARGET_ROWS_MAX = 2000
 /** Opening row count, used before any row width has been measured */
 export const CHUNK_DEFAULT_ROWS = 1000
 

@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
-import { isPeekError, newResultId, type MysqlConnectionConfig, type RelationRef } from '@peek/core'
+import {
+  encodeScanCursor,
+  isPeekError,
+  newResultId,
+  rowOffsetCursor,
+  type MysqlConnectionConfig,
+  type RelationRef,
+} from '@peek/core'
 import mysql from 'mysql2/promise'
 import { mysqlDriver } from '../driver'
 import { SqlSession } from '../session'
@@ -78,6 +85,14 @@ async function seed(): Promise<void> {
     await admin.end()
   }
 }
+
+/** One row exercising the logical types whose JS shape the four drivers had disagreed on */
+const LOGICAL_SQL = `
+  SELECT CAST(1 AS SIGNED) AS small_big,
+         w.huge            AS huge_big,
+         i.made_at         AS made_at
+    FROM wide w JOIN items i ON i.id = 1
+   WHERE w.id = 1`
 
 describe('driver-sql against a real MySQL server', () => {
   before(async () => {
@@ -228,6 +243,35 @@ describe('driver-sql against a real MySQL server', () => {
     assert.equal(cell(rowsOf(frames), 0, 'huge'), '9007199254740993')
   })
 
+  /**
+   * The canonical JS representation of a cell, asserted against a real server.
+   * The rule and the argument for it live in `core/values.ts`; the matching
+   * assertions are in the postgres and sqlite suites, because the whole point is
+   * that all four drivers agree.
+   *
+   *   BIGINT 1                  → the number 1, not the string "1"
+   *   BIGINT past 2^53          → exact decimal text, never a rounded number
+   *   a date / time / timestamp → a string, never a Date object
+   */
+  it('represents every logical type the way core says all four drivers must', async () => {
+    const frames = await drain(
+      await session.query({ resultId: newResultId(), text: LOGICAL_SQL }),
+    )
+    const schema = frames[0]?.schema ?? []
+    const at = (name: string): unknown =>
+      frames[0]?.cols[schema.findIndex((c) => c.name === name)]?.[0]
+
+    // The reported divergence: postgres used to answer `"1"` where this answers `1`
+    assert.equal(at('small_big'), 1)
+    assert.equal(typeof at('small_big'), 'number')
+    // …and the reason it cannot simply always be a number
+    assert.equal(at('huge_big'), '9007199254740993')
+
+    for (const name of ['made_at']) {
+      assert.equal(typeof at(name), 'string', `${name} must travel as a string, not a Date`)
+    }
+  })
+
   it('binds filter values instead of splicing them, so quotes and wildcards stay data', async () => {
     const quoted = await drain(await session.scan({
       resultId: newResultId(),
@@ -278,23 +322,40 @@ describe('driver-sql against a real MySQL server', () => {
     const first = await drain(await session.scan({
       resultId: newResultId(), ref: items, sort: [{ column: 'id', dir: 'asc' }], limit: 2,
     }))
-    assert.equal(first[first.length - 1]?.done?.nextCursor, '2')
+    const page1 = first[first.length - 1]?.done?.nextCursor
+    assert.equal(page1, rowOffsetCursor('mysql', 2), 'the cursor is core\u2019s envelope around a row offset')
     assert.deepEqual(rowsOf(first).map((r) => r.get('id')), [1, 2])
 
     const second = await drain(await session.scan({
-      resultId: newResultId(), ref: items, sort: [{ column: 'id', dir: 'asc' }], limit: 2, cursorToken: '2',
+      resultId: newResultId(), ref: items, sort: [{ column: 'id', dir: 'asc' }], limit: 2, cursorToken: page1 ?? '',
     }))
     assert.deepEqual(rowsOf(second).map((r) => r.get('id')), [3, 4])
-    assert.equal(second[second.length - 1]?.done?.nextCursor, '4')
+    const page2 = second[second.length - 1]?.done?.nextCursor
+    assert.equal(page2, rowOffsetCursor('mysql', 4))
 
     const third = await drain(await session.scan({
-      resultId: newResultId(), ref: items, sort: [{ column: 'id', dir: 'asc' }], limit: 2, cursorToken: '4',
+      resultId: newResultId(), ref: items, sort: [{ column: 'id', dir: 'asc' }], limit: 2, cursorToken: page2 ?? '',
     }))
     assert.equal(rowsOf(third).length, 0)
     assert.equal(third[third.length - 1]?.done?.nextCursor, undefined)
 
     await assert.rejects(
       () => session.scan({ resultId: newResultId(), ref: items, cursorToken: 'not-a-number' }),
+      (err: unknown) => isPeekError(err) && err.i18n?.key === 'error.sql.invalidCursorToken',
+    )
+    // The bare row offset this driver used to mint is no longer a token: it names
+    // no driver, so nothing can tell it apart from another store's continuation
+    await assert.rejects(
+      () => session.scan({ resultId: newResultId(), ref: items, cursorToken: '2' }),
+      (err: unknown) => isPeekError(err) && err.i18n?.key === 'error.sql.invalidCursorToken',
+    )
+    // …and neither is a well-formed token minted by a different driver
+    await assert.rejects(
+      () => session.scan({
+        resultId: newResultId(),
+        ref: items,
+        cursorToken: encodeScanCursor({ driverId: 'redis', boundary: '238', skip: 17 }),
+      }),
       (err: unknown) => isPeekError(err) && err.i18n?.key === 'error.sql.invalidCursorToken',
     )
   })

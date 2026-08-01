@@ -38,6 +38,30 @@ export const app = {
   'app.crash.reload': 'Reload the window',
 
   'app.language.title': 'Language',
+
+  /* ---- Error centre ------------------------------------------------
+   * The panel that remembers failures past the toast that announced them.
+   * `code`, view ids and connection labels inside an entry are identifiers and
+   * are rendered untranslated by the component. */
+  'app.errors.title': 'Error log',
+  'app.errors.count': { one: '{count} error', other: '{count} errors' },
+  'app.errors.unseen': { one: '{count} new', other: '{count} new' },
+  'app.errors.openTitle': 'Show the recent failures, with their codes and details',
+  'app.errors.empty': 'Nothing has failed yet',
+  'app.errors.copyAll': 'Copy all',
+  'app.errors.copyEntry': 'Copy',
+  'app.errors.copied': 'Copied',
+  'app.errors.clear': 'Clear',
+  'app.errors.close': 'Close',
+  /* Deliberately honest about the limit of what the window can know — see the
+   * attribution note in components/error-center/errorLog.ts. */
+  'app.errors.sourceTitle':
+    'Where the failure came from. “you” is a command this window sent, “peek” is the app itself ' +
+    '(a driver process, state sync). “agent” means it appeared without anything being asked from ' +
+    'this window — usually an MCP tool call — and is inferred, not reported.',
+  'app.errors.source.ui': 'you',
+  'app.errors.source.mcp': 'agent',
+  'app.errors.source.system': 'peek',
 } as const
 
 export type AppMessages = typeof app

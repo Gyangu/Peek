@@ -1,12 +1,22 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, ipcMain, shell, type WebContents } from 'electron'
-import type { ConnId, NamespaceNode, NotifyMessage, PeekError, WorkspaceSnapshot } from '@peek/core'
+import { app, BrowserWindow, ipcMain, safeStorage, shell, type WebContents } from 'electron'
+import type { ConnId, NamespaceNode, NotifyMessage, WorkspaceSnapshot } from '@peek/core'
 import { toPeekError } from '@peek/core'
 import { createCommandBus, type CommandBus, type CommandDeps } from './bus'
 import { createChatEventSink, createChatHandlers, watchChatViews } from './bus/handlers'
 import { installBusIpc, sendChatDeltas, sendNotify } from './bus/ipc-main'
 import { AcpManager, defaultAcpConfig, type McpEndpointInfo } from './acp'
+import {
+  createConfigHandlers,
+  createConnectionBook,
+  createMcpController,
+  createSafeStorageVault,
+  createSettingsStore,
+  resolveConfigDir,
+  type ConnectionBook,
+  type McpController,
+} from './config'
 import {
   createAcpChatRuntime,
   createChatStateApplier,
@@ -14,7 +24,7 @@ import {
   createDeltaEmitter,
 } from './chat-host'
 import { ConnectionManager } from './connections'
-import { createMcpServer, type McpServerHandle } from './mcp'
+import { createMcpServer } from './mcp'
 import { WorkspaceStore, createResultEventSink } from './store'
 import { installDriverRpc, type DriverRpcOptions } from './driver-rpc'
 import { createResultRowsBroker, type ResultRowsBroker } from './result-rows'
@@ -96,7 +106,16 @@ const connections = new ConnectionManager()
 const resultSink = createResultEventSink(store)
 
 let mainWindow: BrowserWindow | null = null
-let mcp: McpServerHandle | null = null
+let mcp: McpController | null = null
+/**
+ * The saved connections.
+ *
+ * Assembled lazily so that `safeStorage` is only asked whether it can encrypt
+ * once the app is ready — on Linux that question talks to the keyring daemon,
+ * and asking it during module evaluation answers "no" on a machine where the
+ * answer is "yes".
+ */
+let book: ConnectionBook | null = null
 /**
  * Set only once the MCP server is really listening, and cleared if it dies.
  *
@@ -140,10 +159,32 @@ function createDeps(): CommandDeps {
   return {
     connections: {
       async open(req) {
-        const outcome = await connections.connect(req.config, {
+        /*
+         * The connection book plugs in here, and only here.
+         *
+         * `conn.open` stays the single write path: nothing else saves a
+         * connection, and there is no second command that could describe one
+         * differently. What happens around the handshake is
+         *
+         *   hydrate → connect → remember
+         *
+         * `hydrate` puts a stored password back into a config that arrived
+         * without one — which is what lets the window offer a saved connection
+         * without ever holding its credential. `remember` runs only after the
+         * driver has actually connected, so the book cannot fill up with configs
+         * that do not work.
+         *
+         * Note what is *not* affected: the config that went into the Workspace
+         * during the reduce phase is the one the caller sent, so the hydrated
+         * secret never enters the source of truth, never reaches a patch, and
+         * never reaches `read_workspace`.
+         */
+        const config = book?.hydrate(req.config) ?? req.config
+        const outcome = await connections.connect(config, {
           connId: req.connId,
           ...(req.timeoutMs === undefined ? {} : { timeoutMs: req.timeoutMs }),
         })
+        book?.remember(config)
         return {
           capabilities: outcome.capabilities,
           ...(outcome.serverInfo === undefined ? {} : { serverInfo: outcome.serverInfo }),
@@ -379,55 +420,50 @@ function createWindow(): BrowserWindow {
 /* 5. MCP HTTP Server                                                  */
 /* ================================================================== */
 
-async function startMcp(commandBus: CommandBus, rows: ResultRowsBroker): Promise<void> {
-  // Integration knobs, in the same spirit as PEEK_SMOKE_EXIT_MS below: a smoke
+function buildMcpController(commandBus: CommandBus, rows: ResultRowsBroker, configDir: string): McpController {
+  // An integration knob, in the same spirit as PEEK_SMOKE_EXIT_MS below: a smoke
   // run has to be able to start beside an already-installed peek without taking
-  // its port or rewriting the ~/.peek/mcp.json its AI client is pointed at.
-  // Unset — the normal case — nothing changes.
+  // its port. It **overrides the stored preference** rather than writing to it,
+  // so a scripted run never edits the user's settings. Unset — the normal case —
+  // the preference in ~/.peek/settings.json decides, falling back to 7332.
   const portOverride = Number(process.env['PEEK_MCP_PORT'] ?? '')
-  const configDirOverride = process.env['PEEK_CONFIG_DIR']
 
-  const handle = createMcpServer({
-    ...(Number.isInteger(portOverride) && portOverride > 0 ? { port: portOverride } : {}),
-    ...(configDirOverride ? { configDir: configDirOverride } : {}),
-    // UI and AI share one command channel: source is recorded in the log and
-    // changes no line of the execution path.
-    dispatch: (name, input, source) => commandBus.dispatch(name, input, source),
-    getSnapshot: (): WorkspaceSnapshot => store.getSnapshot(),
-    // introspect is not a Command (it is absent from COMMAND_NAMES), so it goes
-    // through the injected read-only channel.
-    introspect: (req) => driverRpc.introspect(req.connId, req.parentId, req.refresh),
-    // Row data lives only in the renderer cache (chunks bypass main), so sample from the renderer
-    readResultRows: (req) => rows.read(req),
-    logger: {
-      log: (level, message, detail) => {
-        if (level === 'error') console.error('[peek/mcp]', message, detail ?? '')
-        else if (level === 'warn') console.warn('[peek/mcp]', message, detail ?? '')
-        else if (level === 'info') console.log('[peek/mcp]', message)
-      },
+  return createMcpController({
+    configDir,
+    settings: createSettingsStore(configDir),
+    ...(Number.isInteger(portOverride) && portOverride > 0 ? { forcedPort: portOverride } : {}),
+    create: ({ port, token }) =>
+      createMcpServer({
+        port,
+        configDir,
+        ...(token === undefined ? {} : { token }),
+        // UI and AI share one command channel: source is recorded in the log and
+        // changes no line of the execution path.
+        dispatch: (name, input, source) => commandBus.dispatch(name, input, source),
+        getSnapshot: (): WorkspaceSnapshot => store.getSnapshot(),
+        // introspect is not a Command (it is absent from COMMAND_NAMES), so it goes
+        // through the injected read-only channel.
+        introspect: (req) => driverRpc.introspect(req.connId, req.parentId, req.refresh),
+        // Row data lives only in the renderer cache (chunks bypass main), so sample from the renderer
+        readResultRows: (req) => rows.read(req),
+        logger: {
+          log: (level, message, detail) => {
+            if (level === 'error') console.error('[peek/mcp]', message, detail ?? '')
+            else if (level === 'warn') console.warn('[peek/mcp]', message, detail ?? '')
+            else if (level === 'info') console.log('[peek/mcp]', message)
+          },
+        },
+      }),
+    notify,
+    log: (line) => {
+      console.log('[peek/mcp]', line)
+    },
+    // The ACP host reads this at session-creation time; a null endpoint is what
+    // stops it from handing the user a Claude that silently cannot see the window.
+    onEndpoint: (endpoint) => {
+      mcpEndpoint = endpoint
     },
   })
-  mcp = handle
-
-  try {
-    const endpoint = await handle.start()
-    // Only now is the endpoint real; the chat panel's agent may be told about it.
-    mcpEndpoint = { url: endpoint.url, token: handle.token }
-    console.log(`[peek/mcp] listening on ${endpoint.url}`)
-    console.log(`[peek/mcp] how to connect: ${endpoint.hint}`)
-  } catch (raw) {
-    mcp = null
-    mcpEndpoint = null
-    const error: PeekError = toPeekError(raw)
-    notify({
-      level: 'error',
-      message: `The MCP server failed to start: ${error.message}`,
-      detail:
-        error.code === 'CONFLICT'
-          ? 'The port is in use — another peek may already be running. The window works as usual; only the AI cannot connect.'
-          : (error.detail ?? ''),
-    })
-  }
 }
 
 /* ================================================================== */
@@ -436,6 +472,19 @@ async function startMcp(commandBus: CommandBus, rows: ResultRowsBroker): Promise
 
 function bootstrap(): void {
   const commandBus = createCommandBus({ store, deps: createDeps() })
+  const configDir = resolveConfigDir()
+
+  // The one place peek is allowed to keep a credential. `safeStorage` hands the
+  // key to the OS keychain; where that is unavailable the book saves the
+  // connection **without** its password rather than writing it in the clear, and
+  // `conn.book.list` reports which of the two happened.
+  book = createConnectionBook({
+    configDir,
+    vault: createSafeStorageVault(safeStorage),
+    onError: (message, detail) => {
+      notify({ level: 'warn', message, detail })
+    },
+  })
 
   wireConnectionEvents()
 
@@ -477,9 +526,16 @@ function bootstrap(): void {
     })
   }
 
+  // Reads and edits of what is on disk: the connection book, and the MCP
+  // endpoint's port and token. `read` handlers, so none of them touch the
+  // Workspace — see config/handlers.ts.
+  const controller = buildMcpController(commandBus, rows, configDir)
+  mcp = controller
+  commandBus.registerAll(createConfigHandlers({ book, mcp: controller }))
+
   createWindow()
 
-  void startMcp(commandBus, rows)
+  void controller.start()
 }
 
 /* ================================================================== */
@@ -584,6 +640,7 @@ async function shutdown(): Promise<void> {
   })
   mcp = null
   mcpEndpoint = null
+  book = null
   // Then the agent, and only then the drivers. The agent is a child process that
   // would otherwise be orphaned, and it may still be mid-turn; taking its MCP
   // endpoint away first means anything it tries fails cleanly instead of racing

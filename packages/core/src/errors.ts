@@ -162,3 +162,134 @@ function safeStringify(value: unknown): string {
     return String(value)
   }
 }
+
+/* ================================================================== */
+/* Transport classification, shared by every driver                    */
+/* ================================================================== */
+
+/**
+ * The part of error mapping that is **not** database-specific.
+ *
+ * Every driver ships a `map*Error` funnel, and each one used to re-derive the
+ * same three facts: an aborted operation is CANCELLED, a socket errno is
+ * CONNECTION_FAILED, and a message that says "timed out" is a TIMEOUT. Four
+ * copies meant four slightly different answers — the errno set drifted (qdrant
+ * knew about undici's `UND_ERR_CONNECT_TIMEOUT`, the others did not; the SQL and
+ * redis sets knew about `EACCES`, qdrant did not), and the timeout regex was
+ * spelled three different ways, so `timed out` was a TIMEOUT in redis and a
+ * QUERY_FAILED in postgres.
+ *
+ * What stays private to a driver is exactly what is genuinely private: postgres's
+ * SQLSTATE table, redis's reply-error prefixes, qdrant's HTTP status map, and the
+ * SQL dialects' `ER_*` / result-code tables. Those are the mappings that differ
+ * because the databases differ; everything below differs only by accident.
+ *
+ * Composition rule: a driver applies its own table where its own table is
+ * authoritative, and calls these for the rest. The ordering is the driver's
+ * choice, because it is load-bearing — redis must test its reply prefix before
+ * the timeout regex, or `ERR ... timed out` stops being a reply error.
+ */
+
+/**
+ * node / undici network-layer errnos that mean "the connection did not happen".
+ *
+ * The union of what the four drivers each knew separately. Broadening one
+ * driver's set with another's is always safe here: these strings never collide
+ * with a SQLSTATE (5 chars, alphanumeric), a redis reply prefix (matched by its
+ * own ALLCAPS rule) or an HTTP status (a number).
+ */
+export const NETWORK_ERROR_CODES: ReadonlySet<string> = new Set([
+  'ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ENETUNREACH',
+  'ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'EAI_AGAIN', 'EACCES',
+  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET', 'UND_ERR_HEADERS_TIMEOUT',
+])
+
+export function isNetworkErrorCode(code: string | undefined): boolean {
+  return code !== undefined && NETWORK_ERROR_CODES.has(code)
+}
+
+/**
+ * Read the errno off a thrown value, following one level of `cause`.
+ *
+ * undici (and therefore `@qdrant/js-client-rest`) wraps the socket failure, so
+ * the errno that matters sits on `err.cause.code` rather than `err.code`. Every
+ * driver reads it the same way now, which is why this is here and not there.
+ */
+export function readErrno(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const direct = (value as Record<string, unknown>)['code']
+  if (typeof direct === 'string') return direct
+  const cause = (value as Record<string, unknown>)['cause']
+  if (typeof cause === 'object' && cause !== null) {
+    const nested = (cause as Record<string, unknown>)['code']
+    if (typeof nested === 'string') return nested
+  }
+  return undefined
+}
+
+/**
+ * "timeout" / "time out" / "timed out", in any casing and any spacing.
+ *
+ * The last-resort branch: several clients report their own deadlines as a plain
+ * `Error` with no code at all, and the word is the only evidence there is.
+ *
+ * The leading `\b` is what keeps it from firing on `runtime output`: the "time"
+ * inside "runtime" is not at a word boundary, so the phrase has to actually start
+ * with the word.
+ */
+export const TIMEOUT_MESSAGE_RE = /\btimed?\s*out/i
+
+export function looksLikeTimeoutMessage(message: string): boolean {
+  return TIMEOUT_MESSAGE_RE.test(message)
+}
+
+/** AbortError, DOMException's abort, and anything else that means "the caller pulled the plug" */
+export function isAbortError(value: unknown): value is Error {
+  return value instanceof Error && value.name === 'AbortError'
+}
+
+/** Which codes are worth the user's time to retry. Drivers may add their own cases on top. */
+export function isRetryableErrorCode(code: PeekErrorCode): boolean {
+  return code === 'CONNECTION_FAILED' || code === 'CONNECTION_LOST' || code === 'TIMEOUT'
+}
+
+/** Fields every `map*Error` context carries; the driver-specific ones extend it. */
+export interface MapDriverErrorContext {
+  /** Code to use when nothing matches */
+  fallback?: PeekErrorCode
+}
+
+/**
+ * Classify a thrown value as an abort / socket failure / timeout, or return null
+ * when it is none of those and the driver's own table has to answer.
+ *
+ * `extra` is the driver's evidence bag (the statement, the command, the request
+ * line) — it is attached to the connection and timeout results but deliberately
+ * **not** to CANCELLED: a cancellation is not a failure of the statement, and
+ * pasting the statement into it only invites the user to look for a bug in it.
+ */
+export function classifyTransportError(value: unknown, extra?: PeekErrorExtra): PeekError | null {
+  return classifyAbortError(value)
+    ?? classifyNetworkError(value, extra)
+    ?? classifyTimeoutError(value, extra)
+}
+
+export function classifyAbortError(value: unknown): PeekError | null {
+  return isAbortError(value) ? peekError('CANCELLED', value.message || 'Operation cancelled') : null
+}
+
+export function classifyNetworkError(value: unknown, extra?: PeekErrorExtra): PeekError | null {
+  if (!(value instanceof Error)) return null
+  const errno = readErrno(value)
+  if (!isNetworkErrorCode(errno)) return null
+  return peekError('CONNECTION_FAILED', value.message, {
+    driverCode: errno as string,
+    retryable: true,
+    ...extra,
+  })
+}
+
+export function classifyTimeoutError(value: unknown, extra?: PeekErrorExtra): PeekError | null {
+  if (!(value instanceof Error) || !looksLikeTimeoutMessage(value.message)) return null
+  return peekError('TIMEOUT', value.message, { retryable: true, ...extra })
+}

@@ -1,5 +1,25 @@
 /** The five view kinds: table, query, tree, inspector, vector. */
 export const views = {
+  /* ---- Controls shared by every result view (table / query / vector) --
+   * One set of words, because the three views do the same two things: stop the
+   * request, and explain a hole the cache made. `driverId` is an identifier and
+   * is never translated. */
+  'result.cancel': 'Cancel',
+  'result.cancelTitle': 'Stop this request; the rows already loaded stay',
+  /* Not "unavailable" — this driver will never be able to stop a request, and a
+   * word that suggests waiting helps would be worse than saying nothing. */
+  'result.cancelUnsupported': 'Cannot cancel',
+  /* One string literal, not a `+` concatenation: TypeScript widens a concatenation
+   * to `string`, and the catalog's parameter typing is derived from the literal —
+   * a joined message with a {placeholder} in it stops type-checking its own params. */
+  'result.cancelUnsupportedTitle':
+    'The {driverId} driver cannot stop a request once it has started. peek’s only remaining option is to kill the driver process, which closes this connection — so that is not offered as a button. Close the connection to stop it, or wait for the request timeout.',
+  'result.cacheGap': 'Rows dropped from the cache.',
+  'result.cacheGapDetail':
+    'These rows were evicted to stay within the memory budget. They cannot be fetched back on their ' +
+    'own — the cursor they came from is closed — so re-running the request is the way to see them again.',
+  'result.cacheGapRefetch': 'Run again',
+
   /* ---- Table view -------------------------------------------------- */
   'table.refresh': 'Refresh',
   'table.refreshTitle': 'Fetch again',
@@ -18,7 +38,6 @@ export const views = {
 
   /* ---- Query view -------------------------------------------------- */
   'query.run': 'Run',
-  'query.cancel': 'Cancel',
   'query.runHint': '⌘⏎ to run',
   'query.empty': 'Write a statement and run it',
 
@@ -83,7 +102,6 @@ export const views = {
 
   /* ---- Vector view ------------------------------------------------- */
   'vector.run': 'Search',
-  'vector.cancel': 'Cancel',
   'vector.queryVector': 'Query vector, {dim} dims',
   'vector.textQuery': 'Text query',
   /* The only query entry point a human can operate — "find points like this one". */

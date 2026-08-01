@@ -1,5 +1,6 @@
 import {
   VALUE_PREVIEW_BYTES,
+  canonicalCell,
   truncatedValue,
   type LogicalType,
   type ValueRef,
@@ -16,6 +17,12 @@ import {
  * 2. Anything over VALUE_PREVIEW_BYTES (4KB) travels as a preview only, flagged
  *    as a TruncatedValue; the full value is fetched on demand through valuePeek
  *    (a hard rule from PLAN section 8).
+ * 3. Put the value in the shape core says that LogicalType has, before anything
+ *    else — `canonicalCell`. pg's parsers are the outlier of the four drivers:
+ *    `int8` arrives as a string, `timestamptz` and `date` as `Date` objects,
+ *    `interval` as a `PostgresInterval`. Left alone, `BIGINT 1` rendered as `"1"`
+ *    here and as `1` in MySQL, and a plain `DATE` shifted a day in any timezone
+ *    west of UTC. See core/values.ts for the table and the argument.
  */
 
 /** Estimate a value's wire size in bytes; feeds adaptiveChunkRows */
@@ -90,8 +97,10 @@ function refOf(ctx: NormalizeContext): { ref?: ValueRef } {
  * A TruncatedValue return means the cell was cut short; the UI pulls the whole
  * thing through valuePeek when it needs it.
  */
-export function normalizeCell(value: unknown, ctx: NormalizeContext): unknown {
+export function normalizeCell(raw: unknown, ctx: NormalizeContext): unknown {
   const limit = ctx.limit ?? VALUE_PREVIEW_BYTES
+  // Canonical shape first: everything below then only has to worry about size
+  const value = canonicalCell(raw, ctx.logical)
   if (value === null || value === undefined) return null
 
   if (typeof value === 'string') {
@@ -106,8 +115,6 @@ export function normalizeCell(value: unknown, ctx: NormalizeContext): unknown {
   if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
     return value
   }
-
-  if (value instanceof Date) return value
 
   if (value instanceof Uint8Array) {
     const total = value.byteLength

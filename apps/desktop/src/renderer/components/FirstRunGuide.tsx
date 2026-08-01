@@ -1,0 +1,119 @@
+import { useEffect, useState } from 'react'
+import type { ReactElement } from 'react'
+import { useT } from '../i18n'
+import { dispatch } from '../state/dispatch'
+import { notify } from '../state/notifyStore'
+
+/**
+ * What a first launch says instead of nothing.
+ *
+ * An empty peek used to be a blank window and a `＋` button, which described one
+ * of the three things it can do. The other two are invisible by construction:
+ * the MCP server is already listening — an AI client could be talking to this
+ * window within a minute — and there is a chat panel with an agent that reaches
+ * back in through that same endpoint. Neither leaves any trace in the UI until
+ * you already know to look for it.
+ *
+ * So the empty state is three offers rather than a sentence, and each one is a
+ * thing that happens when clicked, not an instruction to go and read something.
+ * The MCP line carries the registration command **and copies it**, because the
+ * previous answer to "how do I connect Claude to this" was to open a JSON file
+ * in a terminal.
+ *
+ * It disappears the moment there is a connection. This is not a tutorial to be
+ * dismissed and re-found; it is what the empty list looks like.
+ */
+export function FirstRunGuide({
+  onConnect,
+  onOpenSettings,
+}: {
+  onConnect: () => void
+  onOpenSettings: () => void
+}): ReactElement {
+  const t = useT()
+  const [hint, setHint] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  // The command is only worth offering once the endpoint is really up; a line
+  // copied while the port was still being bound would name the wrong one.
+  useEffect(() => {
+    let cancelled = false
+    void dispatch('mcp.read', {}).then((status) => {
+      if (!cancelled && status?.listening === true && status.hint !== '') setHint(status.hint)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const copyCommand = (): void => {
+    if (hint === null) return
+    void navigator.clipboard.writeText(hint).then(
+      () => {
+        setCopied(true)
+      },
+      () => {
+        notify('warn', t('mcp.copyFailed'))
+      },
+    )
+  }
+
+  return (
+    <div className="empty-hint" style={{ textAlign: 'left', display: 'grid', gap: 14 }}>
+      <div>
+        <div style={{ color: 'var(--fg)' }}>{t('firstRun.title')}</div>
+        <div>{t('firstRun.subtitle')}</div>
+      </div>
+
+      <Step index={1} title={t('firstRun.connectTitle')} body={t('firstRun.connectBody')}>
+        <button className="primary" onClick={onConnect}>
+          {t('firstRun.connectAction')}
+        </button>
+      </Step>
+
+      <Step index={2} title={t('firstRun.mcpTitle')} body={t('firstRun.mcpBody')}>
+        <button className="ghost" disabled={hint === null} onClick={copyCommand}>
+          {copied ? t('firstRun.mcpCopied') : t('firstRun.mcpAction')}
+        </button>
+        <button className="ghost" onClick={onOpenSettings}>
+          {t('firstRun.mcpSettings')}
+        </button>
+        {hint === null ? <div style={{ color: 'var(--err)' }}>{t('firstRun.mcpDown')}</div> : null}
+      </Step>
+
+      <Step index={3} title={t('firstRun.chatTitle')} body={t('firstRun.chatBody')}>
+        <button
+          className="ghost"
+          onClick={() => {
+            void dispatch('view.open', { spec: { kind: 'chat' } })
+          }}
+        >
+          {t('firstRun.chatAction')}
+        </button>
+      </Step>
+    </div>
+  )
+}
+
+function Step({
+  index,
+  title,
+  body,
+  children,
+}: {
+  index: number
+  title: string
+  body: string
+  children: ReactElement | (ReactElement | null)[]
+}): ReactElement {
+  return (
+    <div style={{ display: 'grid', gap: 4 }}>
+      {/* The number is a position in a list, and reads the same in every language. */}
+      <div style={{ color: 'var(--fg)' }}>{`${String(index)}. ${title}`}</div>
+      <div>{body}</div>
+      <div className="conn-actions" style={{ flexWrap: 'wrap' }}>
+        {children}
+      </div>
+    </div>
+  )
+}

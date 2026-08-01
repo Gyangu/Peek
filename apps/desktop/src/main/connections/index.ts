@@ -38,7 +38,6 @@ export {
   type DriverRegistration,
 } from './registry'
 export {
-  DEFAULT_TIMEOUTS,
   classifyConnectError,
   classifyExecError,
   crashedError,
@@ -46,8 +45,33 @@ export {
   notReadyConn,
   timeoutError,
   unsupported,
-  type Timeouts,
 } from './classify'
+/**
+ * The timeout budget, and the read/write surface a settings UI needs.
+ *
+ * Assembly note for whoever owns main/index.ts and the settings layer: peek's
+ * timeouts are **not** constructor arguments any more. Persisted settings are
+ * applied by calling `setTimeoutSettings(patch)` once at startup (and again on
+ * every edit); `getTimeoutSettings()` is what a settings form should render.
+ * Nothing has to be threaded through `new ConnectionManager(...)`.
+ */
+export {
+  DEFAULT_EXECUTION_TIMEOUTS,
+  DEFAULT_TIMEOUTS,
+  clearConnectionTimeouts,
+  getConnectionTimeouts,
+  getTimeoutSettings,
+  resetTimeoutSettings,
+  resolveExecutionTimeout,
+  setConnectionTimeouts,
+  setTimeoutSettings,
+  subscribeTimeoutSettings,
+  type ExecutionKind,
+  type ExecutionTimeouts,
+  type TimeoutSettings,
+  type Timeouts,
+} from './timeouts'
+export { ResultDeadlines, type DeadlineTimerApi } from './deadline'
 export type {
   CancelOutcome,
   ConnectOptions,

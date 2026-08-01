@@ -6,6 +6,8 @@ import {
   SortSpecSchema,
   ValueRefSchema,
   type Capability,
+  type ConnectionConfig,
+  type DriverId,
   type ServerInfo,
 } from './capability'
 import { CHAT_PERMISSION_MODES, type ChatAgentStatus, type ChatAttachment, type ChatPermissionMode } from './chat'
@@ -58,6 +60,10 @@ export const COMMAND_NAMES = [
   'chat.respondPermission',
   'chat.setMode',
   'state.read',
+  'conn.book.list',
+  'conn.book.forget',
+  'mcp.read',
+  'mcp.configure',
 ] as const
 
 export type CommandName = (typeof COMMAND_NAMES)[number]
@@ -891,6 +897,50 @@ export const StateReadInputSchema = z.object({
   viewId: ViewIdSchema.optional(),
 })
 
+/* ------------------------------------------------------------------ */
+/* The connection book, and the MCP endpoint                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Read the saved connections (`~/.peek/connections.json`).
+ *
+ * There is deliberately **no `conn.book.save`**. An entry is written as a
+ * side effect of a `conn.open` that succeeded, which keeps `conn.open` the one
+ * and only way a connection is described to peek — a second write path would be
+ * a second place for a config to be wrong, and the only one of the two that is
+ * ever proven to work is the one that actually connected.
+ */
+export const ConnBookListInputSchema = z.object({})
+
+export const ConnBookForgetInputSchema = z.object({
+  /** Id of the saved entry, as returned by `conn.book.list` */
+  id: z.string().min(1),
+})
+
+export const McpReadInputSchema = z.object({})
+
+/**
+ * Change the MCP endpoint.
+ *
+ * Both members are about credentials the user has already handed to an AI
+ * client, so both are answered with the same warning: a rotated token or a moved
+ * port invalidates every `claude mcp add` the user has run.
+ */
+export const McpConfigureInputSchema = z
+  .object({
+    /**
+     * Preferred port. Persisted, so it survives a restart. Port 0 is not
+     * accepted here even though the kernel would allocate one: an endpoint that
+     * moves on every launch cannot be registered with a client.
+     */
+    port: z.number().int().min(1).max(65535).optional(),
+    /** Mint a fresh bearer token, invalidating the one clients hold. */
+    rotateToken: z.boolean().optional(),
+  })
+  .refine((value) => value.port !== undefined || value.rotateToken === true, {
+    message: 'mcp.configure needs a port, a token rotation, or both',
+  })
+
 /* ================================================================== */
 /* 3. Registry: command name → input schema                            */
 /* ================================================================== */
@@ -924,6 +974,10 @@ export const commandSchemas = {
   'chat.respondPermission': ChatRespondPermissionInputSchema,
   'chat.setMode': ChatSetModeInputSchema,
   'state.read': StateReadInputSchema,
+  'conn.book.list': ConnBookListInputSchema,
+  'conn.book.forget': ConnBookForgetInputSchema,
+  'mcp.read': McpReadInputSchema,
+  'mcp.configure': McpConfigureInputSchema,
 } as const satisfies Record<CommandName, z.ZodType>
 
 export type CommandSchemas = typeof commandSchemas
@@ -1159,6 +1213,104 @@ export interface StateReadResult {
   snapshot: WorkspaceSnapshot
 }
 
+/* ------------------------------------------------------------------ */
+/* The connection book                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One entry of `~/.peek/connections.json`, as everyone outside the main process
+ * sees it.
+ *
+ * `config` is **always redacted** — the password is replaced and any credentials
+ * inside a URL are scrubbed, exactly as for a live connection. The real secret
+ * never leaves main: it is encrypted with Electron's `safeStorage` and merged
+ * back in at the moment `conn.open` reaches the driver. So a window (or an AI)
+ * holding this record can describe a connection and ask for it to be opened, and
+ * still cannot read the credential.
+ */
+export interface SavedConnection {
+  /** Stable id of the entry; the address `conn.book.forget` takes. */
+  id: string
+  driverId: DriverId
+  /** What to show in a list. Derived from the config when the user gave no label. */
+  label: string
+  /** Redacted, and safe to display. */
+  config: ConnectionConfig
+  /**
+   * A credential for this entry is held in the vault.
+   *
+   * False for two very different reasons — the connection genuinely needs no
+   * password, or `safeStorage` was unavailable when it was saved and peek
+   * refused to write the secret in the clear. `secretsAvailable` on the list
+   * result is what tells those two apart.
+   */
+  hasSecret: boolean
+  /** ISO timestamps. */
+  createdAt: string
+  lastUsedAt: string
+}
+
+export interface ConnBookListResult {
+  entries: SavedConnection[]
+  /**
+   * Whether the OS keychain backing `safeStorage` is usable in this session.
+   * When false, peek saves connections **without** their passwords rather than
+   * writing them to disk unprotected, and a UI should say so.
+   */
+  secretsAvailable: boolean
+}
+
+export interface ConnBookForgetResult {
+  id: string
+  /** False when the id was already gone; a no-op, not a failure. */
+  removed: boolean
+  /** The book after the removal, so a caller never has to re-list. */
+  entries: SavedConnection[]
+}
+
+/* ------------------------------------------------------------------ */
+/* The MCP endpoint                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Everything needed to register peek with an AI client, plus enough to explain
+ * the endpoint being down.
+ */
+export interface McpStatus {
+  /** True only while the HTTP server is actually bound. */
+  listening: boolean
+  host: string
+  /** The port really in use. May differ from `preferredPort` after a fallback. */
+  port: number
+  /** What the user asked for, persisted in `~/.peek/settings.json`. */
+  preferredPort: number
+  path: string
+  url: string
+  /** The bearer token, in full. A UI is expected to mask it until asked. */
+  token: string
+  /** A ready-to-paste `claude mcp add` line. */
+  hint: string
+  /** Absolute path of the file an AI client can also read this from. */
+  configFile: string
+  /** Set when the last start or restart failed; the reason, in English. */
+  error?: PeekError
+  /** A restart is in flight; re-read shortly. */
+  restarting: boolean
+}
+
+export type McpReadResult = McpStatus
+
+export interface McpConfigureResult extends McpStatus {
+  /**
+   * True when clients must be re-registered: the token changed, or the endpoint
+   * moved. Never inferred by the caller — peek knows which of the two happened.
+   */
+  reregisterRequired: boolean
+  tokenRotated: boolean
+  /** Null when the port was left alone. */
+  previousPort: number | null
+}
+
 export interface CommandResultMap {
   'conn.open': ConnOpenResult
   'conn.close': ConnCloseResult
@@ -1183,6 +1335,10 @@ export interface CommandResultMap {
   'chat.respondPermission': ChatRespondPermissionResult
   'chat.setMode': ChatSetModeResult
   'state.read': StateReadResult
+  'conn.book.list': ConnBookListResult
+  'conn.book.forget': ConnBookForgetResult
+  'mcp.read': McpReadResult
+  'mcp.configure': McpConfigureResult
 }
 
 /** Compile-time assertion: every command needs a result type — miss one and this line goes red */
@@ -1274,16 +1430,6 @@ function formatZodIssues(error: z.ZodError): string {
       return `${path}: ${issue.message}`
     })
     .join('\n')
-}
-
-/** Assemble an envelope for a command about to be executed */
-export function makeCommandEnvelope<K extends CommandName>(
-  id: string,
-  name: K,
-  input: CommandInput<K>,
-  source: CommandSource,
-): CommandEnvelope<K> {
-  return { id, name, input, source, ts: Date.now() }
 }
 
 /**

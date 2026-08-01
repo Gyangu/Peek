@@ -43,6 +43,17 @@ export function generateToken(): string {
   return randomBytes(32).toString('base64url')
 }
 
+/**
+ * The registration line, in one place.
+ *
+ * It is written into `mcp.json`, printed to the log at startup, and offered as a
+ * one-click copy in the MCP settings panel; three spellings of the same command
+ * is three chances for the one a user actually pastes to be the stale one.
+ */
+export function mcpAddCommand(url: string, token: string): string {
+  return `claude mcp add peek --transport http ${url} --header "Authorization: Bearer ${token}"`
+}
+
 /** Read back a previously persisted token (returns null if the file is missing, corrupt, or the token is too short). */
 export function readExistingToken(configDir: string): string | null {
   try {
@@ -77,7 +88,7 @@ export function writeEndpointFile(input: WriteEndpointInput): McpEndpointFile {
     token: input.token,
     pid: process.pid,
     updatedAt: new Date().toISOString(),
-    hint: `claude mcp add peek --transport http ${url} --header "Authorization: Bearer ${input.token}"`,
+    hint: mcpAddCommand(url, input.token),
   }
 
   mkdirSync(input.configDir, { recursive: true, mode: 0o700 })

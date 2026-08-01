@@ -134,7 +134,36 @@ export interface AcpTimeouts {
    * progressing.
    */
   promptIdleMs: number
-  /** Absolute ceiling on one turn. `0` disables it, which is the default. */
+  /**
+   * Absolute ceiling on one turn, measured in **agent time**. `0` disables it.
+   *
+   * ## Why an absolute ceiling exists at all, given the idle watchdog
+   *
+   * `promptIdleMs` catches silence, and silence is the observed failure mode.
+   * It cannot catch the other one: a turn that keeps *talking*. Every token, every
+   * `tool_call_update`, resets the idle clock, so an agent stuck in a loop —
+   * re-reading the same view, re-planning, apologising and retrying — is
+   * indistinguishable from one making progress, and with `promptMaxMs` at `0`
+   * (which it used to be) that turn had no end at all. It burns tokens for as
+   * long as the window is open, and it holds the chat's `streaming` flag, so the
+   * user's only exit is the stop button.
+   *
+   * ## Why 30 minutes, and why it is not wall-clock
+   *
+   * The number has to clear the longest turn a person would still call working.
+   * The slowest legitimate turns measured here — a dozen `mcp__peek__*` calls,
+   * each opening a view and streaming a summary — run in single-digit minutes,
+   * so 30 leaves an order of magnitude of headroom and still bounds a runaway
+   * turn to something a user notices once rather than something that runs until
+   * they quit the app.
+   *
+   * **Time a human spends deciding does not count**, and that is not a detail.
+   * `permissionMs` is 5 minutes; a turn asking for six approvals could otherwise
+   * spend its whole budget on dialogs and be killed with the agent having done
+   * nothing wrong — the same contradiction the idle watchdog already had to fix
+   * once. The timer is therefore paused while any permission prompt is
+   * outstanding, so what this bounds is the agent's own work.
+   */
   promptMaxMs: number
   /**
    * How long a permission prompt may sit unanswered before peek answers
@@ -156,7 +185,7 @@ export const DEFAULT_ACP_TIMEOUTS: AcpTimeouts = {
   newSessionMs: 60_000,
   setModeMs: 10_000,
   promptIdleMs: 90_000,
-  promptMaxMs: 0,
+  promptMaxMs: 1_800_000,
   permissionMs: 300_000,
   shutdownMs: 3_000,
   exitMs: 3_000,

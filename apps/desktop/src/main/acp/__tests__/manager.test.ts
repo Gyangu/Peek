@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { after, test } from 'node:test'
-import { asChatId, type ChatDelta, type ChatId } from '@peek/core'
+import { asChatId, type ChatDelta, type ChatId, type NotifyMessage, type PeekError } from '@peek/core'
 import { AcpManager } from '../manager'
 import {
   DEFAULT_ACP_TIMEOUTS,
@@ -25,6 +25,7 @@ import {
   DEFAULT_RESTART_POLICY,
   type AcpHostConfig,
   type ChatAgentStatePatch,
+  type McpEndpointInfo,
 } from '../types'
 
 const STUB = fileURLToPath(new URL('./stub-agent.mjs', import.meta.url))
@@ -38,8 +39,11 @@ interface Harness {
   manager: AcpManager
   deltas: ChatDelta[]
   patches: ChatAgentStatePatch[]
+  notifications: NotifyMessage[]
   chatId: ChatId
   status(): string | undefined
+  /** The error the turn ended with, read off the transcript rather than the state. */
+  endError(): PeekError | undefined
 }
 
 /**
@@ -60,14 +64,21 @@ const STUB_ENV_KEYS = [
   'STUB_CHATTER_MS',
   'STUB_LOG',
   'STUB_DIE_AFTER_MS',
+  'STUB_DIE_ON_PROMPT_MS',
   'STUB_DIE_ONCE_FILE',
+  'STUB_SILENT',
+  'STUB_TALK_MS',
 ] as const
 
 after(() => {
   for (const key of STUB_ENV_KEYS) delete process.env[key]
 })
 
-function harness(env: Record<string, string> = {}, overrides: Partial<AcpHostConfig> = {}): Harness {
+function harness(
+  env: Record<string, string> = {},
+  overrides: Partial<AcpHostConfig> = {},
+  endpoint: McpEndpointInfo | null = null,
+): Harness {
   const cwd = mkdtempSync(join(tmpdir(), 'peek-acp-mgr-'))
   dirs.push(cwd)
   for (const key of STUB_ENV_KEYS) delete process.env[key]
@@ -75,6 +86,7 @@ function harness(env: Record<string, string> = {}, overrides: Partial<AcpHostCon
 
   const deltas: ChatDelta[] = []
   const patches: ChatAgentStatePatch[] = []
+  const notifications: NotifyMessage[] = []
   const manager = new AcpManager(
     {
       applyState: (patch) => {
@@ -84,10 +96,10 @@ function harness(env: Record<string, string> = {}, overrides: Partial<AcpHostCon
       emitDeltas: (_chatId, batch) => {
         deltas.push(...batch)
       },
-      notify: () => {
-        /* toasts are not what this file is about */
+      notify: (message) => {
+        notifications.push(message)
       },
-      resolveMcpEndpoint: () => null,
+      resolveMcpEndpoint: () => endpoint,
     },
     {
       resolveCwd: () => cwd,
@@ -104,9 +116,40 @@ function harness(env: Record<string, string> = {}, overrides: Partial<AcpHostCon
     manager,
     deltas,
     patches,
+    notifications,
     chatId: asChatId('chat_test'),
     status: () => [...patches].reverse().find((p) => p.status !== undefined)?.status,
+    endError: () =>
+      [...deltas]
+        .reverse()
+        .find((d): d is Extract<ChatDelta, { type: 'message.end' }> => d.type === 'message.end')?.error,
   }
+}
+
+/** Every JSON-RPC method the stub recorded, in order. */
+async function methodsIn(log: string): Promise<string[]> {
+  const { readFileSync } = await import('node:fs')
+  return readFileSync(log, 'utf8')
+    .split('\n')
+    .filter((l) => l.trim())
+    .map((l) => (JSON.parse(l) as { method: string }).method)
+}
+
+/** The params of the first `method` call the stub recorded. */
+async function paramsOf(log: string, method: string): Promise<Record<string, unknown> | undefined> {
+  const { readFileSync } = await import('node:fs')
+  return readFileSync(log, 'utf8')
+    .split('\n')
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l) as { method: string; params?: Record<string, unknown> })
+    .find((m) => m.method === method)?.params
+}
+
+/** A scratch log path, unique per test. */
+function logPath(tag: string): string {
+  const dir = mkdtempSync(join(tmpdir(), `peek-acp-${tag}-`))
+  dirs.push(dir)
+  return join(dir, 'calls.jsonl')
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -359,4 +402,201 @@ test('a crash and its restart leave no child process behind', async () => {
   await sleep(400)
   const survivors = started.filter(alive)
   assert.deepEqual(survivors, [], `dispose() left ${survivors.length} orphaned agent process(es)`)
+})
+
+/* ==================================================================
+ * The three things the ACP spike measured against a real agent, and
+ * that survived only as prose in the code they justify.
+ *
+ * Each one is a failure mode nobody would guess from the protocol: it
+ * was found by running the thing and watching. A comment recording
+ * that is worth having; it is not worth as much as a test that goes
+ * red when the guard it justifies is removed, which is what these are.
+ * ================================================================== */
+
+test('spike 1: a turn that goes silent is cut off, not left to retry for minutes', async () => {
+  // Measured against the real agent with an unreachable model endpoint: the
+  // agent retried internally for ~175 seconds, put **nothing** on the wire the
+  // whole time, and the panel showed a spinner throughout. No protocol error is
+  // ever emitted for this — the request simply stays open — so `promptIdleMs`
+  // is the only thing standing between the user and a three-minute stare.
+  //
+  // The stub reproduces exactly that shape: `session/prompt` accepted, total
+  // silence, and a reply that would eventually arrive long after anyone cares.
+  const log = logPath('silent')
+  const h = harness(
+    { STUB_SILENT: '1', STUB_PROMPT_MS: '30000', STUB_LOG: log },
+    { timeouts: { ...DEFAULT_ACP_TIMEOUTS, promptIdleMs: 400 } },
+  )
+  try {
+    await h.manager.send({ chatId: h.chatId, text: 'anything', attachments: [] })
+    await sleep(1_800)
+
+    assert.equal(h.status(), 'error', 'the silent turn was never cut off')
+
+    // Surfaced as a toast, and it has to be: a turn that never produced a single
+    // chunk has no agent message for the transcript to attach the error to, so
+    // this is the *only* place the user is told what happened. Without it the
+    // panel went from a spinner to a red status with no sentence anywhere.
+    const toast = h.notifications.find((n) => n.level === 'error')
+    assert.ok(toast, `the stalled turn was killed in silence; notifications: ${JSON.stringify(h.notifications)}`)
+    assert.match(toast.message, /400 ms/, 'the message must name the budget that was applied')
+
+    // And the agent was actually told to stop, rather than peek merely giving up
+    // on it locally while the turn kept running and kept costing.
+    assert.ok((await methodsIn(log)).includes('session/cancel'), 'the stalled turn was never cancelled')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('spike 1b: a turn that keeps talking still has an end — promptMaxMs', async () => {
+  // The other half, and the one `promptIdleMs` cannot see. Every session update
+  // resets the idle clock, so an agent looping — re-reading, re-planning,
+  // retrying — looks exactly like one making progress and, with `promptMaxMs` at
+  // its old default of `0`, ran until the user closed the window.
+  //
+  // The stub chatters every 60ms, well inside the 400ms idle budget, so only the
+  // absolute ceiling can stop this.
+  const h = harness(
+    { STUB_TALK_MS: '60', STUB_PROMPT_MS: '30000' },
+    { timeouts: { ...DEFAULT_ACP_TIMEOUTS, promptIdleMs: 400, promptMaxMs: 900 } },
+  )
+  try {
+    await h.manager.send({ chatId: h.chatId, text: 'loop forever', attachments: [] })
+    await sleep(2_500)
+    assert.equal(h.status(), 'error', 'a turn with no silence in it ran unbounded')
+    const error = h.endError()
+    assert.equal(error?.code, 'TIMEOUT')
+    // Named distinctly from the idle watchdog: "The reply" means it went quiet,
+    // "The turn" means it did not. Reporting the wrong one sends whoever reads
+    // the toast looking at the wrong thing.
+    assert.match(error?.message ?? '', /^The turn /, 'the ceiling and the idle watchdog must be distinguishable')
+    assert.match(error?.message ?? '', /900 ms/, 'the configured budget, not the remainder after a pause')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('spike 1c: promptMaxMs is agent time — a human deciding does not spend it', async () => {
+  // The contradiction that `promptIdleMs` already had to be taught once, in its
+  // own terms: `permissionMs` is 5 minutes by default and `promptMaxMs` is 30,
+  // so a turn asking for six approvals could burn its entire absolute budget on
+  // dialogs and be killed for something the agent never did.
+  //
+  // Here the ceiling is 700ms of agent time and the human takes 1.5 seconds. The
+  // turn must survive, because the agent spent almost none of it.
+  const h = harness(
+    { STUB_ASK_PERMISSION: '1', STUB_PROMPT_MS: '100' },
+    { timeouts: { ...DEFAULT_ACP_TIMEOUTS, promptIdleMs: 5_000, promptMaxMs: 700, permissionMs: 30_000 } },
+  )
+  try {
+    await h.manager.send({ chatId: h.chatId, text: 'ask me something', attachments: [] })
+
+    let requestId: string | undefined
+    for (let i = 0; i < 60 && requestId === undefined; i += 1) {
+      await sleep(50)
+      requestId = [...h.patches].reverse().find((p) => p.pendingPermission)?.pendingPermission?.requestId
+    }
+    assert.ok(requestId, 'no permission prompt was ever published')
+
+    await sleep(1_500)
+    assert.notEqual(h.status(), 'error', 'the absolute ceiling ran against a person reading a dialog')
+    assert.equal(h.manager.respondPermission(requestId, 'allow'), true, 'the request expired under the ceiling')
+    await sleep(1_000)
+    assert.equal(h.status(), 'ready')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('spike 2: an agent that dies mid-request is reported as a crash, not as a mystery', async () => {
+  // What the SDK rejects with when the process disappears under an in-flight
+  // `prompt()` is `new Error("ACP connection closed")` — no JSON-RPC code, no
+  // `data`, nothing structured. And it is not even a fixed string: the same
+  // `close(error)` path is fed whatever the stream reader threw, so an EPIPE or
+  // an ECONNRESET arrives here just as bare.
+  //
+  // Classification therefore used to hang on a four-entry substring list. This
+  // asserts the outcome the user sees, so the *how* can be replaced (it now
+  // is — `agentAlive` is a structural check) without weakening the promise.
+  const h = harness({ STUB_PROMPT_MS: '30000', STUB_DIE_ON_PROMPT_MS: '250' })
+  try {
+    await h.manager.send({ chatId: h.chatId, text: 'die on me', attachments: [] })
+    await sleep(1_500)
+
+    const error = h.endError()
+    assert.ok(error, 'the turn never ended')
+    assert.equal(error.code, 'DRIVER_CRASHED', `a crash was reported as ${error.code}`)
+    assert.equal(error.retryable, true, 'the panel restarts the agent, so this is retryable')
+    assert.ok(error.detail, 'the user must be told the conversation survives')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('spike 3: no MCP endpoint means a loud warning, because session/new will not complain', async () => {
+  // `session/new` does **not** fail when an MCP server is unreachable — it drops
+  // the server and carries on. Measured: a session created against a dead
+  // endpoint produced a Claude that could talk but could not see the window, with
+  // nothing anywhere saying why, and the symptom read as the model being unable
+  // to follow instructions. The pre-check in `#openAgentSession` exists only to
+  // turn that silence into a sentence.
+  const log = logPath('nomcp')
+  const h = harness({ STUB_PROMPT_MS: '80', STUB_LOG: log }, {}, null)
+  try {
+    await h.manager.send({ chatId: h.chatId, text: 'hi', attachments: [] })
+    await sleep(900)
+
+    const warning = h.notifications.find((n) => n.level === 'warn' && /cannot see this window/i.test(n.message))
+    assert.ok(warning, `no warning was raised; notifications were ${JSON.stringify(h.notifications)}`)
+    assert.match(String(warning.detail), /MCP/, 'the detail has to name what is missing')
+
+    // And peek did not quietly pass an empty descriptor off as a working one.
+    const params = await paramsOf(log, 'session/new')
+    assert.deepEqual(params?.['mcpServers'], [], 'a session with no endpoint must carry no MCP server')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('spike 3b: a live endpoint reaches session/new as a bearer descriptor, and never a log', async () => {
+  const log = logPath('mcp')
+  const TOKEN = 'peek-test-bearer-token-0123456789abcdef'
+  const h = harness({ STUB_PROMPT_MS: '80', STUB_LOG: log }, {}, { url: 'http://127.0.0.1:7332/mcp', token: TOKEN })
+
+  const logLines: string[] = []
+  h.manager.events.on('log', (e) => {
+    logLines.push(`${e.message} ${e.detail ?? ''}`)
+  })
+
+  try {
+    await h.manager.send({ chatId: h.chatId, text: 'hi', attachments: [] })
+    await sleep(900)
+
+    const params = await paramsOf(log, 'session/new')
+    const servers = params?.['mcpServers'] as { name: string; url: string; headers: { name: string; value: string }[] }[]
+    assert.equal(servers.length, 1, 'the closed loop needs exactly peek’s own server')
+    assert.equal(servers[0]?.name, 'peek')
+    // `headers` is an array of {name, value}, not an object — getting this wrong
+    // is silent: the agent takes the session and every tool call 401s.
+    assert.deepEqual(servers[0]?.headers, [{ name: 'Authorization', value: `Bearer ${TOKEN}` }])
+
+    assert.ok(
+      !h.notifications.some((n) => /cannot see this window/i.test(n.message)),
+      'a working endpoint must not be reported as missing',
+    )
+
+    // The token is a credential. It goes to the agent and nowhere else — not to
+    // a toast, not to a diagnostic log line, not into a transcript delta.
+    const everythingElse = JSON.stringify({
+      notifications: h.notifications,
+      deltas: h.deltas,
+      patches: h.patches,
+      logLines,
+    })
+    assert.ok(!everythingElse.includes(TOKEN), 'the MCP bearer token leaked out of the session descriptor')
+  } finally {
+    await h.manager.dispose()
+  }
 })

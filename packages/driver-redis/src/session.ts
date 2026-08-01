@@ -6,11 +6,14 @@ import {
   MAX_KEY_VALUE_ELEMENTS,
   MAX_PAGE_LIMIT,
   VALUE_PREVIEW_BYTES,
+  assertBrowseSupported,
+  collectionBrowseStyle,
   peekError,
   peekErrorMsg,
   truncatedValue,
   type ByteRange,
   type Capability,
+  type CollectionBrowseStyle,
   type CollectionRef,
   type CollectionScanRequest,
   type CollectionSchemaInfo,
@@ -19,6 +22,7 @@ import {
   type DriverId,
   type DriverSession,
   type FilterSpec,
+  type KeyPatternRef,
   type KeyValueField,
   type KeyValuePayload,
   type KeyValueReadOptions,
@@ -500,6 +504,10 @@ export class RedisSession implements DriverSession {
       // shared constant must stay untouched
       columns: KEYSPACE_SCAN_SCHEMA.map((c) => ({ ...c })),
       primaryKey: [KEYSPACE_SCAN_COLUMNS.key],
+      // Declared rather than left to the kind default, because this is the
+      // answer the UI needs before it draws a column header, and `scan` refuses
+      // against this same value
+      browse: this.browseStyle(pattern),
     }
     // DBSIZE counts the whole database. It is an estimate only for the pattern
     // that means the whole database; for any narrower pattern it would be an
@@ -513,6 +521,16 @@ export class RedisSession implements DriverSession {
       }
     }
     return info
+  }
+
+  /**
+   * How a keyspace browses. Every key pattern in redis browses the same way, so
+   * this is the kind default verbatim — the method exists so `describeCollection`
+   * and `scan` quote one expression instead of two, and so a future refinement
+   * (a RediSearch index over the keyspace, say) has an obvious home.
+   */
+  private browseStyle(ref: KeyPatternRef): CollectionBrowseStyle {
+    return collectionBrowseStyle(ref)
   }
 
   /* ---------------------------------------------------------------- */
@@ -547,15 +565,12 @@ export class RedisSession implements DriverSession {
         + ' keyspace scan columns (key, type, ttlMs, size, bytes, encoding) instead',
       )
     }
-    if (req.sort !== undefined && req.sort.length > 0) {
-      // SCAN's order is an implementation detail of the hash table and changes as
-      // it rehashes. Sorting one page would be a lie about the whole scan.
-      throw peekError(
-        'BAD_REQUEST',
-        'A Redis keyspace scan is cursor-ordered and cannot be sorted;'
-        + ' drop the sort, or sort the loaded page in the client',
-      )
-    }
+    // SCAN's order is an implementation detail of the hash table and changes as it
+    // rehashes, so sorting one page would be a lie about the whole scan. That is
+    // declared once, in core's browse style, and refused from the same table the
+    // UI consults before it draws a sortable column header — the driver no longer
+    // owns a private opinion the renderer cannot see.
+    assertBrowseSupported(this.browseStyle(ref), req, { driverId: 'redis' })
     // `<boundary>` or `<boundary>:<rows already delivered from it>`; the second
     // form is how a page that ended inside a SCAN page addresses its resume point
     if (req.cursorToken !== undefined && !isRedisResumeToken(req.cursorToken)) {

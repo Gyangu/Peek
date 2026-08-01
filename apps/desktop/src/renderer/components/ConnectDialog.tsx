@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
-import type { DriverId } from '@peek/core'
+import type { DriverId, SavedConnection } from '@peek/core'
 import { DRIVER_CAPABILITIES, DRIVER_IDS } from '@peek/core'
 import { useT, type TFunction } from '../i18n'
 import { dispatch } from '../state/dispatch'
@@ -8,15 +8,17 @@ import {
   buildConnectionConfig,
   connectFields,
   connectFormSpec,
+  connectModeFor,
   defaultConnectMode,
   initialConnectValues,
   missingRequiredFields,
+  valuesFromConfig,
   type ConnectField,
   type ConnectMode,
 } from './connectForm'
 
 /**
- * New connection.
+ * New connection — or an edit of one that was saved.
  *
  * The form is driven by `connectForm.ts` rather than hard-coded here: every
  * driver asks for different things (redis wants a numeric database index, qdrant
@@ -24,18 +26,48 @@ import {
  * driver — either lies about what is configurable or forces the user to hand-
  * assemble a URL peek could have assembled for them.
  *
- * `conn.open` is landed by main; this only assembles the config.
+ * ## Editing does not mean a second write path
+ *
+ * `initial` only *seeds the form*. What leaves the dialog is a `conn.open` in
+ * both cases, and the connection book is written by main when that open
+ * succeeds. So there is exactly one description of a connection in the system,
+ * and it is the one that has actually connected — a "save" button that did not
+ * dial would be a second, unverified one.
+ *
+ * The password box is the one thing that cannot be seeded: the saved config
+ * carries no credential, by construction. Rather than showing a filled box that
+ * is a lie, the dialog says the stored password will be used, and typing in the
+ * box overrides it.
  */
-export function ConnectDialog({ onClose }: { onClose: () => void }): ReactElement {
+export interface ConnectDialogProps {
+  onClose: () => void
+  /** Seed from a saved connection. Absent means a blank form. */
+  initial?: SavedConnection
+}
+
+export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactElement {
   const t = useT()
-  const [driverId, setDriverId] = useState<DriverId>('postgres')
-  const [mode, setMode] = useState<ConnectMode>(() => defaultConnectMode('postgres'))
-  const [values, setValues] = useState<Record<string, string | boolean>>(() =>
-    initialConnectValues('postgres', defaultConnectMode('postgres')),
-  )
-  const [label, setLabel] = useState('')
+  const seed = useMemo(() => seedFrom(initial), [initial])
+  const [driverId, setDriverId] = useState<DriverId>(seed.driverId)
+  const [mode, setMode] = useState<ConnectMode>(seed.mode)
+  const [values, setValues] = useState<Record<string, string | boolean>>(seed.values)
+  const [label, setLabel] = useState(seed.label)
   const [busy, setBusy] = useState(false)
   const [issue, setIssue] = useState<string | null>(null)
+  /**
+   * Whether the stored credential is still the one that will be sent.
+   *
+   * It stops being true the moment the user types into the password box — main
+   * only fills a field that arrives absent — and also when they edit a field the
+   * credential is keyed by, because a password saved for one server is never
+   * replayed at another. Rather than model that rule twice, the notice
+   * disappears as soon as the form no longer matches what was saved.
+   */
+  const savedSecretInUse =
+    initial?.hasSecret === true &&
+    driverId === seed.driverId &&
+    mode === seed.mode &&
+    sameValues(values, seed.values)
 
   const spec = connectFormSpec(driverId)
   const fields = connectFields(driverId, mode)
@@ -80,7 +112,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }): ReactElemen
     <div className="modal-mask" onMouseDown={onClose}>
       <div className="modal" style={{ width: 520 }} onMouseDown={stop}>
         <div className="modal-head">
-          <span className="t">{t('connect.title')}</span>
+          <span className="t">{initial ? t('connect.editTitle') : t('connect.title')}</span>
           <span style={{ flex: 1 }} />
           <button className="ghost" onClick={onClose}>
             ✕
@@ -160,8 +192,17 @@ export function ConnectDialog({ onClose }: { onClose: () => void }): ReactElemen
             />
           </div>
 
+          {savedSecretInUse ? (
+            <div className="form-hint">{t('connect.savedSecretInUse')}</div>
+          ) : initial?.hasSecret === true ? (
+            // The form has moved away from what the credential was saved for, so
+            // it will not be sent. Saying so here is cheaper than an
+            // authentication failure the user has to interpret.
+            <div className="form-hint">{t('connect.savedSecretNotUsed')}</div>
+          ) : null}
+
           {issue ? (
-            // zod's own words, naming the field it rejected — evidence, not prose.
+            // The rejected field, named — evidence, not prose.
             <div className="form-hint" style={{ color: 'var(--err)' }}>
               {t('connect.invalid', { issue })}
             </div>
@@ -231,4 +272,41 @@ function FieldRow({ t, field, value, autoFocus, onChange, onSubmit }: FieldRowPr
 
 function stop(e: ReactMouseEvent): void {
   e.stopPropagation()
+}
+
+/* ------------------------------------------------------------------ */
+
+interface Seed {
+  driverId: DriverId
+  mode: ConnectMode
+  values: Record<string, string | boolean>
+  label: string
+}
+
+/** A blank postgres form, or the saved connection unpacked back into one. */
+function seedFrom(initial: SavedConnection | undefined): Seed {
+  if (!initial) {
+    const mode = defaultConnectMode('postgres')
+    return { driverId: 'postgres', mode, values: initialConnectValues('postgres', mode), label: '' }
+  }
+  const config = initial.config as unknown as Record<string, unknown>
+  const mode = connectModeFor(initial.driverId, config)
+  return {
+    driverId: initial.driverId,
+    mode,
+    values: valuesFromConfig(initial.driverId, mode, config),
+    // Only a label the user actually chose is carried back. `SavedConnection.label`
+    // falls back to a derived one, and putting that in the box would turn a
+    // generated name into a typed one on the next save.
+    label: typeof config['label'] === 'string' ? config['label'] : '',
+  }
+}
+
+function sameValues(
+  a: Readonly<Record<string, string | boolean>>,
+  b: Readonly<Record<string, string | boolean>>,
+): boolean {
+  const keys = Object.keys(b)
+  if (Object.keys(a).length !== keys.length) return false
+  return keys.every((key) => a[key] === b[key])
 }

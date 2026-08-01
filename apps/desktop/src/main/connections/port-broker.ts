@@ -32,10 +32,14 @@ export class DataPlaneLink {
   private delivered = false
   private closed = false
 
-  constructor(
-    readonly connId: ConnId,
-    private readonly host: DriverHostProcess,
-  ) {}
+  readonly connId: ConnId
+  private readonly host: DriverHostProcess
+
+  /** Explicit fields, not parameter properties — see `DriverHostProcess`'s constructor. */
+  constructor(connId: ConnId, host: DriverHostProcess) {
+    this.connId = connId
+    this.host = host
+  }
 
   get isDelivered(): boolean {
     return this.delivered

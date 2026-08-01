@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { DRIVER_CAPABILITIES, KEYSPACE_SCAN_SCHEMA, isPeekError } from '@peek/core'
+import {
+  DRIVER_CAPABILITIES,
+  KEYSPACE_SCAN_SCHEMA,
+  encodeScanCursor,
+  isPeekError,
+  keyValueAddressing,
+  keyValueReadOptions,
+  type KeyValueWindow,
+} from '@peek/core'
 import { redisDriver, requireRedisConfig } from '../driver'
 import { isRedisCommandRefusal, mapRedisError, redisErrorPrefix } from '../errors'
 import { keyspaceNodeId, parseKeyspaceNodeId, splitKeyPrefix } from '../keyspace'
-import { isRedisResumeToken, parseRedisResumeToken } from '../scan'
+import { isRedisResumeToken, parseRedisResumeToken, redisResumeToken } from '../scan'
 import { REDIS_TYPE_TO_SHAPE, redisTypeShape } from '../values'
 
 /**
@@ -122,19 +130,117 @@ describe('driver-redis contract', () => {
     }
   })
 
+  /**
+   * The window contract, which the flat `KeyValueReadOptions` bag used to let
+   * anyone get wrong.
+   *
+   * Redis is the only driver that implements `keyValue`, so this is where the
+   * shape ↔ addressing table is pinned. The compile-time half lives in the type
+   * itself (`{ shape: 'map', offset: 3 }` does not typecheck); this is the runtime
+   * half, for windows that arrive as JSON from another process and are therefore
+   * not checked by anything else.
+   */
+  it('addresses each value shape by exactly one of a cursor and an index', () => {
+    assert.equal(keyValueAddressing('map'), 'cursor')
+    assert.equal(keyValueAddressing('set'), 'cursor')
+    // XRANGE addresses by entry id, so a stream continues on a cursor even
+    // though `offset` is also honoured (by over-reading and slicing)
+    assert.equal(keyValueAddressing('stream'), 'cursor')
+    assert.equal(keyValueAddressing('list'), 'offset')
+    assert.equal(keyValueAddressing('sortedSet'), 'offset')
+    assert.equal(keyValueAddressing('scalar'), 'none')
+    assert.equal(keyValueAddressing('missing'), 'none')
+
+    // The redis TYPE table and the addressing table have to agree: every shape a
+    // redis type maps to is one this driver can actually window
+    for (const shape of Object.values(REDIS_TYPE_TO_SHAPE)) {
+      assert.ok(['cursor', 'offset', 'none'].includes(keyValueAddressing(shape)), shape)
+    }
+  })
+
+  it('rejects a wire window that addresses a shape the way another shape is addressed', () => {
+    const rejected: KeyValueWindow[] = [
+      // An offset into a hash: HSCAN has no index, and the old flat type let this
+      // through to be silently ignored — the caller got page 1 again, forever
+      { shape: 'map', offset: 200 },
+      { shape: 'set', offset: 0 },
+      // A cursor into a list: LRANGE takes numbers, and an opaque cursor coerces
+      // to NaN, which reads as offset 0
+      { shape: 'list', cursorToken: '17' },
+      { shape: 'sortedSet', cursorToken: 'abc' },
+      // A scalar is paged by bytes through valuePeek, not by elements
+      { shape: 'scalar', offset: 10 },
+      { shape: 'missing', cursorToken: '1' },
+    ]
+    for (const window of rejected) {
+      try {
+        keyValueReadOptions(window)
+        assert.fail(`${JSON.stringify(window)} must be refused`)
+      } catch (err) {
+        assert.ok(isPeekError(err), 'the refusal has to be a structured error')
+        assert.equal(err.code, 'BAD_REQUEST')
+      }
+    }
+  })
+
+  it('accepts the legal windows and infers the member when no shape was declared', () => {
+    assert.deepEqual(keyValueReadOptions(undefined), {})
+    assert.deepEqual(keyValueReadOptions({ limit: 50 }), { limit: 50 })
+    assert.deepEqual(keyValueReadOptions({ shape: 'map', cursorToken: '17', match: 'f*' }), {
+      shape: 'map',
+      cursorToken: '17',
+      match: 'f*',
+    })
+    assert.deepEqual(keyValueReadOptions({ shape: 'list', offset: 3, limit: 10 }), {
+      limit: 10,
+      shape: 'list',
+      offset: 3,
+    })
+    // A stream is the one shape that legitimately carries both
+    assert.deepEqual(keyValueReadOptions({ shape: 'stream', offset: 2, cursorToken: '(1-0' }), {
+      shape: 'stream',
+      offset: 2,
+      cursorToken: '(1-0',
+    })
+
+    // No shape declared: the addressing decides which member it becomes, and the
+    // driver still re-dispatches on the key's real TYPE afterwards
+    assert.equal(keyValueReadOptions({ cursorToken: '17' }).shape, 'map')
+    assert.equal(keyValueReadOptions({ offset: 4 }).shape, 'list')
+    assert.equal(keyValueReadOptions({ offset: 4, cursorToken: '(1-0' }).shape, 'stream')
+  })
+
   /** The continuation token: a bare SCAN boundary, or a boundary plus an intra-page skip */
   it('round-trips the two-part scan continuation token', () => {
-    assert.equal(isRedisResumeToken('0'), true)
-    assert.equal(isRedisResumeToken('238'), true)
-    assert.equal(isRedisResumeToken('238:17'), true)
+    // The same two-part shape as before — a SCAN boundary plus the rows of that
+    // page already delivered — now carried in core's envelope, which adds the
+    // minting driver so another driver's token cannot be mistaken for one
+    assert.equal(isRedisResumeToken(redisResumeToken('0', 0)), true)
+    assert.equal(isRedisResumeToken(redisResumeToken('238', 0)), true)
+    assert.equal(isRedisResumeToken(redisResumeToken('238', 17)), true)
+    assert.deepEqual(parseRedisResumeToken(redisResumeToken('238', 0)), { cursor: '238', skip: 0 })
+    assert.deepEqual(parseRedisResumeToken(redisResumeToken('238', 17)), { cursor: '238', skip: 17 })
+
+    // Malformed, in every way the old private syntax could be malformed …
     assert.equal(isRedisResumeToken(''), false)
     assert.equal(isRedisResumeToken('238:'), false)
     assert.equal(isRedisResumeToken('abc'), false)
-    assert.equal(isRedisResumeToken('238:17:4'), false)
     assert.equal(isRedisResumeToken('-1'), false)
+    // … including a boundary that is not a decimal SCAN cursor
+    assert.equal(isRedisResumeToken(encodeScanCursor({ driverId: 'redis', boundary: 'x', skip: 0 })), false)
+    // … and, new, a well-formed token from a different driver
+    assert.equal(
+      isRedisResumeToken(encodeScanCursor({ driverId: 'qdrant', boundary: '42', skip: 0 })),
+      false,
+    )
+    // The old bare forms are no longer tokens: they carry no driver, and reading
+    // one would resume a scan from a boundary nobody in this session minted
+    assert.equal(isRedisResumeToken('238'), false)
+    assert.equal(isRedisResumeToken('238:17'), false)
 
-    assert.deepEqual(parseRedisResumeToken('238'), { cursor: '238', skip: 0 })
-    assert.deepEqual(parseRedisResumeToken('238:17'), { cursor: '238', skip: 17 })
+    // An unparsable token restarts the iteration rather than throwing — the scan
+    // is validated by the session, and this decoder must never invent a boundary
+    assert.deepEqual(parseRedisResumeToken('238:17'), { cursor: '0', skip: 0 })
   })
 
   it('reuses the keyspace scan schema core declares, rather than a private copy', () => {

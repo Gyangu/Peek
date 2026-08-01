@@ -21,8 +21,8 @@ import type {
 } from '@peek/core'
 import { defaultChatViewId, toAttachmentSpec } from '../contextPort'
 import { highlight, normalizeLang } from '../highlight'
-import { chatEn } from '../messages.en'
-import { chatZhCN } from '../messages.zh-CN'
+import { chat as chatEn } from '../../../i18n/messages/en/chat'
+import { chat as chatZhCN } from '../../../i18n/messages/zh-CN/chat'
 import { parseInline, parseMarkdown, type MdInline } from '../mdParser'
 import {
   extractPlan,
@@ -477,6 +477,14 @@ test('coalesce merges adjacent appends only', () => {
 /* Catalog parity                                                      */
 /* ================================================================== */
 
+/*
+ * The chat slice used to ship its own catalog and its own `useChatT`; it is now
+ * folded into `i18n/messages/{en,zh-CN}/chat.ts`, so `i18n.test.ts` checks key
+ * parity across every locale automatically. These two stay because they say
+ * something that check does not: the second one is chat-specific (its list of
+ * deliberately-identical keys is about *these* strings), and the first is what
+ * points a failure at this file rather than at a whole-catalog diff.
+ */
 test('i18n: the two chat catalogs agree on keys and placeholders', () => {
   const enKeys = Object.keys(chatEn).sort()
   const zhKeys = Object.keys(chatZhCN).sort()

@@ -1,5 +1,6 @@
 import {
   hasCapability,
+  keyValueReadOptions,
   supportsCancel,
   supportsCollectionScan,
   supportsIntrospect,
@@ -14,7 +15,6 @@ import {
   type Driver,
   type DriverId,
   type DriverSession,
-  type KeyValueReadOptions,
 } from './capability'
 import { ACK_WINDOW, VALUE_PEEK_MAX_BYTES, type ResultPause, type ResultStreamAck, type ResultStreamMessage } from './chunk'
 import { peekError, peekErrorMsg, toPeekError, type PeekError } from './errors'
@@ -586,14 +586,11 @@ export class DriverHostRuntime {
       case 'keyvalue.get': {
         const session = this.requireSession()
         if (!supportsKeyValue(session)) throw unsupported(session.driverId, 'keyValue')
-        const { ref, limit, offset, cursorToken, match } = req.params
-        const opts: KeyValueReadOptions = {
-          ...(limit === undefined ? {} : { limit }),
-          ...(offset === undefined ? {} : { offset }),
-          ...(cursorToken === undefined ? {} : { cursorToken }),
-          ...(match === undefined ? {} : { match }),
-        }
-        return { value: await session.getValue(ref, opts) }
+        const { ref, ...window } = req.params
+        // The wire form is a flat bag; core validates it into the exclusive union
+        // exactly here, at the process boundary, so an offset into a hash is a
+        // BAD_REQUEST rather than a silently ignored field
+        return { value: await session.getValue(ref, keyValueReadOptions(window)) }
       }
 
       case 'value.peek': {

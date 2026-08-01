@@ -2,8 +2,10 @@ import {
   DEFAULT_PAGE_LIMIT,
   DRIVER_CAPABILITIES,
   MAX_PAGE_LIMIT,
+  decodeRowOffsetCursor,
   peekError,
   peekErrorMsg,
+  rowOffsetCursor,
   type ByteRange,
   type Capability,
   type ChunkDone,
@@ -179,11 +181,12 @@ export class SqlSession implements DriverSession {
   /**
    * Browse one table.
    *
-   * `cursorToken` is the absolute row offset of the next page, decimal-encoded —
-   * the same convention as driver-postgres, deliberately, so the table view and
-   * the MCP tools treat all three SQL drivers identically. A malformed token is
-   * BAD_REQUEST (`error.sql.invalidCursorToken`), never a silent restart from
-   * row 0.
+   * `cursorToken` is core's `ScanCursor` with an absolute row offset as its
+   * boundary and no intra-page skip, because `LIMIT`/`OFFSET` addresses rows
+   * directly. Encoding and validation are core's (`rowOffsetCursor` /
+   * `decodeRowOffsetCursor`), which is what makes a token minted by another
+   * driver — or by another *SQL* driver — a BAD_REQUEST rather than a page of
+   * plausible-looking wrong rows.
    *
    * `nativeFilter` has no meaning for a SQL driver — `FilterSpec` covers what SQL
    * can express — so receiving one must be rejected with BAD_REQUEST rather than
@@ -204,13 +207,9 @@ export class SqlSession implements DriverSession {
 
     // cursorToken is the absolute offset at the end of the previous page; when
     // present it overrides offset
-    const tokenOffset = req.cursorToken === undefined ? undefined : Number(req.cursorToken)
-    if (
-      req.cursorToken !== undefined
-      && (tokenOffset === undefined || !Number.isFinite(tokenOffset) || tokenOffset < 0)
-    ) {
-      throw peekErrorMsg('BAD_REQUEST', 'error.sql.invalidCursorToken', { token: req.cursorToken })
-    }
+    const tokenOffset = req.cursorToken === undefined
+      ? undefined
+      : decodeRowOffsetCursor(req.cursorToken, this.driverId)
     const offset = clampInt(tokenOffset ?? req.offset ?? 0, 0, Number.MAX_SAFE_INTEGER) ?? 0
     const limit = clampInt(req.limit ?? DEFAULT_PAGE_LIMIT, 0, MAX_PAGE_LIMIT) ?? DEFAULT_PAGE_LIMIT
 
@@ -227,7 +226,7 @@ export class SqlSession implements DriverSession {
 
     // A full page usually means there is more, so hand back a cursor for the next one
     const finish = (rows: number): Pick<ChunkDone, 'truncated' | 'nextCursor'> =>
-      rows >= limit && limit > 0 ? { nextCursor: String(offset + rows) } : {}
+      rows >= limit && limit > 0 ? { nextCursor: rowOffsetCursor(this.driverId, offset + rows) } : {}
 
     return this.startCursor(req.resultId, built.text, built.params, {
       columnHints: hints,

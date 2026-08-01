@@ -1,6 +1,6 @@
 import { memo } from 'react'
 import type { ReactElement } from 'react'
-import { useChatT } from './i18n'
+import { useT } from '../../i18n'
 import type { PlanEntry } from './toolCalls'
 
 /**
@@ -16,7 +16,7 @@ import type { PlanEntry } from './toolCalls'
  * as a word, not only as a colour.
  */
 export const PlanCard = memo(function PlanCard({ entries }: { entries: PlanEntry[] }): ReactElement {
-  const t = useChatT()
+  const t = useT()
   const done = entries.filter((e) => e.status === 'completed').length
 
   return (

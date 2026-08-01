@@ -12,10 +12,14 @@ a table and the panel appears on screen; open it yourself and the AI sees the sa
 next read.
 
 > **Status: early.** M0 (skeleton), M1 (PostgreSQL read-only pipeline), M2 (tiled layout: view
-> drag-and-drop plus the `set_layout` / `move_view` tools), M3 (Redis), M4 (Qdrant) and M5
-> (MySQL / SQLite) are complete, and the layout has since grown panel tabs and keyboard
-> accessibility. All five databases connect, introspect and stream rows; all data access is
-> read-only. Everything under [Roadmap](#roadmap) is a plan, not a feature.
+> drag-and-drop plus the `set_layout` / `move_view` tools), M3 (Redis), M4 (Qdrant), M5
+> (MySQL / SQLite) and M6 (cancel and timeouts, error panel, connection persistence, a settable
+> MCP port, and the capability-model gaps closed) are complete, and the layout has since grown
+> panel tabs and keyboard accessibility. All five databases connect, introspect and stream rows;
+> all data access is read-only. peek has also grown a **chat panel**: Claude Code runs embedded
+> over ACP as a sixth kind of view, connected back to peek's own MCP server, so the agent you are
+> talking to drives the window it is sitting in. Everything under [Roadmap](#roadmap) is a plan,
+> not a feature.
 
 ---
 
@@ -24,14 +28,17 @@ next read.
 | Area | State |
 | --- | --- |
 | Databases | PostgreSQL, Redis, Qdrant, MySQL and SQLite, each behind its own driver package. The connect dialog renders a different form per driver, because the five do not describe a connection the same way — a numeric database index for Redis, a base URL and API key for Qdrant, a path on disk for SQLite. |
-| Data access | Read-only, and enforced by the server wherever a server can enforce it: PostgreSQL and MySQL run inside a read-only transaction, SQLite is opened with the read-only flag plus `PRAGMA query_only`. Redis and Qdrant have no such switch, so their drivers simply issue no write command. No client-side keyword allowlist anywhere. |
-| Views | All five kinds are implemented: `table`, `query`, `inspector`, `tree`, `vector`. Which ones a connection offers follows its capabilities — Redis and Qdrant have no `tabularQuery`, so no SQL editor is drawn for them; the typed key inspector appears only on Redis, and vector search only on Qdrant. |
+| Data access | Read-only, and enforced by the server wherever a server can enforce it: PostgreSQL and MySQL run inside a read-only transaction, SQLite is opened with the read-only flag plus `PRAGMA query_only`. Redis and Qdrant have no such switch, so their drivers simply issue no write command. No client-side keyword allowlist anywhere. The one gap is a stored procedure that opens its own read-write transaction — see [Known limitations](#known-limitations). |
+| Views | All six kinds are implemented: `table`, `query`, `inspector`, `tree`, `vector`, `chat`. Which ones a connection offers follows its capabilities — Redis and Qdrant have no `tabularQuery`, so no SQL editor is drawn for them; the typed key inspector appears only on Redis, and vector search only on Qdrant. `chat` is the odd one out: it is the only kind that may exist without a connection. |
+| Chat / ACP | Claude Code runs as a child process behind the [Agent Client Protocol](https://agentclientprotocol.com), rendered as a chat view like any other tab — streamed assistant text, tool-call cards, plan cards, and a permission prompt the human answers. The agent is launched lazily on first use, and is handed peek's own MCP endpoint, so it drives the window it lives in. Result rows reach it only as an explicit **attachment** the human stages (a cell, a row selection, a view), never as ambient context. |
 | Layout | The tiled tree is real state, driven by Commands: `⌘\` splits left/right, `⌘⇧\` splits top/bottom, `⌘W` closes the active tab, `⌘⇧W` closes the panel, and dragging a divider dispatches `layout.setRatio`. |
 | Tabs | A panel holds up to 12 views as tabs and shows one. The strip is always visible, even for a single tab, so the body height never changes; past the width of the strip it scrolls sideways. Dragging a tab onto a panel body's centre stacks it there as a new tab, onto an edge splits, and onto a tab strip inserts it at the caret — which is also how tabs are reordered. Nothing is swapped by any gesture; `swap` survives only as an explicit `onOccupied` mode for callers that name it. |
 | Keyboard / a11y | Panels are `role="group"` and tab strips are real ARIA `tablist`s. An empty panel emits neither `tablist` nor `tabpanel`: a tab list with no tabs, and a tab panel no tab controls, would announce a widget that is not there. Roving tabindex is per widget — one panel element (the focused one) and one tab per strip. Panel chrome is otherwise unconditionally tabbable, because the bodies beside it (CodeMirror, the grid's toolbar and pagination) cannot be taken out of the tab order, and pretending the surrounding chrome was out of it only made `Tab` walk into a body before the strip above it. DOM focus and `focusedPanel` sync both ways, with a guard that stops a remote MCP call from pulling the caret out of a dialog or the sidebar; closing a panel's last tab hands focus back to the panel rather than dropping it to the document. Changes that move focus announce themselves through role semantics; ones that do not are announced by a single polite live region. Splitter handles are not keyboard-resizable. |
-| MCP | 9 tools over Streamable HTTP, bound to `127.0.0.1:7332`, bearer-token authenticated. |
-| Persistence | None. Connections, layout and results live in memory; the only file written is `~/.peek/mcp.json`. |
-| Packaging | `pnpm build` emits bundles under `apps/desktop/out`, not an installer. |
+| Cancel / timeouts | Every query, scan and vector search runs under a deadline (120s / 120s / 60s by default; `0` means none). A deadline that expires and an explicit `cancel_query` take the same escalation path — ask the driver, then kill its process — so a wedged connection cannot outlive either. All three result views draw the same cancel control; a driver without the `cancel` capability shows it disabled with the reason, rather than silently omitting it. |
+| Errors | A status-bar badge counts what went wrong and opens a panel holding the last 100 entries, each copyable with its code and detail. Errors that used to exist only as a toast that had already faded are now recoverable after the fact. |
+| MCP | 13 tools over Streamable HTTP on loopback, bearer-token authenticated. Port 7332 by default, settable and persisted; if it is taken, the next 8 are tried and the window says where it landed. |
+| Persistence | Three files under `~/.peek`: `mcp.json` (endpoint + token), `connections.json` (the connection book), `settings.json` (the MCP port). Credentials never land in plaintext — they are encrypted by the OS keychain through Electron's `safeStorage` and stored apart from the config that names the server. Layout, open views, query text and results are still memory-only and start empty every launch. |
+| Packaging | `pnpm build` emits minified bundles under `apps/desktop/out` (~3.2MB total), not an installer. `apps/desktop/scripts/package-mac.mjs` produces a macOS `.app`. |
 | i18n | English is the default and is never auto-detected from the OS; a `zh-CN` catalog ships alongside it, switchable from the status bar. |
 
 ---
@@ -113,6 +120,31 @@ MySQL or SQLite; the known gaps that surfaced while proving that are listed unde
 The per-driver table is what the UI predicts *before* a connection exists; once connected, the
 session's own capability set wins, so an older server can advertise less.
 
+Capabilities are answered at three grains, because "can this driver sort?" turned out to be the
+wrong question:
+
+- **Per driver** — the table above. Enough to decide whether to draw a SQL editor at all.
+- **Per collection** — `CollectionSchemaInfo.browse` lets a driver narrow the answer for one
+  collection: which columns are sortable, which are filterable, and whether sorting gives up paging.
+  Qdrant reports exactly the payload keys that carry an index, so ordering by an unindexed key is a
+  named `BAD_REQUEST` from peek instead of a 400 from the server. A Redis keyspace has no global
+  order and says so, so it draws inert headers and a forward-only pager. This grain is answered to
+  MCP callers but does not yet reach the renderer, which is why a qdrant table view also draws inert
+  headers — see [Known limitations](#known-limitations).
+- **Per value** — `core/values.ts` fixes one canonical JS representation per `LogicalType`, and all
+  four drivers are asserted against it on a real server. Two bugs fell out of writing it down: a
+  PostgreSQL `BIGINT 1` used to arrive as the string `"1"` while MySQL and SQLite sent the number,
+  so the same column right-aligned in one connection and left-aligned in the next; and a `DATE`
+  arrived as a `Date` at *local* midnight, which serializes to the previous day anywhere east of
+  Greenwich. Dates, times, timestamps and intervals are now strings everywhere, and a 64-bit integer
+  is a `number` while that is exact and a decimal string once it is not.
+
+`FilterSpec` carries a `target` for the same reason: on a relational table a filter names a column,
+while on a schemaless collection it names a payload *field* that may not be in the result at all. A
+Qdrant scan returns `id` plus one `payload` JSON column, so by default only `id` is filterable — but
+project a payload key into a column with `columns` and the driver reports it as filterable. The
+answer to "can I click this header to filter?" is now something the type system can state.
+
 ### Chunk streaming and backpressure
 
 Result sets are streamed as columnar frames, never materialized whole:
@@ -151,8 +183,8 @@ pnpm install          # pnpm 10 blocks install scripts by default; electron/esbu
 pnpm dev              # electron-vite dev: opens the window, renderer HMR, MCP server on 7332
 pnpm build            # production bundles into apps/desktop/out (main / preload / renderer)
 pnpm -r typecheck     # tsc --noEmit across every package; strict mode, no `any`
-pnpm -r test          # node:test, 750 tests today (567 desktop + 50 postgres + 29 redis
-                      #                            + 34 qdrant + 70 mysql/sqlite)
+pnpm -r test          # node:test, 1223 tests today (1020 desktop + 51 postgres + 37 redis
+                      #                             + 38 qdrant + 77 mysql/sqlite)
 ```
 
 The desktop suite is pure logic — no Electron, no database. Each driver suite is an integration
@@ -191,7 +223,26 @@ against a live database — row counts are measured against the server's own `co
 hard-coded, precisely because the development database keeps changing underneath. But the schema is
 *not* discovered: the suite asserts on specific tables in the `public` schema of one particular
 development database, so pointing `PEEK_TEST_PG_URL` at an arbitrary database will fail those
-assertions. Making the fixture self-provisioning is open work.
+assertions — and so does leaving it *unset*, because the fallback in the test file is a different
+database again. Making the fixture self-provisioning is open work; until then, PostgreSQL is the one
+suite that needs its variable set even to fail honestly.
+
+The chat panel's security claims have their own runnable check, for the same reason: a sentence in a
+comment saying "the agent inherits none of your Claude Code configuration" is a sentence that
+quietly stops being true.
+
+```bash
+node apps/desktop/scripts/verify-chat-security.mjs             # spends tokens: four real model turns
+node apps/desktop/scripts/verify-chat-security.mjs --offline   # free, CI-safe, skips the model
+```
+
+It verifies the shape of the session sandbox, that every tool on the wire comes from a tool file in
+this repository, that a prompt asking for a shell gets no shell, that a database cell phrased as an
+order is not obeyed, that the bearer token reaches neither the transcript nor stdout, and that the
+agent's own tool calls come back through peek's MCP server. Exit code 0 means every check that ran
+passed. The online mode deliberately does *not* isolate your own Claude Code configuration — the
+whole point is that your real settings do not leak into the session, and isolating them would test
+nothing.
 
 ---
 
@@ -200,7 +251,16 @@ assertions. Making the fixture self-provisioning is open work.
 The window is a normal database GUI, and nothing about it is AI-specific:
 
 - **Connect** from the sidebar. Pick a driver, paste a connection string, and the namespace tree
-  opens with it. The tree is lazily loaded a level at a time and cached until you refresh it.
+  opens with it. The tree is lazily loaded a level at a time and cached until you refresh it. A
+  connection that works is remembered under **Saved** — there is no "save" button, because the only
+  thing worth remembering is a connection that has actually completed a handshake. Each saved entry
+  says whether its password is in the system keychain, and can be reconnected, edited or forgotten.
+  If the keychain is unavailable, peek says so and saves no password rather than writing one to disk.
+- **Stop a query** with the cancel button in any result view. If the driver cannot cancel — Qdrant is
+  the one that cannot, and says so rather than pretending — the button is disabled with the reason on
+  it. Nothing runs forever regardless: every fetch has a deadline behind it.
+- **See what went wrong** from the badge in the status bar. It counts errors and opens a panel with
+  the last hundred, each copyable, so a toast that faded while you were reading rows is still there.
 - **Browse a table** by clicking it in the tree: a virtualized grid, scrollable to the last row of a
   million-row table. Shift-drag the scrollbar for 10× precision, Option-drag for 50×.
 - **Write SQL** in a query view. `⌘⏎` runs the statement; the editor is CodeMirror 6 with SQL syntax.
@@ -243,11 +303,31 @@ claude mcp add peek --transport http http://127.0.0.1:7332/mcp \
   --header "Authorization: Bearer <token from ~/.peek/mcp.json>"
 ```
 
+The same command is one click away in the app: **Settings → MCP endpoint** (the gear in the sidebar)
+shows the status, the address and the token — masked by default — and copies the registration line
+for you. It is also where the port is changed and the token rotated; both warn that an already
+registered client has to be re-registered, because both invalidate it.
+
+The token is deliberately **not** printed to the log. It grants full control of the window and of
+every database connection open in it, and stdout is not a private place: terminal scrollback, CI
+logs and crash reports all carry it onward. The two places that hold the copyable command are the
+ones that are actually access controlled — the `0600` file and the settings panel.
+
 The `Authorization` header is required — without it every request is rejected with 401. Requests are
 additionally checked for a loopback `Host` and `Origin` (DNS-rebinding protection), and the token is
 compared in constant time.
 
-### The nine tools
+If port 7332 is busy, peek tries the next eight and tells you where it landed rather than starting
+without an MCP server; the port it settled on is what `~/.peek/mcp.json` records. A port chosen in
+the settings panel is remembered in `~/.peek/settings.json`. `PEEK_MCP_PORT` still overrides both,
+but only for that run — an integration knob, not a preference, so a scripted launch never rewrites
+what the user chose.
+
+On first launch — no connection, and nothing in the connection book — the window shows a three-step
+guide instead of an empty grid: connect a database, copy the MCP registration command, open the chat
+panel.
+
+### The thirteen tools
 
 | Tool | Kind | Purpose |
 | --- | --- | --- |
@@ -260,27 +340,89 @@ compared in constant time.
 | `set_layout` | command | Declare the whole panel tree at once (`layout.setLayout`) — the way to arrange several views for comparison in a single call. Each leaf carries a `viewIds` list plus an `activeViewId`, and may also `open` new views inline: four views side by side is four leaves, four views paged in one pane is one leaf with four `viewIds`. Caps: 16 panels, depth 6, 12 tabs per panel, each view at most once in the whole tree. Views left out of the tree are closed unless `unplaced` says `keep` or `error`; `expectRev` makes the write fail rather than clobber a concurrent human edit. |
 | `move_view` | command | Move one view to one panel, without resending the tree. `zone: center` stacks it there as a tab (`layout.moveView`), optionally at an `index`; `left`/`right`/`top`/`bottom` split the target panel (`layout.splitWithView`). Naming the panel a view is already in is a tab reorder, not a no-op. This is the same zone→command mapping the drag UI uses, so an AI's gesture and a human's produce identical results. |
 | `activate_view` | command | Bring one of a panel's tabs to the front (`view.activate`), the way clicking its tab does. Opens, closes, moves and reorders nothing. This is the answer when `read_workspace` shows the view you want with `"visible": false`. |
+| `cancel_query` | command | Stop a query that is already running (`query.cancel`). Distinct from `run_query`'s `timeoutMs`, which sets a deadline up front, and from `waitMs`, which only bounds how long the caller watches. |
+| `send_chat` | command | Post a message into a chat view (`chat.send`), opening one if none is named. Attachments are named by descriptor, not inlined. |
+| `read_chat` | read | Read a chat view's transcript back: messages, tool calls, plans, and any permission request still waiting on a human. |
+| `control_chat` | command | The chat lifecycle that is not "send": cancel the turn, clear the transcript, detach the agent, set the mode, answer a permission prompt. |
 
 There is deliberately no tool that hands a full result set to the model. Layout changes go through
 the same Command Bus as the human's keyboard and mouse, so `read_workspace` always shows an AI the
 panel arrangement a human just dragged into place, and vice versa.
 
+### The chat panel
+
+You do not have to bring your own client. peek can host Claude Code itself, as a tab:
+
+```
+  chat view (renderer)
+        │  chat.send / chat.cancel / chat.respondPermission  — ordinary Commands
+        ▼
+  Command Bus ──► ACP client (main) ──► claude-agent-acp (child process)
+                                              │
+                                              └── MCP ──► peek's own server on 127.0.0.1:7332
+```
+
+The agent is a child process speaking the [Agent Client Protocol](https://agentclientprotocol.com),
+launched lazily the first time a chat view is used, and handed peek's own MCP endpoint on the way
+up. So it closes the loop: the model you are talking to in the panel drives the panels around it
+through exactly the tools above, and the transcript is state like any other — `read_chat` and
+`control_chat` let a *second*, external client watch and steer the embedded one.
+
+Two rules the panel does not bend:
+
+- **Rows are attachments, never ambient context.** The agent sees result data only when a human
+  stages it — a cell, a row selection, or a whole view — and each attachment is a descriptor
+  resolved under a size budget at send time, not a blob pasted into the prompt.
+- **Permissions are answered by the human.** A tool call the agent is not pre-authorized for
+  renders as a prompt in the panel and blocks until someone answers it.
+
 ---
 
 ## Performance
 
-Measured on an Apple M2 Max (64GB, macOS 26.1, built-in Retina display at `devicePixelRatio` 2),
-Electron 43.2, against PostgreSQL 16.4 on localhost:
+Two benchmark scripts produce every number below. They launch the **built** app on a throwaway port,
+user-data directory and config directory, so an installed peek neither blocks them nor is disturbed
+by them:
+
+```bash
+pnpm --filter @peek/desktop build
+
+node apps/desktop/scripts/bench-startup.mjs   # cold/warm launch, plus bundle sizes
+node apps/desktop/scripts/bench-scroll.mjs    # run_query + frame timing + DOM node count
+```
+
+`bench-startup.mjs` injects a timing probe into the main process with `NODE_OPTIONS=--import`, so
+the app's own source carries no instrumentation. `bench-scroll.mjs` generates its own SQLite fixture
+(no database server required), drives the app over its own MCP endpoint the way an AI client would,
+then attaches over CDP to scroll the grid and sample it. Both take `--json`.
+
+Measured on an Apple M2 Max (64GB, macOS 26.1, Retina at `devicePixelRatio` 2, 120Hz), Electron
+43.2, against the generated 1,000,000-row SQLite fixture:
 
 | Scenario | Result |
 | --- | --- |
-| Continuous scrolling through a 1,000,000-row result set | p95 frame **9.3ms**, **zero** frames over 16.7ms |
-| DOM node count while scrolling | constant at **~240 nodes**, independent of row count |
-| `run_query` over 1,000,000 rows, end to end | **1569ms** |
+| Launch → `ready-to-show`, warm | median **518ms** (min 481, p95 566) — budget is 1.5s |
+| Launch → `ready-to-show`, cold (first run of a session) | **802ms** |
+| Scrolling a 1,000,000-row result set, 600 frames | **0** dropped frames |
+| Per-frame main-thread work while scrolling (handler + style + layout) | median **0.20ms**, p95 **0.30ms**, max **0.80ms** |
+| DOM elements under `.grid-surface` | **279–369** at 1,000,000 rows, **306–396** at 200,000 |
+| `run_query` over 1,000,000 rows, end to end | **2124ms** |
+| Built bundles under `out/` | **3.2MB** total (6.2MB unminified) |
 
-These come from the M1 acceptance run on the machine above. There is no benchmark script in the
-repository yet, so treat them as a recorded measurement rather than something you can reproduce with
-one command.
+Three of those need reading carefully:
+
+- **Frame *interval* is not a speed.** rAF-to-rAF wall time is vsync-bound, so its median is the
+  refresh period by construction. What the benchmark reports instead is `droppedFrames` — intervals
+  past 1.5 refresh periods — and `scrollWork`, the part the application actually controls.
+- **The DOM node count is the virtual-scrolling claim, stated as a measurement.** It is bounded by
+  the viewport and not by the result set: five times the rows produced no increase at all — in fact
+  slightly fewer elements, because the two runs happened to render 41 and 44 rows respectively. The
+  range within one run is the overscan window growing and shrinking at the ends of the scroll.
+- **"End to end" assumes a reader who keeps scrolling.** Backpressure holds the stream as soon as
+  the delivered rows run far enough ahead of the viewport, so a benchmark that never scrolls
+  measures the pause timeout rather than the query — the first draft of this script reported
+  "60,483ms, 207,000 rows" for exactly that reason. The number above is with the viewport being
+  driven to the end, which is what clears the row-count gate.
 
 ### Why the virtual scrolling is hand-written
 
@@ -303,15 +445,37 @@ stays native scrolling. The vertical scrollbar is drawn by hand, because with
 ## Known limitations
 
 - **A large query pauses if you do not scroll.** With backpressure active, a 1,000,000-row query
-  stops at roughly 200,000 rows and reports `paused`. This is the design working: loaded rows are
-  valid, scrolling forward resumes the stream, and re-running the query restarts it. It is not an
-  error state, but it does surprise people who expect a progress bar to reach the end on its own.
-- **LRU-evicted chunks are never re-fetched.** Scroll far away in a result set larger than the ~200MB
-  cache and back again, and the evicted rows render as empty placeholders until the query is run
-  again. Row numbering stays correct; only the data is gone.
-- **The MCP port is effectively fixed at 7332.** `createMcpServer` accepts a port, but nothing in the
-  app surfaces it, and there is no config file for it. If the port is taken, the MCP server does not
-  start — the window still works, only the AI cannot connect.
+  stops at roughly 200,000 rows and reports `paused` — measured at 207,000 by `bench-scroll.mjs`
+  before it learned to drive the viewport. This is the design working: loaded rows are valid,
+  scrolling forward resumes the stream, and re-running the query restarts it. It is not an error
+  state, but it does surprise people who expect a progress bar to reach the end on its own.
+- **LRU-evicted chunks cannot be re-fetched in place.** Scroll far away in a result set larger than
+  the ~200MB cache and back again, and the rows that were dropped are gone. The view now says so —
+  the evicted range raises a notice with a button that re-runs the query — but it cannot quietly
+  refill the hole, and that is a protocol limit rather than a missing feature: the rows came off a
+  cursor that has since been closed, and `cursorToken` addresses the next page of a scan, not a
+  position inside a finished result. A free-form query has no cursor at all. "Re-fetch rows *n*..*m*"
+  is not a request any driver can currently be asked.
+- **Query timeouts have no UI.** Every fetch runs under a deadline and the defaults are sensible
+  (120s / 120s / 60s), but changing them means calling `setTimeoutSettings` from code — there is no
+  form, and unlike the MCP port they are not written to `settings.json`, so a change does not survive
+  a restart. MCP callers can pass `timeoutMs` per call; a human cannot.
+- **Read-only is enforced per statement, not per account.** On MySQL every checkout begins
+  `ROLLBACK; SET SESSION TRANSACTION READ ONLY`, which closes every escape a client can type —
+  `START TRANSACTION READ WRITE`, `BEGIN`, flipping the session variable back, `autocommit=0`, and
+  XA were each tried against a real server, and only the first ever worked. What it cannot close is
+  a stored procedure that *already exists in the database* and opens its own read-write transaction
+  internally: `CALL` is a read-shaped statement, and the write happens on the server's side of the
+  boundary. Closing that needs a MySQL account without write privileges, which is the right way to
+  run peek against anything you care about.
+- **A qdrant table view cannot be sorted from a column header.** The driver orders a scroll by
+  indexed payload keys, and it reports which ones. That per-collection answer reaches MCP callers,
+  who can still order a view with `view.update`, but it does not reach the renderer: `ViewSummary`
+  carries only the kind-level style, and a table view of a vector collection draws the fixed default
+  projection (`id`, `payload`), neither of which is ever an index key. So the headers are inert
+  rather than offering a sort that would be `BAD_REQUEST` on every collection. Making them live
+  needs a `sortableColumns` allowlist carried from `describeCollection` through the view state, and
+  a grid that can make headers inert one at a time.
 - **Row height is fixed at 24px.** Variable-height rows are not supported, and neither is wrapping a
   tall cell in place; large values open in a modal instead.
 - **Accessibility stops at the panel body.** The layout has real semantics — panels are labelled
@@ -320,29 +484,16 @@ stays native scrolling. The vertical scrollbar is drawn by hand, because with
   scrollbar has no native semantics, keyboard navigation within the grid is minimal, and dividers
   cannot be resized from the keyboard. The semantics are asserted by unit tests but have **not**
   been verified against a real screen reader.
-- **What a collection may be browsed with is a table in core, not something a driver declares.**
-  `CollectionScanRequest` always carries `sort` and `offset`, but a Redis keyspace has no global order
-  and Qdrant cannot combine an order with a cursor; both drivers reject such a request at scan time.
-  The UI no longer offers what will be rejected — `collectionBrowseStyle` decides per collection
-  *kind*, so a keyspace draws inert column headers and a forward-only pager. It is still core that
-  holds that knowledge rather than the driver, so a collection that is unusual *within* its kind
-  (one sortable table next to one that is not) has nowhere to say so.
-- **A refused fetch empties the view.** Any `view.update` that starts a new scan switches the view to
-  the new result set before the driver has answered, so a rejected request leaves an error bar over an
-  empty grid rather than the rows that were there a moment ago. The gesture that used to trigger this
-  from the UI (sorting a keyspace) is gone, but a failing query or a dropped connection still shows it.
-- **Filtering a schemaless collection targets fields that are not columns.** A Qdrant scan returns
-  `id` plus one `payload` JSON column, since the chunk protocol fixes the schema before the first row
-  is read. `FilterSpec.column` therefore names a payload key that does not appear in the result, so
-  the usual "click a column header to filter" gesture has nowhere to live.
 - **`VectorViewState.queryText` is inert.** Drivers are forbidden from embedding, and nothing else in
   peek turns text into a vector, so the field can be set but never consumed. Vector search is driven
   by "more like this point" (`queryPointId`), which is the only entry point a human can operate.
-- **The same value can arrive as a different JS type per driver.** `ColumnDef.logical` says how to
-  render a cell, not what it is: a BIGINT `1` is a `number` from MySQL, a string from PostgreSQL.
-  `driver-sql` normalizes within itself, but core does not pin a canonical representation across
-  drivers.
-- **Nothing persists across restarts** — connections, layout and query text all start empty.
+- **Layout and open views still do not persist.** The connection book survives a restart; the
+  arrangement of panels, which tabs were open, and what was typed in a query editor do not. Result
+  sets are memory-only by design and always will be.
+- **`cursorToken` values do not survive a version change.** The token now names the driver that
+  minted it (`postgres:0:400`), so a stale one — from an older build, or from another connection — is
+  refused rather than replayed against the wrong store. That is the intended trade; it does mean a
+  token held across an upgrade is dead, which matters if view state is ever persisted.
 
 ---
 
@@ -350,13 +501,15 @@ stays native scrolling. The vertical scrollbar is drawn by hand, because with
 
 | Milestone | Scope |
 | --- | --- |
-| **M6** | Polish: cancel and timeout end to end, an error panel, token management, and closing the capability-model gaps listed above — paging capability bits so a cursor store can decline sorting before the header is drawn, and a canonical JS representation per `LogicalType`. |
+| **M6** | **Complete.** Cancel and timeouts end to end, an error panel, connection persistence with keychain-backed credentials, a settable MCP port with token rotation, the capability-model gaps closed (per-collection browse style, a canonical JS representation per `LogicalType`, a cursor format that names its driver), and the build and measurement work: minified bundles, two benchmark scripts, a runnable chat-security verification, and dropping the general-purpose table engine from the grid. |
+| **M7** | Not yet scoped. The work M6 leaves behind: a form for the timeout settings and somewhere to persist them, persisting layout and open views, and a self-provisioning PostgreSQL fixture. The first two are in [Known limitations](#known-limitations); the third is described under [Quick start](#quick-start). |
 
-M3 (Redis), M4 (Qdrant) and M5 (MySQL / SQLite) are complete. They were the test of the capability
-model, and it held: `packages/core` did not change to accommodate a key-value store or a vector
-database. What the exercise did surface is that several of core's implicit assumptions are
-relational — a global sort order, an exact `limit`, a filterable field being a result column — and
-those are now written down under [Known limitations](#known-limitations) rather than left implicit.
+M3 (Redis), M4 (Qdrant) and M5 (MySQL / SQLite) were the test of the capability model, and it held:
+`packages/core` did not change to accommodate a key-value store or a vector database. What the
+exercise surfaced is that several of core's implicit assumptions were relational — a global sort
+order, an exact `limit`, a filterable field being a result column, one JS type per logical type.
+M6 turned each of those into something a driver states rather than something core assumes; what
+remains genuinely unsolved is listed under [Known limitations](#known-limitations).
 
 Deferred on purpose and tracked in the plan: write operations (the read-only path stabilizes first,
 then a confirmation mechanism), spilling huge result sets to disk, and an Arrow binary channel (the
@@ -376,10 +529,13 @@ peek/
 │  ├─ driver-qdrant/      # introspect · collectionScan · vectorSearch · valuePeek
 │  └─ driver-sql/         # MySQL + SQLite behind one dialect layer; same set as postgres
 ├─ apps/desktop/          # electron-vite: main / preload / renderer
+│  ├─ scripts/           # smoke-drivers.mjs, verify-chat-security.mjs, the two bench-*.mjs,
+│  │                      # macOS packaging
 │  └─ src/
-│     ├─ main/            # Command Bus, workspace store, connection manager, MCP server, driver host
+│     ├─ main/            # Command Bus, workspace store, connection manager, MCP server,
+│     │                   # driver host, and the ACP client that hosts Claude Code
 │     ├─ preload/         # one narrow bridge: invoke / onPatch / onResultPort
-│     └─ renderer/        # React UI, mirror store, result cache, virtual scrolling, i18n
+│     └─ renderer/        # React UI, mirror store, result cache, virtual scrolling, chat, i18n
 └─ docs/PLAN.md           # internal design record (written in Chinese)
 ```
 

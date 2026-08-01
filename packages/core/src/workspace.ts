@@ -1,6 +1,7 @@
 import type { ColumnDef } from './chunk'
 import type {
   Capability,
+  CollectionBrowseStyle,
   CollectionRef,
   ConnectionConfig,
   DriverId,
@@ -9,7 +10,12 @@ import type {
   SortSpec,
   ValueRef,
 } from './capability'
-import { collectionRefLabel, defaultConnectionLabel, redactConnectionConfig } from './capability'
+import {
+  collectionBrowseStyle,
+  collectionRefLabel,
+  defaultConnectionLabel,
+  redactConnectionConfig,
+} from './capability'
 import type { PeekError } from './errors'
 import {
   newPanelId,
@@ -497,11 +503,6 @@ export function panelTabIndex(panel: PanelNode, viewId: ViewId): number {
   return panel.viewIds.indexOf(viewId)
 }
 
-/** The visible view, or null for an empty panel. Reads P1/P2 rather than restating them. */
-export function activeViewOf(panel: PanelNode): ViewId | null {
-  return panel.activeViewId
-}
-
 /**
  * Which tab takes over when `removed` leaves `viewIdsBefore`.
  *
@@ -781,6 +782,22 @@ export interface ViewSummary {
   /** One sentence about what this view is showing, so the AI can perceive the window */
   describe: string
   resultId?: ResultId
+  /**
+   * What this view's collection can be asked to do, present exactly when
+   * `kind === 'table'`.
+   *
+   * The kind-level answer from `collectionBrowseStyle`, which is what the
+   * renderer consults before drawing a sortable column header or an offset pager.
+   * It is reported here for the same reason it is consulted there: an MCP caller
+   * that sends `view.update` with a sort on a Redis keyspace gets a BAD_REQUEST,
+   * and the only way it could have known beforehand was to try.
+   *
+   * A driver may narrow it per collection (`CollectionSchemaInfo.browse` — qdrant
+   * does, because `order_by` needs a payload index). That refinement needs a
+   * `describeCollection` round trip, so it is not folded in here; a caller that
+   * needs the exact orderable keys asks `introspect` for them.
+   */
+  browse?: CollectionBrowseStyle
   /** Present exactly when `kind === 'chat'`. */
   chat?: ChatViewSummary
   error?: PeekError
@@ -913,6 +930,7 @@ export function snapshotWorkspace(ws: Workspace): WorkspaceSnapshot {
       status: v.status,
       describe: describeView(v),
       ...('resultId' in v && v.resultId !== undefined ? { resultId: v.resultId } : {}),
+      ...(v.kind === 'table' ? { browse: collectionBrowseStyle(v.ref) } : {}),
       ...(v.kind === 'chat' ? { chat: summarizeChat(v) } : {}),
       ...(v.error === undefined ? {} : { error: v.error }),
     }

@@ -1,8 +1,8 @@
 import { Fragment, memo, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { ToolCallRecord, ToolCallStatus } from '@peek/core'
+import { useT, type TFunction } from '../../i18n'
 import { highlight } from './highlight'
-import { useChatT, type ChatTFunction } from './i18n'
 import { PlanCard } from './PlanCard'
 import {
   extractPlan,
@@ -42,7 +42,7 @@ export const ToolCallCard = memo(function ToolCallCard({
 }: {
   call: ToolCallRecord
 }): ReactElement {
-  const t = useChatT()
+  const t = useT()
   const parsed = useMemo(() => parseToolTitle(call.title), [call.title])
   const plan = useMemo(() => extractPlan(call), [call])
   const [open, setOpen] = useState(false)
@@ -128,7 +128,7 @@ export const ToolCallCard = memo(function ToolCallCard({
 })
 
 /** Human label: peek's own tools get one, everything else shows its bare name. */
-function displayName(parsed: ParsedToolTitle, t: ChatTFunction): string {
+function displayName(parsed: ParsedToolTitle, t: TFunction): string {
   if (!parsed.isPeek) return parsed.tool
   switch (parsed.tool) {
     case 'open_view':
@@ -157,7 +157,7 @@ function displayName(parsed: ParsedToolTitle, t: ChatTFunction): string {
 }
 
 function StatusMark({ status }: { status: ToolCallStatus }): ReactElement {
-  const t = useChatT()
+  const t = useT()
   return (
     <span className={`chat-tool-mark ${status}`} title={t(statusKey(status))} aria-hidden="true">
       {status === 'completed' ? '✔' : status === 'failed' ? '✕' : status === 'in_progress' ? '◐' : '○'}

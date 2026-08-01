@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { ConnId, ConnectionState } from '@peek/core'
+import type { ConnId, ConnectionState, SavedConnection } from '@peek/core'
 import { defaultConnectionLabel } from '@peek/core'
 import { useErrorText, useT, type TFunction } from '../i18n'
 import { connCanUse, connHas } from '../state/capabilities'
@@ -8,13 +8,53 @@ import { dispatch } from '../state/dispatch'
 import { invalidateConnection } from '../state/namespaceStore'
 import { useConnections } from '../state/workspaceStore'
 import { ConnectDialog } from './ConnectDialog'
+import { FirstRunGuide } from './FirstRunGuide'
+import { McpSettingsDialog } from './McpSettingsDialog'
 
-/** Connection list sidebar. */
+/**
+ * Connection list sidebar.
+ *
+ * Two lists, and the split matters: **live** connections come from the Workspace
+ * mirror, **saved** ones from `~/.peek/connections.json`. They are different
+ * kinds of thing — one is a driver process that exists right now, the other is a
+ * description of how to make one — and merging them into a single list with a
+ * status dot would make "disconnect" and "forget" look like the same action.
+ *
+ * The saved list is read on demand rather than mirrored into the Workspace: it
+ * is a file, it changes only when this window changes it, and a second copy kept
+ * in sync through patches would buy nothing. Everything that edits it re-reads
+ * it in the same breath — `conn.book.forget` even answers with the new list.
+ */
 export function Sidebar(): ReactElement {
   const t = useT()
   const conns = useConnections()
-  const [dialog, setDialog] = useState(false)
+  const [dialog, setDialog] = useState<{ initial?: SavedConnection } | null>(null)
+  const [settings, setSettings] = useState(false)
   const [active, setActive] = useState<ConnId | null>(null)
+  const [saved, setSaved] = useState<SavedConnection[]>([])
+  const [secretsAvailable, setSecretsAvailable] = useState(true)
+
+  const reloadBook = useCallback((): void => {
+    void dispatch('conn.book.list', {}).then((res) => {
+      if (!res) return
+      setSaved(res.entries)
+      setSecretsAvailable(res.secretsAvailable)
+    })
+  }, [])
+
+  // Re-read whenever the live list changes: an open writes the book, so the
+  // moment a connection appears the saved list has a new (or refreshed) row.
+  useEffect(() => {
+    reloadBook()
+  }, [reloadBook, conns.length])
+
+  const openConnectDialog = useCallback((initial?: SavedConnection): void => {
+    setDialog(initial ? { initial } : {})
+  }, [])
+
+  // A saved entry whose connection is already open is offered as an edit, not as
+  // a second "connect" that would land on the same server twice.
+  const liveLabels = new Set(conns.map((conn) => conn.label || defaultConnectionLabel(conn.config)))
 
   return (
     <div className="sidebar">
@@ -22,21 +62,35 @@ export function Sidebar(): ReactElement {
         <span>{t('sidebar.connections')}</span>
         <button
           className="ghost"
-          title={t('sidebar.newConnection')}
+          title={t('sidebar.settings')}
+          aria-label={t('sidebar.settings')}
           onClick={() => {
-            setDialog(true)
+            setSettings(true)
+          }}
+        >
+          ⚙
+        </button>
+        <button
+          className="ghost"
+          title={t('sidebar.newConnection')}
+          aria-label={t('sidebar.newConnection')}
+          onClick={() => {
+            openConnectDialog()
           }}
         >
           ＋
         </button>
       </div>
       <div className="sidebar-list">
-        {conns.length === 0 ? (
-          <div className="empty-hint">
-            {t('sidebar.empty')}
-            <br />
-            {t('sidebar.emptyHint')}
-          </div>
+        {conns.length === 0 && saved.length === 0 ? (
+          <FirstRunGuide
+            onConnect={() => {
+              openConnectDialog()
+            }}
+            onOpenSettings={() => {
+              setSettings(true)
+            }}
+          />
         ) : (
           conns.map((c) => (
             <ConnectionItem
@@ -49,17 +103,137 @@ export function Sidebar(): ReactElement {
             />
           ))
         )}
+
+        {saved.length > 0 ? (
+          <div className="sidebar-head" style={{ marginTop: 8 }}>
+            <span>{t('sidebar.saved')}</span>
+          </div>
+        ) : null}
+        {saved.map((entry) => (
+          <SavedItem
+            key={entry.id}
+            entry={entry}
+            alreadyOpen={liveLabels.has(entry.label)}
+            onEdit={() => {
+              openConnectDialog(entry)
+            }}
+            onForgotten={(entries) => {
+              setSaved(entries)
+            }}
+          />
+        ))}
+        {saved.length > 0 && !secretsAvailable ? (
+          // Not a warning about this session: it explains why every saved
+          // connection will ask for its password again.
+          <div className="empty-hint">{t('sidebar.noKeychain')}</div>
+        ) : null}
       </div>
+
       {dialog ? (
         <ConnectDialog
+          {...(dialog.initial === undefined ? {} : { initial: dialog.initial })}
           onClose={() => {
-            setDialog(false)
+            setDialog(null)
+            reloadBook()
+          }}
+        />
+      ) : null}
+      {settings ? (
+        <McpSettingsDialog
+          onClose={() => {
+            setSettings(false)
           }}
         />
       ) : null}
     </div>
   )
 }
+
+/* ------------------------------------------------------------------ */
+/* A saved connection                                                  */
+/* ------------------------------------------------------------------ */
+
+interface SavedItemProps {
+  entry: SavedConnection
+  alreadyOpen: boolean
+  onEdit: () => void
+  onForgotten: (entries: SavedConnection[]) => void
+}
+
+/**
+ * One row of the connection book.
+ *
+ * "Connect" here is the same `conn.open` the dialog sends, with the config
+ * exactly as it came out of the file — main puts the stored credential back on
+ * the way to the driver. That is what makes reuse a single click and still keeps
+ * the password out of this process.
+ */
+function SavedItem({ entry, alreadyOpen, onEdit, onForgotten }: SavedItemProps): ReactElement {
+  const t = useT()
+  const [busy, setBusy] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+
+  const connect = (): void => {
+    setBusy(true)
+    void dispatch('conn.open', { config: entry.config, openTree: true }).finally(() => {
+      setBusy(false)
+    })
+  }
+
+  const forget = (): void => {
+    void dispatch('conn.book.forget', { id: entry.id }).then((res) => {
+      if (res) onForgotten(res.entries)
+    })
+  }
+
+  return (
+    <div className="conn-item">
+      <div className="conn-row">
+        <span className="dot idle" />
+        <span className="conn-name">{entry.label}</span>
+        {/* Driver id is an identifier and stays untranslated. */}
+        <span style={{ color: 'var(--fg-faint)', fontSize: 10 }}>{entry.driverId}</span>
+      </div>
+      <div className="conn-sub">
+        {entry.hasSecret ? t('sidebar.saved.withSecret') : t('sidebar.saved.noSecret')}
+      </div>
+      <div className="conn-actions">
+        <button className="ghost" disabled={busy || alreadyOpen} onClick={connect}>
+          {alreadyOpen ? t('sidebar.saved.open') : t('sidebar.saved.connect')}
+        </button>
+        <button className="ghost" onClick={onEdit}>
+          {t('sidebar.saved.edit')}
+        </button>
+        {confirming ? (
+          // Two clicks rather than a modal: forgetting drops a stored credential,
+          // which cannot be undone, but it is also not destructive enough to
+          // deserve a dialog in front of it.
+          <button
+            className="ghost"
+            style={{ color: 'var(--err)' }}
+            onClick={forget}
+            onBlur={() => {
+              setConfirming(false)
+            }}
+          >
+            {t('sidebar.saved.forgetConfirm')}
+          </button>
+        ) : (
+          <button
+            className="ghost"
+            onClick={() => {
+              setConfirming(true)
+            }}
+          >
+            {t('sidebar.saved.forget')}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
 
 interface ItemProps {
   conn: ConnectionState

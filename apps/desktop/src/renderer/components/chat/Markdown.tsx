@@ -1,7 +1,7 @@
 import { Fragment, memo, useCallback, useMemo, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
+import { useT } from '../../i18n'
 import { highlight, normalizeLang } from './highlight'
-import { useChatT } from './i18n'
 import { parseMarkdown, type MdAlign, type MdBlock, type MdInline } from './mdParser'
 
 /**
@@ -159,7 +159,7 @@ function CodeBlock({
   text: string
   closed: boolean
 }): ReactElement {
-  const t = useChatT()
+  const t = useT()
   const [copied, setCopied] = useState(false)
   const normalized = normalizeLang(lang)
   const tokens = useMemo(() => highlight(text, normalized), [text, normalized])

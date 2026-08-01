@@ -7,6 +7,7 @@ import { useBusyStore } from '../state/dispatch'
 import { useCacheStats, useResult } from '../state/useResult'
 import { useWorkspace, useWorkspaceStore } from '../state/workspaceStore'
 import { formatBytes, formatCount, formatMs } from '../util/format'
+import { ErrorCenterButton } from './error-center/ErrorCenter'
 
 /**
  * Bottom status bar: connection state, current view, query time and row count,
@@ -85,6 +86,10 @@ export function StatusBar(): ReactElement {
       ) : null}
 
       {bridgeMissing ? <span className="seg err">{t('status.preloadMissing')}</span> : null}
+
+      {/* The one place in the window that remembers a failure past the toast that
+          announced it. Silent until something has actually gone wrong. */}
+      <ErrorCenterButton />
 
       <LanguageSwitch />
 

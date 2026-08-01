@@ -116,8 +116,14 @@ const AGENT_TOOL_PRESET: readonly string[] = []
  * is arbitrary un-gated SQL and defeats peek's read-only guarantee outright.
  *
  * With this `_meta` the same probe produces zero tool calls, and a session given
- * peek's MCP descriptor sees exactly twelve tools, all `mcp__peek__*`, each one
- * still going through `requestPermission`.
+ * peek's MCP descriptor sees peek's own tools and nothing else — every one of
+ * them `mcp__peek__*`, every one still going through `requestPermission`.
+ *
+ * Not "exactly twelve", which is what this said while there were twelve tool
+ * files: the number moves whenever a tool lands, and pinning it here made a
+ * security note read as stale the moment it did. `scripts/verify-chat-security.mjs`
+ * re-runs the probe above against a live agent and derives the expected set from
+ * the running server, so the claim stays checkable without being a count.
  *
  * ## Why each field is here
  *

@@ -1,50 +1,28 @@
 import { peekErrorMsg, toPeekError, type PeekError } from '@peek/core'
 
-/* ================================================================== */
-/* Timeout budget                                                      */
-/* ================================================================== */
-
 /**
- * Default timeout (in ms) for each stage. Callers may override any of them.
- *
- * Note that the query/scan/vectorSearch RPCs **only start the work** — they
- * succeed as soon as a resultId comes back — while the data itself travels the
- * MessagePort. So these are limits on the *start* phase, not on the whole query;
- * the whole-query limit is whatever the caller passes in params.timeoutMs for the
- * driver to enforce.
+ * The timeout budget moved to `./timeouts.ts`, which owns both the stage
+ * timeouts that used to live here and the whole-fetch execution budgets the UI
+ * and the settings layer configure. It is re-exported so that every existing
+ * `from './classify'` import keeps working — this module is about classifying
+ * errors, and the numbers were only ever here because they arrived first.
  */
-export interface Timeouts {
-  readyMs: number
-  connectMs: number
-  rpcMs: number
-  queryStartMs: number
-  queryGraceMs: number
-  cancelMs: number
-  disconnectMs: number
-  shutdownMs: number
-  exitMs: number
-}
-
-export const DEFAULT_TIMEOUTS: Timeouts = {
-  /** From spawn to the ready event */
-  readyMs: 10_000,
-  /** The connect RPC (dial + handshake + fetch serverInfo) */
-  connectMs: 15_000,
-  /** Ordinary control-plane RPCs (introspect / peek / keyvalue) */
-  rpcMs: 30_000,
-  /** Limit on the start phase of a query or scan; when the caller supplies timeoutMs, use timeoutMs plus the grace period */
-  queryStartMs: 60_000,
-  /** Extra grace given to the driver to wind down when the caller supplied timeoutMs */
-  queryGraceMs: 5_000,
-  /** The cancel RPC: past this, escalate to killing the process */
-  cancelMs: 2_000,
-  /** disconnect RPC */
-  disconnectMs: 5_000,
-  /** shutdown RPC */
-  shutdownMs: 3_000,
-  /** How long to wait after kill for the process to actually exit */
-  exitMs: 3_000,
-}
+export {
+  DEFAULT_EXECUTION_TIMEOUTS,
+  DEFAULT_TIMEOUTS,
+  clearConnectionTimeouts,
+  getConnectionTimeouts,
+  getTimeoutSettings,
+  resetTimeoutSettings,
+  resolveExecutionTimeout,
+  setConnectionTimeouts,
+  setTimeoutSettings,
+  subscribeTimeoutSettings,
+  type ExecutionKind,
+  type ExecutionTimeouts,
+  type TimeoutSettings,
+  type Timeouts,
+} from './timeouts'
 
 /* ================================================================== */
 /* Error classification                                                */

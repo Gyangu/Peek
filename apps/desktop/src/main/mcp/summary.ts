@@ -15,6 +15,7 @@
 import {
   collectPanels,
   hasUsableRows,
+  type CollectionBrowseStyle,
   type ConnectionSummary,
   type LayoutNode,
   type PanelId,
@@ -22,6 +23,7 @@ import {
   type ViewSummary,
   type WorkspaceSnapshot,
 } from '@peek/core'
+import { metaText } from './wait'
 
 /* ================================================================== */
 /* 1. Summary data structures                                           */
@@ -90,6 +92,18 @@ export interface ViewBrief {
    */
   visible: boolean
   result?: ResultBrief
+  /**
+   * How this collection can be browsed, present exactly on a `table` view.
+   *
+   * A short list of the affordances the driver will actually honour — `sortable`,
+   * `offsetPaging`, `cursorPaging` — because the alternative is finding out by
+   * being refused. A `view.update` carrying a sort on a Redis keyspace is a
+   * BAD_REQUEST, and until this was reported the only way to know that was to
+   * send one. The renderer consults exactly the same table before it draws a
+   * sortable column header (`collectionBrowseStyle`); this is the AI's copy of
+   * that question.
+   */
+  browse?: string[]
   error?: string
 }
 
@@ -259,8 +273,25 @@ function briefView(
     panelId: v.panelId === null ? null : String(v.panelId),
     visible: v.visible,
     ...(result === undefined ? {} : { result: briefResult(result) }),
+    ...(v.browse === undefined ? {} : { browse: browseAffordances(v.browse) }),
     ...(v.error === undefined ? {} : { error: `${v.error.code}: ${v.error.message}` }),
   }
+}
+
+/**
+ * The browse style as the short list of things that *work*.
+ *
+ * Only the affordances that are available are named. A list of `sortable=false`
+ * flags reads as a list of features, and the reader most likely to try one anyway
+ * is the AI; naming only what is offered leaves nothing to misread.
+ */
+function browseAffordances(style: CollectionBrowseStyle): string[] {
+  const out: string[] = []
+  if (style.sortable) out.push('sort')
+  if (style.offsetPaging) out.push('offsetPaging')
+  if (style.cursorPaging) out.push('cursorPaging')
+  if (style.sortEndsPaging === true) out.push('sortEndsPaging')
+  return out
 }
 
 /** Flat view summaries (layout-independent; used by the receipts of view.* tools). */
@@ -274,9 +305,23 @@ export function briefViews(snap: WorkspaceSnapshot): ViewBrief[] {
 /* 3. Text rendering                                                    */
 /* ================================================================== */
 
+/**
+ * One view as a `·`-separated line of an outline.
+ *
+ * Three of these bits are database text wearing peek's voice. `describe` is built
+ * from the collection name, `connLabel` falls back to the connection URL or is
+ * whatever the user typed, and `error` quotes a message the *server* wrote. None
+ * of them is fenced — this line sits in a plain outline that a model reads as
+ * peek's own report on peek's own window, which is the most credible place in the
+ * whole MCP surface for a forged instruction to land. `metaText` keeps each of
+ * them on this line; `UNTRUSTED_WORKSPACE_FRAMING` on the `read_workspace` receipt
+ * says what they are.
+ *
+ * `kind`, `status` and the counts are peek's own and stay verbatim.
+ */
 function viewLine(view: ViewBrief): string {
-  const bits = [view.kind, view.describe]
-  if (view.connLabel !== undefined) bits.push(`conn=${view.connLabel}`)
+  const bits = [view.kind, metaText(view.describe)]
+  if (view.connLabel !== undefined) bits.push(`conn=${metaText(view.connLabel)}`)
   bits.push(`status=${view.status}`)
   if (view.result) {
     bits.push(`rows=${view.result.rows}`)
@@ -288,7 +333,8 @@ function viewLine(view: ViewBrief): string {
       bits.push(`result=${view.result.status}`)
     }
   }
-  if (view.error) bits.push(`error=${view.error}`)
+  if (view.browse !== undefined) bits.push(`browse=${view.browse.join('+') || 'none'}`)
+  if (view.error) bits.push(`error=${metaText(view.error)}`)
   return bits.join(' · ')
 }
 

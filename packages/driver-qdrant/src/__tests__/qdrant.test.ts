@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 import {
   isPeekError,
+  filterTarget,
   isTruncatedValue,
+  resolveCollectionBrowseStyle,
   type ChunkFrame,
   type Cursor,
   type ResultId,
@@ -209,6 +211,101 @@ describe('driver-qdrant against a live server', () => {
     // Payload indexes are reported as indexes, not folded into the columns: the
     // frame-0 schema must not depend on mutable server-side index state
     assert.deepEqual(info.indexes?.map((i) => i.columns[0]), ['lang', 'n'])
+
+    // The per-collection browse style, which the kind-keyed table could not
+    // express: `order_by` needs a payload index, so *these two keys* are the
+    // orderable ones and everything else in the payload is not
+    const style = resolveCollectionBrowseStyle(info.ref, info.browse)
+    assert.equal(style.sortable, true)
+    assert.deepEqual(style.sortableColumns, ['lang', 'n'])
+    assert.equal(style.offsetPaging, false, 'a scroll has no numeric offset')
+    assert.equal(style.sortEndsPaging, true, 'an ordered scroll has no continuation')
+  })
+
+  /**
+   * Which result column a filter may be attached to — the gesture the frame-0
+   * schema could not support.
+   *
+   * `FilterSpec.column` on a vector collection has always meant a **payload
+   * key**, while the default result schema is `id` plus one opaque json
+   * `payload`. So the key being filtered on was not among the result columns at
+   * all, and "click a column header to filter" had nowhere to land. Now the
+   * filter says which it means (`FilterTarget`), and the browse style says which
+   * headers may offer the control.
+   */
+  it('says which result columns a filter may target, and refuses the payload blob', async (t) => {
+    const s = live(t)
+    if (!s) return
+    const info = await s.describeCollection({ kind: 'vectorCollection', collection: COLLECTION })
+    const style = resolveCollectionBrowseStyle(info.ref, info.browse)
+    // The default projection: only the point id is filterable. A predicate over
+    // the payload blob as a whole is not something qdrant can express.
+    assert.deepEqual(style.filterableColumns, ['id'])
+
+    // A payload key that was not projected is a *field*, not a column, and goes
+    // through untouched — this is what every MCP caller writes
+    assert.equal(filterTarget({ column: 'lang', op: 'eq', value: 'en' }, ['id', 'payload']), 'field')
+    assert.equal(filterTarget({ column: 'id', op: 'eq', value: 1 }, ['id', 'payload']), 'column')
+
+    // Saying "the column called payload" is refused rather than silently read as
+    // a payload key called "payload"
+    const err = await expectPeekError(() =>
+      s.scan({
+        resultId: rid('t-filter-blob'),
+        ref: { kind: 'vectorCollection', collection: COLLECTION },
+        filter: [{ column: 'payload', op: 'eq', value: 'x', target: 'column' }],
+      }),
+    )
+    assert.equal(err.code, 'BAD_REQUEST')
+    assert.match(err.message, /payload/)
+
+    // Project the key into a column of its own and the header becomes real: the
+    // same predicate is now a legitimate column filter
+    const frames = await drain(
+      await s.scan({
+        resultId: rid('t-filter-projected'),
+        ref: { kind: 'vectorCollection', collection: COLLECTION },
+        columns: ['lang'],
+        filter: [{ column: 'lang', op: 'eq', value: 'en', target: 'column' }],
+        limit: 10,
+      }),
+    )
+    assert.deepEqual(frames[0]?.schema?.map((c) => c.name), ['id', 'lang'])
+    assert.ok((frames.at(-1)?.done?.rows ?? 0) > 0, 'the projected-column filter still selects rows')
+
+    // And a column that is not in the result at all is a hard error, because a
+    // header click cannot produce one
+    const missing = await expectPeekError(() =>
+      s.scan({
+        resultId: rid('t-filter-missing'),
+        ref: { kind: 'vectorCollection', collection: COLLECTION },
+        filter: [{ column: 'nope', op: 'eq', value: 1, target: 'column' }],
+      }),
+    )
+    assert.equal(missing.code, 'BAD_REQUEST')
+  })
+
+  /**
+   * The refusal the UI can now predict.
+   *
+   * `blob` is a payload key with no index, so qdrant answers `order_by` on it
+   * with a 400 — which used to surface as a QUERY_FAILED from the server, after
+   * the round trip, with no hint about which keys *would* have worked. The
+   * declared browse style turns it into a BAD_REQUEST that names them.
+   */
+  it('refuses an order by a payload key that has no index, and says which keys do', async (t) => {
+    const s = live(t)
+    if (!s) return
+    const err = await expectPeekError(() =>
+      s.scan({
+        resultId: rid('t-sort-unindexed'),
+        ref: { kind: 'vectorCollection', collection: COLLECTION },
+        sort: [{ column: 'blob', dir: 'asc' }],
+      }),
+    )
+    assert.equal(err.code, 'BAD_REQUEST')
+    assert.match(err.message, /blob/)
+    assert.match(err.message, /lang, n/, 'the refusal has to say what would have worked')
   })
 
   it('scrolls without ever fetching a vector body', async (t) => {

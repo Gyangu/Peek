@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 
 import type { ReactElement } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { ChatId, ChatMessageId } from '@peek/core'
-import { useChatT } from './i18n'
+import { useT } from '../../i18n'
 import { MessageItem } from './MessageItem'
 import { subscribeChat, useChatMessage, useChatMessageIds } from './transcriptStore'
 
@@ -46,7 +46,7 @@ const ESTIMATED_MESSAGE_H = 96
 const OVERSCAN = 6
 
 export function MessageList({ chatId }: { chatId: ChatId }): ReactElement {
-  const t = useChatT()
+  const t = useT()
   const ids = useChatMessageIds(chatId)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const follow = useRef(true)

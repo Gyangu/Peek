@@ -6,12 +6,6 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
 } from 'react'
-import {
-  getCoreRowModel,
-  useReactTable,
-  type ColumnDef as TanstackColumnDef,
-  type ColumnSizingState,
-} from '@tanstack/react-table'
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual'
 import type { ColumnDef, ConnId, ResultId, SortSpec, ViewState } from '@peek/core'
 import { isTruncatedValue } from '@peek/core'
@@ -32,6 +26,12 @@ import {
   type ContextTarget,
   type RowSelection,
 } from './context-actions'
+import {
+  columnWindowKey,
+  useColumnModel,
+  type ColumnSizing,
+  type GridColumn,
+} from './columnModel'
 import { GridScrollbar } from './GridScrollbar'
 import { ValueModal } from './ValueModal'
 import { HEAD_H, ROW_H, VScrollDriver, rowTopIn } from './vscroll'
@@ -40,10 +40,13 @@ import { HEAD_H, ROW_H, VScrollDriver, rowTopIn } from './vscroll'
  * The virtualized grid — the performance core of the renderer.
  *
  * Division of labour:
- * - TanStack **Table** owns the column model only (headers, widths, resizing).
- *   It is deliberately given no data: running a million-row result set through
- *   getCoreRowModel would materialize a million Row objects, breaking the
- *   "never hold the whole table in memory" rule outright.
+ * - **columnModel.ts** owns the column axis only (headers, widths, resizing).
+ *   It replaced TanStack Table, which was being handed `data: []` on purpose —
+ *   running a million-row result set through getCoreRowModel would materialize a
+ *   million Row objects, breaking the "never hold the whole table in memory"
+ *   rule outright. Paying ~106 kB of general-purpose table engine for three
+ *   arithmetic operations on the column axis was the rest of the argument; the
+ *   details are at the top of columnModel.ts.
  * - TanStack **Virtual** is kept for column virtualization only (the horizontal
  *   axis is still native scrollLeft, untouched). The row axis uses the in-house
  *   VScrollDriver instead; the reason is at the top of vscroll.ts: a spacer's
@@ -59,10 +62,6 @@ import { HEAD_H, ROW_H, VScrollDriver, rowTopIn } from './vscroll'
 
 const GUTTER_W = 54
 const COL_OVERSCAN = 3
-
-/** Column model only, no data; this stub gives the generic something to bind to. */
-type RowStub = Record<string, never>
-const EMPTY_DATA: RowStub[] = []
 
 export interface DataGridProps {
   connId: ConnId
@@ -106,7 +105,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
    * horizontal scroll makes the scrollbar both invisible and unclickable.
    */
   const wrapRef = useRef<HTMLDivElement | null>(null)
-  const [sizing, setSizing] = useState<ColumnSizingState>({})
+  const [sizing, setSizing] = useState<ColumnSizing>({})
   const [selected, setSelected] = useState<CellPos | null>(null)
   const [expanded, setExpanded] = useState<CellPos | null>(null)
   /**
@@ -130,11 +129,13 @@ export function DataGrid(props: DataGridProps): ReactElement {
   const [viewportH, setViewportH] = useState(0)
 
   /* --- Column model: rebuilt only when the schema changes --- */
-  const columns = useMemo<TanstackColumnDef<RowStub>[]>(() => {
+  const columns = useMemo<GridColumn[]>(() => {
     if (!schema) return []
+    // The index is part of the id because a result set may repeat a column name
+    // (`SELECT a.id, b.id …`); the name alone would make two columns share one
+    // width and one React key.
     return schema.map((c, i) => ({
       id: `${i}:${c.name}`,
-      header: c.name,
       size: defaultWidth(c),
       minSize: 44,
       maxSize: 1200,
@@ -184,17 +185,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
     }
   }, [resultId, driver, releaseViewport])
 
-  const table = useReactTable<RowStub>({
-    data: EMPTY_DATA,
-    columns,
-    state: { columnSizing: sizing },
-    onColumnSizingChange: setSizing,
-    columnResizeMode: 'onChange',
-    getCoreRowModel: getCoreRowModel(),
-  })
-
-  const headers = table.getFlatHeaders()
-  const widths = headers.map((h) => h.getSize())
+  const { headers, widths } = useColumnModel(columns, sizing, setSizing)
   const widthKey = widths.join(',')
   let totalWidth = GUTTER_W
   for (const w of widths) totalWidth += w
@@ -351,10 +342,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
 
   /* --- Keep the column window as a stable reference, so row components can bail
    * out wholesale while scrolling vertically --- */
-  const colWindowKey =
-    virtualCols.length > 0
-      ? `${virtualCols[0].index}:${virtualCols[virtualCols.length - 1].index}:${widthKey}`
-      : `empty:${widthKey}`
+  const colWindowKey = columnWindowKey(virtualCols, widthKey)
   const colsRef = useRef<VirtualItem[]>(virtualCols)
   const colKeyRef = useRef(colWindowKey)
   if (colKeyRef.current !== colWindowKey) {
@@ -481,9 +469,9 @@ export function DataGrid(props: DataGridProps): ReactElement {
                     <span className="ctype">{col.nativeType}</span>
                     {s ? <span className="csort">{s.dir === 'asc' ? '▲' : '▼'}</span> : null}
                     <span
-                      className="col-resizer"
-                      onMouseDown={header.getResizeHandler()}
+                      className={header.isResizing ? 'col-resizer active' : 'col-resizer'}
                       onClick={stopClick}
+                      {...header.resize}
                     />
                   </div>
                 )

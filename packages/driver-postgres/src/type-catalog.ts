@@ -130,9 +130,6 @@ export class PgTypeCatalog {
   }
 }
 
-/** SQL that reads pg_type. The by-OID variant fetches only the missing types, for incremental top-ups. */
+/** SQL that reads pg_type. */
 export const PG_TYPE_QUERY =
   `SELECT oid::int4 AS oid, typname, typcategory, typelem::int4 AS typelem FROM pg_catalog.pg_type`
-
-export const PG_TYPE_QUERY_BY_OID =
-  `${PG_TYPE_QUERY} WHERE oid = ANY($1::oid[])`

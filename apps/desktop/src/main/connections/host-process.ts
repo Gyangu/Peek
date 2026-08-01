@@ -98,10 +98,25 @@ export class DriverHostProcess {
   /** The V8 FatalError report, reported along with the exit */
   private fatalDetail: string | undefined
 
-  constructor(
-    readonly connId: ConnId,
-    private readonly hooks: HostProcessHooks,
-  ) {}
+  readonly connId: ConnId
+  private readonly hooks: HostProcessHooks
+
+  /**
+   * Fields are declared and assigned rather than written as constructor
+   * parameter properties, and that is load-bearing rather than a style choice:
+   * node's `--experimental-strip-types` (which `node --test` uses through
+   * `ts-resolve.hooks.mjs`) erases type syntax without emitting any code, so a
+   * parameter property — the one TypeScript construct that *generates* an
+   * assignment — is a hard `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. That error is
+   * raised at import time, which took `manager.ts` (and everything importing it)
+   * out of reach of the test runner entirely: `ConnectionManager` had no unit
+   * tests at all for this reason, and the deadline rules could only be covered by
+   * stubbing this module out. Keep the explicit form.
+   */
+  constructor(connId: ConnId, hooks: HostProcessHooks) {
+    this.connId = connId
+    this.hooks = hooks
+  }
 
   get pid(): number | undefined {
     return this.childPid

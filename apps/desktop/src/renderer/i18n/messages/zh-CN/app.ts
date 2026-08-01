@@ -23,4 +23,22 @@ export const app: CatalogFor<AppMessages> = {
   'app.crash.reload': '重新加载窗口',
 
   'app.language.title': '界面语言',
+
+  /* ---- 错误中心 ---- */
+  'app.errors.title': '错误日志',
+  'app.errors.count': { other: '{count} 条错误' },
+  'app.errors.unseen': { other: '{count} 条新错误' },
+  'app.errors.openTitle': '查看最近的失败记录，含错误码与详情',
+  'app.errors.empty': '还没有出现过失败',
+  'app.errors.copyAll': '复制全部',
+  'app.errors.copyEntry': '复制',
+  'app.errors.copied': '已复制',
+  'app.errors.clear': '清空',
+  'app.errors.close': '关闭',
+  'app.errors.sourceTitle':
+    '这条失败从哪来。“你”表示本窗口发出的命令；“peek”表示应用自身（驱动进程、状态同步）。' +
+    '“助手”表示本窗口没发出过任何请求它却出现了——通常是 MCP 工具调用——这是推断出来的，不是上报的。',
+  'app.errors.source.ui': '你',
+  'app.errors.source.mcp': '助手',
+  'app.errors.source.system': 'peek',
 }

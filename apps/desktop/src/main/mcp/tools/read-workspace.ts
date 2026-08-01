@@ -14,6 +14,7 @@
 import { z } from 'zod'
 import { defineReadTool } from '../executor'
 import { buildWorkspaceBrief, renderLayoutOutline, toJson, type BriefSection } from '../summary'
+import { UNTRUSTED_WORKSPACE_FRAMING, metaText } from '../wait'
 
 const SectionSchema = z.enum(['layout', 'views', 'connections', 'results'])
 
@@ -72,13 +73,20 @@ export default defineReadTool({
     if (want('layout')) payload['layout'] = brief.layout
 
     const outline = want('layout') ? `Layout:\n${renderLayoutOutline(snap)}\n\n` : ''
+    // The label is the user's own text, or the connection URL when they left it
+    // blank — either way not peek's, and it opens this line.
     const connLine =
       brief.connections.length > 0
-        ? `Connections: ${brief.connections.map((c) => `${c.label}(${c.connId}, ${c.driverId}, ${c.status})`).join('; ')}\n\n`
+        ? `Connections: ${brief.connections.map((c) => `${metaText(c.label)}(${c.connId}, ${c.driverId}, ${c.status})`).join('; ')}\n\n`
         : 'Connections: none\n\n'
 
+    // The framing rides on the whole receipt rather than on the outline alone:
+    // this document reads as peek's own report on peek's own window, and the
+    // database text inside it (view titles, collection names, server error
+    // strings) inherits that credibility unless something says otherwise.
+    const head = `${UNTRUSTED_WORKSPACE_FRAMING}\n\nworkspace rev=${brief.rev}`
     return {
-      text: `workspace rev=${brief.rev}\n\n${outline}${want('connections') ? connLine : ''}${toJson(payload)}`,
+      text: `${head}\n\n${outline}${want('connections') ? connLine : ''}${toJson(payload)}`,
       data: payload,
     }
   },

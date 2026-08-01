@@ -26,6 +26,22 @@
  *                              the host's restart can be observed settling
  *                              instead of looping forever
  *   STUB_DIE_ONCE_FILE         path used as the "already crashed once" token
+ *   STUB_DIE_ON_PROMPT_MS      hard-exit this long after `session/prompt` is
+ *                              received, so the crash lands with a request
+ *                              genuinely in flight instead of wherever a
+ *                              start-up timer happened to fall. Honours
+ *                              `STUB_DIE_ONCE_FILE` the same way
+ *   STUB_TALK_MS               emit a session update this often for the whole
+ *                              turn — an agent that is never silent, which is
+ *                              the one thing `promptIdleMs` cannot catch and
+ *                              the only way to reach `promptMaxMs`. Distinct
+ *                              from STUB_CHATTER_MS, which is one late update
+ *                              behind a permission dialog
+ *   STUB_SILENT                accept `session/prompt` and then send **nothing**
+ *                              — no chunk, no tool call, no usage update. What
+ *                              an agent looks like while it retries an
+ *                              unreachable model endpoint, and the only thing
+ *                              the idle watchdog can be tested against
  */
 import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
@@ -33,10 +49,16 @@ import { createInterface } from 'node:readline'
 const NEW_SESSION_DELAY = Number(process.env.STUB_NEW_SESSION_DELAY_MS ?? '0')
 const PROMPT_MS = Number(process.env.STUB_PROMPT_MS ?? '400')
 const LOG = process.env.STUB_LOG
+const SILENT = process.env.STUB_SILENT === '1'
 
 const DIE_AFTER = Number(process.env.STUB_DIE_AFTER_MS ?? '0')
+const DIE_ON_PROMPT = Number(process.env.STUB_DIE_ON_PROMPT_MS ?? '0')
 const DIE_ONCE_FILE = process.env.STUB_DIE_ONCE_FILE
-if (DIE_AFTER > 0 && (!DIE_ONCE_FILE || !existsSync(DIE_ONCE_FILE))) {
+
+/** Exit without a word. Not a thrown error: the point is a process simply gone. */
+function dieLater(ms) {
+  if (ms <= 0) return
+  if (DIE_ONCE_FILE && existsSync(DIE_ONCE_FILE)) return
   setTimeout(() => {
     if (DIE_ONCE_FILE) {
       try {
@@ -45,11 +67,11 @@ if (DIE_AFTER > 0 && (!DIE_ONCE_FILE || !existsSync(DIE_ONCE_FILE))) {
         /* the test will notice a second crash */
       }
     }
-    // `exit` and not a thrown error: the point is a process that is simply gone,
-    // with nothing on the wire to explain it.
     process.exit(9)
-  }, DIE_AFTER).unref?.()
+  }, ms).unref?.()
 }
+
+dieLater(DIE_AFTER)
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const write = (obj) => process.stdout.write(`${JSON.stringify(obj)}\n`)
@@ -140,16 +162,22 @@ async function handle(msg) {
 
   if (method === 'session/prompt') {
     const sessionId = params.sessionId
-    write({
-      jsonrpc: '2.0',
-      method: 'session/update',
-      params: {
-        sessionId,
-        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'stub reply' } },
-      },
-    })
+    dieLater(DIE_ON_PROMPT)
+    // STUB_SILENT holds the request open and puts nothing on the wire, which is
+    // what a real agent retrying an unreachable model endpoint looks like from
+    // the client side. Everything below it would break the silence.
+    if (!SILENT) {
+      write({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: {
+          sessionId,
+          update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'stub reply' } },
+        },
+      })
+    }
 
-    if (process.env.STUB_ASK_PERMISSION === '1') {
+    if (!SILENT && process.env.STUB_ASK_PERMISSION === '1') {
       const toolCallId = `stub-tool-${sessionId}`
       write({
         jsonrpc: '2.0',
@@ -199,6 +227,20 @@ async function handle(msg) {
       record('permission/answered', outcome)
     }
 
+    // A turn that never goes quiet. Every one of these resets the client's idle
+    // watchdog, which is the point: only an absolute ceiling can end this turn.
+    const talk = Number(process.env.STUB_TALK_MS ?? '0')
+    const talkTimer =
+      !SILENT && talk > 0
+        ? setInterval(() => {
+          write({
+            jsonrpc: '2.0',
+            method: 'session/update',
+            params: { sessionId, update: { sessionUpdate: 'usage_update', used: 1234, size: 1_000_000 } },
+          })
+        }, talk)
+        : null
+
     const done = new Promise((resolve) => {
       const timer = setTimeout(() => resolve('end_turn'), PROMPT_MS)
       inflight.set(sessionId, () => {
@@ -207,6 +249,7 @@ async function handle(msg) {
       })
     })
     const stopReason = await done
+    if (talkTimer) clearInterval(talkTimer)
     inflight.delete(sessionId)
     write({ jsonrpc: '2.0', id, result: { stopReason } })
     return

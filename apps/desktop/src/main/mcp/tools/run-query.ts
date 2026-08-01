@@ -17,7 +17,7 @@ import {
 } from '@peek/core'
 import { defineCommandTool, errorOutput, outcomeData } from '../executor'
 import { toJson } from '../summary'
-import { renderRowsTable, waitForResult } from '../wait'
+import { metaText, renderRowsTable, waitForResult } from '../wait'
 import type { ResultRowsSlice } from '../types'
 
 /** How many rows the AI is shown by default. */
@@ -30,6 +30,25 @@ const InputSchema = commandSchemas['query.run'].safeExtend({
   previewRows: z.number().int().min(0).max(200).optional(),
   /** Max time (ms) to wait for a settled status; timing out does not mean the query failed — the UI keeps running it. */
   waitMs: z.number().int().min(0).max(120_000).optional(),
+  /**
+   * The execution deadline. Present in the Command schema all along but never
+   * described, which made it invisible to a model reading the tool list — and
+   * `waitMs` right next to it reads like the same thing while doing the opposite
+   * (one stops the query, the other only stops watching it). Spelled out here.
+   */
+  timeoutMs: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      'Hard deadline for the query itself, in milliseconds. When it passes, peek cancels the query ' +
+        'and the result set settles with a TIMEOUT error; rows that had already arrived stay valid ' +
+        'and visible. Omit it to use the connection default (peek always applies one — a query is ' +
+        'never left to run forever). Not the same as waitMs, which only bounds how long this call ' +
+        'waits before returning while the query keeps going. To stop a query already running, ' +
+        'call cancel_query.',
+    ),
 })
 
 const QueryRunResultShape = z.object({
@@ -48,7 +67,9 @@ export default defineCommandTool({
     'the full result is available in the UI. ' +
     `Without maxRows the server caps the query at ${MCP_DEFAULT_MAX_ROWS} rows and marks it truncated; ` +
     'pass maxRows explicitly for more, and note that the stream enters paused (data still valid) ' +
-    'when the viewport in the UI stops advancing.',
+    'when the viewport in the UI stops advancing. ' +
+    'Every query runs under a deadline — pass timeoutMs to set your own, and use cancel_query to stop ' +
+    'one that is already running.',
   inputSchema: InputSchema,
   annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
   toCommands(input) {
@@ -113,7 +134,9 @@ export default defineCommandTool({
     let notice = ''
     if (meta?.status === 'paused') {
       notice =
-        `\n\n⏸ Paused (not a failure): ${meta.pausedReason ?? 'backpressure idle timeout'}. `
+        // peek writes this reason today, but it is a free-text field on ResultMeta
+        // that a driver may fill, and it lands mid-sentence in peek's own voice
+        `\n\n⏸ Paused (not a failure): ${metaText(meta.pausedReason ?? 'backpressure idle timeout')}. `
         + `The ${meta.rows} rows already loaded are complete, valid data you can use as they are; `
         + 'more rows remain unfetched. To continue, run the query again (optionally with a larger '
         + 'maxRows, or scroll the grid to the bottom in the UI first).'
@@ -135,7 +158,11 @@ export default defineCommandTool({
       table = '\n\n(readResultRows is not wired up: row data lives only in the UI cache, so only metadata is available here.)'
     }
 
-    const columns = meta?.schema?.map((c) => `${c.name}:${c.logical}`).join(', ') ?? ''
+    // `metaText` for the same reason `renderRowsTable` applies it to the header:
+    // a column name is chosen by whoever wrote the migration, and this line is
+    // outside the table's fence, so a name carrying a newline would start a line
+    // of the receipt that reads as peek's own prose.
+    const columns = meta?.schema?.map((c) => `${metaText(c.name)}:${c.logical}`).join(', ') ?? ''
     return {
       text: `${headBits.join(' · ')}${columns ? `\nColumns: ${columns}` : ''}${notice}${table}`,
       data: {

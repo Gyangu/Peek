@@ -1,9 +1,5 @@
-import {
-  ConnectionConfigSchema,
-  type ConnectionConfig,
-  type DriverId,
-  type MessageArgs,
-} from '@peek/core'
+import { ConnectionConfigSchema } from '@peek/core'
+import type { ConnectionConfig, DriverId, MessageArgs } from '@peek/core'
 import type { MessageKey, Messages } from '../i18n'
 
 /**
@@ -195,6 +191,55 @@ export function initialConnectValues(driverId: DriverId, mode: ConnectMode): Rec
   return values
 }
 
+/* ------------------------------------------------------------------ */
+/* ConnectionConfig → form values (editing a saved connection)         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The reverse of `assemble`: seed the form from a config that already exists.
+ *
+ * This is what makes a saved connection **editable** rather than merely
+ * repeatable. Before it, correcting a port meant retyping a host, a database, a
+ * user and a password, which is why the connect dialog only ever had one button.
+ *
+ * Two rules keep it honest:
+ *   - the mode is chosen from the config, not guessed. A config carrying a `url`
+ *     opens in URL mode, because that is the field its identity is in; showing
+ *     it as an empty host/port pair would look like a different connection.
+ *   - fields the config does not have keep the form's defaults, so a driver that
+ *     gains a field later does not seed it as blank.
+ *
+ * Passwords are never here: the config out of the connection book has none, by
+ * construction. The dialog says so instead of pretending the box is filled.
+ */
+export function connectModeFor(driverId: DriverId, config: Readonly<Record<string, unknown>>): ConnectMode {
+  const spec = CONNECT_FORMS[driverId]
+  const hasUrl = typeof config['url'] === 'string' && config['url'].length > 0
+  // qdrant's `url` is a plain field, not a mode — it has no URL mode to switch to.
+  if (hasUrl && spec.modes.includes('url')) return 'url'
+  return defaultConnectMode(driverId)
+}
+
+export function valuesFromConfig(
+  driverId: DriverId,
+  mode: ConnectMode,
+  config: Readonly<Record<string, unknown>>,
+): Record<string, string | boolean> {
+  const values = initialConnectValues(driverId, mode)
+  for (const field of connectFields(driverId, mode)) {
+    const raw = config[field.name]
+    if (raw === undefined) continue
+    if (field.type === 'checkbox') {
+      if (typeof raw === 'boolean') values[field.name] = raw
+    } else if (typeof raw === 'string') {
+      values[field.name] = raw
+    } else if (typeof raw === 'number') {
+      values[field.name] = String(raw)
+    }
+  }
+  return values
+}
+
 /** Names of the required fields still blank. Empty means the form can be submitted. */
 export function missingRequiredFields(
   driverId: DriverId,
@@ -218,11 +263,11 @@ export type BuildConfigOutcome =
  * Assemble a `ConnectionConfig` and check it against the contract before it
  * leaves the window.
  *
- * The zod parse at the end is not ceremony. `conn.open` validates the same
- * schema in main, and a rejection there arrives as a failed command with no
- * field to point at; catching it here means a typed port or an empty file path
- * is reported next to the box that caused it. The returned `issue` is zod's own
- * English text — a schema path, not prose, so it is not translated.
+ * The check at the end is not ceremony. `conn.open` validates the real schema in
+ * main, and a rejection there arrives as a failed command with no field to point
+ * at; catching it here means a typed port or an empty file path is reported next
+ * to the box that caused it. The returned `issue` names the offending key — a
+ * schema path, not prose, so it is not translated.
  */
 export function buildConnectionConfig(
   driverId: DriverId,
@@ -230,14 +275,59 @@ export function buildConnectionConfig(
   values: ConnectFormValues,
   label: string,
 ): BuildConfigOutcome {
-  const draft = assemble(driverId, mode, values, label.trim())
+  return validateConnectionConfig(assemble(driverId, mode, values, label.trim()))
+}
+
+/* ------------------------------------------------------------------ */
+/* Draft -> ConnectionConfig                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Check one assembled draft against the real contract schema.
+ *
+ * ## Why the schema, and not a hand-written mirror of it
+ *
+ * This call was once rewritten as a table of per-driver field rules, on the
+ * premise that it was the renderer's only runtime use of zod and therefore the
+ * one thing dragging the library into the window's chunk. Both halves of that
+ * premise are false, and both were measured rather than argued:
+ *
+ * 1. **zod is in the renderer chunk either way.** `packages/core`'s `ids.ts` and
+ *    `errors.ts` are built on it, and the renderer uses both on every command it
+ *    sends and every error it renders. Dropping this one call leaves `ZodError`
+ *    and the whole runtime in the bundle regardless — checked by grepping the
+ *    built asset, not by reading imports.
+ * 2. **`ConnectionConfigSchema` costs nothing extra here.** It is declared in
+ *    `capability.ts`, the same module as `DRIVER_CAPABILITIES`, which
+ *    `state/capabilities.ts` needs in order to decide what a connection may be
+ *    asked to do. That module is in the chunk before this file has an opinion.
+ *
+ * So the mirror bought no bytes and spent some. A/B of the built renderer chunk,
+ * everything else identical (esbuild-minified, `pnpm build`):
+ *
+ *   hand-written rule table   533,140 B
+ *   ConnectionConfigSchema    531,272 B   (-1,868 B)
+ *
+ * On top of the bytes, the table was a second copy of a contract that main
+ * enforces for real — correct only for as long as someone remembered to edit it
+ * twice. Calling the schema is smaller, shorter, and cannot drift.
+ *
+ * The check is still worth doing on this side: `conn.open` validates in main
+ * regardless, but a rejection from there arrives as a failed command with no
+ * field to point at. Here it names the offending key, next to the box that
+ * caused it.
+ */
+export function validateConnectionConfig(draft: Record<string, unknown>): BuildConfigOutcome {
   const parsed = ConnectionConfigSchema.safeParse(draft)
-  if (!parsed.success) {
-    const first = parsed.error.issues[0]
-    const path = first?.path.join('.') ?? ''
-    return { ok: false, issue: path ? `${path}: ${first?.message ?? ''}` : (first?.message ?? 'invalid') }
+  if (parsed.success) return { ok: true, config: parsed.data }
+  // The first issue only. The form reports next to a field, and a list of five
+  // messages for one bad port reads as five problems. `path: message` is a
+  // schema path rather than prose, so it is deliberately not translated.
+  const issue = parsed.error.issues[0]
+  return {
+    ok: false,
+    issue: issue === undefined ? 'invalid' : `${issue.path.join('.') || '(root)'}: ${issue.message}`,
   }
-  return { ok: true, config: parsed.data }
 }
 
 function assemble(

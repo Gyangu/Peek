@@ -7,7 +7,6 @@ import { useContextActions } from '../context-actions/useContextActions'
 import { viewTitleOf } from '../panelTitle'
 import { attachCandidates, attachmentKindKey, attachmentLabel, stageableAttachment } from './attachments'
 import { detachFromChat } from './chatCommands'
-import { useChatT } from './i18n'
 
 /**
  * Staged context.
@@ -45,7 +44,6 @@ export function AttachmentBar({
   views: readonly ViewState[]
 }): ReactElement {
   const t = useT()
-  const ct = useChatT()
   const actions = useContextActions()
   const [open, setOpen] = useState(false)
   const boxRef = useRef<HTMLDivElement | null>(null)
@@ -53,13 +51,13 @@ export function AttachmentBar({
   const candidates = useMemo(
     () =>
       attachCandidates(views, {
-        workspace: ct('chat.attach.option.workspace'),
-        workspaceHint: ct('chat.attach.option.workspaceHint'),
-        resultOf: (view) => ct('chat.attach.option.result', { view }),
-        queryOf: (view) => ct('chat.attach.option.query', { view }),
+        workspace: t('chat.attach.option.workspace'),
+        workspaceHint: t('chat.attach.option.workspaceHint'),
+        resultOf: (view) => t('chat.attach.option.result', { view }),
+        queryOf: (view) => t('chat.attach.option.query', { view }),
         viewName: (view) => viewTitleOf(t, view),
       }),
-    [views, t, ct],
+    [views, t],
   )
 
   // Dismiss on a click elsewhere or on Escape — the same two gestures every
@@ -89,20 +87,20 @@ export function AttachmentBar({
 
   return (
     <div className="chat-attach-bar" ref={boxRef}>
-      <span className="chat-attach-label">{ct('chat.attach.label')}</span>
+      <span className="chat-attach-label">{t('chat.attach.label')}</span>
 
       {attachments.length === 0 ? (
-        <span className="chat-attach-empty">{ct('chat.attach.empty')}</span>
+        <span className="chat-attach-empty">{t('chat.attach.empty')}</span>
       ) : (
         attachments.map((a) => (
           <span key={a.id} className="chat-chip" title={attachmentLabel(a)}>
-            <span className="chat-chip-kind">{ct(attachmentKindKey(a.kind))}</span>
+            <span className="chat-chip-kind">{t(attachmentKindKey(a.kind))}</span>
             <span className="chat-chip-label">{attachmentLabel(a)}</span>
             <button
               type="button"
               className="chat-chip-x"
-              aria-label={ct('chat.attach.remove')}
-              title={ct('chat.attach.remove')}
+              aria-label={t('chat.attach.remove')}
+              title={t('chat.attach.remove')}
               onClick={() => {
                 remove(a)
               }}
@@ -118,19 +116,19 @@ export function AttachmentBar({
       <button
         type="button"
         className="ghost chat-attach-add"
-        title={ct('chat.attach.addTitle')}
+        title={t('chat.attach.addTitle')}
         aria-expanded={open}
         onClick={() => {
           setOpen((v) => !v)
         }}
       >
-        + {ct('chat.attach.add')}
+        + {t('chat.attach.add')}
       </button>
 
       {open ? (
         <div className="chat-attach-menu">
           {candidates.length === 0 ? (
-            <div className="chat-attach-none">{ct('chat.attach.noCandidates')}</div>
+            <div className="chat-attach-none">{t('chat.attach.noCandidates')}</div>
           ) : (
             candidates.map((c) => (
               <button

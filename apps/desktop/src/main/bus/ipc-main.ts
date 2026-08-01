@@ -1,4 +1,4 @@
-import type { IpcMain, MessagePortMain, WebContents } from 'electron'
+import type { IpcMain, WebContents } from 'electron'
 import {
   IPC,
   isCommandName,
@@ -8,7 +8,6 @@ import {
   type CommandName,
   type CommandSource,
   type NotifyMessage,
-  type ResultPortMessage,
   type StatePatchMessage,
   type StateSnapshotMessage,
 } from '@peek/core'
@@ -105,16 +104,6 @@ function readInvokeMessage(raw: unknown): InvokeMessage | null {
 /* ------------------------------------------------------------------ */
 /* Downstream channels the Connection Manager reuses                     */
 /* ------------------------------------------------------------------ */
-
-/**
- * Hand a connection's data-plane port over to the renderer.
- * The port must travel in webContents.postMessage's transfer list; it cannot be
- * packed into the message body.
- */
-export function sendResultPort(wc: WebContents, message: ResultPortMessage, port: MessagePortMain): void {
-  if (wc.isDestroyed()) return
-  wc.postMessage(IPC.RESULT_PORT, message, [port])
-}
 
 export function sendNotify(renderers: readonly WebContents[], message: NotifyMessage): void {
   for (const wc of renderers) {

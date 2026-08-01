@@ -44,9 +44,13 @@ const MAX_EXECUTION_TIME_MS = 300_000
 /**
  * The statements that make a borrowed connection safe for one statement.
  *
- * Both of them have to be re-issued **per checkout**, not once per physical
+ * All three have to be re-issued **per checkout**, not once per physical
  * connect, and that is the whole reason this is a function taking a budget:
  *
+ * - `ROLLBACK` ends whatever transaction the previous borrower left open. It is
+ *   listed first because it is the only thing that actually closes the escape
+ *   described below, and because `SET SESSION TRANSACTION …` does not reach into
+ *   a transaction that has already started.
  * - `SET SESSION TRANSACTION READ ONLY` is session state a user statement can
  *   undo (`SET SESSION TRANSACTION READ WRITE` typed into the query editor), and
  *   the connection then goes back to the pool writable. Re-asserting on every
@@ -55,6 +59,32 @@ const MAX_EXECUTION_TIME_MS = 300_000
  *   It is a session variable, so it also persists on a pooled connection — which
  *   is fine precisely because the next borrower overwrites it with its own
  *   budget, or with the ceiling when it has none.
+ *
+ * ## Why `ROLLBACK` is load-bearing and not hygiene
+ *
+ * `SET SESSION TRANSACTION READ ONLY` sets the access mode *the next transaction
+ * will start in*. `START TRANSACTION READ WRITE` is the documented way to
+ * override that default for one transaction, and it is a perfectly ordinary
+ * statement peek will run — so three statements, each its own checkout, used to
+ * write to a server peek promises never to write to:
+ *
+ * 1. `START TRANSACTION READ WRITE` — opens a writable transaction and the
+ *    connection goes back to the pool with it still open.
+ * 2. `INSERT …` — the next checkout re-issues `SET SESSION TRANSACTION READ ONLY`,
+ *    which neither errors inside an open transaction nor changes the transaction
+ *    already in progress, and the write lands.
+ * 3. `COMMIT` — makes it durable.
+ *
+ * (Measured against MySQL 8: the row was really written.) `ROLLBACK` first turns
+ * step 2 into "the writable transaction is gone, so this statement runs in
+ * autocommit, and an autocommit transaction takes the session default" — which is
+ * read-only again. It also costs nothing when there is no transaction to end:
+ * `ROLLBACK` outside one is a no-op, not an error.
+ *
+ * The residual is a *pre-existing* stored routine that opens its own read-write
+ * transaction internally; nothing a client can send closes that one, only a
+ * read-only MySQL account does. That is why the docs recommend connecting peek
+ * with a user that has no write privileges.
  *
  * `timeoutMs` is clamped into `(0, MAX_EXECUTION_TIME_MS]`: 0 means "no timeout"
  * to MySQL, which is the one value a caller asking for a timeout cannot have
@@ -68,6 +98,7 @@ export function mysqlStatementSetupSql(timeoutMs?: number): readonly string[] {
       ? Math.min(MAX_EXECUTION_TIME_MS, Math.max(1, Math.trunc(timeoutMs)))
       : MAX_EXECUTION_TIME_MS
   return [
+    'ROLLBACK',
     'SET SESSION TRANSACTION READ ONLY',
     `SET SESSION max_execution_time = ${budget}`,
   ]
@@ -422,9 +453,15 @@ export const MYSQL_DIALECT: SqlDialect = {
    * this connection fail if it tries to write, no matter what SQL the user typed.
    *
    * It is session state, though, and session state is exactly what a user
-   * statement can change — so this list is the *initial* setup only. The backend
-   * re-issues it (via `mysqlStatementSetupSql`) on every checkout, which is what
-   * actually holds the guarantee up on a pooled connection.
+   * statement can change — and a transaction already in flight ignores it
+   * entirely. So this list is the *initial* setup only. The backend re-issues it
+   * (via `mysqlStatementSetupSql`, whose `ROLLBACK` is what handles the in-flight
+   * case) on every checkout, which is what actually holds the guarantee up on a
+   * pooled connection.
+   *
+   * On a brand-new connection the leading `ROLLBACK` has nothing to undo; it is
+   * kept rather than special-cased so there is exactly one definition of "make
+   * this connection safe", used by both the connect path and every borrow.
    */
   sessionSetupSql(): readonly string[] {
     return mysqlStatementSetupSql()

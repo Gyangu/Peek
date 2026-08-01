@@ -110,10 +110,6 @@ export type MessageArgs<M extends Message> = [MessageParams<M>] extends [never]
 /* Runtime                                                              */
 /* ==================================================================== */
 
-export function isPluralForms(message: Message): message is PluralForms {
-  return typeof message === 'object'
-}
-
 /**
  * Substitute `{name}` placeholders.
  *

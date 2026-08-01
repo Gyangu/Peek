@@ -2,6 +2,7 @@ import type { CatalogFor } from '../../types'
 import type { Messages } from '../en'
 import { a11y } from './a11y'
 import { app } from './app'
+import { chat } from './chat'
 import { context } from './context'
 import { errors } from './errors'
 import { grid } from './grid'
@@ -24,5 +25,6 @@ export const zhCN: CatalogFor<Messages> = {
   ...views,
   ...a11y,
   ...context,
+  ...chat,
   ...errors,
 }

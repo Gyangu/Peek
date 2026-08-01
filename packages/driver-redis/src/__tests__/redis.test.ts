@@ -636,7 +636,13 @@ describe('driver-redis against a live server', () => {
     let token: string | undefined
     let rounds = 0
     do {
-      const page = await s.getValue(ref, { limit: 500, ...(token === undefined ? {} : { cursorToken: token }) })
+      const page = await s.getValue(ref, {
+        // The shape is declared, so the compiler checks the window against it:
+        // `offset` here would not compile, because a hash has no element index
+        shape: 'map',
+        limit: 500,
+        ...(token === undefined ? {} : { cursorToken: token }),
+      })
       if (page.value.shape === 'map') for (const f of page.value.fields) seen.add(f.field)
       token = page.nextCursor
       rounds += 1
@@ -652,6 +658,7 @@ describe('driver-redis against a live server', () => {
     let matchToken: string | undefined
     do {
       const page = await s.getValue(ref, {
+        shape: 'map',
         limit: 1_000,
         match: 'f42',
         ...(matchToken === undefined ? {} : { cursorToken: matchToken }),
@@ -666,6 +673,7 @@ describe('driver-redis against a live server', () => {
     if (!available) return t.skip('no redis')
     const s = live()
     const list = await s.getValue({ kind: 'redisValue', key: `${PREFIX}queue:jobs` }, {
+      shape: 'list',
       offset: 1,
       limit: 1,
     })

@@ -10,7 +10,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --import ./src/main/bus/__tests__/ts-resolve.hooks.mjs --test \"src/main/bus/__tests__/*.test.ts\" \"src/main/mcp/__tests__/*.test.ts\" \"src/main/acp/**/__tests__/*.test.ts\" \"src/renderer/**/__tests__/*.test.ts\"",
+    "test": "node --import ./src/main/bus/__tests__/ts-resolve.hooks.mjs --test \"src/main/bus/__tests__/*.test.ts\" \"src/main/connections/__tests__/*.test.ts\" \"src/main/mcp/__tests__/*.test.ts\" \"src/main/acp/**/__tests__/*.test.ts\" \"src/renderer/**/__tests__/*.test.ts\"",
     "icon": "node scripts/make-icns.mjs",
     "package": "electron-vite build && node scripts/package-mac.mjs",
     "install:local": "pnpm run package && node scripts/install-mac.mjs"

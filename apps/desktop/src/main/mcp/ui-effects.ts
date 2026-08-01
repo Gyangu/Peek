@@ -32,12 +32,10 @@
  */
 
 import {
-  collectPanels,
   findParentSplit,
   type LayoutNode,
   type PanelId,
   type ResultMeta,
-  type ViewId,
   type ViewSummary,
   type WorkspaceSnapshot,
 } from '@peek/core'
@@ -310,19 +308,3 @@ export function renderUiEffects(effects: readonly UiEffect[]): string {
   return `${UI_EFFECTS_HEADING}:\n${lines.join('\n')}`
 }
 
-/** Collect only the view ids a client could usefully jump to. */
-export function focusTargets(effects: readonly UiEffect[]): ViewId[] {
-  const out: ViewId[] = []
-  const seen = new Set<string>()
-  for (const e of effects) {
-    if (e.focus === undefined || seen.has(e.focus.viewId)) continue
-    seen.add(e.focus.viewId)
-    out.push(e.focus.viewId as ViewId)
-  }
-  return out
-}
-
-/** Panels the window currently has — used by receipts that want to name one. */
-export function panelIdsOf(snap: WorkspaceSnapshot): PanelId[] {
-  return collectPanels(snap.layout).map((p) => p.id)
-}

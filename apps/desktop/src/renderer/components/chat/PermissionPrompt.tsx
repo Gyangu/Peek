@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 import type { ReactElement } from 'react'
 import type { PendingPermission, PermissionOption, ViewId } from '@peek/core'
+import { useT, type TFunction } from '../../i18n'
 import { respondPermission } from './chatCommands'
-import { useChatT, type ChatTFunction } from './i18n'
 import { parseToolTitle } from './toolCalls'
 
 /**
@@ -36,7 +36,7 @@ export function PermissionPrompt({
   viewId: ViewId
   permission: PendingPermission
 }): ReactElement {
-  const t = useChatT()
+  const t = useT()
   const parsed = useMemo(() => parseToolTitle(permission.toolName), [permission.toolName])
 
   const title = parsed.isPeek
@@ -84,7 +84,7 @@ export function PermissionPrompt({
   )
 }
 
-function optionLabel(option: PermissionOption, t: ChatTFunction): string {
+function optionLabel(option: PermissionOption, t: TFunction): string {
   switch (option.kind) {
     case 'allow_once':
       return t('chat.permission.kind.allow_once')

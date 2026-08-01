@@ -9,6 +9,7 @@ import { useConnection, useResultMeta } from '../../state/workspaceStore'
 import { formatCount, formatMs } from '../../util/format'
 import { DataGrid } from '../DataGrid'
 import { ViewError } from '../ViewError'
+import { CacheGapNotice, CancelButton } from './ResultControls'
 import {
   findCollectionNodeId,
   namedVectorsOf,
@@ -80,10 +81,6 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
     void dispatch('view.update', { viewId, patch, refresh: true })
   }
 
-  const cancel = (): void => {
-    void dispatch('query.cancel', { viewId })
-  }
-
   const onKeyDown = (e: ReactKeyboardEvent): void => {
     if (e.key === 'Enter') search()
   }
@@ -94,14 +91,11 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
         <button className="primary" disabled={!ready || running || !hasQuery} onClick={search}>
           ▶ {t('vector.run')}
         </button>
-        {/* Drawn only when the driver can actually stop a running search. Without
-            the capability the manager escalates a cancel into killing the driver
-            process, and offering that as "Cancel" would be a lie about the cost. */}
-        {conn !== null && connHas(conn, 'cancel') ? (
-          <button className="ghost" disabled={!running} onClick={cancel}>
-            ■ {t('vector.cancel')}
-          </button>
-        ) : null}
+        {/* Always drawn now, including on drivers without the `cancel` capability —
+            where it is disabled and carries the reason. Hiding it left a user
+            watching a qdrant scroll with no way to learn why nothing could stop it;
+            see CancelButton. */}
+        <CancelButton viewId={viewId} conn={conn} running={running} />
         <span className="sep" />
         {/* The collection name is an identifier: never translated. */}
         <span className="mono" title={collection}>
@@ -217,6 +211,11 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
       ) : null}
 
       <ViewError error={view.error} />
+      <CacheGapNotice
+        resultId={resultId}
+        disabled={!ready || running || !hasQuery}
+        onRefetch={search}
+      />
 
       <DataGrid
         connId={connId}

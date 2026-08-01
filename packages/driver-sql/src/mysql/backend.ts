@@ -2,6 +2,7 @@ import {
   peekError,
   peekErrorMsg,
   type MysqlConnectionConfig,
+  type PeekErrorCode,
   type ServerInfo,
 } from '@peek/core'
 import type { Readable } from 'node:stream'
@@ -144,12 +145,16 @@ interface MysqlStreamCommand {
  *
  * `PoolConnection.connection` is typed as another promise connection but is in
  * fact the callback-style one, and that is the object whose `query` / `execute`
- * return a streamable command rather than a promise.
+ * return a streamable command rather than a promise. It is also an EventEmitter,
+ * which is where a connection-level fault is reported — see
+ * {@link MysqlRowStream.connectionLost}.
  */
 interface MysqlRawConnection {
   threadId: number
   query(options: { sql: string; values?: readonly unknown[]; rowsAsArray?: boolean }): MysqlStreamCommand
   execute(options: { sql: string; values?: readonly unknown[]; rowsAsArray?: boolean }): MysqlStreamCommand
+  on(event: 'error' | 'end', listener: (err?: unknown) => void): unknown
+  off(event: 'error' | 'end', listener: (err?: unknown) => void): unknown
 }
 
 /** The pooled connection as handed to the `connection` event: callback-style, pre-handout */
@@ -245,9 +250,11 @@ class MysqlRowStream implements SqlRowStream {
 
   private ended = false
   private failure: unknown = null
+  /** Which code an unrecognised {@link failure} collapses to; a lost connection is not a query fault */
+  private failureFallback: PeekErrorCode = 'QUERY_FAILED'
   private cancelled = false
   private closed = false
-  /** Resolved by whichever of readable / end / error fires next */
+  /** Resolved by whichever of readable / end / error / connectionLost fires next */
   private waiter: (() => void) | null = null
 
   constructor(opts: {
@@ -310,13 +317,46 @@ class MysqlRowStream implements SqlRowStream {
         continue
       }
       if (this.failure !== null) {
-        throw mapSqlError(MYSQL_DIALECT, this.failure, { fallback: 'QUERY_FAILED' })
+        throw mapSqlError(MYSQL_DIALECT, this.failure, { fallback: this.failureFallback })
       }
       // An empty array is the exhaustion signal (connection.ts); rows already
       // collected go out first, and the next call reports the end
       if (this.ended || this.closed) return out
       await this.waitForWake()
     }
+  }
+
+  /**
+   * The connection carrying this cursor died; settle `next()` instead of waiting.
+   *
+   * ## The hang this prevents
+   *
+   * The three listeners in the constructor watch the `Query` readable, and a
+   * connection-level fault never travels down it. mysql2 reports such a fault in
+   * `Connection._notifyError`, which hands the error to the active command's
+   * `onResult` callback — and a *streaming* query has none, so the error is
+   * emitted on the **connection** (`bubbleErrorToConnection`, and unconditionally
+   * so for a pooled connection) and the readable is simply abandoned: no `error`,
+   * no `end`, no `readable`. `waitForWake()` then waits for an event that can
+   * never arrive.
+   *
+   * Measured before the fix: after `KILL CONNECTION`, `next()` was still pending
+   * 30s later with the server-side thread long gone. Nothing rescued it except an
+   * explicit `cancel()`; in the app the whole-fetch deadline in main eventually
+   * fired and reported TIMEOUT — the wrong reason, up to two minutes late, for a
+   * connection that was already gone. MySQL restarts, `wait_timeout` and ordinary
+   * network trouble all take this path.
+   *
+   * Rows already buffered in the readable are still delivered first: `next()`
+   * drains what arrived before it looks at `failure`.
+   */
+  connectionLost(err: unknown): void {
+    // A stream that already reached `end`, was cancelled, or was closed has its
+    // outcome; the connection dropping afterwards changes nothing about it.
+    if (this.ended || this.closed || this.cancelled || this.failure !== null) return
+    this.failure = err ?? peekErrorMsg('CONNECTION_LOST', 'error.conn.lost', undefined, { retryable: true })
+    this.failureFallback = 'CONNECTION_LOST'
+    this.wake()
   }
 
   private wake(): void {
@@ -397,10 +437,18 @@ class MysqlHandle implements SqlBackendHandle {
    *   budget MySQL has, and it is session state — so it has to be (re)set for the
    *   statement that is about to run, not once at connect.
    *
-   * A connection whose setup fails is destroyed rather than returned: the usual
-   * cause is a transaction left open by a previous borrower (`BEGIN` typed into
-   * the editor makes `SET SESSION TRANSACTION …` illegal), and such a connection
-   * is exactly the one that must not be handed on.
+   * A connection whose setup fails is destroyed rather than returned. An ordinary
+   * transaction left open by a previous borrower is *not* such a failure — this
+   * comment used to claim it was, and a real MySQL 8 disagreed: `SET SESSION
+   * TRANSACTION …` is perfectly legal mid-transaction, it simply applies to the
+   * *next* transaction and leaves the open one exactly as writable as it was.
+   * That is the whole reason `mysqlStatementSetupSql` now leads with `ROLLBACK`:
+   * ending the transaction is what keeps a `START TRANSACTION READ WRITE` from
+   * surviving into the next checkout.
+   *
+   * What does fail here is an XA transaction left ACTIVE, where `ROLLBACK` raises
+   * `XAER_RMFAIL`. Destroying the connection is the right answer to that, and it
+   * also rolls the XA branch back server-side.
    */
   private async borrow(text: string, timeoutMs: number | undefined): Promise<mysql.PoolConnection> {
     let conn: mysql.PoolConnection
@@ -453,20 +501,39 @@ class MysqlHandle implements SqlBackendHandle {
     const values = [...params]
     const request = { sql: text, values, rowsAsArray: true }
     let released = false
+    // Assigned once the listeners below are attached; the release path has to be
+    // able to call it whether or not it got that far.
+    let detach = (): void => {}
     try {
       const command = values.length > 0 ? raw.execute(request) : raw.query(request)
-      return new MysqlRowStream({
+      const rows = new MysqlRowStream({
         command,
         highWaterMark: opts.batchHint,
         release: (broken: boolean): void => {
           if (released) return
           released = true
+          // Before the connection goes anywhere: a listener left on a connection
+          // handed back to the pool would fire for the *next* borrower's fault.
+          detach()
           if (broken) conn.destroy()
           else conn.release()
         },
         kill: (): Promise<void> => this.killQuery(threadId),
       })
+
+      // The connection, not the readable, is where mysql2 reports that the socket
+      // died under a streaming query — see `MysqlRowStream.connectionLost`.
+      const onError = (err?: unknown): void => rows.connectionLost(err)
+      const onEnd = (): void => rows.connectionLost(undefined)
+      raw.on('error', onError)
+      raw.on('end', onEnd)
+      detach = (): void => {
+        raw.off('error', onError)
+        raw.off('end', onEnd)
+      }
+      return rows
     } catch (err) {
+      detach()
       conn.destroy()
       throw mapSqlError(MYSQL_DIALECT, err, { sql: text })
     }

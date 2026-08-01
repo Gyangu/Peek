@@ -10,6 +10,7 @@ import {
   defaultConnectMode,
   initialConnectValues,
   missingRequiredFields,
+  validateConnectionConfig,
   type ConnectMode,
 } from '../connectForm'
 
@@ -274,5 +275,63 @@ describe('switching driver resets the form', () => {
         }
       }
     }
+  })
+})
+
+describe('what a rejected draft tells the user', () => {
+  /*
+   * `validateConnectionConfig` is a call to the real `ConnectionConfigSchema`,
+   * and these tests exist to keep it that way.
+   *
+   * It was once a hand-written table of per-driver field rules, added to keep
+   * zod out of the renderer chunk. Measurement said otherwise on both counts:
+   * zod ships regardless (core's `ids.ts` and `errors.ts` are built on it, and
+   * the renderer uses both), and the schema itself is declared beside
+   * `DRIVER_CAPABILITIES` in `capability.ts`, which `state/capabilities.ts`
+   * already pulls in. The mirror made the built chunk 1,868 B *larger* while
+   * being a second copy of a contract main enforces for real.
+   *
+   * The one property the mirror was genuinely good at is the one asserted here:
+   * a rejection names the field, so the dialog can point at a box. Anything that
+   * replaces this call has to keep that.
+   */
+
+  test('the issue names the offending field, not just that something is wrong', () => {
+    const outcome = validateConnectionConfig({ driverId: 'postgres', port: 'not-a-number' })
+    assert.equal(outcome.ok, false)
+    if (!outcome.ok) assert.match(outcome.issue, /^port: /)
+  })
+
+  test('a required field left out is reported against that field', () => {
+    const outcome = validateConnectionConfig({ driverId: 'sqlite' })
+    assert.equal(outcome.ok, false)
+    if (!outcome.ok) assert.match(outcome.issue, /^file: /)
+  })
+
+  test('a driver outside the union is refused rather than passed to main', () => {
+    const outcome = validateConnectionConfig({ driverId: 'oracle', url: 'x' })
+    assert.equal(outcome.ok, false)
+  })
+
+  test('an accepted draft comes back as the schema parsed it, unknown keys dropped', () => {
+    // `z.object` strips what it does not declare. The dialog relies on that: a
+    // stale value from the other mode must not survive into the config, and the
+    // check here is the last place it could be removed.
+    const outcome = validateConnectionConfig({
+      driverId: 'sqlite',
+      file: '/tmp/a.db',
+      readOnly: true,
+      somethingElse: 'should not travel',
+    })
+    assert.ok(outcome.ok)
+    assert.deepEqual(outcome.config, { driverId: 'sqlite', file: '/tmp/a.db', readOnly: true })
+  })
+
+  test('the accepted config is exactly what main will accept', () => {
+    // Same schema, same answer — which is the entire reason to call it here
+    // rather than to describe it a second time.
+    const outcome = validateConnectionConfig({ driverId: 'redis', host: 'localhost', port: 6379, db: 0 })
+    assert.ok(outcome.ok)
+    assert.equal(ConnectionConfigSchema.safeParse(outcome.config).success, true)
   })
 })

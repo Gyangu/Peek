@@ -20,7 +20,8 @@ import type {
   ServerInfo,
   ValueRef,
 } from '@peek/core'
-import type { Timeouts } from './classify'
+import type { DeadlineTimerApi } from './deadline'
+import type { Timeouts } from './timeouts'
 
 /* ================================================================== */
 /* 1. Runtime view of a connection (internal to main, never in Workspace) */
@@ -201,4 +202,9 @@ export interface ConnectionManagerOptions {
   timeouts?: Partial<Timeouts>
   /** Turn the driver host's stdout/stderr into log events (default true) */
   forwardStdio?: boolean
+  /**
+   * Timer functions for whole-fetch deadlines. Real timers by default; injected
+   * only by tests, which have to drive an expiry without waiting out the budget.
+   */
+  timers?: DeadlineTimerApi
 }

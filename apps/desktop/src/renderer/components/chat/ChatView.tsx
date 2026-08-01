@@ -1,13 +1,13 @@
 import { useCallback } from 'react'
 import type { ChangeEvent, ReactElement } from 'react'
 import { CHAT_PERMISSION_MODES, type ChatAgentStatus, type ChatPermissionMode, type ChatViewState } from '@peek/core'
+import { useT } from '../../i18n'
 import { useConnection, useViews } from '../../state/workspaceStore'
 import { formatCount } from '../../util/format'
 import { ViewError } from '../ViewError'
 import { AttachmentBar } from './AttachmentBar'
 import { cancelChat, clearChat, sendChat, setChatMode } from './chatCommands'
 import { Composer } from './Composer'
-import { useChatT } from './i18n'
 import { MessageList } from './MessageList'
 import { PermissionPrompt } from './PermissionPrompt'
 import { useChatChannelReady, useChatMessageCount } from './transcriptStore'
@@ -32,7 +32,7 @@ import './chat.css'
  * explains why that is not state.
  */
 export function ChatView({ view }: { view: ChatViewState }): ReactElement {
-  const t = useChatT()
+  const t = useT()
   const views = useViews()
   const conn = useConnection(view.connId ?? null)
   const channelReady = useChatChannelReady()

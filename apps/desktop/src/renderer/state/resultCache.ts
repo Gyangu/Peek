@@ -148,6 +148,11 @@ interface ResultEntry {
   version: number
   nextSeq: number
   evictedChunks: number
+  /**
+   * The viewport currently overlaps at least one evicted chunk — the user is
+   * looking at a hole. See `recomputeEvictedInView`.
+   */
+  evictedInView: boolean
   firstFrameAt: number
   lastHit: number
   /** Never null (DEFAULT_VIEWPORT at creation), which is what decouples
@@ -171,6 +176,18 @@ export interface ResultSnapshot {
   readonly paused: ResultPause | null
   readonly bytes: number
   readonly evictedChunks: number
+  /**
+   * **The rows on screen right now include ones the cache has dropped.**
+   *
+   * `evictedChunks` says eviction happened *somewhere* in this result — true for
+   * most large results and not worth telling anyone about. This says the user is
+   * looking at the hole, which is the only moment the fact matters, and it is what
+   * a view should render its "these rows are gone, re-run to fetch them again"
+   * notice on. Without it, scrolling back into an evicted range shows correct row
+   * numbers over blank cells with nothing to explain them (README, Known
+   * limitations).
+   */
+  readonly evictedInViewport: boolean
   readonly firstFrameAt: number
 }
 
@@ -184,6 +201,7 @@ export const EMPTY_SNAPSHOT: ResultSnapshot = {
   paused: null,
   bytes: 0,
   evictedChunks: 0,
+  evictedInViewport: false,
   firstFrameAt: 0,
 }
 
@@ -303,6 +321,7 @@ export function getResultSnapshot(id: ResultId | null | undefined): ResultSnapsh
       paused: e.paused,
       bytes: e.bytes,
       evictedChunks: e.evictedChunks,
+      evictedInViewport: e.evictedInView,
       firstFrameAt: e.firstFrameAt,
     }
   }
@@ -404,8 +423,55 @@ export function setViewport(
     for (const c of e.chunks) {
       if (c.startRow + c.rowCount >= lo && c.startRow <= hi) c.touched = ++tick
     }
+    // Scrolling back into a range that was evicted is exactly the moment this
+    // changes, so it is recomputed on the move rather than on a timer.
+    recomputeEvictedInView(e)
   }
   flushHeldAck(e)
+}
+
+/**
+ * Does the viewport currently sit over evicted rows?
+ *
+ * ## Why the cache answers this and not the grid
+ *
+ * The grid can see that a cell is `PENDING_CELL`, but it cannot tell the two
+ * reasons apart: *not arrived yet* (wait, it is coming) and *evicted* (it is
+ * never coming back on its own). Those need opposite responses from the user, and
+ * only the cache knows which one it is — `cols === null` on a chunk that was once
+ * populated is the whole distinction.
+ *
+ * ## Why nothing refetches instead
+ *
+ * Refilling would mean asking the driver for rows *n…m* of a result set that was
+ * streamed once from a cursor that has since been closed. Neither half of that is
+ * available: `cursorToken` addresses the next page of a **collection scan**, not a
+ * position inside a finished result, and a free-form query has no cursor at all.
+ * Re-running the whole request is the only honest refill, it costs exactly what
+ * the original cost, and it is a decision for the person watching — so the cache
+ * reports the hole and the views offer the re-run. Silently leaving blank cells
+ * over correct row numbers, which is what happened before, was the one option that
+ * told the user nothing.
+ *
+ * The flag is O(chunks) and only recomputed when the viewport moves or eviction
+ * runs; the early return keeps it free for the overwhelmingly common case of a
+ * result that has never been evicted at all.
+ */
+function recomputeEvictedInView(e: ResultEntry): void {
+  let hit = false
+  if (e.evictedChunks > 0) {
+    const vp = e.viewport
+    for (const c of e.chunks) {
+      if (c.cols !== null) continue
+      if (c.startRow + c.rowCount > vp.start && c.startRow <= vp.end) {
+        hit = true
+        break
+      }
+    }
+  }
+  if (hit === e.evictedInView) return
+  e.evictedInView = hit
+  markDirty(e)
 }
 
 /* ------------------------------------------------------------------ */
@@ -491,6 +557,7 @@ function ensureEntry(id: ResultId, connId: ConnId | null, port: MessagePort | nu
       version: 0,
       nextSeq: 0,
       evictedChunks: 0,
+      evictedInView: false,
       firstFrameAt: 0,
       lastHit: 0,
       viewport: DEFAULT_VIEWPORT,
@@ -700,7 +767,13 @@ function enforceBudget(): void {
     touchedOwners.add(c.owner)
   }
   statsVersion += 1
-  for (const e of touchedOwners) markDirty(e)
+  for (const e of touchedOwners) {
+    // Eviction usually clears chunks far from the viewport, but the protected
+    // margin is finite: a very wide result can have rows just outside it dropped
+    // while the user is still scrolling towards them.
+    recomputeEvictedInView(e)
+    markDirty(e)
+  }
   // Space has been freed, so release whatever acks were being held
   flushAllHeldAcks()
 }

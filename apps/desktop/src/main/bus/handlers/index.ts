@@ -1,3 +1,4 @@
+import { unavailableConfigHandlers } from '../../config/handlers'
 import { createChatHandlers, createUnavailableChatRuntime } from './chat'
 import { connHandlers } from './conn'
 import { layoutHandlers } from './layout'
@@ -40,6 +41,11 @@ export * from './shared'
  * one — while nothing reaches an agent. main replaces them during assembly with
  * `bus.registerAll(createChatHandlers(acpRuntime))`, which overwrites these
  * entries by name.
+ *
+ * `unavailableConfigHandlers` is there for the same reason and is replaced the
+ * same way, by `bus.registerAll(createConfigHandlers({ book, mcp }))` — until
+ * then the connection book reads as empty and the MCP endpoint as not listening,
+ * both of which are true of a process that has assembled neither.
  */
 export const coreHandlers = {
   ...connHandlers,
@@ -47,5 +53,6 @@ export const coreHandlers = {
   ...queryHandlers,
   ...layoutHandlers,
   ...createChatHandlers(createUnavailableChatRuntime()),
+  ...unavailableConfigHandlers,
   ...stateHandlers,
 } satisfies Required<CommandHandlerMap>

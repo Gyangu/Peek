@@ -46,7 +46,15 @@ export {
   writeEndpointFile,
   type McpEndpointFile,
 } from './token'
-export { renderRowsTable, waitForResult } from './wait'
+export {
+  UNTRUSTED_CATALOG_FRAMING,
+  UNTRUSTED_DATA_FRAMING,
+  UNTRUSTED_WORKSPACE_FRAMING,
+  metaText,
+  renderRowsTable,
+  untrustedDataFraming,
+  waitForResult,
+} from './wait'
 export type {
   CommandDispatch,
   CommandOutcome,

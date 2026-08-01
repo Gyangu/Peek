@@ -24,26 +24,6 @@ export function tryBridge(): PeekBridge | null {
   return b as PeekBridge
 }
 
-/**
- * Thrown when the bridge is missing. Callers turn it into a toast rather than
- * letting the UI crash.
- *
- * The message is a plain English literal, not a catalog key: it names a missing
- * global and is aimed at whoever is debugging the build, not at the user.
- */
-export class BridgeUnavailable extends Error {
-  constructor() {
-    super('preload bridge not ready: window.peek is unavailable')
-    this.name = 'BridgeUnavailable'
-  }
-}
-
-export function requireBridge(): PeekBridge {
-  const b = tryBridge()
-  if (!b) throw new BridgeUnavailable()
-  return b
-}
-
 /* ==================================================================== */
 /* Optional extension channels for a gap in the contract                  */
 /* ==================================================================== */

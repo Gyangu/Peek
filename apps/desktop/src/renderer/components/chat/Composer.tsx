@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react'
 import { MAX_CHAT_PROMPT_CHARS } from '@peek/core'
-import { useChatT } from './i18n'
+import { useT } from '../../i18n'
 
 const MIN_H = 34
 const MAX_H = 220
@@ -50,7 +50,7 @@ export function Composer({
   onSend: (text: string) => void
   onStop: () => void
 }): ReactElement {
-  const t = useChatT()
+  const t = useT()
   const [draft, setDraft] = useState('')
   const areaRef = useRef<HTMLTextAreaElement | null>(null)
   const composing = useRef(false)

@@ -4,7 +4,9 @@ import {
   KEYSPACE_SCAN_SCHEMA,
   SCAN_COUNT_HINT,
   adaptiveChunkRows,
+  encodeScanCursor,
   peekErrorMsg,
+  tryDecodeScanCursor,
   type ChunkDone,
   type ChunkFrame,
   type ColumnDef,
@@ -44,14 +46,18 @@ import {
  *
  * The third mismatch, and the one that shapes the fetch loop: **a redis cursor
  * only addresses a page boundary**, while `maxRows` can land anywhere inside a
- * page. The resolution is a two-part continuation token, `"<boundary>:<skip>"`:
- * the boundary is the real SCAN cursor that fetched the page the cut landed in,
- * and the skip is how many of *that page's* matching rows were already accounted
- * for. `ChunkDone.nextCursor` is opaque to everyone but the driver that minted it
- * (core/chunk.ts), so carrying the intra-page position in it is exactly what it
- * is for. Naming the page rather than some earlier boundary keeps the re-scan to
- * one page: a keyspace mutating underneath can throw the resume off by at most
- * that page, and never by everything since the last boundary.
+ * page. The resolution is core's `ScanCursor` — a boundary plus an intra-page
+ * skip. The boundary is the real SCAN cursor that fetched the page the cut landed
+ * in, and the skip is how many of *that page's* matching rows were already
+ * accounted for.
+ *
+ * That shape started life here, as this driver's private `"<boundary>:<skip>"`
+ * string, and then moved to core, because it is not a redis fact: it is what
+ * every store whose cursor addresses pages rather than rows needs, and solving it
+ * privately meant the next such driver would solve it again or fail to notice it
+ * (see core/cursor.ts). Naming the page rather than some earlier boundary keeps
+ * the re-scan to one page: a keyspace mutating underneath can throw the resume
+ * off by at most that page, and never by everything since the last boundary.
  *
  * The rule that follows, and it is not negotiable: **at most `maxRows` rows are
  * emitted.** `limit` is what the table view labels its page range with and what
@@ -67,19 +73,33 @@ export interface RedisResumePoint {
   skip: number
 }
 
-/** Token syntax: a SCAN cursor, optionally followed by `:<rows already delivered from it>` */
-const RESUME_TOKEN_RE = /^(\d+)(?::(\d+))?$/
+/** A SCAN cursor is a decimal counter; anything else was not minted by this driver */
+const SCAN_BOUNDARY_RE = /^\d+$/
 
-/** True when `token` is a well-formed continuation token minted by this cursor */
+/**
+ * True when `token` is a well-formed continuation minted by *this* cursor.
+ *
+ * Both halves are checked: core's envelope (`redis:<skip>:<boundary>`, which
+ * rejects a token another driver minted) and the boundary itself, which has to
+ * be a decimal SCAN cursor.
+ */
 export function isRedisResumeToken(token: string): boolean {
-  return RESUME_TOKEN_RE.test(token)
+  const parsed = tryDecodeScanCursor(token)
+  return parsed !== null && parsed.driverId === 'redis' && SCAN_BOUNDARY_RE.test(parsed.boundary)
 }
 
 /** Decode a continuation token; an unparsable one resumes from the start rather than throwing */
 export function parseRedisResumeToken(token: string): RedisResumePoint {
-  const m = RESUME_TOKEN_RE.exec(token)
-  if (!m?.[1]) return { cursor: '0', skip: 0 }
-  return { cursor: m[1], skip: m[2] === undefined ? 0 : Number(m[2]) }
+  const parsed = tryDecodeScanCursor(token)
+  if (parsed === null || parsed.driverId !== 'redis' || !SCAN_BOUNDARY_RE.test(parsed.boundary)) {
+    return { cursor: '0', skip: 0 }
+  }
+  return { cursor: parsed.boundary, skip: parsed.skip }
+}
+
+/** Mint one: the page the next row is in, plus how many of its rows already went out */
+export function redisResumeToken(cursor: string, skip: number): string {
+  return encodeScanCursor({ driverId: 'redis', boundary: cursor, skip })
 }
 
 export interface RedisScanCursorOptions {
@@ -534,13 +554,14 @@ export class RedisScanCursor implements Cursor {
    */
   protected finish(_rows: number, exhausted: boolean): Pick<ChunkDone, 'truncated' | 'nextCursor'> {
     if (exhausted) return {}
-    const token = this.resumeToken()
-    // A bare '0' is the *start* of an iteration, not a resume point, and it can
-    // only come out of a request that consumed nothing at all (maxRows 0). Handing
-    // it back would tell the caller to start over; `truncated` alone says the
-    // honest thing, which is that there is more and this request delivered none.
-    if (token === '0') return { truncated: true }
-    return { truncated: true, nextCursor: token }
+    const point = this.resumePoint()
+    // Boundary '0' with nothing skipped is the *start* of an iteration, not a
+    // resume point, and it can only come out of a request that consumed nothing
+    // at all (maxRows 0). Handing it back would tell the caller to start over;
+    // `truncated` alone says the honest thing, which is that there is more and
+    // this request delivered none.
+    if (point.cursor === '0' && point.skip === 0) return { truncated: true }
+    return { truncated: true, nextCursor: redisResumeToken(point.cursor, point.skip) }
   }
 
   /**
@@ -556,11 +577,9 @@ export class RedisScanCursor implements Cursor {
    * With nothing held, the boundary alone addresses it, plus whatever is left of
    * an explicit offset that ran out of keyspace before it ran out of count.
    */
-  private resumeToken(): string {
+  private resumePoint(): RedisResumePoint {
     const head = this.pages[0]
-    if (head === undefined) {
-      return this.toSkip > 0 ? `${this.cursor}:${this.toSkip}` : this.cursor
-    }
-    return head.consumed > 0 ? `${head.cursor}:${head.consumed}` : head.cursor
+    if (head === undefined) return { cursor: this.cursor, skip: this.toSkip }
+    return { cursor: head.cursor, skip: head.consumed }
   }
 }

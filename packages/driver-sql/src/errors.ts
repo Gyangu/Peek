@@ -1,4 +1,14 @@
-import { isPeekError, peekError, toPeekError, type PeekError, type PeekErrorCode } from '@peek/core'
+import {
+  classifyAbortError,
+  classifyTransportError,
+  isPeekError,
+  isRetryableErrorCode,
+  peekError,
+  toPeekError,
+  type MapDriverErrorContext,
+  type PeekError,
+  type PeekErrorCode,
+} from '@peek/core'
 import type { SqlDialect } from './dialect'
 
 /**
@@ -14,25 +24,18 @@ import type { SqlDialect } from './dialect'
  *
  * 1. the dialect maps its own code (`ER_NO_SUCH_TABLE`, SQLite's extended result
  *    code) to a `PeekErrorCode`, because that table is exactly what differs;
- * 2. this function handles what does not differ — abort signals, socket errnos,
- *    timeouts — so neither dialect re-implements it.
+ * 2. abort signals, socket errnos and bare timeout messages do not differ at all
+ *    — not between the two dialects, and not between this driver and the other
+ *    three — so they are classified by `classifyTransportError` in core.
  *
  * `driverCode` always carries the native code where there is one: that is the
  * string a user pastes into a search engine, and dropping it makes every error
  * look the same.
  */
 
-/** node network-layer errnos → CONNECTION_FAILED (mysql2 surfaces these on connect) */
-const NET_ERROR_CODES = new Set([
-  'ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ENETUNREACH',
-  'ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'EAI_AGAIN', 'EACCES',
-])
-
-export interface MapSqlErrorContext {
+export interface MapSqlErrorContext extends MapDriverErrorContext {
   /** The statement that failed; goes into `detail`, never into `message` */
   sql?: string
-  /** Code to use when nothing matches */
-  fallback?: PeekErrorCode
 }
 
 /**
@@ -57,9 +60,9 @@ export function mapSqlError(
   if (isPeekError(value)) return value
 
   if (value instanceof Error) {
-    if (value.name === 'AbortError') {
-      return peekError('CANCELLED', value.message || 'Operation cancelled')
-    }
+    const aborted = classifyAbortError(value)
+    if (aborted !== null) return aborted
+
     const rec = value as unknown as Record<string, unknown>
     const code = typeof rec['code'] === 'string' ? rec['code'] : undefined
     // mysql2 puts the numeric code on `errno`; node:sqlite puts it on `errcode`
@@ -76,18 +79,11 @@ export function mapSqlError(
       })
     }
 
-    if (code !== undefined && NET_ERROR_CODES.has(code)) {
-      return peekError('CONNECTION_FAILED', value.message, {
-        driverCode: code,
-        retryable: true,
-        ...detailOf(rec, ctx),
-      })
-    }
-    // mysql2 reports its own connect/acquire deadlines as plain Errors with no
-    // code at all; the word is the only evidence there is
-    if (/timeout|timed out/i.test(value.message)) {
-      return peekError('TIMEOUT', value.message, { retryable: true, ...detailOf(rec, ctx) })
-    }
+    // A socket errno, or — since mysql2 reports its own connect/acquire deadlines
+    // as plain Errors with no code at all — a message that says "timed out"
+    const transport = classifyTransportError(value, detailOf(rec, ctx))
+    if (transport !== null) return transport
+
     if (code !== undefined || errno !== undefined) {
       return peekError(fallback, value.message, {
         ...driverCodeOf(code, errno),
@@ -134,8 +130,6 @@ function detailOf(rec: Record<string, unknown>, ctx: MapSqlErrorContext): { deta
  * which retrying will never fix.
  */
 function isRetryable(code: PeekErrorCode): boolean {
-  return code === 'CONNECTION_FAILED' || code === 'CONNECTION_LOST' || code === 'TIMEOUT'
+  return isRetryableErrorCode(code)
 }
 
-/** Errnos worth retrying, shared by both dialects (a lock timeout is not a syntax error) */
-export const RETRYABLE_NET_CODES: ReadonlySet<string> = NET_ERROR_CODES
