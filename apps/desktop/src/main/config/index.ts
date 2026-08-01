@@ -28,7 +28,9 @@
  * ```
  */
 
-export { createConnectionBook, connectionIdentity, identityId, stripUrlPassword, MAX_BOOK_ENTRIES } from './connection-book'
+// `connectionIdentity` and `stripUrlPassword` moved to @peek/core: the renderer
+// needs the same identity to tell a saved entry and a live connection apart.
+export { createConnectionBook, identityId, MAX_BOOK_ENTRIES } from './connection-book'
 export type { ConnectionBook, ConnectionBookOptions } from './connection-book'
 export { createConfigHandlers, type ConfigHandlerOptions } from './handlers'
 export { readJsonFile, writeJsonFile, CONFIG_DIR_MODE, CONFIG_FILE_MODE } from './json-file'

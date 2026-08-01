@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { ConnId, ConnectionState, SavedConnection } from '@peek/core'
-import { defaultConnectionLabel } from '@peek/core'
+import type { ConnectionState, SavedConnection } from '@peek/core'
+import { connectionDetail } from '@peek/core'
 import { useErrorText, useT, type TFunction } from '../i18n'
 import { connCanUse, connHas } from '../state/capabilities'
 import { dispatch } from '../state/dispatch'
 import { invalidateConnection } from '../state/namespaceStore'
 import { useConnections } from '../state/workspaceStore'
+import { buildConnectionRows, type ConnectionRow } from './connectionRows'
 import { ConnectDialog } from './ConnectDialog'
 import { FirstRunGuide } from './FirstRunGuide'
 import { McpSettingsDialog } from './McpSettingsDialog'
@@ -14,23 +15,27 @@ import { McpSettingsDialog } from './McpSettingsDialog'
 /**
  * Connection list sidebar.
  *
- * Two lists, and the split matters: **live** connections come from the Workspace
- * mirror, **saved** ones from `~/.peek/connections.json`. They are different
- * kinds of thing — one is a driver process that exists right now, the other is a
- * description of how to make one — and merging them into a single list with a
- * status dot would make "disconnect" and "forget" look like the same action.
+ * **One** list. A connection is a persistent thing the user has; whether a driver
+ * process exists for it right now is a *state* of that thing, not a different
+ * kind of thing — so the live connections and the connection book are merged into
+ * a single row per connection by `buildConnectionRows`.
  *
- * The saved list is read on demand rather than mirrored into the Workspace: it
- * is a file, it changes only when this window changes it, and a second copy kept
- * in sync through patches would buy nothing. Everything that edits it re-reads
- * it in the same breath — `conn.book.forget` even answers with the new list.
+ * The objection this replaces was that a merged list would make "disconnect" and
+ * "forget" look like the same action. They never appear together: a row with a
+ * live connection offers disconnect and no remove, a row without one offers
+ * remove and no disconnect. See docs/design/2026-08-02-connection-list.md.
+ *
+ * The book is read on demand rather than mirrored into the Workspace: it is a
+ * file, it changes only when this window changes it, and a second copy kept in
+ * sync through patches would buy nothing. Everything that edits it re-reads it in
+ * the same breath — `conn.book.forget` even answers with the new list.
  */
 export function Sidebar(): ReactElement {
   const t = useT()
   const conns = useConnections()
   const [dialog, setDialog] = useState<{ initial?: SavedConnection } | null>(null)
   const [settings, setSettings] = useState(false)
-  const [active, setActive] = useState<ConnId | null>(null)
+  const [active, setActive] = useState<string | null>(null)
   const [saved, setSaved] = useState<SavedConnection[]>([])
   const [secretsAvailable, setSecretsAvailable] = useState(true)
 
@@ -52,9 +57,7 @@ export function Sidebar(): ReactElement {
     setDialog(initial ? { initial } : {})
   }, [])
 
-  // A saved entry whose connection is already open is offered as an edit, not as
-  // a second "connect" that would land on the same server twice.
-  const liveLabels = new Set(conns.map((conn) => conn.label || defaultConnectionLabel(conn.config)))
+  const rows = buildConnectionRows(conns, saved)
 
   return (
     <div className="sidebar">
@@ -82,7 +85,7 @@ export function Sidebar(): ReactElement {
         </button>
       </div>
       <div className="sidebar-list">
-        {conns.length === 0 && saved.length === 0 ? (
+        {rows.length === 0 ? (
           <FirstRunGuide
             onConnect={() => {
               openConnectDialog()
@@ -92,37 +95,22 @@ export function Sidebar(): ReactElement {
             }}
           />
         ) : (
-          conns.map((c) => (
-            <ConnectionItem
-              key={c.id}
-              conn={c}
-              active={active === c.id}
+          rows.map((row) => (
+            <ConnectionRowItem
+              key={row.key}
+              row={row}
+              active={active === row.key}
               onActivate={() => {
-                setActive(active === c.id ? null : c.id)
+                setActive(active === row.key ? null : row.key)
+              }}
+              onEdit={openConnectDialog}
+              onForgotten={(entries) => {
+                setSaved(entries)
               }}
             />
           ))
         )}
-
-        {saved.length > 0 ? (
-          <div className="sidebar-head" style={{ marginTop: 8 }}>
-            <span>{t('sidebar.saved')}</span>
-          </div>
-        ) : null}
-        {saved.map((entry) => (
-          <SavedItem
-            key={entry.id}
-            entry={entry}
-            alreadyOpen={liveLabels.has(entry.label)}
-            onEdit={() => {
-              openConnectDialog(entry)
-            }}
-            onForgotten={(entries) => {
-              setSaved(entries)
-            }}
-          />
-        ))}
-        {saved.length > 0 && !secretsAvailable ? (
+        {rows.length > 0 && !secretsAvailable ? (
           // Not a warning about this session: it explains why every saved
           // connection will ask for its password again.
           <div className="empty-hint">{t('sidebar.noKeychain')}</div>
@@ -150,30 +138,56 @@ export function Sidebar(): ReactElement {
 }
 
 /* ------------------------------------------------------------------ */
-/* A saved connection                                                  */
+/* One row                                                             */
 /* ------------------------------------------------------------------ */
 
-interface SavedItemProps {
-  entry: SavedConnection
-  alreadyOpen: boolean
-  onEdit: () => void
+interface RowProps {
+  row: ConnectionRow
+  active: boolean
+  onActivate: () => void
+  onEdit: (initial: SavedConnection) => void
   onForgotten: (entries: SavedConnection[]) => void
 }
 
 /**
- * One row of the connection book.
+ * One connection: a single 24px line, and an action strip while it is selected.
  *
- * "Connect" here is the same `conn.open` the dialog sends, with the config
- * exactly as it came out of the file — main puts the stored credential back on
- * the way to the driver. That is what makes reuse a single click and still keeps
- * the password out of this process.
+ * Click selects, double-click connects. Click-to-connect would be one gesture
+ * shorter, but then a row that is *not* connected could never be selected, and
+ * edit and remove would have nowhere to live short of a hover menu. Double-click
+ * to open is also what every other database client does.
+ *
+ * The second line is drawn only when it has something to say — a driver's error,
+ * or "connecting". A line reading "no password saved" under four rows out of five
+ * is a repeated negative that carries no information; a stored password shows as
+ * a key glyph instead, and only when there is one.
  */
-function SavedItem({ entry, alreadyOpen, onEdit, onForgotten }: SavedItemProps): ReactElement {
+function ConnectionRowItem({ row, active, onActivate, onEdit, onForgotten }: RowProps): ReactElement {
   const t = useT()
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const { conn, entry } = row
+  const status = conn?.status ?? 'idle'
+  const config = conn?.config ?? entry?.config
+  // A failed open is never remembered, so an error row usually has no entry to
+  // seed the dialog from. The live config is the same shape, redacted — which is
+  // exactly what the dialog expects to unpack.
+  const editable: SavedConnection | undefined =
+    entry ??
+    (conn === undefined
+      ? undefined
+      : {
+          id: conn.id,
+          driverId: conn.driverId,
+          label: row.label,
+          config: conn.config,
+          hasSecret: false,
+          createdAt: '',
+          lastUsedAt: '',
+        })
 
   const connect = (): void => {
+    if (conn !== undefined || entry === undefined || busy) return
     setBusy(true)
     void dispatch('conn.open', { config: entry.config, openTree: true }).finally(() => {
       setBusy(false)
@@ -181,69 +195,124 @@ function SavedItem({ entry, alreadyOpen, onEdit, onForgotten }: SavedItemProps):
   }
 
   const forget = (): void => {
+    if (entry === undefined) return
     void dispatch('conn.book.forget', { id: entry.id }).then((res) => {
       if (res) onForgotten(res.entries)
     })
   }
 
   return (
-    <div className="conn-item">
+    <div
+      className={active ? 'conn-item active' : 'conn-item'}
+      onClick={onActivate}
+      onDoubleClick={connect}
+      title={rowTitle(t, row)}
+    >
       <div className="conn-row">
-        <span className="dot idle" />
-        <span className="conn-name">{entry.label}</span>
+        <span className={`dot ${status}`} />
+        <span className="conn-name">{row.label}</span>
+        {entry?.hasSecret ? (
+          <span className="conn-key" title={t('sidebar.secretStored')}>
+            🔑
+          </span>
+        ) : null}
         {/* Driver id is an identifier and stays untranslated. */}
-        <span style={{ color: 'var(--fg-faint)', fontSize: 10 }}>{entry.driverId}</span>
+        <span className="conn-driver">{config?.driverId ?? ''}</span>
       </div>
-      <div className="conn-sub">
-        {entry.hasSecret ? t('sidebar.saved.withSecret') : t('sidebar.saved.noSecret')}
-      </div>
-      <div className="conn-actions">
-        <button className="ghost" disabled={busy || alreadyOpen} onClick={connect}>
-          {alreadyOpen ? t('sidebar.saved.open') : t('sidebar.saved.connect')}
-        </button>
-        <button className="ghost" onClick={onEdit}>
-          {t('sidebar.saved.edit')}
-        </button>
-        {confirming ? (
-          // Two clicks rather than a modal: forgetting drops a stored credential,
-          // which cannot be undone, but it is also not destructive enough to
-          // deserve a dialog in front of it.
-          <button
-            className="ghost"
-            style={{ color: 'var(--err)' }}
-            onClick={forget}
-            onBlur={() => {
-              setConfirming(false)
-            }}
-          >
-            {t('sidebar.saved.forgetConfirm')}
-          </button>
-        ) : (
-          <button
-            className="ghost"
-            onClick={() => {
-              setConfirming(true)
-            }}
-          >
-            {t('sidebar.saved.forget')}
-          </button>
-        )}
-      </div>
+      <SubLine conn={conn} />
+      {active ? (
+        <div className="conn-actions">
+          {conn === undefined ? (
+            <>
+              <button className="ghost" disabled={busy} onClick={connect}>
+                {t('sidebar.action.connect')}
+              </button>
+              <EditButton editable={editable} onEdit={onEdit} />
+              {confirming ? (
+                // Two clicks rather than a modal: removing an entry drops a stored
+                // credential, which cannot be undone, but it is also not
+                // destructive enough to deserve a dialog in front of it.
+                <button
+                  className="ghost"
+                  style={{ color: 'var(--err)' }}
+                  onClick={forget}
+                  onBlur={() => {
+                    setConfirming(false)
+                  }}
+                >
+                  {t('sidebar.action.removeConfirm')}
+                </button>
+              ) : (
+                <button
+                  className="ghost"
+                  onClick={() => {
+                    setConfirming(true)
+                  }}
+                >
+                  {t('sidebar.action.remove')}
+                </button>
+              )}
+            </>
+          ) : (
+            <LiveActions conn={conn} editable={editable} onEdit={onEdit} />
+          )}
+        </div>
+      ) : null}
     </div>
   )
 }
 
-/* ------------------------------------------------------------------ */
-
-interface ItemProps {
-  conn: ConnectionState
-  active: boolean
-  onActivate: () => void
+/** Connecting and failed have something to report; connected and idle do not. */
+function SubLine({ conn }: { conn: ConnectionState | undefined }): ReactElement | null {
+  const t = useT()
+  const errorText = useErrorText(conn?.error)
+  if (conn === undefined) return null
+  if (conn.status === 'connecting') return <div className="conn-sub">{t('sidebar.status.connecting')}</div>
+  if (conn.status === 'error') {
+    // A failed connection usually carries the driver's own words: `useErrorText`
+    // shows those verbatim and localizes only the errors peek itself wrote.
+    return <div className="conn-sub">{conn.error ? errorText : t('sidebar.status.error')}</div>
+  }
+  return null
 }
 
-function ConnectionItem({ conn, active, onActivate }: ItemProps): ReactElement {
+function EditButton({
+  editable,
+  onEdit,
+}: {
+  editable: SavedConnection | undefined
+  onEdit: (initial: SavedConnection) => void
+}): ReactElement | null {
   const t = useT()
-  const label = conn.label || defaultConnectionLabel(conn.config)
+  if (editable === undefined) return null
+  return (
+    <button
+      className="ghost"
+      onClick={() => {
+        onEdit(editable)
+      }}
+    >
+      {t('sidebar.action.edit')}
+    </button>
+  )
+}
+
+interface LiveActionProps {
+  conn: ConnectionState
+  editable: SavedConnection | undefined
+  onEdit: (initial: SavedConnection) => void
+}
+
+/**
+ * What a row with a driver process behind it offers.
+ *
+ * No "remove" here: an entry cannot be forgotten while its connection is open —
+ * the next successful open would write it straight back — and leaving the two out
+ * of each other's way is what keeps "disconnect" and "remove" from reading as the
+ * same action.
+ */
+function LiveActions({ conn, editable, onEdit }: LiveActionProps): ReactElement {
+  const t = useT()
   // Two different questions, and the actions need both: `connHas` decides
   // whether a control is drawn at all (redis will never have a SQL editor, so
   // offering one and greying it out would be a promise the driver cannot keep),
@@ -251,43 +320,33 @@ function ConnectionItem({ conn, active, onActivate }: ItemProps): ReactElement {
   const canTree = connCanUse(conn, 'introspect')
   const hasQuery = connHas(conn, 'tabularQuery')
   const canQuery = connCanUse(conn, 'tabularQuery')
-  // A failed connection usually carries the driver's own words: `useErrorText`
-  // shows those verbatim and localizes only the errors peek itself wrote.
-  const errorText = useErrorText(conn.error)
 
-  const openTree = (): void => {
-    void dispatch('view.open', { spec: { kind: 'tree', connId: conn.id } })
-  }
-  const openQuery = (): void => {
-    void dispatch('view.open', { spec: { kind: 'query', connId: conn.id } })
-  }
   const close = (): void => {
     invalidateConnection(conn.id)
     void dispatch('conn.close', { connId: conn.id })
   }
 
   return (
-    <div className={active ? 'conn-item active' : 'conn-item'} onClick={onActivate}>
-      <div className="conn-row">
-        <span className={`dot ${conn.status}`} />
-        <span className="conn-name">{label}</span>
-        {/* Driver id and server version are identifiers and stay untranslated. */}
-        <span style={{ color: 'var(--fg-faint)', fontSize: 10 }}>{conn.driverId}</span>
-      </div>
-      <div className="conn-sub">
-        {conn.status === 'error' && conn.error
-          ? errorText
-          : conn.serverInfo
-            ? `${conn.serverInfo.flavor ?? conn.driverId} ${conn.serverInfo.version}`
-            : statusText(t, conn.status)}
-      </div>
-      {active ? (
-        <div className="conn-actions">
-          <button className="ghost" disabled={!canTree} onClick={openTree}>
+    <>
+      {conn.status === 'error' ? null : (
+        <>
+          <button
+            className="ghost"
+            disabled={!canTree}
+            onClick={() => {
+              void dispatch('view.open', { spec: { kind: 'tree', connId: conn.id } })
+            }}
+          >
             {t('sidebar.action.tree')}
           </button>
           {hasQuery ? (
-            <button className="ghost" disabled={!canQuery} onClick={openQuery}>
+            <button
+              className="ghost"
+              disabled={!canQuery}
+              onClick={() => {
+                void dispatch('view.open', { spec: { kind: 'query', connId: conn.id } })
+              }}
+            >
               {t('sidebar.action.query')}
             </button>
           ) : (
@@ -301,24 +360,28 @@ function ConnectionItem({ conn, active, onActivate }: ItemProps): ReactElement {
               {t('sidebar.action.noQuery')}
             </span>
           )}
-          <button className="ghost" onClick={close}>
-            {t('sidebar.action.disconnect')}
-          </button>
-        </div>
-      ) : null}
-    </div>
+        </>
+      )}
+      <button className="ghost" onClick={close}>
+        {t('sidebar.action.disconnect')}
+      </button>
+      <EditButton editable={editable} onEdit={onEdit} />
+    </>
   )
 }
 
-function statusText(t: TFunction, s: ConnectionState['status']): string {
-  switch (s) {
-    case 'idle':
-      return t('sidebar.status.idle')
-    case 'connecting':
-      return t('sidebar.status.connecting')
-    case 'ready':
-      return t('sidebar.status.ready')
-    case 'error':
-      return t('sidebar.status.error')
-  }
+/**
+ * The tooltip: what the row had to leave out.
+ *
+ * The name is the part that tells connections apart — a file name, a database, a
+ * host — so the full path or address, and the server it turned out to be, live
+ * here instead of on a second line nobody needs most of the time.
+ */
+function rowTitle(t: TFunction, row: ConnectionRow): string {
+  const { conn, entry } = row
+  const config = conn?.config ?? entry?.config
+  const lines = [config === undefined ? row.label : connectionDetail(config)]
+  if (conn?.serverInfo) lines.push(`${conn.serverInfo.flavor ?? conn.driverId} ${conn.serverInfo.version}`)
+  else if (conn === undefined) lines.push(t('sidebar.connectHint'))
+  return lines.join('\n')
 }

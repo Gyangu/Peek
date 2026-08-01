@@ -38,7 +38,9 @@
 import { createHash } from 'node:crypto'
 import {
   ConnectionConfigSchema,
+  connectionIdentity,
   defaultConnectionLabel,
+  stripUrlPassword,
   type ConnectionConfig,
   type SavedConnection,
 } from '@peek/core'
@@ -72,9 +74,17 @@ interface StoredSecret {
   url?: string
 }
 
+/**
+ * A row of the file.
+ *
+ * There is deliberately no `label`: the display name is a function of the config
+ * (`defaultConnectionLabel`), and writing a derived value down would mean a
+ * change to how names are derived never reaches an entry that already exists. A
+ * name the *user* typed is not derived — it lives in `config.label`, which is
+ * stored, and which `defaultConnectionLabel` returns unchanged.
+ */
 interface StoredEntry {
   id: string
-  label: string
   /** Redacted; see the note at the top of this file. */
   config: ConnectionConfig
   createdAt: string
@@ -168,10 +178,6 @@ export function createConnectionBook(options: ConnectionBookOptions): Connection
       const stamp = now().toISOString()
       const entry: StoredEntry = {
         id,
-        // Derived from the stripped config: `defaultConnectionLabel` falls back
-        // to the URL, and core masks a URL password as `***` on the way — right
-        // for something being displayed, wrong for something being written down.
-        label: defaultConnectionLabel(stripped),
         config: stripped,
         createdAt: previous?.createdAt ?? stamp,
         lastUsedAt: stamp,
@@ -213,44 +219,6 @@ export function createConnectionBook(options: ConnectionBookOptions): Connection
 /* ------------------------------------------------------------------ */
 
 /**
- * The fields that name a server and an account.
- *
- * A URL is reduced to its password-free form for two reasons: the password
- * inside a URL never reaches the hash input, and the config that comes *back*
- * out of the book — which has no password by construction — still hashes to the
- * entry it came from. Normalizing both sides through the same function is what
- * makes `hydrate` find the credential it just saved.
- */
-export function connectionIdentity(config: ConnectionConfig): string {
-  const url = (value: string | undefined): string => (value === undefined ? '' : stripUrlPassword(value))
-  switch (config.driverId) {
-    case 'postgres':
-    case 'mysql':
-      return [
-        config.driverId,
-        url(config.url),
-        config.host ?? '',
-        config.port === undefined ? '' : String(config.port),
-        config.database ?? '',
-        config.user ?? '',
-      ].join(' ')
-    case 'redis':
-      return [
-        config.driverId,
-        url(config.url),
-        config.host ?? '',
-        config.port === undefined ? '' : String(config.port),
-        config.db === undefined ? '' : String(config.db),
-        config.username ?? '',
-      ].join(' ')
-    case 'qdrant':
-      return [config.driverId, url(config.url)].join(' ')
-    case 'sqlite':
-      return [config.driverId, config.file].join(' ')
-  }
-}
-
-/**
  * Entry id: a digest of the identity, so it is the same across restarts and even
  * if the file is deleted and rebuilt. Truncated because it is an address in a
  * list of at most a hundred, not a security boundary.
@@ -262,18 +230,6 @@ export function identityId(config: ConnectionConfig): string {
 /* ------------------------------------------------------------------ */
 /* Secrets in and out of a config                                      */
 /* ------------------------------------------------------------------ */
-
-/**
- * Drop the password from a URL, keeping the user.
- *
- * Deliberately not core's `redactUrlCredentials`, which substitutes `***`: this
- * result is a config that will be *used*, and `***` is a password a driver would
- * send. The pattern is the same one core uses, so the two agree on what counts
- * as credentials in a URL.
- */
-export function stripUrlPassword(url: string): string {
-  return url.replace(/(:\/\/[^:/@]*):[^@]*@/, '$1@')
-}
 
 /** The config as it goes to disk: no password, no API key, no credentials in the URL. */
 function stripSecrets(config: ConnectionConfig): ConnectionConfig {
@@ -381,11 +337,11 @@ function parseEntry(raw: unknown): StoredEntry | null {
   // hand-edited host with the old id attached would otherwise hand that host the
   // previous server's password.
   const id = identityId(config)
-  const label = typeof record['label'] === 'string' && record['label'] ? record['label'] : defaultConnectionLabel(config)
+  // A `label` key written by an older version is ignored on purpose — see the
+  // note on `StoredEntry`.
   const createdAt = isoOr(record['createdAt'])
   return {
     id,
-    label,
     config,
     createdAt,
     lastUsedAt: isoOr(record['lastUsedAt'], createdAt),
@@ -403,7 +359,7 @@ function toSavedConnection(entry: StoredEntry): SavedConnection {
   return {
     id: entry.id,
     driverId: entry.config.driverId,
-    label: entry.label,
+    label: defaultConnectionLabel(entry.config),
     config: entry.config,
     hasSecret: entry.secret !== undefined,
     createdAt: entry.createdAt,

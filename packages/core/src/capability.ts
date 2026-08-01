@@ -168,30 +168,188 @@ export function redactConnectionConfig(cfg: ConnectionConfig): ConnectionConfig 
 /**
  * Derive a default display name from a config (used when `label` is empty).
  *
- * The label is broadcast to the renderer and to MCP, and postgres/mysql/redis fall
- * back to the connection URL when neither database nor host was given — and that
- * URL carries a plaintext password. So this function **always scrubs the URL
- * itself**; callers do not need to remember (and should not have to remember) to
- * call `redactConnectionConfig` first.
+ * The name goes into a 240px sidebar row that truncates at the end, so what it
+ * has to carry is the part that **tells two connections apart** — a database
+ * name, a file name, a host and port. Returning the whole connection string
+ * puts the discriminating part last, exactly where it gets cut off: two
+ * databases on the same server both read `mysql://root@localhost:330…`.
+ *
+ * The full text is not lost, it moves to `connectionDetail` and the row tooltip.
+ *
+ * No branch returns a URL any more, but the URL is still scrubbed everywhere it
+ * is touched: this label is broadcast to the renderer and to MCP, and a URL
+ * carries a plaintext password. Callers do not need to remember (and should not
+ * have to remember) to call `redactConnectionConfig` first.
  */
 export function defaultConnectionLabel(cfg: ConnectionConfig): string {
   if (cfg.label) return cfg.label
   switch (cfg.driverId) {
     case 'postgres':
-    case 'mysql':
-      return cfg.database ?? cfg.host ?? safeUrlLabel(cfg.url) ?? cfg.driverId
+    case 'mysql': {
+      const parts = urlParts(cfg.url)
+      return (
+        cfg.database ??
+        parts?.database ??
+        hostPort(cfg.host ?? parts?.host, cfg.port ?? parts?.port) ??
+        cfg.driverId
+      )
+    }
+    case 'sqlite':
+      return baseName(cfg.file)
+    case 'redis': {
+      const parts = urlParts(cfg.url)
+      const at = hostPort(cfg.host ?? parts?.host ?? 'localhost', cfg.port ?? parts?.port ?? 6379)
+      // The logical database index is part of what names a redis connection, but
+      // only when it is not the default one everybody is already on.
+      const db = cfg.db ?? (parts?.database === undefined ? undefined : Number(parts.database))
+      return db === undefined || db === 0 || Number.isNaN(db) ? (at ?? cfg.driverId) : `${at}/${db}`
+    }
+    case 'qdrant': {
+      const parts = urlParts(cfg.url)
+      return hostPort(parts?.host, parts?.port) ?? safeUrlLabel(cfg.url) ?? cfg.driverId
+    }
+  }
+}
+
+/**
+ * The long form of the same thing: what the label had to leave out.
+ *
+ * Meant for a `title` tooltip next to a `defaultConnectionLabel`, so it is the
+ * full path or the full (scrubbed) address, and never just repeats the label.
+ */
+export function connectionDetail(cfg: ConnectionConfig): string {
+  switch (cfg.driverId) {
+    case 'postgres':
+    case 'mysql': {
+      if (cfg.url !== undefined) return redactUrlCredentials(cfg.url)
+      const at = hostPort(cfg.host, cfg.port) ?? ''
+      const user = cfg.user === undefined ? '' : `${cfg.user}@`
+      const db = cfg.database === undefined ? '' : `/${cfg.database}`
+      return `${cfg.driverId}://${user}${at}${db}`
+    }
     case 'sqlite':
       return cfg.file
-    case 'redis':
-      return safeUrlLabel(cfg.url) ?? `${cfg.host ?? 'localhost'}:${cfg.port ?? 6379}/${cfg.db ?? 0}`
+    case 'redis': {
+      if (cfg.url !== undefined) return redactUrlCredentials(cfg.url)
+      const at = hostPort(cfg.host ?? 'localhost', cfg.port ?? 6379) ?? ''
+      return `redis://${at}/${cfg.db ?? 0}`
+    }
     case 'qdrant':
-      return safeUrlLabel(cfg.url) ?? cfg.driverId
+      return redactUrlCredentials(cfg.url)
   }
 }
 
 function safeUrlLabel(url: string | undefined): string | undefined {
   return url === undefined ? undefined : redactUrlCredentials(url)
 }
+
+function hostPort(host: string | undefined, port: number | undefined): string | undefined {
+  if (host === undefined || host === '') return undefined
+  return port === undefined ? host : `${host}:${port}`
+}
+
+/** The last path segment. Kept string-only so core stays free of `node:path`. */
+function baseName(file: string): string {
+  const cut = file.replace(/[/\\]+$/, '')
+  const at = Math.max(cut.lastIndexOf('/'), cut.lastIndexOf('\\'))
+  return at === -1 ? cut : (cut.slice(at + 1) || cut)
+}
+
+/**
+ * Host, port and database pulled out of a connection string.
+ *
+ * `postgresql:` and `redis:` are not special schemes to the URL parser, but it
+ * still parses their authority, which is all this needs. A string it refuses is
+ * not an error worth reporting here — the caller falls back to another field,
+ * and the driver is the one that gets to reject a bad URL.
+ */
+function urlParts(url: string | undefined): { host?: string; port?: number; database?: string } | undefined {
+  if (url === undefined || url === '') return undefined
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return undefined
+  }
+  const database = parsed.pathname.replace(/^\//, '')
+  const port = parsed.port === '' ? undefined : Number(parsed.port)
+  return {
+    ...(parsed.hostname === '' ? {} : { host: parsed.hostname }),
+    ...(port === undefined ? {} : { port }),
+    ...(database === '' ? {} : { database }),
+  }
+}
+
+/* ================================================================== */
+/* 2b. Connection identity                                             */
+/* ================================================================== */
+
+/**
+ * Drop the password from a URL, keeping the user.
+ *
+ * Deliberately not `redactUrlCredentials`, which substitutes `***`: this result
+ * is a config that will be *used*, and `***` is a password a driver would
+ * send. The pattern is the same one redaction uses, so the two agree on what
+ * counts as credentials in a URL.
+ */
+export function stripUrlPassword(url: string): string {
+  return url.replace(/(:\/\/[^:/@]*):[^@]*@/, '$1@')
+}
+
+/**
+ * The fields that name a server and an account.
+ *
+ * Two connections with the same identity are the same connection: it is what the
+ * connection book keys an entry by, and what the sidebar uses to decide that a
+ * saved entry and a live connection are one row rather than two.
+ *
+ * A URL is reduced to its password-free form for three reasons: the password
+ * inside a URL never reaches the hash input; the config that comes *back* out of
+ * the book — which has no password by construction — still hashes to the entry it
+ * came from; and a **redacted** config (`://user:***@host`) reduces to the same
+ * string as a **stripped** one (`://user@host`), which is what lets the renderer
+ * compute an identity that agrees with main's. Normalizing every side through the
+ * same function is what makes those three agree.
+ */
+export function connectionIdentity(config: ConnectionConfig): string {
+  const url = (value: string | undefined): string => (value === undefined ? '' : stripUrlPassword(value))
+  switch (config.driverId) {
+    case 'postgres':
+    case 'mysql':
+      return [
+        config.driverId,
+        url(config.url),
+        config.host ?? '',
+        config.port === undefined ? '' : String(config.port),
+        config.database ?? '',
+        config.user ?? '',
+      ].join(SEP)
+    case 'redis':
+      return [
+        config.driverId,
+        url(config.url),
+        config.host ?? '',
+        config.port === undefined ? '' : String(config.port),
+        config.db === undefined ? '' : String(config.db),
+        config.username ?? '',
+      ].join(SEP)
+    case 'qdrant':
+      return [config.driverId, url(config.url)].join(SEP)
+    case 'sqlite':
+      return [config.driverId, config.file].join(SEP)
+  }
+}
+
+/**
+ * Field separator inside an identity. A NUL rather than a space, because a
+ * separator that can appear *inside* a field is a separator a field can forge:
+ * a host literally named `a b` would otherwise produce the same identity as a
+ * host `a` on a database `b`, and identity is what a stored credential is
+ * released against. No field here can contain a NUL.
+ *
+ * Written as an escape and not as the byte itself so it is visible in a diff.
+ */
+const SEP = '\0'
 
 /* ================================================================== */
 /* 3. Refs: addressing a collection, and addressing a single value     */

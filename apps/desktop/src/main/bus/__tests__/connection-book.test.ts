@@ -23,9 +23,9 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
-import { createEmptyWorkspace, type ConnectionConfig } from '@peek/core'
+import { connectionIdentity, createEmptyWorkspace, type ConnectionConfig } from '@peek/core'
 import { WorkspaceStore } from '../../store/workspace-store'
-import { createConnectionBook, connectionIdentity, MAX_BOOK_ENTRIES } from '../../config/connection-book'
+import { createConnectionBook, MAX_BOOK_ENTRIES } from '../../config/connection-book'
 import { createConfigHandlers } from '../../config/handlers'
 import { createMcpController } from '../../config/mcp-controller'
 import { createSettingsStore } from '../../config/settings'
@@ -269,7 +269,30 @@ describe('the file is hand-editable, so it is also breakable', () => {
     )
     const entries = bookAt(dir).list()
     assert.equal(entries.length, 1)
-    assert.equal(entries[0]?.label, 'fine')
+    // The name comes from the config, not from the `label` key next to it: the
+    // display name is derived, and a copy on disk would freeze it at whatever
+    // the version that wrote the file happened to derive.
+    assert.equal(entries[0]?.label, 'a.db')
+  })
+
+  test('a name is only the user’s when it is in the config', () => {
+    const dir = tempConfigDir()
+    writeFileSync(
+      join(dir, CONNECTIONS_FILE_NAME),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          { id: 'x', label: 'written by an older version', config: { driverId: 'sqlite', file: '/tmp/a.db' } },
+          { id: 'y', config: { driverId: 'sqlite', file: '/tmp/b.db', label: 'scratch' } },
+        ],
+      }),
+    )
+    assert.deepEqual(
+      bookAt(dir)
+        .list()
+        .map((entry) => entry.label),
+      ['a.db', 'scratch'],
+    )
   })
 
   test('an id edited to point at another host does not inherit that host password', () => {
@@ -325,9 +348,12 @@ function busWith(dir: string): { bus: CommandBus; book: ReturnType<typeof create
   const bus = new CommandBus({ store, deps: inertDeps })
   bus.registerAll(coreHandlers)
   const book = bookAt(dir)
+  // One store for both, as in main: two would each cache the file and the second
+  // write would drop the first.
+  const settings = createSettingsStore(dir)
   const mcp = createMcpController({
     configDir: dir,
-    settings: createSettingsStore(dir),
+    settings,
     create: () => {
       throw new Error('not started in this test')
     },
@@ -335,7 +361,7 @@ function busWith(dir: string): { bus: CommandBus; book: ReturnType<typeof create
     log: () => {},
     onEndpoint: () => {},
   })
-  bus.registerAll(createConfigHandlers({ book, mcp }))
+  bus.registerAll(createConfigHandlers({ book, mcp, settings, configDir: dir, version: '0.0.0-test' }))
   return { bus, book }
 }
 

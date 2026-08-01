@@ -6,30 +6,27 @@ export const sidebar = {
   'sidebar.empty': 'No connections yet',
   'sidebar.emptyHint': 'Use ＋ in the top right to add one',
 
-  /* Saved connections — the `~/.peek/connections.json` half of the list. */
-  'sidebar.saved': 'Saved',
-  'sidebar.saved.connect': 'Connect',
-  'sidebar.saved.open': 'Already open',
-  'sidebar.saved.edit': 'Edit',
-  'sidebar.saved.forget': 'Forget',
-  'sidebar.saved.forgetConfirm': 'Forget for good?',
-  'sidebar.saved.withSecret': 'Password saved in the system keychain',
-  'sidebar.saved.noSecret': 'No password saved',
+  /* Tooltip on a row; the key glyph marks an entry whose password is in the vault. */
+  'sidebar.secretStored': 'Password saved in the system keychain',
+  'sidebar.connectHint': 'Double-click to connect',
   'sidebar.noKeychain':
     'The system keychain is unavailable, so passwords are not being saved. peek never writes a credential to disk unprotected.',
 
-  /* Actions on the selected connection. */
+  /* Actions on the selected connection. Which of these appear depends on whether
+     the row has a live connection — see the note on ConnectionRowItem. */
+  'sidebar.action.connect': 'Connect',
   'sidebar.action.tree': 'Object tree',
   'sidebar.action.query': 'Query',
   'sidebar.action.disconnect': 'Disconnect',
+  'sidebar.action.edit': 'Edit',
+  'sidebar.action.remove': 'Remove',
+  'sidebar.action.removeConfirm': 'Remove for good?',
   /* Shown instead of the query action on a driver with no tabularQuery capability. */
   'sidebar.action.noQuery': 'No query language',
   'sidebar.action.noQueryTitle': '{driverId} has no statement interface; browse it through the object tree',
 
-  /* Connection status line, shown when there is no server info to show instead. */
-  'sidebar.status.idle': 'Not connected',
+  /* Second line of a row, drawn only while it has something to report. */
   'sidebar.status.connecting': 'Connecting…',
-  'sidebar.status.ready': 'Connected',
   'sidebar.status.error': 'Connection failed',
 
   'connect.title': 'New connection',
