@@ -18,5 +18,9 @@ export const app: CatalogFor<AppMessages> = {
   'app.error.position': '位置 {position}',
   'app.error.prefixed': '{context}：{message}',
 
+  'app.crash.title': '窗口渲染中断',
+  'app.crash.body': '重新加载会依据主进程中的状态重建窗口；连接保持不变，不会丢失任何内容。',
+  'app.crash.reload': '重新加载窗口',
+
   'app.language.title': '界面语言',
 }

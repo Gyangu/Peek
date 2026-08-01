@@ -220,6 +220,29 @@ export const DEFAULT_PAGE_LIMIT = 200
 export const MAX_PAGE_LIMIT = 100_000
 
 /**
+ * Elements returned by one `keyValue` read (hash fields, list items, zset members).
+ *
+ * The same argument as MCP_DEFAULT_MAX_ROWS, one layer down: a hash with two
+ * million fields is a perfectly ordinary redis key, and "read the key" must not
+ * mean "materialize all of it into a panel". The caller pages with
+ * `KeyValueReadOptions`, and `KeyValueResult.size` / `.nextCursor` say how much
+ * is left.
+ */
+export const DEFAULT_KEY_VALUE_ELEMENTS = 200
+export const MAX_KEY_VALUE_ELEMENTS = 10_000
+
+/**
+ * Suggested keys per redis SCAN round trip (the COUNT hint).
+ *
+ * SCAN's COUNT is a hint about work per call, not a page size: a low value makes
+ * a large keyspace take thousands of round trips, a high one blocks the server's
+ * single thread for longer than any GUI should. 500 keeps one iteration well
+ * under a millisecond on a normal keyspace while still filling a chunk in a
+ * handful of calls.
+ */
+export const SCAN_COUNT_HINT = 500
+
+/**
  * Given the average row size observed so far, decide how many rows the next batch
  * should hold. Every driver calls this one function, which is what keeps chunk
  * sizing consistent across all four databases.

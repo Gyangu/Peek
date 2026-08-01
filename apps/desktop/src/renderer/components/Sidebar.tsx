@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import type { ConnId, ConnectionState } from '@peek/core'
 import { defaultConnectionLabel } from '@peek/core'
 import { useErrorText, useT, type TFunction } from '../i18n'
+import { connCanUse, connHas } from '../state/capabilities'
 import { dispatch } from '../state/dispatch'
 import { invalidateConnection } from '../state/namespaceStore'
 import { useConnections } from '../state/workspaceStore'
@@ -68,8 +69,14 @@ interface ItemProps {
 
 function ConnectionItem({ conn, active, onActivate }: ItemProps): ReactElement {
   const t = useT()
-  const ready = conn.status === 'ready'
   const label = conn.label || defaultConnectionLabel(conn.config)
+  // Two different questions, and the actions need both: `connHas` decides
+  // whether a control is drawn at all (redis will never have a SQL editor, so
+  // offering one and greying it out would be a promise the driver cannot keep),
+  // `connCanUse` decides whether it is clickable yet.
+  const canTree = connCanUse(conn, 'introspect')
+  const hasQuery = connHas(conn, 'tabularQuery')
+  const canQuery = connCanUse(conn, 'tabularQuery')
   // A failed connection usually carries the driver's own words: `useErrorText`
   // shows those verbatim and localizes only the errors peek itself wrote.
   const errorText = useErrorText(conn.error)
@@ -102,12 +109,24 @@ function ConnectionItem({ conn, active, onActivate }: ItemProps): ReactElement {
       </div>
       {active ? (
         <div className="conn-actions">
-          <button className="ghost" disabled={!ready} onClick={openTree}>
+          <button className="ghost" disabled={!canTree} onClick={openTree}>
             {t('sidebar.action.tree')}
           </button>
-          <button className="ghost" disabled={!ready} onClick={openQuery}>
-            {t('sidebar.action.query')}
-          </button>
+          {hasQuery ? (
+            <button className="ghost" disabled={!canQuery} onClick={openQuery}>
+              {t('sidebar.action.query')}
+            </button>
+          ) : (
+            // Not a disabled button: "temporarily unavailable" and "this database
+            // has no query language" are different statements, and only the
+            // second one is true here. The driver id is an identifier, untranslated.
+            <span
+              style={{ color: 'var(--fg-faint)' }}
+              title={t('sidebar.action.noQueryTitle', { driverId: conn.driverId })}
+            >
+              {t('sidebar.action.noQuery')}
+            </span>
+          )}
           <button className="ghost" onClick={close}>
             {t('sidebar.action.disconnect')}
           </button>

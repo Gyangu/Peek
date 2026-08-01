@@ -3,8 +3,14 @@ export const views = {
   /* ---- Table view -------------------------------------------------- */
   'table.refresh': 'Refresh',
   'table.refreshTitle': 'Fetch again',
+  'table.refreshCursorTitle': 'Fetch again from the first page',
   'table.prevPage': 'Previous page',
   'table.nextPage': 'Next page',
+  'table.cursorPaged': 'Cursor-paged',
+  'table.cursorPagedTitle':
+    'This collection is walked with a continuation cursor: pages go forward only, and Refresh starts over',
+  'table.noMorePages': 'No more pages',
+  'table.sortUnsupported': 'This collection cannot be sorted by the server',
   'table.pageSizeTitle': 'Rows per page',
   'table.pageSize': '{n} rows/page',
   'table.filters': { one: '{count} filter', other: '{count} filters' },
@@ -20,7 +26,10 @@ export const views = {
   'tree.loading': 'Loading…',
   'tree.empty': 'Nothing here',
   'tree.refresh': 'Refresh',
-  'tree.openHint': 'Double-click a table to open it',
+  /* Neutral wording: the leaf may be a table, a collection or a single key. */
+  'tree.openHint': 'Double-click to open',
+  'tree.vectorSearch': 'Search',
+  'tree.vectorSearchTitle': 'Open a vector search on this collection',
   'tree.loadFailed': 'Load failed: {error}',
   'tree.unavailable': 'The namespace tree is unavailable.',
   'tree.unavailableDetail':
@@ -34,12 +43,33 @@ export const views = {
   'inspector.notFetched': '(not fetched yet)',
   'inspector.fetchFailed': 'Could not read the value',
   'inspector.peekUnavailable': 'preload exposes no valuePeek channel',
+  'inspector.keyValueUnavailable': 'This connection cannot read keys',
+  'inspector.reload': 'Read again',
+  'inspector.nextWindow': 'More elements',
+  'inspector.window': '{shown} of {total} shown',
+  'inspector.windowEmpty': 'This window is empty',
+  'inspector.keyMissing': 'The key does not exist (it may have expired)',
+  'inspector.ttlNone': 'never expires',
+  'inspector.fetchElement': 'Fetch this element',
+  'inspector.elementTruncated': 'cut short ({bytes})',
+
+  /* Column headings of the typed value table; which pair appears depends on the shape. */
+  'inspector.col.field': 'Field',
+  'inspector.col.value': 'Value',
+  'inspector.col.index': 'Index',
+  'inspector.col.member': 'Member',
+  'inspector.col.score': 'Score',
+  'inspector.col.entry': 'Entry',
 
   /* Labels of the read-only key/value grid. `key`, `db`, `collection` and
    * `point` are addressing identifiers and stay untranslated in the component. */
   'inspector.field.type': 'Type',
+  /* The driver-independent bucketing the UI switches on (KeyValueShape). */
+  'inspector.field.shape': 'Shape',
   'inspector.field.ttl': 'TTL',
   'inspector.field.elements': 'Elements',
+  'inspector.field.encoding': 'Storage encoding',
+  'inspector.field.memory': 'Memory',
   'inspector.field.contentType': 'Content type',
   'inspector.field.bytesFetched': 'Bytes fetched',
   'inspector.field.bytesTotal': 'Bytes total',
@@ -52,10 +82,25 @@ export const views = {
   'inspector.field.field': 'Field',
 
   /* ---- Vector view ------------------------------------------------- */
-  'vector.notImplemented': 'Vector search is not implemented yet',
+  'vector.run': 'Search',
+  'vector.cancel': 'Cancel',
   'vector.queryVector': 'Query vector, {dim} dims',
   'vector.textQuery': 'Text query',
-  'vector.plannedM4': 'Completed in M4',
+  /* The only query entry point a human can operate — "find points like this one". */
+  'vector.pointId': 'Like point',
+  'vector.pointIdTitle': 'Search for the nearest neighbours of this point id',
+  'vector.vectorName': 'Vector',
+  'vector.vectorNameDefault': 'default',
+  'vector.vectorNameTitle':
+    'Which named vector to search. Leave blank for the collection’s default (unnamed) vector.',
+  'vector.topKTitle': 'How many matches to return',
+  'vector.minScore': 'Min score',
+  'vector.minScoreTitle':
+    'Drop matches scoring below this. The collection’s distance metric decides whether that means near or far.',
+  'vector.filters': { one: '{count} filter', other: '{count} filters' },
+  'vector.empty': 'No matches',
+  'vector.needQuery': 'Enter a point id and press Search',
+  'vector.unavailable': 'This connection cannot search vectors',
 } as const
 
 export type ViewsMessages = typeof views

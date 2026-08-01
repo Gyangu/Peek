@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './components/App'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { initLocale } from './i18n'
 import { startRenderer } from './state/sync'
 import './styles.css'
@@ -10,6 +11,12 @@ import './styles.css'
  *
  * The wiring (patch subscription, MessagePort intake) happens outside React so
  * that StrictMode's double-invoked effects cannot produce duplicate subscriptions.
+ *
+ * `ErrorBoundary` sits outside `App` rather than around a subtree: this window is
+ * a mirror of state owned by main, so a value the renderer cannot draw can turn
+ * up anywhere in it, and React's answer to an uncaught render error is to unmount
+ * everything. Catching it here is the difference between a message with a Reload
+ * button and a blank window that keeps quietly applying patches nobody renders.
  */
 
 // Before the first render, so the window never paints English and then swaps.
@@ -24,6 +31,8 @@ if (!root) throw new Error('Mount point #root not found')
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )

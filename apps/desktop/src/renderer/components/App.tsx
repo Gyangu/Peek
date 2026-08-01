@@ -1,16 +1,17 @@
-import { useEffect } from 'react'
 import type { ReactElement } from 'react'
+import { useAnnouncement, useGlobalKeys, useLayoutAnnouncer } from '../hooks'
 import { useT } from '../i18n'
-import { dispatch } from '../state/dispatch'
-import { readWorkspace, useWorkspaceStore } from '../state/workspaceStore'
+import { useWorkspaceStore } from '../state/workspaceStore'
 import { LayoutTree } from './LayoutTree'
 import { Sidebar } from './Sidebar'
 import { StatusBar } from './StatusBar'
 import { Toasts } from './Toasts'
+import '../keyboard-nav.css'
 
 export function App(): ReactElement {
   const t = useT()
   useGlobalKeys()
+  useLayoutAnnouncer()
   const ready = useWorkspaceStore((s) => s.ready)
   const bridgeMissing = useWorkspaceStore((s) => s.bridgeMissing)
 
@@ -39,38 +40,44 @@ export function App(): ReactElement {
 
       <StatusBar />
       <Toasts />
+      <LiveRegion />
     </div>
   )
 }
 
+/* ------------------------------------------------------------------ */
+
 /**
- * Global shortcuts. Like everything else in the renderer, they only send
- * commands — they never touch state directly.
+ * The window's one live region.
  *
- * ⌘⏎ is deliberately left alone: the query view's CodeMirror keymap owns it, and
- * intercepting it here would fire while the editor still holds focus.
+ * One, deliberately, and mounted here rather than inside a panel: a region per
+ * panel would say four things at once the moment a split re-arranges the
+ * layout, and a screen reader queues them all. Being a sibling of everything
+ * else also means it survives any subtree unmounting, so an announcement about
+ * a panel that has just gone away still gets read.
+ *
+ * `polite`, never `assertive`: nothing announced here is urgent enough to cut
+ * across a sentence the user is already listening to. `atomic` because the
+ * messages are whole sentences — re-reading only the changed words would
+ * produce "3 of 4" with no subject.
+ *
+ * It is empty on first render and stays empty until something actually changes;
+ * see `useLayoutAnnouncer`, which owns the decision of what is worth saying.
+ * What it must never carry is streaming query progress — a region that speaks on
+ * every row batch is a region users switch off.
  */
-function useGlobalKeys(): void {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      const mod = e.metaKey || e.ctrlKey
-      if (!mod) return
-      const ws = readWorkspace()
-      if (!ws) return
-      const panelId = ws.focusedPanel
-      if (!panelId) return
-      // ⌘\ splits left/right, ⌘⇧\ splits top/bottom, ⌘W closes the focused panel
-      if (e.key === '\\') {
-        e.preventDefault()
-        void dispatch('layout.split', { panelId, dir: e.shiftKey ? 'col' : 'row' })
-      } else if (e.key === 'w' || e.key === 'W') {
-        e.preventDefault()
-        void dispatch('layout.close', { panelId })
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [])
+function LiveRegion(): ReactElement {
+  const t = useT()
+  const text = useAnnouncement()
+  return (
+    <div
+      className="sr-only"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      aria-label={t('a11y.region.label')}
+    >
+      {text}
+    </div>
+  )
 }

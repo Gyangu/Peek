@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { ChunkFrame, ColumnDef } from './chunk'
+import type { ChunkFrame, ColumnDef, TruncatedValue } from './chunk'
 import { ResultIdSchema, type ResultId } from './ids'
 
 /* ================================================================== */
@@ -271,10 +271,27 @@ export const ValueRefSchema = z.discriminatedUnion('kind', [
     kind: z.literal('redisValue'),
     key: z.string().min(1),
     db: z.number().int().nonnegative().optional(),
-    /** Hash field, list index or zset member; absent means the whole key */
+    /**
+     * One element inside the key; absent means the whole key.
+     *
+     * The string is interpreted by the key's redis type, and there is exactly one
+     * reading per type — a driver must not invent a second:
+     *   string → must be absent (the key has no elements)
+     *   hash   → the field name
+     *   list   → the index, base-10, may be negative the way LINDEX allows ('-1')
+     *   set    → the member
+     *   zset   → the member (its score travels in KeyValueResult, not here)
+     *   stream → the entry id ('1712345678901-0'), optionally 'id/field'
+     */
     path: z.string().optional(),
   }),
-  /** qdrant: a point's payload field, or the vector itself (field === 'vector') */
+  /**
+   * qdrant: one field of one point.
+   *
+   * `field` names a top-level payload key, **or** addresses the vector itself
+   * through the reserved prefix below. Payload keys colliding with it are
+   * addressed as `payload:<key>`, which is always unambiguous.
+   */
   z.object({
     kind: z.literal('qdrantPoint'),
     collection: z.string().min(1),
@@ -284,6 +301,97 @@ export const ValueRefSchema = z.discriminatedUnion('kind', [
 ])
 
 export type ValueRef = z.infer<typeof ValueRefSchema>
+
+/**
+ * `ValueRef.field` naming for a qdrant point, frozen here so the driver, the
+ * inspector and the MCP tools cannot disagree:
+ *
+ *   'vector'          the default (unnamed) vector
+ *   'vector:<name>'   a named vector in a multi-vector collection
+ *   'payload:<key>'   a payload key, when it would otherwise collide with the above
+ *   anything else     a top-level payload key, verbatim
+ */
+export const QDRANT_VECTOR_FIELD = 'vector' as const
+export const QDRANT_VECTOR_FIELD_PREFIX = 'vector:' as const
+export const QDRANT_PAYLOAD_FIELD_PREFIX = 'payload:' as const
+
+export type QdrantFieldTarget =
+  | { target: 'vector'; name?: string }
+  | { target: 'payload'; key: string }
+
+/** Decode a `qdrantPoint` ref's `field` per the convention above. */
+export function parseQdrantField(field: string): QdrantFieldTarget {
+  if (field === QDRANT_VECTOR_FIELD) return { target: 'vector' }
+  if (field.startsWith(QDRANT_VECTOR_FIELD_PREFIX)) {
+    return { target: 'vector', name: field.slice(QDRANT_VECTOR_FIELD_PREFIX.length) }
+  }
+  if (field.startsWith(QDRANT_PAYLOAD_FIELD_PREFIX)) {
+    return { target: 'payload', key: field.slice(QDRANT_PAYLOAD_FIELD_PREFIX.length) }
+  }
+  return { target: 'payload', key: field }
+}
+
+/** Encode a payload key into a `field`, escaping it when it would read as a vector address. */
+export function qdrantPayloadField(key: string): string {
+  return key === QDRANT_VECTOR_FIELD
+    || key.startsWith(QDRANT_VECTOR_FIELD_PREFIX)
+    || key.startsWith(QDRANT_PAYLOAD_FIELD_PREFIX)
+    ? `${QDRANT_PAYLOAD_FIELD_PREFIX}${key}`
+    : key
+}
+
+/* ------------------------------------------------------------------ */
+/* How a collection can be browsed                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What paging and ordering mean for one kind of collection.
+ *
+ * `CollectionScanRequest` offers `sort` and `offset` unconditionally, because
+ * both are obvious for a relation — and neither exists for a cursor store. Redis
+ * addresses only page boundaries, so "sort this page" is a lie about the whole
+ * scan and `offset` is an O(n) rescan; qdrant's scroll cannot combine `order_by`
+ * with an offset at all. The drivers are right to answer BAD_REQUEST, but a UI
+ * that only finds out by being told off has already drawn a sortable column
+ * header — so this table is what the renderer consults *before* drawing one
+ * (`views/TableView.tsx`), and it is the single place that knowledge lives.
+ *
+ * **Why it is keyed on `CollectionRef['kind']` rather than declared by the
+ * driver.** The kind *is* the shape: a relation, a key pattern, a vector
+ * collection. Two drivers browsing the same kind browse it the same way — that
+ * is what makes the kind worth having — so a per-driver answer would be the same
+ * answer written five times. A sixth database that genuinely browses differently
+ * has to add a `CollectionRef` kind, and `Record<CollectionRef['kind'], …>` then
+ * fails to compile until this table is filled in: the exhaustiveness is the
+ * point, not an edit someone can forget.
+ *
+ * A per-*collection* answer (this table is sortable, that one is not, in the same
+ * driver) would belong on `CollectionSchemaInfo` and would refine this rather
+ * than replace it. Nothing needs it yet.
+ */
+export interface CollectionBrowseStyle {
+  /** Column headers may offer ordering (the driver honours SortSpec) */
+  sortable: boolean
+  /** `offset` addresses a page cheaply; when false, paging must go through cursorToken */
+  offsetPaging: boolean
+  /** `ChunkDone.nextCursor` is how the next page is reached */
+  cursorPaging: boolean
+}
+
+const BROWSE_STYLE: Readonly<Record<CollectionRef['kind'], CollectionBrowseStyle>> = {
+  // A relation is the one collection where SQL gives both for free.
+  relation: { sortable: true, offsetPaging: true, cursorPaging: true },
+  // SCAN yields whole pages in cursor order. Sorting one page describes nothing,
+  // and an offset is re-scanning everything before it.
+  keyPattern: { sortable: false, offsetPaging: false, cursorPaging: true },
+  // scroll pages by point id; `order_by` and an offset are mutually exclusive
+  // server-side, so ordering here means "one page, no continuation".
+  vectorCollection: { sortable: true, offsetPaging: false, cursorPaging: true },
+}
+
+export function collectionBrowseStyle(ref: CollectionRef): CollectionBrowseStyle {
+  return BROWSE_STYLE[ref.kind]
+}
 
 /* ================================================================== */
 /* 4. Filtering and sorting                                            */
@@ -387,12 +495,41 @@ export interface CollectionScanRequest {
   resultId: ResultId
   ref: CollectionRef
   filter?: readonly FilterSpec[]
+  /**
+   * Driver-native filter, passed through verbatim, ANDed with `filter`.
+   *
+   * The escape hatch for the handful of predicates `FilterSpec` genuinely cannot
+   * express (qdrant's nested / geo / has_id clauses, say). **The UI never
+   * generates one** — it comes from an MCP caller who knows the target database.
+   * A driver that does not understand the shape it receives must reject it with
+   * BAD_REQUEST rather than silently ignore it, or the caller gets more rows than
+   * they asked for and no way to tell.
+   */
+  nativeFilter?: unknown
   sort?: readonly SortSpec[]
-  /** Fetch only these columns (qdrant returns payload only by default; the vector itself goes through valuePeek) */
+  /**
+   * Restrict the projection.
+   *
+   * Relational drivers read this as a column list. Document/vector drivers read
+   * it as the payload keys to **flatten into their own columns** — see
+   * `buildVectorResultSchema`, which is the one place that rule is implemented.
+   * Omitted means the driver's default projection.
+   */
   columns?: readonly string[]
   offset?: number
   limit?: number
-  /** Continuation cursor: redis SCAN cursor / qdrant next_page_offset. When given, `offset` is ignored. */
+  /**
+   * Continuation cursor, opaque to everyone but the driver that minted it as
+   * `ChunkDone.nextCursor`. When given, `offset` is ignored.
+   *
+   * What each driver puts in it:
+   *   postgres/mysql/sqlite  the absolute row offset of the next page
+   *   redis                  the SCAN cursor ('0' is never handed out — a cursor
+   *                          back at 0 means the keyspace is exhausted, so the
+   *                          driver omits nextCursor instead)
+   *   qdrant                 scroll's next_page_offset, JSON-encoded when the
+   *                          collection uses non-string point ids
+   */
   cursorToken?: string
   chunkRows?: number
   timeoutMs?: number
@@ -402,34 +539,130 @@ export interface CollectionScanRequest {
 export interface VectorSearchRequest {
   resultId: ResultId
   collection: string
-  /** The query vector itself */
+  /**
+   * The query vector itself. Exactly one of `queryVec` / `queryPointId` must be
+   * present — a driver receiving both, or neither, rejects with BAD_REQUEST.
+   * **Drivers never embed text**: turning `VectorViewState.queryText` into a
+   * vector belongs to a layer above, and a driver asked to search without a
+   * vector must say so rather than guess.
+   */
   queryVec?: readonly number[]
-  /** Named vector field (qdrant multi-vector setups) */
+  /** Search by an existing point ("more like this"), instead of a literal vector */
+  queryPointId?: string | number
+  /** Named vector field (qdrant multi-vector setups); omitted means the default vector */
   vectorName?: string
   topK: number
   filter?: readonly FilterSpec[]
-  /** Whether to return the vectors as well (default false: payload + score only) */
+  /** See CollectionScanRequest.nativeFilter — identical contract */
+  nativeFilter?: unknown
+  /** Drop results scoring below this; the metric decides whether that means far or near */
+  scoreThreshold?: number
+  /** Skip this many of the best matches (paging through a search) */
+  offset?: number
+  /** Payload keys to flatten into columns; omitted means one json `payload` column */
+  columns?: readonly string[]
+  /** Whether to return the vectors as well (default false: the vector body goes through valuePeek) */
   withVector?: boolean
+  /** Whether to return payload at all (default true) */
+  withPayload?: boolean
   timeoutMs?: number
+  signal?: AbortSignal
+}
+
+/* ------------------------------------------------------------------ */
+/* keyValue: one key, one typed value                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How a value is **shaped**, which is all the inspector needs to pick a renderer.
+ *
+ * Deliberately not redis's own type names: `type` carries those verbatim. The
+ * shape is the driver-independent bucketing (a Memcached or etcd driver would be
+ * all `scalar`; a document store's top-level object is a `map`), and it is what
+ * a `switch` in the UI is allowed to be exhaustive over.
+ */
+export const KEY_VALUE_SHAPES = [
+  'scalar', 'map', 'list', 'set', 'sortedSet', 'stream', 'missing',
+] as const
+export type KeyValueShape = (typeof KEY_VALUE_SHAPES)[number]
+
+/**
+ * One element of a value. A `TruncatedValue` means the element itself blew past
+ * VALUE_PREVIEW_BYTES and only a preview travelled; its `ref` addresses the whole
+ * thing through valuePeek.
+ */
+export type KeyValueElement = string | TruncatedValue
+
+export interface KeyValueField {
+  field: string
+  value: KeyValueElement
+}
+
+export interface KeyValueScored {
+  member: KeyValueElement
+  score: number
+}
+
+export interface KeyValueStreamEntry {
+  /** Entry id, e.g. '1712345678901-0' */
+  id: string
+  fields: KeyValueField[]
+}
+
+/**
+ * The typed value, as a discriminated union.
+ *
+ * This exists because "redis value" is six unrelated data structures wearing one
+ * name, and `value: unknown` pushed the job of telling them apart onto every
+ * reader — the inspector, the MCP summary, the value formatter — each of which
+ * would have re-derived it from the `type` string, differently.
+ *
+ * Every list-ish member holds **one window**, not the whole structure: a hash with
+ * a million fields must not be materialized to render a panel. `KeyValueResult`
+ * carries the window's position (`size`, `nextCursor`, `truncated`).
+ */
+export type KeyValuePayload =
+  | { shape: 'scalar'; value: KeyValueElement }
+  | { shape: 'map'; fields: KeyValueField[] }
+  /** `start` is the absolute index of `items[0]`, so the UI can label rows */
+  | { shape: 'list'; items: KeyValueElement[]; start: number }
+  | { shape: 'set'; members: KeyValueElement[] }
+  | { shape: 'sortedSet'; entries: KeyValueScored[] }
+  | { shape: 'stream'; entries: KeyValueStreamEntry[] }
+  /** The key does not exist (or expired between the SCAN and the read) */
+  | { shape: 'missing' }
+
+/** How much of a large value to read, and where from. All fields optional: the defaults are a sane first window. */
+export interface KeyValueReadOptions {
+  /** Elements in this window; defaults to DEFAULT_KEY_VALUE_ELEMENTS, capped at MAX_KEY_VALUE_ELEMENTS */
+  limit?: number
+  /** Absolute element offset, for the index-addressable shapes (list, sortedSet, stream) */
+  offset?: number
+  /** Continuation cursor for the cursor-addressable shapes (map, set — HSCAN / SSCAN) */
+  cursorToken?: string
+  /** Glob filter over field names / members (HSCAN MATCH); ignored by shapes that cannot honour it */
+  match?: string
   signal?: AbortSignal
 }
 
 export interface KeyValueResult {
   ref: ValueRef
-  /** Driver-side type name; for redis one of string|hash|list|set|zset|stream */
+  /** Driver-native type name, verbatim: for redis one of string|hash|list|set|zset|stream|none */
   type: string
-  /** Remaining TTL in milliseconds; -1 means it never expires */
+  /** Remaining TTL in milliseconds; -1 means it never expires, undefined means unknown */
   ttlMs?: number
-  /**
-   * The typed value. The inspector interprets it by `type`:
-   * string → string; hash → Record<string,unknown>; list/set → unknown[];
-   * zset → { member: string; score: number }[]
-   */
-  value: unknown
-  /** The value was too large and got truncated; fetch it in full via peekValue */
+  /** The typed value — one window of it (see KeyValuePayload) */
+  value: KeyValuePayload
+  /** Elements beyond this window exist (or the scalar was cut at VALUE_PREVIEW_BYTES) */
   truncated?: boolean
-  /** Total element count (number of hash fields, list length, …) */
+  /** Cursor for the next window; present means more can be fetched */
+  nextCursor?: string
+  /** Total element count (hash fields, list length, …), when the server can report it cheaply */
   size?: number
+  /** Memory footprint in bytes (redis MEMORY USAGE), when available */
+  byteSize?: number
+  /** Driver-native storage encoding (redis OBJECT ENCODING: listpack / hashtable / skiplist …) */
+  encoding?: string
 }
 
 export interface PeekedValue {
@@ -450,6 +683,111 @@ export interface ByteRange {
   offset: number
   /** Must not exceed VALUE_PEEK_MAX_BYTES */
   length: number
+}
+
+/* ================================================================== */
+/* 6b. Canonical result schemas for the non-relational drivers         */
+/* ================================================================== */
+
+/**
+ * A relational scan gets its columns from the table. A keyspace scan and a vector
+ * scroll do not have a table, so the columns are a **contract decision** — and it
+ * has to be made once, here, rather than three times in three drivers.
+ *
+ * The chunk protocol makes this non-negotiable: `schema` rides on frame 0 and is
+ * never repeated, so the column set has to be knowable **before the first row is
+ * read**. Deriving columns from the data (union of the payload keys seen so far)
+ * is therefore not merely inelegant, it is unimplementable — row 900,001 would
+ * need a column that frame 0 already promised did not exist.
+ */
+
+/** Column names of a redis keyspace scan. Referenced by the UI (row click → inspector) and by MCP summaries. */
+export const KEYSPACE_SCAN_COLUMNS = {
+  key: 'key',
+  type: 'type',
+  ttlMs: 'ttlMs',
+  size: 'size',
+  bytes: 'bytes',
+  encoding: 'encoding',
+} as const
+
+/**
+ * Schema of a keyspace scan: one row per key, the value itself deliberately absent.
+ *
+ * Reading every value during a SCAN would turn browsing a keyspace into
+ * downloading the whole database — the per-key metadata below is what a listing
+ * needs, and the value arrives through keyValue when a row is selected. `size`
+ * and `bytes` are best-effort: MEMORY USAGE is O(1)-ish but not free, so a driver
+ * may leave them null on very wide pages.
+ */
+export const KEYSPACE_SCAN_SCHEMA: readonly ColumnDef[] = [
+  { name: KEYSPACE_SCAN_COLUMNS.key, logical: 'string', nativeType: 'key', primaryKey: true, peekable: true },
+  { name: KEYSPACE_SCAN_COLUMNS.type, logical: 'string', nativeType: 'type' },
+  { name: KEYSPACE_SCAN_COLUMNS.ttlMs, logical: 'number', nativeType: 'ttl', nullable: true },
+  { name: KEYSPACE_SCAN_COLUMNS.size, logical: 'number', nativeType: 'elements', nullable: true },
+  { name: KEYSPACE_SCAN_COLUMNS.bytes, logical: 'number', nativeType: 'bytes', nullable: true },
+  { name: KEYSPACE_SCAN_COLUMNS.encoding, logical: 'string', nativeType: 'encoding', nullable: true },
+]
+
+/** Column names of a vector scroll / search result. */
+export const VECTOR_RESULT_COLUMNS = {
+  id: 'id',
+  score: 'score',
+  payload: 'payload',
+  vector: 'vector',
+} as const
+
+export interface VectorResultSchemaOptions {
+  /** Add the `score` column: true for vectorSearch, false for a plain scroll */
+  withScore?: boolean
+  /**
+   * Payload keys to flatten into one column each. Empty or omitted keeps the whole
+   * payload in a single json column, which is the default and the only shape that
+   * is honest about a schemaless payload.
+   */
+  payloadColumns?: readonly string[]
+  /** Add the `vector` column (peekable, usually truncated). Off by default: the body goes through valuePeek. */
+  withVector?: boolean
+}
+
+/**
+ * Build the schema of a vector result. The single implementation of the
+ * "flatten or not" rule, so a scroll and a search can never disagree about
+ * column order.
+ *
+ * Column order is fixed: id, [score], (payload | flattened payload keys), [vector].
+ */
+export function buildVectorResultSchema(opts: VectorResultSchemaOptions = {}): ColumnDef[] {
+  const cols: ColumnDef[] = [
+    { name: VECTOR_RESULT_COLUMNS.id, logical: 'string', nativeType: 'point_id', primaryKey: true },
+  ]
+  if (opts.withScore) {
+    cols.push({ name: VECTOR_RESULT_COLUMNS.score, logical: 'number', nativeType: 'score' })
+  }
+  const flat = opts.payloadColumns ?? []
+  if (flat.length > 0) {
+    for (const key of flat) {
+      cols.push({ name: key, logical: 'json', nativeType: 'payload', nullable: true, peekable: true })
+    }
+  } else {
+    cols.push({
+      name: VECTOR_RESULT_COLUMNS.payload,
+      logical: 'json',
+      nativeType: 'payload',
+      nullable: true,
+      peekable: true,
+    })
+  }
+  if (opts.withVector) {
+    cols.push({
+      name: VECTOR_RESULT_COLUMNS.vector,
+      logical: 'vector',
+      nativeType: 'vector',
+      nullable: true,
+      peekable: true,
+    })
+  }
+  return cols
 }
 
 /* ================================================================== */
@@ -534,7 +872,12 @@ export interface DriverSession {
   scan?(req: CollectionScanRequest): Promise<Cursor>
 
   /* --- keyValue --- */
-  getValue?(ref: ValueRef): Promise<KeyValueResult>
+  /**
+   * Read one key. `opts` selects a window of a large structure; a driver that
+   * ignores it must still fill in `size` / `truncated` truthfully, so the caller
+   * can tell it did not get everything.
+   */
+  getValue?(ref: ValueRef, opts?: KeyValueReadOptions): Promise<KeyValueResult>
 
   /* --- vectorSearch --- */
   vectorSearch?(req: VectorSearchRequest): Promise<Cursor>

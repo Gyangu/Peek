@@ -1,0 +1,30 @@
+{
+  "name": "@peek/driver-qdrant",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "peek Qdrant driver: introspect + collectionScan(scroll) + vectorSearch + valuePeek",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --import ./src/__tests__/register.mjs --test src/__tests__/*.test.ts"
+  },
+  "dependencies": {
+    "@peek/core": "workspace:*",
+    "@qdrant/js-client-rest": "^1.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "typescript": "^5.9.3"
+  }
+}

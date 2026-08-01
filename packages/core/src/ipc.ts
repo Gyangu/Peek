@@ -5,6 +5,7 @@ import type {
   CollectionSchemaInfo,
   ConnectionConfig,
   FilterSpec,
+  KeyValueReadOptions,
   KeyValueResult,
   NamespaceNode,
   PeekedValue,
@@ -147,7 +148,16 @@ export interface NotifyMessage {
 export type DriverRpcRequest =
   | { kind: 'introspect'; connId: ConnId; parentId: string | null; refresh?: boolean }
   | { kind: 'peekValue'; connId: ConnId; ref: ValueRef; range?: { offset: number; length: number } }
-  | { kind: 'keyValue'; connId: ConnId; ref: ValueRef }
+  /** `window` pages a large structure; omitted means the driver's default first window */
+  | { kind: 'keyValue'; connId: ConnId; ref: ValueRef; window?: KeyValueWindow }
+
+/**
+ * The serializable half of `KeyValueReadOptions`: everything except the
+ * AbortSignal, which cannot survive structured clone. Identical to
+ * `HostParams<'keyvalue.get'>` minus the ref, and deliberately declared once so
+ * the renderer, main and the host cannot drift apart on window semantics.
+ */
+export type KeyValueWindow = Omit<KeyValueReadOptions, 'signal'>
 
 export type DriverRpcKind = DriverRpcRequest['kind']
 
@@ -231,7 +241,7 @@ export interface PeekBridge {
   ): Promise<PeekedValue>
 
   /** Read a typed value by key; maps to HostRpcMap['keyvalue.get'] */
-  getKeyValue?(connId: ConnId, ref: ValueRef): Promise<KeyValueResult>
+  getKeyValue?(connId: ConnId, ref: ValueRef, window?: KeyValueWindow): Promise<KeyValueResult>
 
   /** Main asks this renderer for sample rows of a result set; the handler is responsible for replying */
   onResultRowsRequest?(
@@ -299,6 +309,8 @@ export interface HostRpcMap {
       resultId: ResultId
       ref: CollectionRef
       filter?: FilterSpec[]
+      /** Driver-native filter, ANDed with `filter`; see CollectionScanRequest.nativeFilter */
+      nativeFilter?: unknown
       sort?: SortSpec[]
       columns?: string[]
       offset?: number
@@ -314,16 +326,31 @@ export interface HostRpcMap {
       resultId: ResultId
       collection: string
       queryVec?: number[]
+      /** Search by an existing point instead of a literal vector */
+      queryPointId?: string | number
       vectorName?: string
       topK: number
       filter?: FilterSpec[]
+      nativeFilter?: unknown
+      scoreThreshold?: number
+      offset?: number
+      /** Payload keys to flatten into columns; omitted keeps one json `payload` column */
+      columns?: string[]
       withVector?: boolean
+      withPayload?: boolean
       timeoutMs?: number
     }
     result: { resultId: ResultId }
   }
   'keyvalue.get': {
-    params: { ref: ValueRef }
+    /** The window selectors mirror KeyValueReadOptions minus its AbortSignal, which cannot cross a process boundary */
+    params: {
+      ref: ValueRef
+      limit?: number
+      offset?: number
+      cursorToken?: string
+      match?: string
+    }
     result: { value: KeyValueResult }
   }
   'value.peek': {

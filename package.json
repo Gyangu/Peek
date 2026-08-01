@@ -10,7 +10,11 @@
   "scripts": {
     "dev": "pnpm --filter @peek/desktop dev",
     "build": "pnpm --filter @peek/desktop build",
-    "typecheck": "pnpm -r --no-bail typecheck"
+    "typecheck": "pnpm -r --no-bail typecheck",
+    "test": "pnpm -r --no-bail test",
+    "icon": "pnpm --filter @peek/desktop icon",
+    "package": "pnpm --filter @peek/desktop package",
+    "install:local": "pnpm --filter @peek/desktop install:local"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

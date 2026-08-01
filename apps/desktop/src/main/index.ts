@@ -163,7 +163,10 @@ function createDeps(): CommandDeps {
           resultId: req.resultId,
           collection: req.collection,
           ...(req.queryVec === undefined ? {} : { queryVec: req.queryVec }),
+          ...(req.queryPointId === undefined ? {} : { queryPointId: req.queryPointId }),
+          ...(req.vectorName === undefined ? {} : { vectorName: req.vectorName }),
           topK: req.topK,
+          ...(req.scoreThreshold === undefined ? {} : { scoreThreshold: req.scoreThreshold }),
           ...(req.filter === undefined ? {} : { filter: req.filter }),
         })
       },
@@ -253,7 +256,7 @@ const driverRpc: DriverRpcOptions = {
   introspect: (connId: ConnId, parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]> =>
     connections.introspect(connId, parentId, refresh),
   peekValue: (connId, ref, range) => connections.peekValue(connId, ref, range),
-  getKeyValue: (connId, ref) => connections.getValue(connId, ref),
+  getKeyValue: (connId, ref, window) => connections.getValue(connId, ref, window),
 }
 
 /* ================================================================== */
@@ -263,6 +266,10 @@ const driverRpc: DriverRpcOptions = {
 function createWindow(): BrowserWindow {
   const preloadPath = join(import.meta.dirname, '../preload/index.cjs')
   const hasPreload = existsSync(preloadPath)
+  const iconPath = app.isPackaged
+    ? join(process.resourcesPath, 'icon.png')
+    : join(import.meta.dirname, '../../resources/icon.png')
+  const hasIcon = existsSync(iconPath)
   if (!hasPreload) {
     console.error(
       '[peek/error] preload build output missing:',
@@ -270,6 +277,9 @@ function createWindow(): BrowserWindow {
       '— the window will degrade to read-only',
     )
   }
+
+  // BrowserWindow uses this on Windows/Linux; macOS takes its Dock icon from app.dock.
+  if (process.platform === 'darwin' && hasIcon) app.dock?.setIcon(iconPath)
 
   const win = new BrowserWindow({
     width: 1440,
@@ -279,6 +289,7 @@ function createWindow(): BrowserWindow {
     show: false,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#141414',
+    ...(hasIcon ? { icon: iconPath } : {}),
     webPreferences: {
       // Security baseline: no Node in the renderer, context isolation on, sandbox on
       contextIsolation: true,
@@ -306,11 +317,16 @@ function createWindow(): BrowserWindow {
       detail: 'Connections and driver processes are still alive; reopening the window restores everything.',
     })
   })
-  if (isDev || process.env['PEEK_FORWARD_CONSOLE'] === '1') {
-    win.webContents.on('console-message', (details) => {
-      console.log(`[peek/renderer:${details.level}]`, details.message)
-    })
-  }
+  // Errors are forwarded in every build, not just in dev: a render failure now
+  // shows the user a reload screen instead of a blank window (renderer's
+  // ErrorBoundary), and the stack trace it logs is the only trace that failure
+  // leaves anywhere — main's own state stayed valid throughout, so nothing else
+  // reports a problem. Everything below error level stays behind the dev flag.
+  const forwardAll = isDev || process.env['PEEK_FORWARD_CONSOLE'] === '1'
+  win.webContents.on('console-message', (details) => {
+    if (!forwardAll && details.level !== 'error') return
+    console.log(`[peek/renderer:${details.level}]`, details.message)
+  })
 
   // attachRenderer performs the data-plane handover, and it **must wait for the
   // document to finish loading** — otherwise the port passed to
@@ -346,7 +362,16 @@ function createWindow(): BrowserWindow {
 /* ================================================================== */
 
 async function startMcp(commandBus: CommandBus, rows: ResultRowsBroker): Promise<void> {
+  // Integration knobs, in the same spirit as PEEK_SMOKE_EXIT_MS below: a smoke
+  // run has to be able to start beside an already-installed peek without taking
+  // its port or rewriting the ~/.peek/mcp.json its AI client is pointed at.
+  // Unset — the normal case — nothing changes.
+  const portOverride = Number(process.env['PEEK_MCP_PORT'] ?? '')
+  const configDirOverride = process.env['PEEK_CONFIG_DIR']
+
   const handle = createMcpServer({
+    ...(Number.isInteger(portOverride) && portOverride > 0 ? { port: portOverride } : {}),
+    ...(configDirOverride ? { configDir: configDirOverride } : {}),
     // UI and AI share one command channel: source is recorded in the log and
     // changes no line of the execution path.
     dispatch: (name, input, source) => commandBus.dispatch(name, input, source),

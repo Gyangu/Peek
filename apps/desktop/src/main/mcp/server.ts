@@ -516,11 +516,22 @@ function asPeekError(error: PeekError): Error & { peek: PeekError } {
 const INSTRUCTIONS = `peek is a desktop database viewer, and these tools drive its user interface directly. Humans and AI share one command channel, so every step you take is visible to the user on screen.
 
 Typical flow:
-1. read_workspace — look at the current UI first: the layout, the view in each panel, which databases are connected.
+1. read_workspace — look at the current UI first: the layout, the views stacked in each panel and which one is visible, which databases are connected.
 2. list_connections / connect — connect first if there is no connection yet (for postgres, pass {"driverId":"postgres","url":"postgresql://user@host:5432/db"}).
 3. introspect — expand the namespace tree to obtain a table's ref (omit parentId for the root level).
 4. open_view — open a table as a table view, or open a query view to write SQL.
 5. run_query — run a query; the receipt carries only the first 20 rows, the full result lives in the UI for the user to scroll.
+6. set_layout / move_view / activate_view — arrange what is on screen once the views exist.
+
+Panels and tabs:
+- A panel is one tiled pane holding a stack of views as tabs, of which exactly one is visible. Mounted is therefore not the same as on screen: read_workspace gives each panel its tabs in "views" plus the "activeViewId", and each view a "visible" flag. Before reporting on a view, check that the user can see it.
+- Panes are for views compared side by side; tabs are for views that share one place and are switched between. Opening a second table no longer costs the first one its pane, nor halves the window.
+
+Arranging the window:
+- set_layout describes the whole window as a tree and applies it atomically. Reach for it when several views should be visible together — a four-pane comparison is one call, not five. Each panel leaf lists its tabs in "viewIds" and may name which of them shows via "activeViewId".
+- move_view relocates a single view onto a panel. zone "center" adds it to that panel as a tab and shows it, closing and displacing nothing; "left"/"right"/"top"/"bottom" split that panel and place the view alone in the new half. These are the same five drops a human makes by dragging, so your gesture and theirs produce the same layout. Give it an index to choose the tab position, including within the view's own panel, which is how tabs are reordered.
+- activate_view switches a panel to one of its existing tabs and changes nothing else. It is the right tool when the view you want is already there but hidden.
+- All of them take the panel ids and view ids that read_workspace returns, and all refuse rather than half-apply. set_layout's expectRev guards against the user having moved something while you were thinking.
 
 Notes:
 - Every tool is read-only data browsing (this first version does not write data back).

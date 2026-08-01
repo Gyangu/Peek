@@ -76,8 +76,13 @@ export interface VectorSearchRequest {
   viewId: ViewId
   resultId: ResultId
   collection: string
+  /** Exactly one of queryVec / queryPointId reaches the driver (core's VectorSearchRequest) */
   queryVec?: number[]
+  queryPointId?: string | number
+  /** Which named vector to search; omitted means the collection's default one */
+  vectorName?: string
   topK: number
+  scoreThreshold?: number
   filter?: FilterSpec[]
 }
 

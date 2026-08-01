@@ -41,6 +41,7 @@ export const errors: CatalogFor<ErrorMessageCatalog> = {
 
   /* ---- Views, panels, layout --------------------------------------- */
   'error.view.notFound': '视图 {viewId} 不存在',
+  'error.view.notMounted': '视图 {viewId} 不在任何面板里',
   'error.view.kindMismatch': '视图 {viewId} 是 {actual}，不能用 {expected} 补丁更新',
   'error.view.notQuery': '视图 {viewId} 不是查询视图',
   'error.view.createFailed': '查询视图创建失败',
@@ -49,6 +50,11 @@ export const errors: CatalogFor<ErrorMessageCatalog> = {
   'error.layout.splitNotFound': 'split {splitId} 不存在',
   'error.layout.ratioLength': 'ratio 长度应为 {expected}，收到 {actual}',
   'error.layout.noPanels': '布局树里没有任何面板',
+  'error.layout.tooManyPanels': '一个布局最多容纳 {max} 个面板',
+  'error.layout.tooManyTabs': '一个面板最多容纳 {max} 个标签页',
+  'error.layout.tooDeep': '布局树最多嵌套 {max} 层',
+  'error.layout.revMismatch': '工作区已从版本 {expected} 变化到 {actual}，请重新读取后重试',
+  'error.layout.wouldUnplace': '目标布局遗漏了 {count} 个已打开的视图；用 unplaced="close" 关闭它们，或 "keep" 让它们卸载但保留',
 
   /* ---- Queries and result sets ------------------------------------- */
   'error.query.emptyText': '查询语句为空',
@@ -82,4 +88,23 @@ export const errors: CatalogFor<ErrorMessageCatalog> = {
   'error.introspect.unknownNodeId': '无法识别的节点 id：{nodeId}',
   'error.introspect.collectionKindUnsupported': 'PostgreSQL 只支持 relation 类型的集合，收到 {kind}',
   'error.introspect.relationNotFound': '表不存在或没有可见列：{name}',
+  'error.collection.kindUnsupported': '驱动 {driverId} 无法浏览 {kind} 类型的集合',
+  'error.collection.notFound': '集合不存在：{name}',
+
+  /* ---- Key/value stores (redis) ------------------------------------ */
+  'error.key.notFound': 'key 不存在：{key}',
+  'error.key.pathRequired': '{type} 类型的值需要给出 path（field / 下标 / member）才能定位元素',
+  'error.key.pathInvalid': '无法在 {type} 类型的值里定位 {path}',
+  'error.key.typeUnsupported': '不支持的 redis 值类型：{type}',
+
+  /* ---- Vector search (qdrant) -------------------------------------- */
+  'error.vector.queryRequired': '向量检索需要且只需要 queryVec 与 queryPointId 其中之一',
+  'error.vector.dimensionMismatch': '查询向量是 {actual} 维，集合 {collection} 需要 {expected} 维',
+  'error.vector.nameRequired': '集合 {collection} 有多个命名向量，请指定 vectorName（可选：{names}）',
+  'error.vector.nameUnknown': '集合 {collection} 没有名为 {name} 的向量',
+  'error.vector.pointNotFound': '集合 {collection} 里不存在 point {pointId}',
+
+  /* ---- Local database files (sqlite) ------------------------------- */
+  'error.file.notFound': '数据库文件不存在：{file}',
+  'error.file.notReadable': '数据库文件无法读取：{file}',
 }

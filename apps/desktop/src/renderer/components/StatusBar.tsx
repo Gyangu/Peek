@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import type { ViewState } from '@peek/core'
-import { RESULT_CACHE_MAX_BYTES, collectionRefLabel, describeView, findPanel } from '@peek/core'
+import { RESULT_CACHE_MAX_BYTES, collectPanels, collectionRefLabel, describeView, findPanel } from '@peek/core'
+import { isMacPlatform, shortcutHints } from '../hooks'
 import { LOCALES, setLocale, useLocale, useT, type TFunction } from '../i18n'
 import { useBusyStore } from '../state/dispatch'
 import { useCacheStats, useResult } from '../state/useResult'
@@ -28,7 +29,9 @@ export function StatusBar(): ReactElement {
   const bridgeMissing = useWorkspaceStore((s) => s.bridgeMissing)
 
   const panel = ws?.focusedPanel ? findPanel(ws.layout, ws.focusedPanel) : null
-  const view = panel?.viewId && ws ? (ws.views[panel.viewId] ?? null) : null
+  // The *visible* tab of the focused panel. A status bar describing a view the
+  // user cannot see would be worse than one describing nothing.
+  const view = panel?.activeViewId && ws ? (ws.views[panel.activeViewId] ?? null) : null
   const resultId = view && 'resultId' in view ? view.resultId : undefined
   const snap = useResult(resultId)
   const meta = resultId && ws ? (ws.results[resultId] ?? null) : null
@@ -43,6 +46,9 @@ export function StatusBar(): ReactElement {
         <span className={`dot ${readyCount > 0 ? 'ready' : ''}`} />
         {t('status.connected', { ready: readyCount, total: conns.length })}
       </span>
+
+      <PanelPosition />
+      <TabPosition />
 
       {view ? (
         <>
@@ -86,6 +92,86 @@ export function StatusBar(): ReactElement {
         rev {ws?.rev ?? '—'}
       </span>
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * Where the focused panel sits in the tiling, as `Panel 2/4`.
+ *
+ * The panel ring says *which* panel is active; this says *where* it is in the
+ * visual order — the same depth-first order `⌘1 … ⌘9` addresses and the same one
+ * `read_workspace` lists panels in, so a user and the AI count panels alike. It
+ * also gives the keyboard model somewhere to be discovered: the tooltip is the
+ * only place in the window that spells the chords out.
+ *
+ * Hidden with a single panel, where "Panel 1/1" is noise.
+ */
+function PanelPosition(): ReactElement | null {
+  const t = useT()
+  const ws = useWorkspace()
+  if (!ws) return null
+  const panels = collectPanels(ws.layout)
+  if (panels.length < 2) return null
+  const index = panels.findIndex((p) => p.id === ws.focusedPanel)
+  if (index < 0) return null
+
+  const hints = shortcutHints(isMacPlatform())
+  return (
+    <>
+      <span className="sep" />
+      <span
+        className="seg"
+        title={t('keyboard.panelPositionTitle', {
+          focusKeys: hints.focus,
+          panelDigitKeys: hints.panelDigit,
+          moveKeys: hints.move,
+        })}
+      >
+        {t('keyboard.panelPosition', { index: index + 1, total: panels.length })}
+      </span>
+    </>
+  )
+}
+
+/**
+ * Which tab of the focused panel is showing, as `Tab 2/3`.
+ *
+ * Hidden below two tabs, for the same reason `PanelPosition` hides below two
+ * panels: "Tab 1/1" is a word for a fact the view name beside it already gives.
+ *
+ * Its tooltip carries more weight than it looks. `⌘1 … ⌘9` used to focus panels
+ * and now selects tabs, and `⌘W` used to close a panel and now closes a tab —
+ * two chords whose meaning moved under anyone with the old habit. This tooltip
+ * and the panel one next to it are the only written record of that in the whole
+ * window.
+ */
+function TabPosition(): ReactElement | null {
+  const t = useT()
+  const ws = useWorkspace()
+  if (!ws?.focusedPanel) return null
+  const panel = findPanel(ws.layout, ws.focusedPanel)
+  if (!panel || panel.viewIds.length < 2 || panel.activeViewId === null) return null
+  const index = panel.viewIds.indexOf(panel.activeViewId)
+  if (index < 0) return null
+
+  const hints = shortcutHints(isMacPlatform())
+  return (
+    <>
+      <span className="sep" />
+      <span
+        className="seg"
+        title={t('keyboard.tabPositionTitle', {
+          tabDigitKeys: hints.tabDigit,
+          lastTabKey: hints.lastTab,
+          cycleKeys: hints.cycleTab,
+          closeTabKey: hints.closeTab,
+        })}
+      >
+        {t('keyboard.tabPosition', { index: index + 1, total: panel.viewIds.length })}
+      </span>
+    </>
   )
 }
 

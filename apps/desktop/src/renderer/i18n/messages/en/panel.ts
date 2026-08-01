@@ -10,6 +10,32 @@ export const panel = {
   'panel.newQuery': 'New query',
   'panel.objectTree': 'Object tree',
 
+  /* The tab strip. */
+  'panel.tabs.listLabel': 'Panel tabs',
+  'panel.tab.close': 'Close {title}',
+
+  /* Drag and drop. These label the highlight that appears under the cursor while
+   * a view is being dragged, so each one has to say what releasing *here* would
+   * do — the whole point of the preview is that nothing is a surprise.
+   *
+   * `panel.drop.swap` is gone: no gesture produces a swap any more (a centre
+   * drop stacks), and a label for an outcome nothing can reach is a promise the
+   * window cannot keep. `swap` survives only as a Command an AI can name. */
+  'panel.dragView': 'Drag to move this view',
+  'panel.drop.move': 'Move view here',
+  'panel.drop.stack': 'Add as a tab in {title}',
+  'panel.drop.tab': 'Insert tab here',
+  'panel.drop.split.left': 'Split left',
+  'panel.drop.split.right': 'Split right',
+  'panel.drop.split.top': 'Split above',
+  'panel.drop.split.bottom': 'Split below',
+
+  /* Accessible names for the layout. Keyed `a11y.*` per the shared contract; they
+   * live in this file because they name panels and their tabs, and a key's file
+   * is only about who edits it. */
+  'a11y.panel.label': 'Panel {index}: {title}',
+  'a11y.panel.empty': 'Empty panel {index}',
+
   'view.gone': 'View {viewId} no longer exists',
 
   /* View-kind labels. `viewTitle()` in core stays English because MCP reads it;

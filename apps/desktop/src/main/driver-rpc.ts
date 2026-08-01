@@ -6,6 +6,7 @@ import {
   type DriverRpcRequest,
   type DriverRpcResponse,
   type KeyValueResult,
+  type KeyValueWindow,
   type NamespaceNode,
   type PeekedValue,
   type ValueRef,
@@ -32,7 +33,7 @@ export interface DriverRpcOptions {
     ref: ValueRef,
     range?: { offset: number; length: number },
   ): Promise<PeekedValue>
-  getKeyValue(connId: ConnId, ref: ValueRef): Promise<KeyValueResult>
+  getKeyValue(connId: ConnId, ref: ValueRef, window?: KeyValueWindow): Promise<KeyValueResult>
 }
 
 export interface DriverRpcInstallOptions extends DriverRpcOptions {
@@ -58,7 +59,7 @@ export function installDriverRpc(options: DriverRpcInstallOptions): () => void {
           return { ok: true, data }
         }
         case 'keyValue': {
-          const data = await options.getKeyValue(req.connId, req.ref)
+          const data = await options.getKeyValue(req.connId, req.ref, req.window)
           return { ok: true, data }
         }
       }
@@ -110,11 +111,46 @@ function readRequest(raw: unknown): DriverRpcRequest | null {
     case 'keyValue': {
       const ref = rec['ref']
       if (typeof ref !== 'object' || ref === null) return null
-      return { kind: 'keyValue', connId: id, ref: ref as ValueRef }
+      const window = readKeyValueWindow(rec['window'])
+      return {
+        kind: 'keyValue',
+        connId: id,
+        ref: ref as ValueRef,
+        ...(window === null ? {} : { window }),
+      }
     }
     default:
       return null
   }
+}
+
+/**
+ * The paging window of a keyValue read, rebuilt field by field.
+ *
+ * Every field is dropped rather than clamped when it is not a finite number: the
+ * driver owns the ceilings (MAX_KEY_VALUE_ELEMENTS and friends), and a `limit`
+ * of NaN silently becoming 0 would look like an empty hash. `cursorToken` and
+ * `match` are opaque strings that the driver validates — a malformed cursor is a
+ * BAD_REQUEST there, which is more useful than being swallowed here.
+ */
+function readKeyValueWindow(raw: unknown): KeyValueWindow | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const rec = raw as Record<string, unknown>
+  const limit = rec['limit']
+  const offset = rec['offset']
+  const cursorToken = rec['cursorToken']
+  const match = rec['match']
+  const window: KeyValueWindow = {
+    ...(typeof limit === 'number' && Number.isFinite(limit)
+      ? { limit: Math.max(1, Math.trunc(limit)) }
+      : {}),
+    ...(typeof offset === 'number' && Number.isFinite(offset)
+      ? { offset: Math.max(0, Math.trunc(offset)) }
+      : {}),
+    ...(typeof cursorToken === 'string' ? { cursorToken } : {}),
+    ...(typeof match === 'string' ? { match } : {}),
+  }
+  return Object.keys(window).length === 0 ? null : window
 }
 
 function readRange(raw: unknown): { offset: number; length: number } | null {

@@ -53,8 +53,13 @@ export type EffectIntent =
       viewId: ViewId
       resultId: ResultId
       collection: string
+      /** Exactly one of queryVec / queryPointId; the view state keeps them exclusive */
       queryVec?: number[]
+      queryPointId?: string | number
+      /** Which named vector to search; omitted means the collection's default one */
+      vectorName?: string
       topK: number
+      scoreThreshold?: number
       filter?: FilterSpec[]
       soft?: boolean
     }

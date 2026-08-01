@@ -33,7 +33,11 @@ export default defineCommandTool({
     'table (browse a table/keyspace/collection; get the ref from introspect), ' +
     'query (SQL editor, optionally with text plus run=true to execute immediately), ' +
     'inspector (examine one large value), tree (namespace tree), vector (vector search). ' +
-    'Without panelId the view opens in the currently focused panel; replace=false opens a new panel instead.',
+    'Without panelId the view opens in the currently focused panel. ' +
+    'By default it is added there as a new tab and shown, closing nothing — pass replace=true to ' +
+    'close that panel\'s visible view and take its place in the tab bar, or index to choose where in ' +
+    'the tab bar it lands (0 is leftmost; omitted appends). ' +
+    'To put it in a pane of its own instead, open it and then move_view it onto a panel edge.',
   inputSchema: InputSchema,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   toCommands(input) {

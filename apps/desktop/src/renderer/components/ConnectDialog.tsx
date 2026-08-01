@@ -1,54 +1,73 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
-import type { ConnectionConfig, DriverId } from '@peek/core'
+import type { DriverId } from '@peek/core'
 import { DRIVER_CAPABILITIES, DRIVER_IDS } from '@peek/core'
-import { useT, type MessageKey } from '../i18n'
+import { useT, type TFunction } from '../i18n'
 import { dispatch } from '../state/dispatch'
+import {
+  buildConnectionConfig,
+  connectFields,
+  connectFormSpec,
+  defaultConnectMode,
+  initialConnectValues,
+  missingRequiredFields,
+  type ConnectField,
+  type ConnectMode,
+} from './connectForm'
 
 /**
- * Sample connection strings. Not translated: every one of them is syntax, and a
- * placeholder that reads as prose in one language and as a URL in another is
- * harder to copy from, not easier.
- */
-const PLACEHOLDER: Record<DriverId, string> = {
-  postgres: 'postgresql://user@localhost:5432/database',
-  mysql: 'mysql://user@localhost:3306/database',
-  sqlite: '/absolute/path/to/db.sqlite',
-  redis: 'redis://localhost:6379/0',
-  qdrant: 'http://localhost:6333',
-}
-
-/**
- * Label of the primary field, which differs per driver (URL vs file path).
+ * New connection.
  *
- * `as const satisfies` rather than a plain annotation: the annotation would widen
- * every entry to `MessageKey`, and `t()` cannot check the params of a key it only
- * knows as "one of all of them".
+ * The form is driven by `connectForm.ts` rather than hard-coded here: every
+ * driver asks for different things (redis wants a numeric database index, qdrant
+ * an API key, sqlite a path on disk), and the alternative — one text box per
+ * driver — either lies about what is configurable or forces the user to hand-
+ * assemble a URL peek could have assembled for them.
+ *
+ * `conn.open` is landed by main; this only assembles the config.
  */
-const FIELD_LABEL_KEY = {
-  postgres: 'connect.field.postgres',
-  mysql: 'connect.field.mysql',
-  sqlite: 'connect.field.sqlite',
-  redis: 'connect.field.redis',
-  qdrant: 'connect.field.qdrant',
-} as const satisfies Record<DriverId, MessageKey>
-
-/** New connection. `conn.open` is landed by main; this only assembles the config. */
 export function ConnectDialog({ onClose }: { onClose: () => void }): ReactElement {
   const t = useT()
   const [driverId, setDriverId] = useState<DriverId>('postgres')
-  const [target, setTarget] = useState('')
+  const [mode, setMode] = useState<ConnectMode>(() => defaultConnectMode('postgres'))
+  const [values, setValues] = useState<Record<string, string | boolean>>(() =>
+    initialConnectValues('postgres', defaultConnectMode('postgres')),
+  )
   const [label, setLabel] = useState('')
   const [busy, setBusy] = useState(false)
+  const [issue, setIssue] = useState<string | null>(null)
+
+  const spec = connectFormSpec(driverId)
+  const fields = connectFields(driverId, mode)
+  const missing = useMemo(
+    () => missingRequiredFields(driverId, mode, values),
+    [driverId, mode, values],
+  )
+
+  // Switching driver or mode resets to that form's defaults. Carrying values
+  // across would mean a port left over from postgres quietly connecting a redis
+  // client to 5432.
+  const switchTo = (nextDriver: DriverId, nextMode: ConnectMode): void => {
+    setDriverId(nextDriver)
+    setMode(nextMode)
+    setValues(initialConnectValues(nextDriver, nextMode))
+    setIssue(null)
+  }
+
+  const setValue = (name: string, value: string | boolean): void => {
+    setValues((prev) => ({ ...prev, [name]: value }))
+    setIssue(null)
+  }
 
   const submit = (): void => {
-    const value = target.trim()
-    if (!value) return
+    if (busy || missing.length > 0) return
+    const built = buildConnectionConfig(driverId, mode, values, label)
+    if (!built.ok) {
+      setIssue(built.issue)
+      return
+    }
     setBusy(true)
-    void dispatch('conn.open', {
-      config: buildConfig(driverId, value, label.trim()),
-      openTree: true,
-    })
+    void dispatch('conn.open', { config: built.config, openTree: true })
       .then((res) => {
         if (res) onClose()
       })
@@ -74,8 +93,8 @@ export function ConnectDialog({ onClose }: { onClose: () => void }): ReactElemen
               id="peek-driver"
               value={driverId}
               onChange={(e) => {
-                setDriverId(e.target.value as DriverId)
-                setTarget('')
+                const next = e.target.value as DriverId
+                switchTo(next, defaultConnectMode(next))
               }}
             >
               {/* Driver ids are identifiers: `postgres` reads the same everywhere. */}
@@ -90,23 +109,42 @@ export function ConnectDialog({ onClose }: { onClose: () => void }): ReactElemen
             {/* Capability names are part of the driver contract, never translated. */}
             {t('connect.capabilities', { list: DRIVER_CAPABILITIES[driverId].join(' · ') })}
           </div>
-          <div className="form-row">
-            <label htmlFor="peek-target">{t(FIELD_LABEL_KEY[driverId])}</label>
-            <input
-              id="peek-target"
-              className="mono"
-              value={target}
-              placeholder={PLACEHOLDER[driverId]}
-              spellCheck={false}
-              autoFocus
-              onChange={(e) => {
-                setTarget(e.target.value)
+
+          {spec.modes.length > 1 ? (
+            <div className="form-row">
+              <label>{t('connect.mode')}</label>
+              <div className="segmented">
+                {spec.modes.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    className={m === mode ? 'seg active' : 'seg'}
+                    aria-pressed={m === mode}
+                    onClick={() => {
+                      switchTo(driverId, m)
+                    }}
+                  >
+                    {t(m === 'url' ? 'connect.mode.url' : 'connect.mode.fields')}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {fields.map((field, i) => (
+            <FieldRow
+              key={`${driverId}:${mode}:${field.name}`}
+              t={t}
+              field={field}
+              value={values[field.name] ?? ''}
+              autoFocus={i === 0}
+              onChange={(v) => {
+                setValue(field.name, v)
               }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submit()
-              }}
+              onSubmit={submit}
             />
-          </div>
+          ))}
+
           <div className="form-row">
             <label htmlFor="peek-label">{t('connect.label')}</label>
             <input
@@ -116,13 +154,23 @@ export function ConnectDialog({ onClose }: { onClose: () => void }): ReactElemen
               onChange={(e) => {
                 setLabel(e.target.value)
               }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submit()
+              }}
             />
           </div>
+
+          {issue ? (
+            // zod's own words, naming the field it rejected — evidence, not prose.
+            <div className="form-hint" style={{ color: 'var(--err)' }}>
+              {t('connect.invalid', { issue })}
+            </div>
+          ) : null}
           <div className="form-hint">{t('connect.privacyNote')}</div>
         </div>
         <div className="modal-foot">
           <button onClick={onClose}>{t('connect.cancel')}</button>
-          <button className="primary" disabled={busy || target.trim() === ''} onClick={submit}>
+          <button className="primary" disabled={busy || missing.length > 0} onClick={submit}>
             {busy ? t('connect.connecting') : t('connect.submit')}
           </button>
         </div>
@@ -131,22 +179,56 @@ export function ConnectDialog({ onClose }: { onClose: () => void }): ReactElemen
   )
 }
 
-function stop(e: ReactMouseEvent): void {
-  e.stopPropagation()
+/* ------------------------------------------------------------------ */
+
+interface FieldRowProps {
+  t: TFunction
+  field: ConnectField
+  value: string | boolean
+  autoFocus: boolean
+  onChange: (value: string | boolean) => void
+  onSubmit: () => void
 }
 
-function buildConfig(driverId: DriverId, target: string, label: string): ConnectionConfig {
-  const base = label ? { label } : {}
-  switch (driverId) {
-    case 'postgres':
-      return { driverId: 'postgres', url: target, ...base }
-    case 'mysql':
-      return { driverId: 'mysql', url: target, ...base }
-    case 'sqlite':
-      return { driverId: 'sqlite', file: target, ...base }
-    case 'redis':
-      return { driverId: 'redis', url: target, ...base }
-    case 'qdrant':
-      return { driverId: 'qdrant', url: target, ...base }
+function FieldRow({ t, field, value, autoFocus, onChange, onSubmit }: FieldRowProps): ReactElement {
+  const id = `peek-field-${field.name}`
+  if (field.type === 'checkbox') {
+    return (
+      <div className="form-row">
+        <label htmlFor={id}>{t(field.labelKey)}</label>
+        <input
+          id={id}
+          type="checkbox"
+          checked={value === true}
+          onChange={(e) => {
+            onChange(e.target.checked)
+          }}
+        />
+      </div>
+    )
   }
+  return (
+    <div className="form-row">
+      <label htmlFor={id}>{t(field.labelKey)}</label>
+      <input
+        id={id}
+        className={field.mono === true ? 'mono' : undefined}
+        type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'}
+        value={typeof value === 'string' ? value : ''}
+        placeholder={field.placeholder}
+        spellCheck={false}
+        autoFocus={autoFocus}
+        onChange={(e) => {
+          onChange(e.target.value)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onSubmit()
+        }}
+      />
+    </div>
+  )
+}
+
+function stop(e: ReactMouseEvent): void {
+  e.stopPropagation()
 }

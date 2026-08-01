@@ -391,6 +391,9 @@ textarea:focus {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* Containing block for `.panel-drop-overlay`. `.panel-body` is positioned too,
+     so no existing descendant changes its anchor. */
+  position: relative;
   margin: 2px;
   background: var(--bg-1);
   border: 1px solid var(--border);
@@ -403,37 +406,150 @@ textarea:focus {
   box-shadow: 0 0 0 1px var(--accent-dim);
 }
 
+/* The head is the tab strip: a scrolling strip of tabs on the left, a fixed
+   action area on the right. It is *not* a bar above a second, taller one — its
+   height is unchanged from the pre-tab title bar, which is what keeps the body's
+   available height constant at every tab count. The virtualised grid below
+   depends on that. */
 .panel-head {
   height: var(--bar-h);
   flex: 0 0 auto;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 4px 0 8px;
+  align-items: stretch;
+  padding: 0;
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
+  /* Tabs are the drag handle. Selection here would only ever be accidental, and
+     suppressing it in CSS means the pointer handler does not have to call
+     `preventDefault()` — which would also swallow the click that focuses the
+     panel. */
+  user-select: none;
 }
 
 .panel.focused .panel-head {
   background: var(--bg-3);
 }
 
-.panel-kind {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--fg-faint);
-  border: 1px solid var(--border-strong);
-  border-radius: 3px;
-  padding: 0 4px;
+/* The scrolling half. `overflow-x` is confined here on purpose: it must never
+   reach the panel or the page, and it is emphatically not the grid's scroll
+   container. The scrollbar itself is hidden — an 11px bar inside a 30px strip
+   would eat a third of it — so overflow is read from the clipped tab at the
+   edge, which is the usual convention for a tab strip. */
+.panel-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
 }
 
-.panel-title {
+.panel-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.panel-tab {
+  --tab-min-width: 96px;
+
+  flex: 0 1 auto;
+  /* Tabs shrink towards this and then stop; past it the strip scrolls. A tab
+     squeezed narrower than its own text is not a tab, it is a smear. */
+  min-width: var(--tab-min-width);
+  max-width: 220px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 4px 0 9px;
+  border-right: 1px solid var(--border);
+  color: var(--fg-dim);
+  cursor: grab;
+  /* The active tab is marked with an inset top rule rather than a border, so
+     nothing in the strip changes size when the active tab moves. */
+  box-shadow: inset 0 2px 0 transparent;
+}
+
+.panel-tab:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.panel-tab.active {
+  background: var(--bg-1);
+  color: var(--fg);
+  box-shadow: inset 0 2px 0 var(--accent-dim);
+}
+
+.panel.focused .panel-tab.active {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+/* The focus ring for a tab lives in keyboard-nav.css, with every other real
+   focus ring — one place to read them all. */
+
+.tab-title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Still loading. A dot rather than a spinner: it sits in a 30px strip next to
+   eleven others, and eleven spinners is a disco. */
+.tab-busy {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.tab-close {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  line-height: 1;
+  font-size: 10px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--fg-faint);
+  /* Reserved, not revealed on hover: a ✕ that appears under the cursor shifts
+     the title it sits next to, and a strip that reflows while being read is
+     worse than a permanently visible glyph. */
+  visibility: hidden;
+}
+
+.panel-tab:hover .tab-close,
+.panel-tab.active .tab-close,
+.tab-close:focus-visible {
+  visibility: visible;
+}
+
+.tab-close:hover:not(:disabled) {
+  background: var(--bg-3);
+  color: var(--fg);
+}
+
+/* An empty panel has no tabs to label itself with, and a bare strip reads as a
+   rendering fault. */
+.panel-tabs-empty {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0 9px;
+  color: var(--fg-faint);
+}
+
+/* The fixed half: never scrolls away, however many tabs there are. */
+.panel-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border-left: 1px solid var(--border);
 }
 
 .panel-body {
@@ -452,6 +568,113 @@ textarea:focus {
   justify-content: center;
   gap: 6px;
   color: var(--fg-faint);
+}
+
+/* ------------------------------------------------------------------ */
+/* Dragging a view between panels                                        */
+/* ------------------------------------------------------------------ */
+
+/* A drag is a modal gesture, so every element under the pointer has to agree on
+   one cursor — dividers carry `col-resize`, the grid carries its own, and both
+   are more specific than a body-level rule. `!important` scoped to a body class
+   is the smallest thing that wins, and it lasts exactly as long as the drag. */
+body.view-dragging,
+body.view-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/* Over no panel at all: releasing here does nothing, and the cursor says so
+   before the user commits. */
+body.view-dragging.view-drag-nodrop,
+body.view-dragging.view-drag-nodrop * {
+  cursor: no-drop !important;
+}
+
+/* The panel the view is leaving. Dimmed, never `no-drop`: dropping back on it is
+   a no-op, and a forbidden cursor would read as an error rather than as "this
+   changes nothing". */
+.panel.drag-source {
+  opacity: 0.55;
+}
+
+/* The panel a release would land in. The border reads at the edge of vision
+   while the eye is on the highlight block. */
+.panel.drop-target {
+  border-color: var(--accent);
+}
+
+.panel-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.drop-highlight {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  /* Animated so the block slides when the zone changes instead of blinking out
+     and back in; the pointer is already moving and a hard cut reads as a glitch. */
+  transition: all 90ms ease-out;
+}
+
+.drop-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  color: var(--fg);
+}
+
+/* The insertion line for a drop on a tab strip: 2px, accent, drawn in viewport
+   coordinates so the strip's own `overflow: hidden` cannot clip it at the one
+   position that matters — the gap past the last tab of a full strip. */
+.tab-insert-caret {
+  position: fixed;
+  z-index: 998;
+  pointer-events: none;
+  width: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.tab-insert-caret .drop-label {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 3px;
+  white-space: nowrap;
+  border: 1px solid var(--accent-dim);
+}
+
+/* The label riding under the cursor: what is being dragged, as opposed to where
+   it would land. */
+.view-drag-ghost {
+  position: fixed;
+  z-index: 999;
+  pointer-events: none;
+  transform: translate(14px, 14px);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  border: 1px solid var(--accent-dim);
+  color: var(--fg);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 45%);
 }
 
 /* ------------------------------------------------------------------ */
@@ -965,6 +1188,58 @@ textarea:focus {
   text-overflow: ellipsis;
 }
 
+/* Per-node action (vector search). Hidden until the row is hovered or selected,
+   so a long collection list stays a list rather than a wall of buttons. */
+.tree-action {
+  margin-left: auto;
+  flex: 0 0 auto;
+  height: 16px;
+  padding: 0 6px;
+  font-size: 10px;
+  visibility: hidden;
+}
+
+.tree-node:hover .tree-action,
+.tree-node.selected .tree-action {
+  visibility: visible;
+}
+
+/* ------------------------------------------------------------------ */
+/* Vector search query bar                                               */
+/* ------------------------------------------------------------------ */
+
+/* A second toolbar row under the vector view's own. The fields are short by
+   nature (a point id, a vector name, two numbers), so they are sized to their
+   content instead of stretching: a row of half-empty full-width boxes reads as
+   a form, and this is a query bar. */
+.vector-query {
+  color: var(--fg-dim);
+}
+
+.vector-query label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.toolbar input.vq {
+  flex: 0 0 auto;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.toolbar input.vq-id {
+  width: 190px;
+}
+
+.toolbar input.vq-name {
+  width: 110px;
+}
+
+.toolbar input.vq-num {
+  width: 70px;
+}
+
 /* ------------------------------------------------------------------ */
 /* Inspector and value modal                                             */
 /* ------------------------------------------------------------------ */
@@ -1072,6 +1347,41 @@ textarea:focus {
   min-width: 0;
 }
 
+/* A checkbox must not stretch across the row like a text field does. */
+.form-row input[type='checkbox'] {
+  flex: 0 0 auto;
+  width: auto;
+  margin-right: auto;
+}
+
+/* Two mutually exclusive spellings of one connection (URL vs. fields). */
+.segmented {
+  display: flex;
+  flex: 1;
+  gap: 0;
+}
+
+.segmented .seg {
+  flex: 1;
+  border-radius: 0;
+}
+
+.segmented .seg:first-child {
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+
+.segmented .seg:last-child {
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+.segmented .seg.active {
+  background: var(--accent-dim);
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
 .form-hint {
   color: var(--fg-faint);
   margin: 0 0 10px 96px;
@@ -1174,4 +1484,64 @@ textarea:focus {
   max-height: 140px;
   overflow: auto;
   margin-top: 4px;
+}
+
+/* ==================================================================
+ * Window-level crash screen (components/ErrorBoundary.tsx).
+ *
+ * Styled entirely from the same variables as the rest of the app so that it
+ * reads as peek reporting a fault, not as the browser's own error page. It is
+ * the only screen in the product with no working chrome around it, so it
+ * centres itself and offers exactly one control.
+ * ================================================================== */
+
+.crash {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.crash-box {
+  max-width: 560px;
+  width: 100%;
+  background: var(--bg-1);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--err);
+  border-radius: 5px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.crash-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.crash-body {
+  color: var(--fg-dim);
+}
+
+/* The stack text is developer output: monospace, selectable, and capped so a
+   long trace cannot push the reload button off screen. */
+.crash-detail {
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow: auto;
+  user-select: text;
 }

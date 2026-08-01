@@ -1,0 +1,83 @@
+/* ==================================================================
+ * Focus emphasis for keyboard navigation.
+ *
+ * Once ⌘⌥ arrows can move focus without the pointer ever entering a panel, "which
+ * panel is active" stops being something the user just did with the mouse and
+ * becomes something they have to *read* — and the base 1px `--accent-dim` ring is
+ * not readable across a four-panel window at a glance.
+ *
+ * Kept in its own file rather than folded into styles.css so that this and the
+ * drag-and-drop styles can be written at the same time without fighting over the
+ * same lines. Every rule below is a stronger form of a state styles.css already
+ * defines (`.panel.focused`); nothing new is invented, and the extra `.layout-root`
+ * ancestor makes these win on specificity regardless of import order.
+ * ================================================================== */
+
+.layout-root .panel.focused {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 2px 14px -6px var(--accent);
+}
+
+.layout-root .panel.focused .panel-head {
+  background: var(--bg-3);
+  /* A bar down the leading edge of the title row: visible even where the panel
+     border is clipped by a neighbour, and readable without relying on hue. */
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* The title-text contrast that used to live here moved with the title: the head
+   is a tab strip now, and `.panel-title` no longer exists. The same fact is
+   carried by the tab rules in styles.css — a tab is `--fg-dim`, the active one
+   `--fg`, and `.panel.focused .panel-tab.active` takes the full accent. */
+
+/* ==================================================================
+ * Real focus rings.
+ *
+ * The `.focused` styling above says which panel the *workspace* considers
+ * active. That is a different fact from where the caret is, and until now they
+ * were the only one drawn. A keyboard user needs both: `.focused` tells them
+ * which panel a ⌘\ would split, `:focus-visible` tells them which element the
+ * next keystroke reaches. The two coincide most of the time and diverge exactly
+ * when it matters — a background command moving `focusedPanel` while the caret
+ * politely stays where the user put it.
+ *
+ * `:focus-visible` rather than `:focus`: the panel and the tab strip are now
+ * programmatically focused (R2 in `usePanelFocus`, and the roving strip), and a
+ * ring that appeared every time a mouse click moved focus would be visual noise
+ * on a surface people click constantly.
+ * ================================================================== */
+
+.layout-root .panel:focus-visible,
+.layout-root .panel-body:focus-visible,
+.layout-root [role='tab']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* ==================================================================
+ * Visually hidden, still announced.
+ *
+ * The live region in `App` and any other text meant only for a screen reader.
+ * `display: none` and `visibility: hidden` would remove it from the
+ * accessibility tree along with the pixels, which is the one thing it must not
+ * do; clipping a 1px box leaves it readable to assistive technology while
+ * occupying nothing.
+ *
+ * `white-space: nowrap` matters more than it looks: without it a long
+ * announcement wraps inside the 1px box and some screen readers read the
+ * fragments as separate lines.
+ * ================================================================== */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

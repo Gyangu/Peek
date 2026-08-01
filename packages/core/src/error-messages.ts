@@ -60,6 +60,13 @@ export const ERROR_MESSAGES = {
 
   /* ---- Views, panels, layout --------------------------------------- */
   'error.view.notFound': 'View {viewId} does not exist',
+  /**
+   * `view.activate` is the one command that can only act on a view already sitting
+   * in a panel: "show this tab" has no meaning for a view that is not in any tab
+   * bar. It is deliberately distinct from `notFound` — the view exists, it is
+   * simply unplaced, and the fix is `layout.moveView`, not opening it again.
+   */
+  'error.view.notMounted': 'View {viewId} is not mounted in any panel',
   'error.view.kindMismatch': 'View {viewId} is a {actual} view; a {expected} patch does not apply',
   'error.view.notQuery': 'View {viewId} is not a query view',
   'error.view.createFailed': 'Could not create the query view',
@@ -68,6 +75,13 @@ export const ERROR_MESSAGES = {
   'error.layout.splitNotFound': 'Split {splitId} does not exist',
   'error.layout.ratioLength': 'Expected {expected} ratio values, got {actual}',
   'error.layout.noPanels': 'The layout tree contains no panels',
+  'error.layout.tooManyPanels': 'A layout holds at most {max} panels',
+  'error.layout.tooManyTabs': 'A panel holds at most {max} tabs',
+  'error.layout.tooDeep': 'A layout nests at most {max} levels deep',
+  'error.layout.revMismatch':
+    'The workspace has changed since revision {expected} (it is now {actual}); read it again and retry',
+  'error.layout.wouldUnplace':
+    'The target layout leaves out {count} open view(s); pass unplaced="close" to close them or "keep" to unmount them',
 
   /* ---- Queries and result sets ------------------------------------- */
   'error.query.emptyText': 'The statement is empty',
@@ -102,6 +116,34 @@ export const ERROR_MESSAGES = {
   'error.introspect.collectionKindUnsupported':
     'PostgreSQL only supports relation collections, got {kind}',
   'error.introspect.relationNotFound': 'Relation does not exist or has no visible columns: {name}',
+  /**
+   * The driver-neutral sibling of `collectionKindUnsupported`, which names
+   * PostgreSQL in its text and therefore cannot be reused by redis or qdrant.
+   * Kept as a second key rather than a reworded first one: the postgres wording
+   * is already translated, already asserted on, and renaming a key silently
+   * breaks every translation referencing it.
+   */
+  'error.collection.kindUnsupported': 'Driver {driverId} cannot browse a {kind} collection',
+  'error.collection.notFound': 'Collection does not exist: {name}',
+
+  /* ---- Key/value stores (redis) ------------------------------------ */
+  'error.key.notFound': 'Key does not exist: {key}',
+  'error.key.pathRequired': 'A {type} value needs a path (field, index or member) to address an element',
+  'error.key.pathInvalid': 'Cannot address {path} inside a {type} value',
+  'error.key.typeUnsupported': 'Unsupported redis value type: {type}',
+
+  /* ---- Vector search (qdrant) -------------------------------------- */
+  'error.vector.queryRequired': 'A vector search needs exactly one of queryVec or queryPointId',
+  'error.vector.dimensionMismatch':
+    'The query vector has {actual} dimensions; collection {collection} expects {expected}',
+  'error.vector.nameRequired':
+    'Collection {collection} defines several named vectors; pass vectorName (one of: {names})',
+  'error.vector.nameUnknown': 'Collection {collection} has no vector named {name}',
+  'error.vector.pointNotFound': 'Point {pointId} does not exist in collection {collection}',
+
+  /* ---- Local database files (sqlite) ------------------------------- */
+  'error.file.notFound': 'Database file does not exist: {file}',
+  'error.file.notReadable': 'Database file cannot be read: {file}',
 } as const
 
 export type ErrorMessageCatalog = typeof ERROR_MESSAGES

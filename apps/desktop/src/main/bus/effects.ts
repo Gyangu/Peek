@@ -103,7 +103,10 @@ async function runIntent(intent: EffectIntent, ctx: EffectRunnerCtx): Promise<vo
         resultId: intent.resultId,
         collection: intent.collection,
         ...(intent.queryVec ? { queryVec: intent.queryVec } : {}),
+        ...(intent.queryPointId === undefined ? {} : { queryPointId: intent.queryPointId }),
+        ...(intent.vectorName === undefined ? {} : { vectorName: intent.vectorName }),
         topK: intent.topK,
+        ...(intent.scoreThreshold === undefined ? {} : { scoreThreshold: intent.scoreThreshold }),
         ...(intent.filter ? { filter: intent.filter } : {}),
       })
       return

@@ -29,6 +29,14 @@ export const app = {
   'app.error.position': 'position {position}',
   'app.error.prefixed': '{context}: {message}',
 
+  /* The window-level crash screen. It has to promise that reloading is safe, or
+   * a user with an unsaved query in front of them will not press the button:
+   * the workspace lives in the main process, and the renderer only mirrors it. */
+  'app.crash.title': 'The window stopped rendering',
+  'app.crash.body':
+    'Reloading rebuilds it from the state held in the main process. Connections stay open and nothing is lost.',
+  'app.crash.reload': 'Reload the window',
+
   'app.language.title': 'Language',
 } as const
 

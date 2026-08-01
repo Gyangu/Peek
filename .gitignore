@@ -2,6 +2,12 @@ node_modules/
 dist/
 out/
 build/
+# Exception: the app icon source and the .icns generated from it live here, so
+# packaging works on a fresh clone without an SVG rasterizer installed.
+!apps/desktop/build/
+apps/desktop/build/icon.iconset/
+# Packaged .app output
+release/
 *.log
 .DS_Store
 .vite/

@@ -1,8 +1,9 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactElement } from 'react'
-import type { LayoutNode, SplitId, SplitNode } from '@peek/core'
-import { normalizeRatio } from '@peek/core'
+import type { LayoutNode, PanelId, SplitId, SplitNode } from '@peek/core'
+import { collectPanels, normalizeRatio } from '@peek/core'
 import { dispatch } from '../state/dispatch'
 import { useLayout } from '../state/workspaceStore'
+import { DragGhost, TabInsertCaret } from './DropZoneOverlay'
 import { PanelView } from './Panel'
 
 /** Smallest a child region may get while dragging a divider. */
@@ -18,19 +19,35 @@ export function LayoutTree(): ReactElement {
   if (!layout) {
     return <div className="layout-root" />
   }
+  /* Panels are numbered in visual order, depth-first, and the number is what a
+     screen reader announces ("Panel 3: public.orders"). Computed once here
+     rather than in each panel: a panel node knows its own id and nothing about
+     its position among its siblings' siblings. */
+  const order = new Map<PanelId, number>(collectPanels(layout).map((p, i) => [p.id, i]))
   return (
     <div className="layout-root">
-      <LayoutNodeView node={layout} />
+      <LayoutNodeView node={layout} order={order} />
+      {/* Fixed-positioned and pointer-transparent, so they can live anywhere in
+          the tree; here they are siblings of the layout, where nothing clips
+          them — the insertion caret in particular has to be able to draw over a
+          strip that clips its own overflow. */}
+      <DragGhost />
+      <TabInsertCaret />
     </div>
   )
 }
 
-function LayoutNodeView({ node }: { node: LayoutNode }): ReactElement {
-  if (node.type === 'panel') return <PanelView panel={node} />
-  return <SplitView node={node} />
+interface NodeProps {
+  node: LayoutNode
+  order: ReadonlyMap<PanelId, number>
 }
 
-function SplitView({ node }: { node: SplitNode }): ReactElement {
+function LayoutNodeView({ node, order }: NodeProps): ReactElement {
+  if (node.type === 'panel') return <PanelView panel={node} index={order.get(node.id) ?? 0} />
+  return <SplitView node={node} order={order} />
+}
+
+function SplitView({ node, order }: { node: SplitNode; order: ReadonlyMap<PanelId, number> }): ReactElement {
   const ratio = normalizeRatio(node.ratio, node.children.length)
   const children: ReactElement[] = []
   node.children.forEach((child, i) => {
@@ -40,7 +57,7 @@ function SplitView({ node }: { node: SplitNode }): ReactElement {
     const style: CSSProperties = { flexGrow: ratio[i] * 100, flexBasis: 0 }
     children.push(
       <div className="split-child" style={style} key={childKey(child, i)}>
-        <LayoutNodeView node={child} />
+        <LayoutNodeView node={child} order={order} />
       </div>,
     )
   })

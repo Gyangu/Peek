@@ -5,20 +5,33 @@
  * or a driver crash affects only that connection and leaves the main window
  * untouched, and killing the process is what a forced cancel means.
  *
- * This file deliberately does one thing — load a driver implementation into the
- * host runtime. The control-plane protocol (HostInbound / HostOutbound) and
- * data-plane framing both live in the driver package's host-runtime.ts, which
- * imports no Electron and can therefore be unit-tested without it.
+ * This file deliberately does one thing — hand the driver implementations to the
+ * host runtime. The control-plane protocol (HostInbound / HostOutbound) and the
+ * data-plane framing both live in core's `driver-host.ts`, which imports no
+ * Electron and can therefore be unit-tested without it. Everything
+ * Electron-specific stops at `process.parentPort`, a MessagePortMain that happens
+ * to satisfy core's `HostChannel` structurally.
  *
- * Adding a driver (M3 redis / M4 qdrant / M5 mysql·sqlite): there is a single
- * driver-host.js output (see main.rollupOptions.input in electron.vite.config.ts)
- * and the host runtime dispatches on the config.driverId in the `connect` params,
- * so it is enough to import one more driver package here plus one line in
- * connections/registry.ts on the main side.
+ * There is a single `driver-host.js` output (see `main.rollupOptions.input` in
+ * electron.vite.config.ts) shared by every connection, because the runtime picks
+ * a driver out of the list below by the `driverId` carried in the `connect`
+ * params. Adding a database is therefore one more entry in this array plus one
+ * row in `connections/registry.ts` — the whole of "adding a database is a package
+ * plus a line".
+ *
+ * Note that the drivers are *imported*, never started, by their own packages:
+ * a package that self-attached to `parentPort` on import would put a second
+ * runtime on the one channel and answer every request twice.
  */
-import { startDriverHost } from '@peek/driver-postgres'
+import { startDriverHostProcess } from '@peek/core'
+import { postgresDriver } from '@peek/driver-postgres'
+import { qdrantDriver } from '@peek/driver-qdrant'
+import { redisDriver } from '@peek/driver-redis'
+import { sqlDrivers } from '@peek/driver-sql'
 
-// The driver package self-starts when it detects process.parentPort; calling it
-// explicitly here is idempotent and keeps a future tree-shaking pass from
-// dropping what would otherwise look like a side-effect-only import.
-startDriverHost()
+startDriverHostProcess({
+  // `sqlDrivers` is spread rather than listed member by member: mysql and sqlite
+  // are two dialects of one driver package, and which dialects it ships is that
+  // package's business, not this file's.
+  drivers: [postgresDriver, redisDriver, qdrantDriver, ...sqlDrivers],
+})

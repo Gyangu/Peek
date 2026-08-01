@@ -12,6 +12,21 @@ export const panel: CatalogFor<PanelMessages> = {
   'panel.newQuery': '新建查询',
   'panel.objectTree': '对象树',
 
+  'panel.tabs.listLabel': '面板标签页',
+  'panel.tab.close': '关闭 {title}',
+
+  'panel.dragView': '拖拽以移动此视图',
+  'panel.drop.move': '移动到此处',
+  'panel.drop.stack': '作为标签页加入 {title}',
+  'panel.drop.tab': '插入到此处',
+  'panel.drop.split.left': '向左分屏',
+  'panel.drop.split.right': '向右分屏',
+  'panel.drop.split.top': '向上分屏',
+  'panel.drop.split.bottom': '向下分屏',
+
+  'a11y.panel.label': '面板 {index}：{title}',
+  'a11y.panel.empty': '空面板 {index}',
+
   'view.gone': '视图 {viewId} 已不存在',
 
   'view.kind.table': '表格',

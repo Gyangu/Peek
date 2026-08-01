@@ -10,7 +10,10 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --import ./src/main/bus/__tests__/ts-resolve.hooks.mjs --test \"src/main/bus/__tests__/*.test.ts\" \"src/renderer/**/__tests__/*.test.ts\""
+    "test": "node --import ./src/main/bus/__tests__/ts-resolve.hooks.mjs --test \"src/main/bus/__tests__/*.test.ts\" \"src/main/mcp/__tests__/*.test.ts\" \"src/renderer/**/__tests__/*.test.ts\"",
+    "icon": "node scripts/make-icns.mjs",
+    "package": "electron-vite build && node scripts/package-mac.mjs",
+    "install:local": "pnpm run package && node scripts/install-mac.mjs"
   },
   "dependencies": {
     "@codemirror/lang-sql": "^6.10.0",
@@ -19,6 +22,9 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@peek/core": "workspace:*",
     "@peek/driver-postgres": "workspace:*",
+    "@peek/driver-qdrant": "workspace:*",
+    "@peek/driver-redis": "workspace:*",
+    "@peek/driver-sql": "workspace:*",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.14.9",
     "codemirror": "^6.0.2",
@@ -29,6 +35,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@electron/packager": "^20.0.4",
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",

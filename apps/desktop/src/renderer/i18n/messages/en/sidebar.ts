@@ -9,6 +9,9 @@ export const sidebar = {
   'sidebar.action.tree': 'Object tree',
   'sidebar.action.query': 'Query',
   'sidebar.action.disconnect': 'Disconnect',
+  /* Shown instead of the query action on a driver with no tabularQuery capability. */
+  'sidebar.action.noQuery': 'No query language',
+  'sidebar.action.noQueryTitle': '{driverId} has no statement interface; browse it through the object tree',
 
   /* Connection status line, shown when there is no server info to show instead. */
   'sidebar.status.idle': 'Not connected',
@@ -26,13 +29,30 @@ export const sidebar = {
   'connect.cancel': 'Cancel',
   'connect.submit': 'Connect',
   'connect.connecting': 'Connecting…',
+  /* zod's own rejection, quoted verbatim next to the form. */
+  'connect.invalid': 'That is not a valid connection: {issue}',
 
-  /* Per-driver label for the primary connection field. */
-  'connect.field.postgres': 'Connection string',
-  'connect.field.mysql': 'Connection string',
-  'connect.field.sqlite': 'File path',
-  'connect.field.redis': 'Connection string',
-  'connect.field.qdrant': 'Server address',
+  /* How the connection is spelled — a URL, or one field per part. */
+  'connect.mode': 'Enter as',
+  'connect.mode.url': 'Connection string',
+  'connect.mode.fields': 'Fields',
+
+  /* Field labels. Which of these appear depends on the driver — see connectForm.ts. */
+  'connect.field.url': 'Connection string',
+  'connect.field.host': 'Host',
+  'connect.field.port': 'Port',
+  'connect.field.database': 'Database',
+  'connect.field.user': 'User',
+  'connect.field.username': 'User',
+  'connect.field.password': 'Password',
+  'connect.field.ssl': 'Use TLS',
+  'connect.field.tls': 'Use TLS',
+  /* redis numbers its logical databases; the index is chosen per client, not per URL. */
+  'connect.field.db': 'Database index',
+  'connect.field.file': 'Database file',
+  'connect.field.readOnly': 'Open read-only',
+  'connect.field.qdrantUrl': 'Server address',
+  'connect.field.apiKey': 'API key',
 } as const
 
 export type SidebarMessages = typeof sidebar

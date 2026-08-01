@@ -23,7 +23,19 @@ export interface DriverRegistration {
   capabilities: readonly Capability[]
 }
 
-/** M1 registers postgres only */
+/**
+ * Every driver the app can open a connection to.
+ *
+ * `capabilities` is quoted from `DRIVER_CAPABILITIES` rather than restated: core
+ * asserts the same table against the live driver object when `connect` runs, so a
+ * hand-written list here could promise the UI a capability the driver does not
+ * implement and only fail at connect time.
+ *
+ * The rows are deliberately uniform. All five share one `entryFile` because there
+ * is a single driver-host bundle that dispatches on `config.driverId`; if some
+ * future driver needs a process of its own (a native extension, say), only that
+ * row's `entryFile` changes.
+ */
 export const DRIVER_REGISTRY: Readonly<Partial<Record<DriverId, DriverRegistration>>> = {
   postgres: {
     driverId: 'postgres',
@@ -31,9 +43,30 @@ export const DRIVER_REGISTRY: Readonly<Partial<Record<DriverId, DriverRegistrati
     entryFile: 'driver-host.js',
     capabilities: DRIVER_CAPABILITIES.postgres,
   },
-  // M3: redis:  { driverId: 'redis',  displayName: 'Redis',  entryFile: 'driver-host.js', capabilities: DRIVER_CAPABILITIES.redis },
-  // M4: qdrant: { driverId: 'qdrant', displayName: 'Qdrant', entryFile: 'driver-host.js', capabilities: DRIVER_CAPABILITIES.qdrant },
-  // M5: mysql / sqlite follow the same pattern
+  redis: {
+    driverId: 'redis',
+    displayName: 'Redis',
+    entryFile: 'driver-host.js',
+    capabilities: DRIVER_CAPABILITIES.redis,
+  },
+  qdrant: {
+    driverId: 'qdrant',
+    displayName: 'Qdrant',
+    entryFile: 'driver-host.js',
+    capabilities: DRIVER_CAPABILITIES.qdrant,
+  },
+  mysql: {
+    driverId: 'mysql',
+    displayName: 'MySQL',
+    entryFile: 'driver-host.js',
+    capabilities: DRIVER_CAPABILITIES.mysql,
+  },
+  sqlite: {
+    driverId: 'sqlite',
+    displayName: 'SQLite',
+    entryFile: 'driver-host.js',
+    capabilities: DRIVER_CAPABILITIES.sqlite,
+  },
 }
 
 export function lookupDriver(driverId: DriverId): DriverRegistration | null {

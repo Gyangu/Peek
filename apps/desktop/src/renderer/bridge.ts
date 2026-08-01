@@ -1,6 +1,7 @@
 import type {
   ConnId,
   KeyValueResult,
+  KeyValueWindow,
   NamespaceNode,
   PeekBridge,
   PeekedValue,
@@ -71,8 +72,8 @@ export interface PeekBridgeExtras {
     ref: ValueRef,
     range?: { offset: number; length: number },
   ): Promise<PeekedValue>
-  /** Maps to HostRpcMap['keyvalue.get']. */
-  getKeyValue(connId: ConnId, ref: ValueRef): Promise<KeyValueResult>
+  /** Maps to HostRpcMap['keyvalue.get']; `window` pages a large structure. */
+  getKeyValue(connId: ConnId, ref: ValueRef, window?: KeyValueWindow): Promise<KeyValueResult>
 }
 
 type ExtraName = keyof PeekBridgeExtras
@@ -87,6 +88,7 @@ function extra<K extends ExtraName>(name: K): PeekBridgeExtras[K] | null {
 export const bridgeExtras = {
   hasIntrospect: (): boolean => extra('introspect') !== null,
   hasPeekValue: (): boolean => extra('peekValue') !== null,
+  hasKeyValue: (): boolean => extra('getKeyValue') !== null,
 
   introspect(connId: ConnId, parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]> {
     const fn = extra('introspect')
@@ -104,9 +106,9 @@ export const bridgeExtras = {
     return fn(connId, ref, range)
   },
 
-  getKeyValue(connId: ConnId, ref: ValueRef): Promise<KeyValueResult> {
+  getKeyValue(connId: ConnId, ref: ValueRef, window?: KeyValueWindow): Promise<KeyValueResult> {
     const fn = extra('getKeyValue')
     if (!fn) return Promise.reject(new Error('The bridge exposes no getKeyValue channel'))
-    return fn(connId, ref)
+    return fn(connId, ref, window)
   },
 } as const

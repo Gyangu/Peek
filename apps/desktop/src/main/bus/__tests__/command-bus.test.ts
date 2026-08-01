@@ -202,7 +202,9 @@ test('view.open table: starts a scan automatically and lands the view in the foc
   assert.equal(state.views[res.data.viewId].status, 'loading')
   assert.equal(state.results[res.data.resultId!].status, 'running')
   assert.equal(state.focusedPanel, h.rootPanel)
-  assert.equal(collectPanels(state.layout)[0].viewId, res.data.viewId)
+  const panel = collectPanels(state.layout)[0]
+  assert.deepEqual(panel.viewIds, [res.data.viewId])
+  assert.equal(panel.activeViewId, res.data.viewId, 'the view it opened is the view on screen')
 })
 
 test('view.open: with the connection not ready, nothing is fetched and the view sits quietly at idle', async () => {
@@ -222,7 +224,7 @@ test('view.open: with the connection not ready, nothing is fetched and the view 
   assert.equal(h.store.getState().views[res.data.viewId].status, 'idle')
 })
 
-test('view.open replace=false: an occupied panel is split rather than overwritten', async () => {
+test('view.open replace=false: an occupied panel gains a tab rather than being split', async () => {
   const h = harness()
   const connId = await connect(h)
   const first = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
@@ -235,12 +237,39 @@ test('view.open replace=false: an occupied panel is split rather than overwritte
   if (!first.ok || !second.ok) return
 
   const state = h.store.getState()
-  assert.equal(Object.keys(state.views).length, 2)
-  assert.equal(collectPanels(state.layout).length, 2)
-  assert.notEqual(first.data.panelId, second.data.panelId)
+  assert.equal(Object.keys(state.views).length, 2, 'nothing was closed')
+  assert.equal(collectPanels(state.layout).length, 1, 'and no panel was created')
+  assert.equal(second.data.panelId, first.data.panelId)
+
+  const panel = collectPanels(state.layout)[0]
+  assert.deepEqual(panel.viewIds, [first.data.viewId, second.data.viewId], 'appended at the end')
+  assert.equal(panel.activeViewId, second.data.viewId, 'and shown')
 })
 
-test('view.open over the same panel: the old view is closed', async () => {
+test('view.open: splitting off a new panel is layout.split, which still says so', async () => {
+  const h = harness()
+  const connId = await connect(h)
+  const first = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
+  assert.equal(first.ok, true)
+  if (!first.ok) return
+
+  const split = await h.bus.dispatch(
+    'layout.split',
+    { panelId: h.rootPanel, dir: 'row', view: { kind: 'tree', connId } },
+    'ui',
+  )
+  assert.equal(split.ok, true)
+  if (!split.ok) return
+
+  const panels = collectPanels(h.store.getState().layout)
+  assert.equal(panels.length, 2)
+  assert.notEqual(split.data.panelId, first.data.panelId)
+  assert.deepEqual(panels[0].viewIds, [first.data.viewId], 'the original panel kept its single tab')
+  assert.deepEqual(panels[1].viewIds, [split.data.viewId!])
+  assert.equal(panels[1].activeViewId, split.data.viewId)
+})
+
+test('view.open over the same panel: the default appends a tab and keeps the old view', async () => {
   const h = harness()
   const connId = await connect(h)
   const first = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
@@ -249,9 +278,40 @@ test('view.open over the same panel: the old view is closed', async () => {
   if (!first.ok || !second.ok) return
 
   const state = h.store.getState()
-  assert.equal(Object.keys(state.views).length, 1)
-  assert.equal(state.views[first.data.viewId], undefined)
+  assert.equal(Object.keys(state.views).length, 2)
+  assert.ok(state.views[first.data.viewId], 'the first view is still open, just behind the second')
   assert.equal(collectPanels(state.layout).length, 1)
+
+  const panel = collectPanels(state.layout)[0]
+  assert.deepEqual(panel.viewIds, [first.data.viewId, second.data.viewId])
+  assert.equal(panel.activeViewId, second.data.viewId)
+})
+
+test('view.open replace=true: the active view is closed and the new one takes its tab position', async () => {
+  const h = harness()
+  const connId = await connect(h)
+  const a = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
+  const b = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
+  assert.equal(a.ok && b.ok, true)
+  if (!a.ok || !b.ok) return
+
+  // Go back to the first tab, then replace it: the replacement must land in slot 0,
+  // not at the end, or the tab bar reshuffles under the user's cursor.
+  const back = await h.bus.dispatch('view.activate', { viewId: a.data.viewId }, 'ui')
+  assert.equal(back.ok, true)
+
+  const c = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId }, replace: true }, 'ui')
+  assert.equal(c.ok, true)
+  if (!c.ok) return
+
+  const state = h.store.getState()
+  assert.equal(Object.keys(state.views).length, 2)
+  assert.equal(state.views[a.data.viewId], undefined, 'the view that was showing is gone')
+  assert.equal(collectPanels(state.layout).length, 1)
+
+  const panel = collectPanels(state.layout)[0]
+  assert.deepEqual(panel.viewIds, [c.data.viewId, b.data.viewId], 'it took slot 0, it did not append')
+  assert.equal(panel.activeViewId, c.data.viewId)
 })
 
 test('view.update: paging refetches and invalidates the old continuation cursor', async () => {
@@ -450,8 +510,54 @@ test('view.close: the panel stays and the running result set is cancelled along 
   assert.equal(res.ok, true)
   if (!res.ok) return
   assert.equal(res.data.panelId, h.rootPanel)
+  assert.equal(res.data.activatedViewId, null, 'nothing took over — that was the last tab')
   assert.deepEqual(h.calls.cancel, [run.data.resultId])
-  assert.equal(collectPanels(h.store.getState().layout)[0].viewId, null)
+
+  const panel = collectPanels(h.store.getState().layout)[0]
+  assert.deepEqual(panel.viewIds, [])
+  assert.equal(panel.activeViewId, null)
+})
+
+test('view.close: closing the active tab hands the panel to its right neighbour', async () => {
+  const h = harness()
+  const connId = await connect(h)
+  const a = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
+  const b = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
+  const c = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
+  assert.equal(a.ok && b.ok && c.ok, true)
+  if (!a.ok || !b.ok || !c.ok) return
+
+  const back = await h.bus.dispatch('view.activate', { viewId: b.data.viewId }, 'ui')
+  assert.equal(back.ok, true)
+
+  const res = await h.bus.dispatch('view.close', { viewId: b.data.viewId }, 'ui')
+  assert.equal(res.ok, true)
+  if (!res.ok) return
+  assert.equal(res.data.panelId, h.rootPanel)
+  assert.equal(res.data.activatedViewId, c.data.viewId, 'right neighbour, not left, not the first tab')
+
+  const panel = collectPanels(h.store.getState().layout)[0]
+  assert.deepEqual(panel.viewIds, [a.data.viewId, c.data.viewId])
+  assert.equal(panel.activeViewId, c.data.viewId)
+})
+
+test('view.close: closing a background tab leaves the screen exactly as it was', async () => {
+  const h = harness()
+  const connId = await connect(h)
+  const a = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
+  const b = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
+  assert.equal(a.ok && b.ok, true)
+  if (!a.ok || !b.ok) return
+
+  // `b` is showing; close `a`, which is behind it.
+  const res = await h.bus.dispatch('view.close', { viewId: a.data.viewId }, 'ui')
+  assert.equal(res.ok, true)
+  if (!res.ok) return
+  assert.equal(res.data.activatedViewId, b.data.viewId, 'the visible view never changed')
+
+  const panel = collectPanels(h.store.getState().layout)[0]
+  assert.deepEqual(panel.viewIds, [b.data.viewId])
+  assert.equal(panel.activeViewId, b.data.viewId)
 })
 
 /* ------------------------------------------------------------------ */
@@ -503,9 +609,35 @@ test('layout.close: closing the last panel merely empties it, and its view close
 
   const state = h.store.getState()
   assert.equal(collectPanels(state.layout).length, 1)
-  assert.equal(collectPanels(state.layout)[0].viewId, null)
+  const panel = collectPanels(state.layout)[0]
+  assert.deepEqual(panel.viewIds, [])
+  assert.equal(panel.activeViewId, null)
   assert.deepEqual(state.views, {})
   assert.equal(state.focusedPanel, h.rootPanel)
+})
+
+test('layout.close: the whole tab stack goes, not just the visible one', async () => {
+  const h = harness()
+  const connId = await connect(h)
+  const split = await h.bus.dispatch('layout.split', { panelId: h.rootPanel, dir: 'row' }, 'ui')
+  assert.equal(split.ok, true)
+  if (!split.ok) return
+
+  const a = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId }, panelId: split.data.panelId }, 'ui')
+  const b = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId }, panelId: split.data.panelId }, 'ui')
+  assert.equal(a.ok && b.ok, true)
+  if (!a.ok || !b.ok) return
+
+  const res = await h.bus.dispatch('layout.close', { panelId: split.data.panelId }, 'ui')
+  assert.equal(res.ok, true)
+  if (!res.ok) return
+  // Reading only the active view here would leave `a` in `views`, leaking its
+  // connection and its result set with no panel left to reach it from.
+  assert.deepEqual(res.data.closedViewIds, [a.data.viewId, b.data.viewId])
+
+  const state = h.store.getState()
+  assert.deepEqual(state.views, {})
+  assert.equal(collectPanels(state.layout).length, 1)
 })
 
 test('layout.setRatio: a mismatched ratio length yields BAD_REQUEST', async () => {

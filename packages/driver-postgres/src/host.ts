@@ -54,8 +54,17 @@ export function startDriverHost(): void {
   host.announceReady(process.pid)
 }
 
-// Self-starts when executed directly as a utilityProcess entry; importing it as a
-// module does nothing.
-if (getParentPort() !== null) {
-  startDriverHost()
-}
+/*
+ * There is deliberately **no self-start on import** here.
+ *
+ * It used to read `if (getParentPort() !== null) startDriverHost()`, which was
+ * harmless while postgres was the only driver: the host entry imported this
+ * package and nothing else. It stops being harmless the moment the entry serves
+ * several drivers through core's `startDriverHostProcess`, because importing
+ * `postgresDriver` would then attach *two* runtimes to the same parentPort and
+ * every request would be answered twice.
+ *
+ * Importing a driver package must have no side effects. The entry decides what
+ * runs — it calls `startDriverHost()` explicitly if it wants this legacy runtime,
+ * or (as of M3) hands `postgresDriver` to core's runtime instead.
+ */

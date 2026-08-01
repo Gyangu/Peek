@@ -1,10 +1,15 @@
 /**
  * Workspace summary rendering.
  *
- * read_workspace exists so the AI can "see" the current UI: where each panel sits, its view
- * kind, which database it is connected to, which table or query it shows, how many rows it has
- * and whether it is still loading. The summary must stay compact — **never inline result set
- * data**, only its metadata (ResultMeta).
+ * read_workspace exists so the AI can "see" the current UI: where each panel sits, which views
+ * are stacked in it as tabs and which one of them is on screen, which database each is connected
+ * to, which table or query it shows, how many rows it has and whether it is still loading. The
+ * summary must stay compact — **never inline result set data**, only its metadata (ResultMeta).
+ *
+ * Since a panel became a stack of tabs, every rendering here distinguishes *mounted* from
+ * *visible*. Reporting only the active tab would be compact and wrong: the background tabs are
+ * open, hold connections and result sets, and are addressable by id, so a caller told nothing
+ * about them concludes they were closed.
  */
 
 import {
@@ -66,6 +71,18 @@ export interface ViewBrief {
   status: ViewSummary['status']
   connId: string
   connLabel: string
+  /** The panel holding this view; null means it is open but mounted nowhere. */
+  panelId: string | null
+  /**
+   * Whether a human can actually see this view right now — i.e. it is its panel's
+   * active tab.
+   *
+   * Reported explicitly because with tabs "mounted in a panel" stopped meaning "on
+   * screen". A reader that keeps equating the two will confidently describe a table
+   * that is sitting behind five other tabs, and the AI is the reader most likely to
+   * do it, because that equivalence held for every earlier version of this brief.
+   */
+  visible: boolean
   result?: ResultBrief
   error?: string
 }
@@ -75,7 +92,13 @@ export interface PanelBrief {
   /** Position within the layout tree, e.g. 'root' or 'root.0.1'. */
   path: string
   focused: boolean
-  view: ViewBrief | null
+  /**
+   * The panel's tabs, left to right. **The order is the tab-bar order** (P6) and is
+   * reported exactly as stored — never sorted. Empty for an empty panel.
+   */
+  views: ViewBrief[]
+  /** The one tab on screen; null exactly when `views` is empty (P1). */
+  activeViewId: string | null
 }
 
 export interface WorkspaceBrief {
@@ -85,6 +108,16 @@ export interface WorkspaceBrief {
   connections: ConnBrief[]
   /** Metadata for active/recent result sets (never the data itself). */
   results: ResultBrief[]
+  /**
+   * Views that exist but sit in no panel.
+   *
+   * `unplaced: 'keep'` on layout.setLayout produces them, and nothing else in this
+   * brief mentions them: they are in no panel, so `panels` cannot show them, and a
+   * reader would conclude they had been closed. They are still open, still holding
+   * a connection and a result set, and `move_view` / `set_layout` can bring them
+   * back — all of which is unusable information if it is invisible.
+   */
+  unplacedViews: ViewBrief[]
   /** The raw layout tree (with each split's dir/ratio/id, which layout.setRatio needs). */
   layout: LayoutNode
 }
@@ -170,16 +203,25 @@ export function buildWorkspaceBrief(
   panelPaths(snap.layout, 'root', paths)
 
   const panels: PanelBrief[] = want('layout')
-    ? collectPanels(snap.layout).map((p) => {
-        const view = p.viewId === null ? undefined : viewById.get(String(p.viewId))
-        return {
-          panelId: String(p.id),
-          path: paths.get(p.id) ?? 'root',
-          focused: snap.focusedPanel === p.id,
-          view: view === undefined ? null : briefView(view, connById, resultById),
-        }
-      })
+    ? collectPanels(snap.layout).map((p) => ({
+        panelId: String(p.id),
+        path: paths.get(p.id) ?? 'root',
+        focused: snap.focusedPanel === p.id,
+        // Mapped over `viewIds` rather than filtered out of `snap.views`, because the
+        // tab order is the panel's order and rebuilding it from the view table would
+        // silently substitute insertion order for it.
+        views: p.viewIds.flatMap((viewId) => {
+          const view = viewById.get(String(viewId))
+          return view === undefined ? [] : [briefView(view, connById, resultById)]
+        }),
+        activeViewId: p.activeViewId === null ? null : String(p.activeViewId),
+      }))
     : []
+
+  const unplacedViews: ViewBrief[] =
+    want('layout') || want('views')
+      ? snap.views.filter((v) => v.panelId === null).map((v) => briefView(v, connById, resultById))
+      : []
 
   return {
     rev: snap.rev,
@@ -187,6 +229,7 @@ export function buildWorkspaceBrief(
     panels,
     connections: want('connections') ? snap.connections.map(briefConnection) : [],
     results: want('results') ? snap.results.map(briefResult) : [],
+    unplacedViews,
     layout: snap.layout,
   }
 }
@@ -206,6 +249,8 @@ function briefView(
     status: v.status,
     connId: String(v.connId),
     connLabel: conn?.label ?? '(unknown connection)',
+    panelId: v.panelId === null ? null : String(v.panelId),
+    visible: v.visible,
     ...(result === undefined ? {} : { result: briefResult(result) }),
     ...(v.error === undefined ? {} : { error: `${v.error.code}: ${v.error.message}` }),
   }
@@ -222,8 +267,7 @@ export function briefViews(snap: WorkspaceSnapshot): ViewBrief[] {
 /* 3. Text rendering                                                    */
 /* ================================================================== */
 
-function viewLine(view: ViewBrief | null): string {
-  if (view === null) return '(empty panel)'
+function viewLine(view: ViewBrief): string {
   const bits = [view.kind, view.describe, `conn=${view.connLabel}`, `status=${view.status}`]
   if (view.result) {
     bits.push(`rows=${view.result.rows}`)
@@ -239,39 +283,89 @@ function viewLine(view: ViewBrief | null): string {
   return bits.join(' · ')
 }
 
+/**
+ * One line per tab.
+ *
+ * Every tab is listed, including the single-tab case which could have been folded
+ * back onto the panel line. Two shapes for one thing would be the whole cost of
+ * the compaction: a reader has to learn both, and the one it is most likely to
+ * misread is the one where the marker is absent because there was nothing to
+ * distinguish. `[active]` appears in exactly the same place either way.
+ */
+function tabLines(views: readonly ViewBrief[], activeViewId: string | null, indent: string): string[] {
+  return views.map((view, i) => {
+    const active = view.viewId === activeViewId ? ' [active]' : ''
+    return `${indent}#${String(i + 1)} ${view.viewId}${active} · ${viewLine(view)}`
+  })
+}
+
+/** `panel_a · 2 tabs` / `panel_b · empty (0 tabs)` — the panel's own line, tabs excluded. */
+function panelHead(panelId: string, focused: boolean, tabCount: number): string {
+  const focus = focused ? ' [focused]' : ''
+  const tabs = tabCount === 0 ? 'empty (0 tabs)' : `${String(tabCount)} tab${tabCount === 1 ? '' : 's'}`
+  return `panel ${panelId}${focus} · ${tabs}`
+}
+
 /** An ASCII layout tree — the most direct way to tell the AI what the UI looks like. */
 export function renderLayoutOutline(snap: WorkspaceSnapshot): string {
-  const views = new Map(briefViews(snap).map((v) => [v.viewId, v]))
+  const brief = buildWorkspaceBrief(snap, ['layout'])
+  const panelById = new Map(brief.panels.map((p) => [p.panelId, p]))
   const lines: string[] = []
 
   const walk = (node: LayoutNode, prefix: string, isLast: boolean, depth: number): void => {
     const branch = depth === 0 ? '' : `${prefix}${isLast ? '└─ ' : '├─ '}`
+    const childPrefix = depth === 0 ? '' : `${prefix}${isLast ? '   ' : '│  '}`
     if (node.type === 'panel') {
-      const view = node.viewId === null ? null : (views.get(String(node.viewId)) ?? null)
-      const focus = snap.focusedPanel === node.id ? ' [focused]' : ''
-      lines.push(`${branch}panel ${String(node.id)}${focus} · ${viewLine(view)}`)
+      const panel = panelById.get(String(node.id))
+      lines.push(
+        `${branch}${panelHead(String(node.id), snap.focusedPanel === node.id, panel?.views.length ?? 0)}`,
+      )
+      lines.push(...tabLines(panel?.views ?? [], panel?.activeViewId ?? null, `${childPrefix}   `))
       return
     }
     const ratio = node.ratio.map((r) => r.toFixed(2)).join('/')
     lines.push(`${branch}split ${String(node.id)} dir=${node.dir} ratio=${ratio}`)
-    const childPrefix = depth === 0 ? '' : `${prefix}${isLast ? '   ' : '│  '}`
     node.children.forEach((child, i) => {
       walk(child, childPrefix, i === node.children.length - 1, depth + 1)
     })
   }
 
   walk(snap.layout, '', true, 0)
+
+  // Views with no panel are part of the answer to "what is open", and the tree
+  // above structurally cannot show them. Printing the line even when the count is
+  // zero keeps its absence from being ambiguous.
+  const unplaced = snap.views.filter((v) => v.panelId === null)
+  lines.push(
+    unplaced.length === 0
+      ? 'unplaced: 0 view(s)'
+      : `unplaced: ${String(unplaced.length)} view(s) — ${unplaced.map((v) => String(v.id)).join(', ')}`,
+  )
+
   return lines.join('\n')
 }
 
-/** The minimal one-line-per-panel variant, appended to the receipts of write tools. */
+/**
+ * The minimal one-line-per-panel variant, appended to the receipts of write tools.
+ *
+ * Every tab id is named — a receipt whose only claim about a panel is what its
+ * active tab shows would hide the tab that was just pushed into the background,
+ * which after a stacking drop is precisely the view the caller was working with.
+ * The detail line still describes the active tab alone; the ids are what a follow-up
+ * call needs.
+ */
 export function renderPanelBrief(snap: WorkspaceSnapshot): string {
-  const views = new Map(briefViews(snap).map((v) => [v.viewId, v]))
-  return collectPanels(snap.layout)
+  const brief = buildWorkspaceBrief(snap, ['layout'])
+  return brief.panels
     .map((p) => {
-      const view = p.viewId === null ? null : (views.get(String(p.viewId)) ?? null)
-      const focus = snap.focusedPanel === p.id ? ' [focused]' : ''
-      return `- ${String(p.id)}${focus}: ${viewLine(view)}`
+      const focus = p.focused ? ' [focused]' : ''
+      if (p.views.length === 0) return `- ${p.panelId}${focus}: empty panel (0 tabs)`
+      const tabs = p.views
+        .map((v) => `${v.viewId}${v.viewId === p.activeViewId ? ' (active)' : ''}`)
+        .join(', ')
+      const active = p.views.find((v) => v.viewId === p.activeViewId)
+      const showing = active === undefined ? '' : ` · showing ${viewLine(active)}`
+      return `- ${p.panelId}${focus}: ${String(p.views.length)} tab(s) [${tabs}]${showing}`
     })
     .join('\n')
 }

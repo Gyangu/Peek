@@ -10,6 +10,7 @@ import type {
   HostParams,
   HostResult,
   KeyValueResult,
+  KeyValueWindow,
   NamespaceNode,
   NotifyLevel,
   PeekError,
@@ -113,8 +114,12 @@ export interface ConnectionEffects {
   /** Start a vector search; returns a resultId */
   vectorSearch(connId: ConnId, params: HostParams<'vector.search'>): Promise<StartResultOutcome>
 
-  /** Fetch a typed value by key (the redis inspector) */
-  getValue(connId: ConnId, ref: ValueRef): Promise<KeyValueResult>
+  /**
+   * Fetch a typed value by key (the redis inspector).
+   * `window` pages a large structure; omitted asks the driver for its default
+   * first window (see KeyValueReadOptions).
+   */
+  getValue(connId: ConnId, ref: ValueRef, window?: KeyValueWindow): Promise<KeyValueResult>
 
   /** Fetch a large value in full, on demand */
   peekValue(

@@ -1,11 +1,19 @@
 import type { Draft } from 'immer'
 import {
   DEFAULT_PAGE_LIMIT,
+  MAX_LAYOUT_DEPTH,
+  MAX_LAYOUT_PANELS,
+  MAX_PANEL_TABS,
   collectionRefLabel,
+  countPanels,
   findPanel,
+  layoutDepth,
+  overflowingPanel,
+  panelTabIndex,
   type Capability,
   type ConnId,
   type ConnectionState,
+  type LayoutNode,
   type PanelId,
   type PanelNode,
   type QueryViewState,
@@ -21,11 +29,77 @@ import {
 import { plain } from '../../store/workspace-store'
 import { putView, removeView, runningResultOf, startResult } from '../../store/mutations'
 import { failMsg } from '../failure'
-import { firstEmptyPanel, firstPanel, setPanelView, splitPanel } from '../layout-ops'
+import { firstEmptyPanel, firstPanel, mountViewInPanel } from '../layout-ops'
 import type { ReduceCtx } from '../types'
 
 /** Default topK for a vector view */
 const DEFAULT_TOP_K = 10
+
+/* ================================================================== */
+/* Writing the layout back onto a draft                                */
+/* ================================================================== */
+
+/**
+ * Guard every panel-creating operation, not just the declarative one.
+ *
+ * The caps are a property of the tree (MAX_LAYOUT_PANELS in core), so enforcing
+ * them on `layout.setLayout` alone would let a loop of `layout.split` — or of
+ * `view.open` with `replace: false`, which splits a panel of its own accord —
+ * walk straight past them. It lives here rather than in handlers/layout.ts so
+ * that `openView` can reach it without a cycle.
+ */
+export function assertWithinLimits(layout: LayoutNode): void {
+  if (countPanels(layout) > MAX_LAYOUT_PANELS) {
+    failMsg('CONFLICT', 'error.layout.tooManyPanels', { max: MAX_LAYOUT_PANELS })
+  }
+  if (layoutDepth(layout) > MAX_LAYOUT_DEPTH) {
+    failMsg('CONFLICT', 'error.layout.tooDeep', { max: MAX_LAYOUT_DEPTH })
+  }
+}
+
+/**
+ * Guard the per-panel tab cap (P5) at every entry point that can add a tab.
+ *
+ * Same argument as `assertWithinLimits`, and it needs its own function because
+ * the two caps are reached by different commands: stacking views onto one panel
+ * (`view.open` with the new `replace: false` default, `layout.moveView`, a
+ * `layout.setLayout` leaf) creates no panels at all and so walks straight past
+ * the panel-count guard.
+ *
+ * The core primitives deliberately do **not** enforce this — they are total
+ * functions, and `insertPanelTab` returning "no" would force every caller to
+ * handle a failure that is really a policy decision. The handler is the gate.
+ */
+export function assertPanelTabsWithinLimit(layout: LayoutNode): void {
+  if (overflowingPanel(layout) !== null) {
+    failMsg('CONFLICT', 'error.layout.tooManyTabs', { max: MAX_PANEL_TABS })
+  }
+}
+
+/**
+ * Install a layout tree onto the draft — but only when it really is a different
+ * tree.
+ *
+ * The guard is not an optimisation, it is a correctness requirement, and the
+ * reason is a sharp edge in immer's patch generation:
+ *
+ * every handler starts with `plain(draft.layout)`, and reading that property
+ * makes immer create a child draft for it. Assigning the *base* object back over
+ * that child draft hits immer's "you assigned the original value" branch, which
+ * records `assigned_['layout'] = false` — and `false` means **removed** to the
+ * patch generator. The result is a `{ op: 'remove', path: ['layout'] }` patch
+ * even though nothing changed. Main's own state stays perfectly correct, so
+ * nothing fails here; the renderer applies the patch, `workspace.layout` becomes
+ * `undefined`, and the first component to walk the tree throws.
+ *
+ * The no-op tree operations (`moveViewToPanel` and `splitPanelWithView` on the
+ * panel a view already occupies, invariant I6) return their argument by
+ * identity precisely so this comparison can be a reference check.
+ */
+export function writeLayout(draft: Draft<Workspace>, next: LayoutNode): void {
+  if (plain(draft.layout) === next) return
+  draft.layout = next as Draft<Workspace>['layout']
+}
 
 /* ================================================================== */
 /* Lookups and validation                                              */
@@ -100,8 +174,33 @@ export function resolvePanel(draft: Draft<Workspace>, panelId?: PanelId): PanelN
 
 export interface OpenViewOptions {
   panelId?: PanelId
-  /** When the target panel already holds a view: true replaces it, false splits off a new panel. Default true. */
+  /**
+   * What to do about the target panel's current contents. **Both the default and
+   * the meaning of `false` changed with tabs.**
+   *
+   * - `false` (**the new default**) appends the view as another tab. Nothing is
+   *   closed and no panel is created. It used to mean "split off a new panel",
+   *   which stopped being a sensible fallback the moment a panel could hold more
+   *   than one view: clicking a table in the sidebar had to choose between
+   *   destroying the open one and halving the window, and tabs exist to answer
+   *   exactly that.
+   * - `true` closes the panel's **active** view and puts the new one in its tab
+   *   position — "reuse this slot", which is what a re-run into the same pane
+   *   wants. Note it takes the slot rather than appending, so the tab bar does
+   *   not reshuffle under the user's cursor.
+   */
   replace?: boolean
+  /** Insert position in the tab bar; omitted means append. Ignored when `replace` is true. */
+  index?: number
+  /**
+   * Show the view once it is mounted (default true).
+   *
+   * Internal to the bus, not a Command field: `view.open` always shows what it
+   * opened. `layout.setLayout` is the one caller that needs otherwise, because a
+   * leaf's `activeViewId` decides which of its tabs is visible and the views it
+   * opens must not each take over the panel as they are appended.
+   */
+  activate?: boolean
   /** Default true */
   focus?: boolean
   /** Run a query view as soon as it opens */
@@ -119,29 +218,31 @@ export function openView(
   requireConnection(draft, spec.connId)
 
   const target = resolvePanel(draft, opts.panelId)
-  let panelId: PanelId = target.id
+  const panelId: PanelId = target.id
 
-  if (target.viewId !== null) {
-    if (opts.replace === false) {
-      const outcome = splitPanel(plain(draft.layout), {
-        panelId: target.id,
-        dir: 'row',
-        newPanelId: ctx.ids.panel(),
-        newSplitId: ctx.ids.split(),
-      })
-      if (!outcome) failMsg('INTERNAL', 'error.panel.splitFailed', { panelId: target.id })
-      draft.layout = outcome.layout as Draft<Workspace>['layout']
-      panelId = outcome.panelId
-    } else {
-      closeView(draft, target.viewId, ctx)
-    }
+  // `replace` takes the departing view's tab position rather than appending, so
+  // the slot the user was looking at is the slot the new view appears in. The
+  // index has to be read before the close, because closing shifts everything
+  // after it left by one.
+  let index = opts.index
+  if (opts.replace === true && target.activeViewId !== null) {
+    index = panelTabIndex(target, target.activeViewId)
+    closeView(draft, target.activeViewId, ctx)
   }
 
   const view = buildViewState(spec, ctx.ids.view())
   putView(draft, view)
 
-  const layout = setPanelView(plain(draft.layout), panelId, view.id)
-  if (layout) draft.layout = layout as Draft<Workspace>['layout']
+  const layout = mountViewInPanel(plain(draft.layout), panelId, view.id, {
+    ...(index === undefined ? {} : { index }),
+    activate: opts.activate !== false,
+  })
+  if (layout) {
+    // Opening no longer creates panels, so the panel-count cap cannot be reached
+    // from here — but the tab cap now can, from every `view.open` a model makes.
+    assertPanelTabsWithinLimit(layout)
+    writeLayout(draft, layout)
+  }
   if (opts.focus !== false) draft.focusedPanel = panelId
 
   const resultId = autoFetch(draft, view.id, ctx, opts.run === true)
@@ -150,16 +251,35 @@ export function openView(
   return result
 }
 
+export interface CloseViewOutcome {
+  /** The panel the view was detached from; null when it was not mounted anywhere */
+  panelId: PanelId | null
+  /**
+   * The tab that took over, by the succession rule — right neighbour, then left,
+   * then null for a panel that is now empty.
+   *
+   * **The panel itself always survives**, emptied when that was its last tab.
+   * Removing a panel is `layout.close`'s job; making the last ⌘W behave
+   * differently from the ones before it would be a surprise, and an empty panel
+   * has been an ordinary thing in peek since before tabs (`⌘\` produces one).
+   */
+  activatedViewId: ViewId | null
+}
+
 /** Close a view: detach it from its panel, drop it from `views`, cancel any result it still has running. */
-export function closeView(draft: Draft<Workspace>, viewId: ViewId, ctx: ReduceCtx): PanelId | null {
+export function closeView(draft: Draft<Workspace>, viewId: ViewId, ctx: ReduceCtx): CloseViewOutcome {
   const view = draft.views[viewId]
-  if (!view) return null
+  if (!view) return { panelId: null, activatedViewId: null }
   const running = runningResultOf(draft, viewId)
   if (running !== null) {
     // Best effort: a failed cancel must not stop the view from closing.
     ctx.plan({ type: 'cancel', connId: view.connId, resultId: running, soft: true })
   }
-  return removeView(draft, viewId)
+  const panelId = removeView(draft, viewId)
+  if (panelId === null) return { panelId: null, activatedViewId: null }
+  // Read the succession result off the tree rather than recomputing it: whatever
+  // `removePanelTab` decided is by definition what the user is now looking at.
+  return { panelId, activatedViewId: findPanel(plain(draft.layout), panelId)?.activeViewId ?? null }
 }
 
 function buildViewState(spec: ViewOpenSpec, id: ViewId): ViewState {
@@ -181,13 +301,23 @@ function buildViewState(spec: ViewOpenSpec, id: ViewId): ViewState {
     case 'tree':
       return { ...base, kind: 'tree', expanded: spec.expanded ?? [] }
     case 'vector':
+      // The driver contract is "exactly one of queryVec / queryPointId", so a
+      // spec carrying both is rejected here rather than at the driver: by then
+      // the view exists, is mounted, and its first fetch fails for a reason the
+      // caller cannot see from the workspace.
+      if (spec.queryVec !== undefined && spec.queryPointId !== undefined) {
+        failMsg('BAD_REQUEST', 'error.vector.queryRequired')
+      }
       return {
         ...base,
         kind: 'vector',
         collection: spec.collection,
         ...(spec.queryVec ? { queryVec: spec.queryVec } : {}),
+        ...(spec.queryPointId === undefined ? {} : { queryPointId: spec.queryPointId }),
         ...(spec.queryText ? { queryText: spec.queryText } : {}),
+        ...(spec.vectorName === undefined ? {} : { vectorName: spec.vectorName }),
         topK: spec.topK ?? DEFAULT_TOP_K,
+        ...(spec.scoreThreshold === undefined ? {} : { scoreThreshold: spec.scoreThreshold }),
         ...(spec.filter ? { filter: spec.filter } : {}),
       }
   }
@@ -214,7 +344,10 @@ export function autoFetch(
     case 'table':
       return canFetch(draft, view.connId, 'collectionScan') ? startScan(draft, view, ctx) : undefined
     case 'vector':
-      return view.queryVec !== undefined && canFetch(draft, view.connId, 'vectorSearch')
+      // Either query entry point will do; with neither the driver would reject
+      // the search, so the view simply stays idle until one is filled in.
+      return (view.queryVec !== undefined || view.queryPointId !== undefined)
+        && canFetch(draft, view.connId, 'vectorSearch')
         ? startVectorSearch(draft, view, ctx)
         : undefined
     case 'query':
@@ -302,8 +435,18 @@ export function startVectorSearch(
     viewId: view.id,
     resultId,
     collection: view.collection,
-    ...(view.queryVec ? { queryVec: plain(view.queryVec) } : {}),
+    // `queryPointId` wins when both are somehow set. The view keeps them
+    // exclusive (buildViewState rejects a spec with both, applyViewPatch clears
+    // the other one), so this is a belt-and-braces tie-break rather than a
+    // policy: sending both is a BAD_REQUEST at the driver.
+    ...(view.queryPointId !== undefined
+      ? { queryPointId: view.queryPointId }
+      : view.queryVec
+        ? { queryVec: plain(view.queryVec) }
+        : {}),
+    ...(view.vectorName === undefined ? {} : { vectorName: view.vectorName }),
     topK: view.topK,
+    ...(view.scoreThreshold === undefined ? {} : { scoreThreshold: view.scoreThreshold }),
     ...(view.filter ? { filter: plain(view.filter) } : {}),
   })
   return resultId

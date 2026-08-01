@@ -35,7 +35,13 @@
       "@peek/core": ["./packages/core/src/index.ts"],
       "@peek/core/*": ["./packages/core/src/*"],
       "@peek/driver-postgres": ["./packages/driver-postgres/src/index.ts"],
-      "@peek/driver-postgres/*": ["./packages/driver-postgres/src/*"]
+      "@peek/driver-postgres/*": ["./packages/driver-postgres/src/*"],
+      "@peek/driver-redis": ["./packages/driver-redis/src/index.ts"],
+      "@peek/driver-redis/*": ["./packages/driver-redis/src/*"],
+      "@peek/driver-qdrant": ["./packages/driver-qdrant/src/index.ts"],
+      "@peek/driver-qdrant/*": ["./packages/driver-qdrant/src/*"],
+      "@peek/driver-sql": ["./packages/driver-sql/src/index.ts"],
+      "@peek/driver-sql/*": ["./packages/driver-sql/src/*"]
     }
   }
 }

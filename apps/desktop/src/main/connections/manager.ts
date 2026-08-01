@@ -16,6 +16,7 @@ import {
   type HostParams,
   type HostResult,
   type KeyValueResult,
+  type KeyValueWindow,
   type NamespaceNode,
   type NotifyLevel,
   type PeekError,
@@ -367,11 +368,23 @@ export class ConnectionManager implements ConnectionEffects {
   /* Single values                                                     */
   /* ---------------------------------------------------------------- */
 
-  async getValue(connId: ConnId, ref: ValueRef): Promise<KeyValueResult> {
+  async getValue(connId: ConnId, ref: ValueRef, window?: KeyValueWindow): Promise<KeyValueResult> {
     const entry = this.requireReady(connId)
     this.requireCapability(entry, 'keyValue')
     try {
-      const res = await entry.host.call('keyvalue.get', { ref }, this.timeouts.rpcMs)
+      const res = await entry.host.call(
+        'keyvalue.get',
+        {
+          ref,
+          // Spread field by field rather than `...window`: the host params are a
+          // closed shape, and a stray key from the renderer must not ride along.
+          ...(window?.limit === undefined ? {} : { limit: window.limit }),
+          ...(window?.offset === undefined ? {} : { offset: window.offset }),
+          ...(window?.cursorToken === undefined ? {} : { cursorToken: window.cursorToken }),
+          ...(window?.match === undefined ? {} : { match: window.match }),
+        },
+        this.timeouts.rpcMs,
+      )
       return res.value
     } catch (raw) {
       throw classifyExecError(raw)

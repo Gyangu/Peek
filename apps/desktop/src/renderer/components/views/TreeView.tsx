@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import type { ReactElement } from 'react'
-import type { ConnId, NamespaceNode, NamespaceNodeKind, TreeViewState } from '@peek/core'
+import type {
+  Capability,
+  ConnId,
+  NamespaceNode,
+  NamespaceNodeKind,
+  TreeViewState,
+} from '@peek/core'
 import { bridgeExtras } from '../../bridge'
 import { useT } from '../../i18n'
+import { connCapabilities } from '../../state/capabilities'
 import { dispatch } from '../../state/dispatch'
 import { invalidateConnection, loadChildren, useNodes } from '../../state/namespaceStore'
 import { useConnection } from '../../state/workspaceStore'
 import { ViewError } from '../ViewError'
+import { canVectorSearchNode, openSpecForNode } from './openTarget'
 
 /**
  * The namespace tree. **Lazily loaded**: a level is only fetched when it is
@@ -40,11 +48,27 @@ export function TreeView({ view }: { view: TreeViewState }): ReactElement {
     [viewId],
   )
 
+  // The connection's capabilities decide what a double-click means: a key in a
+  // keyValue store opens the inspector, everything else with a ref opens a scan.
+  const capabilities = conn ? connCapabilities(conn) : []
+  const capKey = capabilities.join(',')
+
   const onOpen = useCallback(
     (node: NamespaceNode) => {
-      if (!node.ref) return
+      const spec = openSpecForNode(connId, node, capabilities)
+      if (!spec) return
+      void dispatch('view.open', { spec })
+    },
+    [connId, capKey],
+  )
+
+  // "More like this" needs a query point, so it cannot be what a double-click
+  // does; it gets its own action on the node it applies to.
+  const onVectorSearch = useCallback(
+    (node: NamespaceNode) => {
+      if (node.ref?.kind !== 'vectorCollection') return
       void dispatch('view.open', {
-        spec: { kind: 'table', connId, ref: node.ref, title: node.name },
+        spec: { kind: 'vector', connId, collection: node.ref.collection, title: node.name },
       })
     },
     [connId],
@@ -76,11 +100,13 @@ export function TreeView({ view }: { view: TreeViewState }): ReactElement {
             connId={connId}
             parentId={null}
             depth={0}
+            capabilities={capabilities}
             expandedSet={expandedSet}
             selected={selected}
             onToggle={onToggle}
             onSelect={onSelect}
             onOpen={onOpen}
+            onVectorSearch={onVectorSearch}
           />
         </div>
       ) : (
@@ -96,15 +122,18 @@ interface TreeLevelProps {
   connId: ConnId
   parentId: string | null
   depth: number
+  capabilities: readonly Capability[]
   expandedSet: ReadonlySet<string>
   selected: string | undefined
   onToggle: (node: NamespaceNode) => void
   onSelect: (node: NamespaceNode) => void
   onOpen: (node: NamespaceNode) => void
+  onVectorSearch: (node: NamespaceNode) => void
 }
 
 function TreeLevel(props: TreeLevelProps): ReactElement | null {
-  const { connId, parentId, depth, expandedSet, selected, onToggle, onSelect, onOpen } = props
+  const { connId, parentId, depth, capabilities, expandedSet, selected } = props
+  const { onToggle, onSelect, onOpen, onVectorSearch } = props
   const t = useT()
   const entry = useNodes(connId, parentId)
 
@@ -158,17 +187,32 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
               <span className="tree-icon">{iconOf(node.kind)}</span>
               <span className="tree-name">{node.name}</span>
               {node.detail ? <span className="tree-detail">{node.detail}</span> : null}
+              {canVectorSearchNode(node, capabilities) ? (
+                <button
+                  className="ghost tree-action"
+                  title={t('tree.vectorSearchTitle')}
+                  onClick={(e) => {
+                    // The row's own click toggles expansion; this one must not.
+                    e.stopPropagation()
+                    onVectorSearch(node)
+                  }}
+                >
+                  {t('tree.vectorSearch')}
+                </button>
+              ) : null}
             </div>
             {open ? (
               <TreeLevel
                 connId={connId}
                 parentId={node.id}
                 depth={depth + 1}
+                capabilities={capabilities}
                 expandedSet={expandedSet}
                 selected={selected}
                 onToggle={onToggle}
                 onSelect={onSelect}
                 onOpen={onOpen}
+                onVectorSearch={onVectorSearch}
               />
             ) : null}
           </div>

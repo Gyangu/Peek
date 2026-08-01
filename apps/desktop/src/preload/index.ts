@@ -7,6 +7,7 @@ import { IPC, PEEK_BRIDGE_KEY } from '../../../../packages/core/src/ipc'
 import type {
   DriverRpcRequest,
   DriverRpcResponse,
+  KeyValueWindow,
   NotifyMessage,
   PeekBridge,
   ResultPortMessage,
@@ -199,8 +200,15 @@ function bootstrapMainWorld(internalKey: string, relayKey: string, bridgeKey: st
         bridge.driverRpc({ kind: 'peekValue', connId, ref, ...(range === undefined ? {} : { range }) }),
       )
     },
-    getKeyValue(connId: ConnId, ref: ValueRef): Promise<KeyValueResult> {
-      return unwrap<KeyValueResult>(bridge.driverRpc({ kind: 'keyValue', connId, ref }))
+    getKeyValue(connId: ConnId, ref: ValueRef, window?: KeyValueWindow): Promise<KeyValueResult> {
+      return unwrap<KeyValueResult>(
+        bridge.driverRpc({
+          kind: 'keyValue',
+          connId,
+          ref,
+          ...(window === undefined ? {} : { window }),
+        }),
+      )
     },
 
     onResultRowsRequest(handler) {
@@ -273,8 +281,15 @@ if (!bootstrapped) {
       unwrapFallback<PeekedValue>(
         internal.driverRpc({ kind: 'peekValue', connId, ref, ...(range === undefined ? {} : { range }) }),
       ),
-    getKeyValue: (connId, ref) =>
-      unwrapFallback<KeyValueResult>(internal.driverRpc({ kind: 'keyValue', connId, ref })),
+    getKeyValue: (connId, ref, window) =>
+      unwrapFallback<KeyValueResult>(
+        internal.driverRpc({
+          kind: 'keyValue',
+          connId,
+          ref,
+          ...(window === undefined ? {} : { window }),
+        }),
+      ),
     onResultRowsRequest: (handler) => internal.onResultRowsRequest(handler),
     replyResultRows: (msg) => {
       internal.replyResultRows(msg)

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    peek app icon — the source of truth for build/icon.icns.
+
+    Restraint on purpose: one dark plate, one light hue, plain geometry.
+    The glyph is a three-band database cylinder whose bands are separated by
+    plate-coloured gaps rather than strokes, so the silhouette survives being
+    scaled down to 32x32 in the Dock.
+
+    Regenerate the .icns after editing by running "pnpm icon" in this package.
+
+    Geometry: an 824x824 plate inside a 1024 canvas (Apple's icon grid).
+    Cylinder rx=250 ry=86, bands 116 tall with 32 between them; the glyph
+    spans y 220..804, which centres it on the plate.
+  -->
+
+  <!-- Plate: the same near-black the app window paints behind the UI -->
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="#171A21" />
+
+  <!-- Band 3 (bottom) -->
+  <path d="M 262 602 A 250 86 0 0 0 762 602 L 762 718 A 250 86 0 0 1 262 718 Z" fill="#E8ECF4" />
+  <!-- Band 2 (middle) -->
+  <path d="M 262 454 A 250 86 0 0 0 762 454 L 762 570 A 250 86 0 0 1 262 570 Z" fill="#E8ECF4" />
+  <!-- Band 1 (directly below the top face) -->
+  <path d="M 262 306 A 250 86 0 0 0 762 306 L 762 422 A 250 86 0 0 1 262 422 Z" fill="#E8ECF4" />
+  <!-- Top face: a touch brighter, the only tonal step in the whole mark -->
+  <ellipse cx="512" cy="306" rx="250" ry="86" fill="#F4F7FC" />
+</svg>
