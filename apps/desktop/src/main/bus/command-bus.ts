@@ -139,7 +139,11 @@ export class CommandBus {
     }
 
     try {
-      let data = this.#runStateStage(handler, input, ctx, name, source, id)
+      // Awaited only when it actually is a promise: a reducer's result must reach
+      // the effect phase in the same tick it was produced, and `await` on a plain
+      // value would insert a microtask between them for every command in the app.
+      const staged = this.#runStateStage(handler, input, ctx, name, source, id)
+      let data = staged instanceof Promise ? await staged : staged
 
       if (intents.length > 0) {
         await runIntents(intents, {
@@ -177,7 +181,7 @@ export class CommandBus {
     name: K,
     source: CommandSource,
     commandId: string,
-  ): CommandResultData<K> {
+  ): CommandResultData<K> | Promise<CommandResultData<K>> {
     if (handler.read) return handler.read(this.#store.getState(), input, ctx)
     const reduce = handler.reduce
     if (!reduce) failMsg('INTERNAL', 'error.command.notReducible', { name })

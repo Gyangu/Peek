@@ -68,6 +68,8 @@ const STUB_ENV_KEYS = [
   'STUB_DIE_ONCE_FILE',
   'STUB_SILENT',
   'STUB_TALK_MS',
+  'STUB_NO_HISTORY',
+  'STUB_SESSIONS',
 ] as const
 
 after(() => {
@@ -596,6 +598,215 @@ test('spike 3b: a live endpoint reaches session/new as a bearer descriptor, and 
       logLines,
     })
     assert.ok(!everythingElse.includes(TOKEN), 'the MCP bearer token leaked out of the session descriptor')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+/* ================================================================== */
+/* The session catalogue                                               */
+/* ================================================================== */
+
+test('a chat opened onto an existing session loads it instead of creating one', async () => {
+  const log = logPath('load')
+  const h = harness({ STUB_LOG: log })
+  try {
+    await h.manager.openChat(h.chatId, 'stub-session-old')
+
+    const methods = await methodsIn(log)
+    assert.ok(methods.includes('session/load'), 'resuming must go through session/load')
+    assert.ok(!methods.includes('session/new'), 'and must not also create a fresh session')
+
+    const params = await paramsOf(log, 'session/load')
+    assert.equal(params?.['sessionId'], 'stub-session-old')
+
+    // Deltas are batched on a time budget before they cross IPC, so the replay
+    // is in the batcher rather than in `h.deltas` the instant the load returns.
+    await sleep(300)
+
+    // The replay arrives while `session/load` is still open, so it only reaches
+    // the transcript if the reverse index was populated *before* the call. This
+    // assertion is the regression test for that ordering.
+    const text = h.deltas
+      .filter((d): d is Extract<ChatDelta, { type: 'text.append' }> => d.type === 'text.append')
+      .map((d) => d.text)
+      .join('')
+    assert.equal(
+      text,
+      'what did I ask?replayed history',
+      'history replayed during the load must land in the transcript',
+    )
+    assert.equal(h.status(), 'ready')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('the loading state is reported while a conversation is being replayed', async () => {
+  const h = harness()
+  try {
+    await h.manager.openChat(h.chatId, 'stub-session-old')
+    const statuses = h.patches.map((p) => p.status).filter(Boolean)
+    assert.ok(
+      statuses.includes('loading'),
+      'a resumed conversation reports `loading`, never `starting` — the composer says different things',
+    )
+    assert.ok(!statuses.includes('starting'))
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('a first prompt on a fresh chat still creates a session rather than loading one', async () => {
+  const log = logPath('new')
+  const h = harness({ STUB_PROMPT_MS: '50', STUB_LOG: log })
+  try {
+    await h.manager.send({ chatId: h.chatId, text: 'hello', attachments: [] })
+    await sleep(400)
+    const methods = await methodsIn(log)
+    assert.ok(methods.includes('session/new'))
+    assert.ok(!methods.includes('session/load'))
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('reopening the same conversation on a chat that already has it does not replay twice', async () => {
+  const log = logPath('load-twice')
+  const h = harness({ STUB_LOG: log })
+  try {
+    await h.manager.openChat(h.chatId, 'stub-session-old')
+    await h.manager.openChat(h.chatId, 'stub-session-old')
+    const loads = (await methodsIn(log)).filter((m) => m === 'session/load')
+    assert.equal(loads.length, 1, 'a second open of the same session is a no-op, not a second transcript')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('closing a chat detaches it and never deletes or closes the agent’s session', async () => {
+  const log = logPath('detach')
+  const h = harness({ STUB_LOG: log })
+  try {
+    await h.manager.openChat(h.chatId, 'stub-session-old')
+    h.manager.closeChat(h.chatId)
+    await sleep(100)
+
+    // The promise the session list depends on: a conversation the user closed is
+    // still on disk, still listable, still openable. See `closeChat`.
+    const methods = await methodsIn(log)
+    assert.ok(!methods.includes('session/close'), 'closing a view must not close the agent session')
+    assert.ok(!methods.includes('session/delete'), 'and must certainly not delete it')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('the catalogue lists what the agent reports, filtered to peek’s own workdir', async () => {
+  const h = harness({ STUB_SESSIONS: 'sess-a,sess-b' })
+  try {
+    const result = await h.manager.listSessions()
+    assert.equal(result.supported, true)
+    assert.deepEqual(
+      result.sessions.map((s) => s.sessionId),
+      ['sess-a', 'sess-b'],
+    )
+    assert.equal(result.sessions[0]?.title, 'title of sess-a')
+    assert.equal(result.cwd, result.sessions[0]?.cwd, 'the filter is the chat workdir, and it is reported')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('an agent that keeps no history answers `supported: false` rather than failing', async () => {
+  const log = logPath('nohistory')
+  const h = harness({ STUB_NO_HISTORY: '1', STUB_LOG: log })
+  try {
+    const result = await h.manager.listSessions()
+    assert.equal(result.supported, false)
+    assert.deepEqual(result.sessions, [])
+    // Not merely an empty answer: the request is never made, because the agent
+    // said it cannot answer it.
+    assert.ok(!(await methodsIn(log)).includes('session/list'))
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('loading against an agent with no history is refused before anything is sent', async () => {
+  const log = logPath('noload')
+  const h = harness({ STUB_NO_HISTORY: '1', STUB_LOG: log })
+  try {
+    await assert.rejects(
+      () => h.manager.openChat(h.chatId, 'sess-a'),
+      (raw: unknown) => (raw as PeekError).code === 'UNSUPPORTED_CAPABILITY',
+    )
+    assert.ok(!(await methodsIn(log)).includes('session/load'))
+    assert.equal(h.status(), 'error')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('deleting a conversation reaches the agent', async () => {
+  const log = logPath('delete')
+  const h = harness({ STUB_LOG: log })
+  try {
+    await h.manager.deleteSession('sess-a')
+    const params = await paramsOf(log, 'session/delete')
+    assert.equal(params?.['sessionId'], 'sess-a')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('a replayed conversation keeps the user’s own turns, so it is not a monologue', async () => {
+  // The regression, found by running this against the real agent rather than the
+  // stub: `user_message_chunk` was dropped unconditionally, on the reasoning that
+  // peek records the user's message itself when `chat.send` runs. True for a live
+  // turn, false for a replay — nobody ran `chat.send` in this process, possibly
+  // not on this day. What came back was Claude answering questions that were not
+  // there.
+  const h = harness()
+  try {
+    await h.manager.openChat(h.chatId, 'stub-session-old')
+    await sleep(300)
+
+    const starts = h.deltas.filter(
+      (d): d is Extract<ChatDelta, { type: 'message.start' }> => d.type === 'message.start',
+    )
+    assert.deepEqual(
+      starts.map((d) => d.message.role),
+      ['user', 'agent'],
+      'both sides of the stored conversation must come back, in order',
+    )
+    // A speaker change opens a new message even with no `messageId` to go by —
+    // otherwise the whole exchange concatenates into one bubble.
+    assert.equal(
+      h.deltas.filter((d) => d.type === 'message.end').length,
+      2,
+      'and each of them is closed, so the restored transcript does not look mid-answer',
+    )
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('a live turn still records the user’s message once, not twice', async () => {
+  // The other half of the same decision. peek appends the user's turn itself when
+  // the command runs, so the agent's echo of it during a live turn must stay
+  // dropped — a replay-shaped fix that forgot this would double every message the
+  // user sends.
+  const h = harness({ STUB_PROMPT_MS: '50' })
+  try {
+    await h.manager.send({ chatId: h.chatId, text: 'only once please', attachments: [] })
+    await sleep(500)
+
+    const userMessages = h.deltas.filter(
+      (d): d is Extract<ChatDelta, { type: 'message.start' }> =>
+        d.type === 'message.start' && d.message.role === 'user',
+    )
+    assert.equal(userMessages.length, 1, 'exactly one user bubble per turn the user actually took')
   } finally {
     await h.manager.dispose()
   }

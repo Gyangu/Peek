@@ -77,6 +77,8 @@ import {
   type ChatPermissionMode,
   type ChatRespondPermissionResult,
   type ChatSendResult,
+  type ChatSessionsDeleteResult,
+  type ChatSessionsListResult,
   type ChatSetModeResult,
   type ChatUsage,
   type ChatViewState,
@@ -129,8 +131,20 @@ const HUMAN_ONLY_MODES: ReadonlySet<ChatPermissionMode> = new Set([
  * `plain()`.
  */
 export type ChatEffect =
-  /** A conversation appeared; bring an agent session up for it (lazily is fine). */
-  | { type: 'session.open'; chatId: ChatId; viewId: ViewId; permissionMode: ChatPermissionMode }
+  /**
+   * A conversation appeared; bring an agent session up for it.
+   *
+   * Lazily is fine — **unless `resumeSessionId` is set**, in which case the view
+   * was opened to read an existing conversation and the runtime has to fetch it
+   * now. See `design/2026-08-02-chat-session-management.md` §2.4.
+   */
+  | {
+      type: 'session.open'
+      chatId: ChatId
+      viewId: ViewId
+      permissionMode: ChatPermissionMode
+      resumeSessionId?: string
+    }
   /** The conversation is gone (view closed, connection closed, layout rewritten). Tear the session down. */
   | { type: 'session.close'; chatId: ChatId }
   | {
@@ -148,22 +162,37 @@ export type ChatEffect =
   | { type: 'setMode'; chatId: ChatId; mode: ChatPermissionMode }
   /** Drop the transcript and start the agent session over. */
   | { type: 'clear'; chatId: ChatId }
+  /**
+   * Delete a stored conversation for good.
+   *
+   * The only effect in this union that destroys something outside peek, and the
+   * only one whose target is a session id rather than a `ChatId` — by the time it
+   * runs there is no conversation left in the window to name.
+   */
+  | { type: 'sessions.delete'; sessionId: string }
 
 /**
  * What the bus needs from the ACP adapter.
  *
- * Exactly one method, on purpose: every chat side effect is a `ChatEffect`, so
- * adding one is a variant of a union the compiler will make the adapter handle,
- * not a method the adapter can quietly not implement.
+ * `run` carries every **side effect**, as one union, so adding an effect is a
+ * variant the compiler will make the adapter handle rather than a method it can
+ * quietly not implement.
  *
  * **`run` must return promptly and must not reject.** The bus never awaits it (see
  * the header note on deadlock); a rejection would surface as an unhandled promise
  * rejection rather than as anything a user could act on. Report failures through
  * `ChatEventSink.onAgentError` instead, where they land on the conversation the
  * user is looking at.
+ *
+ * `listSessions` is the one thing that is **not** an effect, and it is separate
+ * for the reason effects exist at all: it has an answer. Effects are
+ * fire-and-forget precisely because nothing waits on them, and a catalogue nobody
+ * can read is not a catalogue. It is awaited by a read-only command, so unlike
+ * `run` it may reject — the caller is a dialog with somewhere to put the error.
  */
 export interface ChatRuntime {
   run(effect: ChatEffect): void | Promise<void>
+  listSessions(): Promise<ChatSessionsListResult>
 }
 
 /**
@@ -181,6 +210,10 @@ export function createUnavailableChatRuntime(): ChatRuntime {
     run: () => {
       // No agent process exists yet. Deliberately silent: see above.
     },
+    // `supported: false` rather than a rejection, and it is the honest answer:
+    // with no agent there is no catalogue, which is the same thing the dialog
+    // says for an agent that keeps no history. Both render one sentence.
+    listSessions: () => Promise.resolve({ sessions: [], supported: false, cwd: null }),
   }
 }
 
@@ -493,6 +526,8 @@ export type ChatHandlerMap = Required<
     | 'chat.detach'
     | 'chat.respondPermission'
     | 'chat.setMode'
+    | 'chat.sessions.list'
+    | 'chat.sessions.delete'
   >
 >
 
@@ -716,6 +751,44 @@ export function createChatHandlers(runtime: ChatRuntime): ChatHandlerMap {
       },
       finalize,
     },
+
+    /**
+     * The catalogue. A `read`, so no rev bump and no patch broadcast — the list
+     * belongs to the agent and is never mirrored into the Workspace.
+     *
+     * It is also the one command in peek whose read stage does I/O, which is why
+     * `CommandReader` may return a promise at all; the note there explains why the
+     * same licence is not extended to reducers.
+     */
+    'chat.sessions.list': {
+      read: (): Promise<ChatSessionsListResult> => runtime.listSessions(),
+    },
+
+    /**
+     * Delete a stored conversation.
+     *
+     * A `reduce` despite changing nothing in the Workspace, because the guard it
+     * has to make is a question about Workspace state — is anybody reading this
+     * conversation right now? — and asking that inside the synchronous state
+     * phase is what makes the answer trustworthy. A `read` would have to look at
+     * a snapshot and could be overtaken by a view opening underneath it.
+     */
+    'chat.sessions.delete': {
+      reduce(draft, input, ctx): ChatSessionsDeleteResult {
+        const open = Object.values(draft.views).find(
+          (view) => view.kind === 'chat' && view.resumeSessionId === input.sessionId,
+        )
+        if (open) {
+          failMsg('CONFLICT', 'error.chat.sessionOpen', {
+            sessionId: input.sessionId,
+            viewId: open.id,
+          })
+        }
+        planChat(ctx, { type: 'sessions.delete', sessionId: input.sessionId })
+        return { sessionId: input.sessionId }
+      },
+      finalize,
+    },
   }
 }
 
@@ -899,6 +972,7 @@ export function watchChatViews(store: WorkspaceStore, runtime: ChatRuntime): () 
         chatId,
         viewId: view.id,
         permissionMode: view.permissionMode,
+        ...(view.resumeSessionId === undefined ? {} : { resumeSessionId: view.resumeSessionId }),
       })
     }
     for (const chatId of [...known.keys()]) {
@@ -931,21 +1005,28 @@ export function buildChatViewState(
     connId?: ChatViewState['connId']
     permissionMode?: ChatPermissionMode
     title?: string
+    resumeSessionId?: string
   },
 ): ChatViewState {
+  const resuming = spec.resumeSessionId !== undefined
   return {
     id,
     kind: 'chat',
     status: 'idle',
     chatId,
     agentSessionId: null,
-    agentStatus: 'idle',
+    // A resumed conversation starts at `loading`, not `idle`, and it is set here
+    // rather than left for the runtime to patch: the view is rendered the instant
+    // this object lands, and one frame of "no messages yet" under a conversation
+    // the user just picked from a list reads as an empty chat, not a loading one.
+    agentStatus: resuming ? 'loading' : 'idle',
     permissionMode: spec.permissionMode ?? 'default',
     streamingMessageId: null,
     messageCount: 0,
     attachments: [],
     ...(spec.title ? { title: spec.title } : {}),
     ...(spec.connId === undefined ? {} : { connId: spec.connId }),
+    ...(spec.resumeSessionId === undefined ? {} : { resumeSessionId: spec.resumeSessionId }),
   }
 }
 

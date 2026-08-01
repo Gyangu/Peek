@@ -33,11 +33,24 @@ export type CommandReducer<K extends CommandName> = (
   ctx: ReduceCtx,
 ) => CommandResultData<K>
 
+/**
+ * The read-only state phase.
+ *
+ * **May be async, and `reduce` may not.** The asymmetry is the point: a reducer
+ * runs inside a synchronous immer `produce`, and that synchrony is what makes
+ * every check-and-set in the handlers race-free — an `await` in there would open
+ * a window for another command to observe half-applied state. A reader changes
+ * nothing, so it has no such window to protect, and some questions genuinely
+ * cannot be answered without I/O (`chat.sessions.list` has to ask the agent).
+ *
+ * The bus awaits the result before the effect phase; a reader that returns a
+ * plain value costs no extra tick.
+ */
 export type CommandReader<K extends CommandName> = (
   state: Workspace,
   input: CommandInput<K>,
   ctx: ReduceCtx,
-) => CommandResultData<K>
+) => CommandResultData<K> | Promise<CommandResultData<K>>
 
 export type CommandFinalizer<K extends CommandName> = (
   data: CommandResultData<K>,

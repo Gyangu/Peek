@@ -32,8 +32,28 @@ import { WorkspaceStore } from '../../store/workspace-store'
 import { CommandBus } from '../command-bus'
 import type { CommandDeps } from '../deps'
 import { coreHandlers } from '../handlers'
-import { createChatEventSink, createChatHandlers, watchChatViews, type ChatEffect } from '../handlers/chat'
+import {
+  createChatEventSink,
+  createChatHandlers,
+  watchChatViews,
+  type ChatEffect,
+  type ChatRuntime,
+} from '../handlers/chat'
 import { createSeqIdFactory } from '../ids'
+
+/**
+ * A runtime that records effects and has no catalogue.
+ *
+ * `supported: false` is what an agentless peek reports, and every test in this
+ * file is agentless — the catalogue itself is exercised where a runtime that has
+ * one is built.
+ */
+function recordingRuntime(into: ChatEffect[]): ChatRuntime {
+  return {
+    run: (effect) => void into.push(effect),
+    listSessions: () => Promise.resolve({ sessions: [], supported: false, cwd: null }),
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* Harness                                                             */
@@ -75,13 +95,7 @@ function harness(): Harness {
     now: () => 1_000,
   })
   bus.registerAll(coreHandlers)
-  bus.registerAll(
-    createChatHandlers({
-      run(effect) {
-        effects.push(effect)
-      },
-    }),
-  )
+  bus.registerAll(createChatHandlers(recordingRuntime(effects)))
   return { bus, store, effects, sink: createChatEventSink(store) }
 }
 
@@ -699,7 +713,7 @@ test('a model may still choose a stricter mode, and the change reaches the agent
 test('watchChatViews opens a session when a conversation appears and closes it when it goes', async () => {
   const h = harness()
   const seen: ChatEffect[] = []
-  const stop = watchChatViews(h.store, { run: (e) => void seen.push(e) })
+  const stop = watchChatViews(h.store, recordingRuntime(seen))
 
   const viewId = await openChat(h)
   const chatId = chatOf(h, viewId).chatId
@@ -713,14 +727,16 @@ test('watchChatViews opens a session when a conversation appears and closes it w
     seen.map((e) => e.type),
     ['session.open', 'session.close'],
   )
-  assert.equal(seen[1].chatId, chatId)
+  const closed = seen[1]
+  assert.ok(closed?.type === 'session.close')
+  assert.equal(closed.chatId, chatId)
   stop()
 })
 
 test('a conversation swept away by a whole-tree rewrite is torn down too, with no per-command hook', async () => {
   const h = harness()
   const seen: ChatEffect[] = []
-  const stop = watchChatViews(h.store, { run: (e) => void seen.push(e) })
+  const stop = watchChatViews(h.store, recordingRuntime(seen))
   await openChat(h)
 
   // `unplaced: 'close'` is the default, and it closes views nobody named — the
@@ -749,4 +765,95 @@ test('the command log tells the embedded assistant apart from a stranger and fro
     h.bus.log.entries().filter((e) => e.name === 'chat.setMode').map((e) => e.source),
     ['ui', 'agent', 'mcp'],
   )
+})
+
+/* ------------------------------------------------------------------ */
+/* The session catalogue                                               */
+/* ------------------------------------------------------------------ */
+
+test('a chat opened onto an existing session says so, and starts at `loading`', async () => {
+  const h = harness()
+  const res = await h.bus.dispatch(
+    'view.open',
+    { spec: { kind: 'chat', resumeSessionId: 'sess-a' } },
+    'ui',
+  )
+  assert.equal(res.ok, true)
+  if (!res.ok) return
+
+  const chat = chatOf(h, res.data.viewId)
+  assert.equal(chat.resumeSessionId, 'sess-a')
+  assert.equal(
+    chat.agentStatus,
+    'loading',
+    'the very first render must not look like an empty conversation the user has to type into',
+  )
+  assert.equal(chat.agentSessionId, null, 'what the user asked for is not yet what the agent confirmed')
+})
+
+test('the runtime is told which conversation to resume, not merely that one opened', async () => {
+  const h = harness()
+  const seen: ChatEffect[] = []
+  const stop = watchChatViews(h.store, recordingRuntime(seen))
+
+  await h.bus.dispatch('view.open', { spec: { kind: 'chat', resumeSessionId: 'sess-a' } }, 'ui')
+  const opened = seen[0]
+  assert.ok(opened?.type === 'session.open')
+  assert.equal(opened.resumeSessionId, 'sess-a')
+  stop()
+})
+
+test('an ordinary new conversation carries no session to resume', async () => {
+  const h = harness()
+  const seen: ChatEffect[] = []
+  const stop = watchChatViews(h.store, recordingRuntime(seen))
+
+  await openChat(h)
+  const opened = seen[0]
+  assert.ok(opened?.type === 'session.open')
+  assert.equal(opened.resumeSessionId, undefined, 'which is what keeps the session lazy for everyone else')
+  stop()
+})
+
+test('deleting a conversation hands the agent the id and closes nothing in the window', async () => {
+  const h = harness()
+  const viewId = await openChat(h)
+  const res = await h.bus.dispatch('chat.sessions.delete', { sessionId: 'sess-a' }, 'ui')
+
+  assert.equal(res.ok, true)
+  assert.deepEqual(
+    h.effects.filter((e) => e.type === 'sessions.delete'),
+    [{ type: 'sessions.delete', sessionId: 'sess-a' }],
+  )
+  // A delete is not a layout operation. The unrelated conversation the user had
+  // open stays open, which is the whole reason the command refuses rather than
+  // closes when the target *is* open.
+  assert.ok(h.store.getState().views[viewId], 'an unrelated chat view is untouched')
+})
+
+test('deleting a conversation somebody is reading is refused, and nothing is sent', async () => {
+  const h = harness()
+  await h.bus.dispatch('view.open', { spec: { kind: 'chat', resumeSessionId: 'sess-a' } }, 'ui')
+
+  const res = await h.bus.dispatch('chat.sessions.delete', { sessionId: 'sess-a' }, 'ui')
+  assert.equal(res.ok, false)
+  if (res.ok) return
+  assert.equal(res.error.code, 'CONFLICT')
+  assert.equal(
+    h.effects.filter((e) => e.type === 'sessions.delete').length,
+    0,
+    'a refused delete must not reach the agent — the transcript is still being read',
+  )
+})
+
+test('the catalogue is a read: it spends no revision and mirrors nothing', async () => {
+  const h = harness()
+  const revBefore = h.store.rev
+  const res = await h.bus.dispatch('chat.sessions.list', {}, 'ui')
+
+  assert.equal(res.ok, true)
+  if (!res.ok) return
+  assert.equal(res.data.supported, false, 'this harness has no agent, so there is no catalogue')
+  assert.deepEqual(res.data.sessions, [])
+  assert.equal(h.store.rev, revBefore)
 })

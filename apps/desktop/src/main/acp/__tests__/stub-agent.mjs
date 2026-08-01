@@ -42,6 +42,14 @@
  *                              an agent looks like while it retries an
  *                              unreachable model endpoint, and the only thing
  *                              the idle watchdog can be tested against
+ *   STUB_NO_HISTORY            do not advertise `loadSession` or any of
+ *                              `sessionCapabilities` — an ACP agent that keeps
+ *                              no transcripts. The degraded path the session
+ *                              catalogue has to render as a sentence rather
+ *                              than as an empty list
+ *   STUB_SESSIONS              comma-separated ids `session/list` reports, each
+ *                              with a title derived from the id. Empty (the
+ *                              default) is a catalogue with nothing in it
  */
 import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
@@ -50,6 +58,8 @@ const NEW_SESSION_DELAY = Number(process.env.STUB_NEW_SESSION_DELAY_MS ?? '0')
 const PROMPT_MS = Number(process.env.STUB_PROMPT_MS ?? '400')
 const LOG = process.env.STUB_LOG
 const SILENT = process.env.STUB_SILENT === '1'
+const NO_HISTORY = process.env.STUB_NO_HISTORY === '1'
+const SESSIONS = (process.env.STUB_SESSIONS ?? '').split(',').filter(Boolean)
 
 const DIE_AFTER = Number(process.env.STUB_DIE_AFTER_MS ?? '0')
 const DIE_ON_PROMPT = Number(process.env.STUB_DIE_ON_PROMPT_MS ?? '0')
@@ -130,6 +140,10 @@ async function handle(msg) {
         agentCapabilities: {
           promptCapabilities: { image: false, embeddedContext: true },
           mcpCapabilities: { http: true, sse: true },
+          // Both halves together, as the real adapter advertises them: a
+          // catalogue you cannot open is not a catalogue, and the host checks
+          // for exactly that pair.
+          ...(NO_HISTORY ? {} : { loadSession: true, sessionCapabilities: { list: {}, delete: {} } }),
         },
         agentInfo: { name: 'stub-agent', title: 'Stub', version: '0.0.0' },
         authMethods: [],
@@ -152,6 +166,49 @@ async function handle(msg) {
         },
       },
     })
+    return
+  }
+
+  if (method === 'session/load') {
+    // The ordering the real adapter has: replay the history **while the request
+    // is still open**, then answer. A client that only registers the session id
+    // from the response would have nowhere to put any of these.
+    //
+    // The user's own turn is replayed too, because the real agent replays it —
+    // a stored conversation contains both halves and the client is the only
+    // thing that can tell a replayed echo from a live one.
+    for (const [sessionUpdate, text] of [
+      ['user_message_chunk', 'what did I ask?'],
+      ['agent_message_chunk', 'replayed history'],
+    ]) {
+      write({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: { sessionId: params.sessionId, update: { sessionUpdate, content: { type: 'text', text } } },
+      })
+    }
+    write({ jsonrpc: '2.0', id, result: {} })
+    return
+  }
+
+  if (method === 'session/list') {
+    write({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        sessions: SESSIONS.map((sessionId) => ({
+          sessionId,
+          cwd: params?.cwd ?? '/nowhere',
+          title: `title of ${sessionId}`,
+          updatedAt: '2026-08-01T12:00:00.000Z',
+        })),
+      },
+    })
+    return
+  }
+
+  if (method === 'session/delete') {
+    write({ jsonrpc: '2.0', id, result: {} })
     return
   }
 

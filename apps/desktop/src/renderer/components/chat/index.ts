@@ -38,6 +38,14 @@
  */
 
 export { ChatView } from './ChatView'
+/**
+ * The catalogue rail down the right-hand side of the window. `App.tsx` mounts it
+ * as a sibling of the work area; the status bar only toggles it, through
+ * `toggleChatRail` — the collapse state is shared, so it cannot be a `useState`
+ * in either place.
+ */
+export { ChatSessionsRail } from './ChatSessionsRail'
+export { toggleChatRail, setChatRailCollapsed, useChatRailStore } from './railStore'
 
 import { installContextActionPort } from './contextPort'
 import { startChatSync } from './transcriptStore'

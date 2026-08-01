@@ -201,6 +201,21 @@ export interface ChatViewState extends ViewBase {
    * lifetimes on purpose (see `ChatIdSchema`).
    */
   agentSessionId: string | null
+  /**
+   * The session this view was opened to *resume*, when it was opened from the
+   * session list rather than as a new conversation.
+   *
+   * It is the input to a decision made once, at session-bringup time:
+   * `session/load` instead of `session/new`. It is deliberately **not** the same
+   * field as `agentSessionId` — that one reports what the agent has confirmed,
+   * this one records what the user asked for, and a load that fails must leave
+   * the difference visible rather than claim a session that never came up.
+   *
+   * Its presence also cancels the lazy-session policy for this view alone: a
+   * conversation opened to be read has to fetch itself without waiting for a
+   * prompt that may never come.
+   */
+  resumeSessionId?: string
   agentStatus: ChatAgentStatus
   /** Permission mode in effect. peek defaults to a restrictive one, never `bypassPermissions`. */
   permissionMode: ChatPermissionMode

@@ -3,10 +3,11 @@ import type { ViewState } from '@peek/core'
 import { RESULT_CACHE_MAX_BYTES, collectPanels, collectionRefLabel, describeView, findPanel } from '@peek/core'
 import { isMacPlatform, shortcutHints } from '../hooks'
 import { LOCALES, setLocale, useLocale, useT, type TFunction } from '../i18n'
-import { useBusyStore } from '../state/dispatch'
+import { dispatch, useBusyStore } from '../state/dispatch'
 import { useCacheStats, useResult } from '../state/useResult'
 import { useWorkspace, useWorkspaceStore } from '../state/workspaceStore'
 import { formatBytes, formatCount, formatMs } from '../util/format'
+import { toggleChatRail, useChatRailStore } from './chat'
 import { ErrorCenterButton } from './error-center/ErrorCenter'
 
 /**
@@ -72,6 +73,11 @@ export function StatusBar(): ReactElement {
       ) : null}
 
       <span className="grow" />
+
+      {/* The window's only always-reachable way into a conversation. Everything
+          else that opens one needs an *empty* panel to put it in, which is a
+          state a user stops having about a minute after they start working. */}
+      <ChatEntry />
 
       {inflight > 0 ? <span className="seg">{t('status.inflight', { count: inflight })}</span> : null}
 
@@ -266,5 +272,50 @@ function LanguageSwitch(): ReactElement {
     >
       {next.label}
     </button>
+  )
+}
+
+/**
+ * New conversation, and the switch for the conversation rail.
+ *
+ * Two buttons rather than one, because they answer two different questions —
+ * "let me ask something" and "where did that conversation go" — and folding the
+ * first into a menu would put a click in front of the commonest one. The rail's
+ * own header carries a `＋` of its own; this one is what makes a new
+ * conversation reachable while the rail is collapsed.
+ *
+ * They live in the status bar because that is the only surface in peek that is
+ * always present regardless of what the layout is doing. The pre-existing entry
+ * points were both conditional on emptiness (an empty panel, or no connections
+ * at all), which meant the feature disappeared exactly when the window started
+ * being useful.
+ *
+ * A new conversation is opened with no `panelId`: `view.open` then puts it in the
+ * focused panel, which is where the user is looking.
+ */
+function ChatEntry(): ReactElement {
+  const t = useT()
+  const collapsed = useChatRailStore((s) => s.collapsed)
+
+  return (
+    <>
+      <button
+        className="ghost seg"
+        title={t('chat.sessions.new')}
+        onClick={() => {
+          void dispatch('view.open', { spec: { kind: 'chat' } })
+        }}
+      >
+        {t('chat.sessions.new')}
+      </button>
+      <button
+        className="ghost seg"
+        title={t('chat.sessions.railToggleTitle')}
+        aria-pressed={!collapsed}
+        onClick={toggleChatRail}
+      >
+        {t('chat.sessions.title')}
+      </button>
+    </>
   )
 }

@@ -120,6 +120,17 @@ export interface AcpTimeouts {
   /** `initialize` doubles as the ready handshake: no answer means no usable agent. */
   initializeMs: number
   newSessionMs: number
+  /**
+   * `session/load`. Longer than `newSessionMs` on purpose: the request does not
+   * return until the agent has replayed the whole transcript, so what it bounds
+   * grows with the length of the conversation being opened rather than with the
+   * cost of a handshake.
+   */
+  loadSessionMs: number
+  /** `session/list`; a directory read on the agent's side, so a short budget. */
+  listSessionsMs: number
+  /** `session/delete`; likewise a file operation, not model work. */
+  deleteSessionMs: number
   /** `session/set_mode`; a failure here is not fatal but must not hang. */
   setModeMs: number
   /**
@@ -183,6 +194,9 @@ export interface AcpTimeouts {
 export const DEFAULT_ACP_TIMEOUTS: AcpTimeouts = {
   initializeMs: 30_000,
   newSessionMs: 60_000,
+  loadSessionMs: 120_000,
+  listSessionsMs: 15_000,
+  deleteSessionMs: 15_000,
   setModeMs: 10_000,
   promptIdleMs: 90_000,
   promptMaxMs: 1_800_000,

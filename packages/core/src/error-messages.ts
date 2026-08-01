@@ -96,6 +96,13 @@ export const ERROR_MESSAGES = {
   'error.chat.attachConnMissing': 'Cannot attach a schema: connection {connId} is not open',
   'error.chat.attachmentNotStaged': 'Attachment {attachmentId} is not staged on this conversation',
   'error.chat.noPendingPermission': 'The conversation is not waiting for a permission decision',
+  /**
+   * Deleting a conversation somebody is reading. Refused rather than obeyed:
+   * see `ChatSessionsDeleteResult` for why the delete does not close the view
+   * itself.
+   */
+  'error.chat.sessionOpen':
+    'Conversation {sessionId} is open in view {viewId}; close it before deleting',
   'error.chat.permissionStale':
     'Permission request {requestId} is no longer the one being asked (it is now {actual}); read the conversation again',
   'error.chat.permissionOptionUnknown': 'No such permission option {optionId}; the choices are {options}',

@@ -53,7 +53,13 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
    * pill still says `Error`; the input stays live, because trying again is
    * exactly what the user should do.
    */
-  const notReady = view.agentStatus === 'starting' || view.agentStatus === 'authenticating'
+  const notReady =
+    view.agentStatus === 'starting' ||
+    view.agentStatus === 'authenticating' ||
+    // Replaying an existing conversation. Grouped with the bringup states rather
+    // than with `streaming`: there is no turn to stop, so `busy` would put a stop
+    // button over a conversation that is only being read off disk.
+    view.agentStatus === 'loading'
   const failed = view.agentStatus === 'error'
 
   const onSend = useCallback(
@@ -191,6 +197,7 @@ type StatusKey =
   | 'chat.status.idle'
   | 'chat.status.starting'
   | 'chat.status.authenticating'
+  | 'chat.status.loading'
   | 'chat.status.ready'
   | 'chat.status.streaming'
   | 'chat.status.awaiting-permission'
@@ -212,6 +219,8 @@ function statusKey(status: ChatAgentStatus): StatusKey {
       return 'chat.status.starting'
     case 'authenticating':
       return 'chat.status.authenticating'
+    case 'loading':
+      return 'chat.status.loading'
     case 'ready':
       return 'chat.status.ready'
     case 'streaming':

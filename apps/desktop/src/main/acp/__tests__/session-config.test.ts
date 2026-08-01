@@ -86,15 +86,27 @@ test('inherited MCP servers are dropped without touching peek’s own descriptor
   assert.deepEqual(agentOptions()['mcpServers'], {})
 })
 
-test('`session/new` is actually given the sandbox', () => {
+test('both ways of bringing a session up are given the sandbox', () => {
   // A source-level check on purpose: the object above is only a security boundary
-  // if it reaches `newSession`, and nothing else in this suite can spawn an agent
-  // to observe that. Both halves have to move together or this goes red.
+  // if it reaches the agent, and nothing else in this suite can spawn one to
+  // observe that. Both halves have to move together or this goes red.
+  //
+  // `session/load` is checked beside `session/new` because a resumed conversation
+  // is exactly as much of a sandbox question as a fresh one — it runs the same
+  // tools with the same permissions, and an unsandboxed load would inherit the
+  // user's global Claude Code configuration just as surely.
   const manager = readFileSync(fileURLToPath(new URL('../manager.ts', import.meta.url)), 'utf8')
-  const call = manager.slice(manager.indexOf('connection.newSession({'))
-  assert.ok(call.startsWith('connection.newSession({'), 'newSession is no longer called as an object literal')
-  const body = call.slice(0, call.indexOf('}),'))
-  assert.match(body, /_meta:\s*buildAgentSessionMeta\(\)/, 'newSession must carry the sandbox')
+  assert.match(
+    manager,
+    /const _meta = buildAgentSessionMeta\(\)/,
+    'the sandbox must come from buildAgentSessionMeta, not be assembled inline',
+  )
+  for (const method of ['newSession', 'loadSession']) {
+    const call = manager.slice(manager.indexOf(`connection.${method}({`))
+    assert.ok(call.startsWith(`connection.${method}({`), `${method} is no longer called as an object literal`)
+    const body = call.slice(0, call.indexOf('})'))
+    assert.match(body, /\b_meta\b/, `${method} must carry the sandbox`)
+  }
 })
 
 function agentOptions(): Record<string, unknown> {

@@ -120,6 +120,7 @@ export const errors: CatalogFor<ErrorMessageCatalog> = {
   'error.chat.attachConnMissing': '无法附加表结构：连接 {connId} 未打开',
   'error.chat.attachmentNotStaged': '附件 {attachmentId} 不在这个对话的待发送列表里',
   'error.chat.noPendingPermission': '对话当前没有待授权的请求',
+  'error.chat.sessionOpen': '对话 {sessionId} 正在视图 {viewId} 中打开，先关掉它再删除',
   'error.chat.permissionStale': '授权请求 {requestId} 已经不是当前那一条（现在是 {actual}），请重新读取对话',
   'error.chat.permissionOptionUnknown': '没有 {optionId} 这个授权选项，可选：{options}',
   'error.chat.modeNotAllowed': '授权模式 {mode} 只能由本人在界面上选择，{source} 无权切换',

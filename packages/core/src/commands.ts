@@ -10,7 +10,13 @@ import {
   type DriverId,
   type ServerInfo,
 } from './capability'
-import { CHAT_PERMISSION_MODES, type ChatAgentStatus, type ChatAttachment, type ChatPermissionMode } from './chat'
+import {
+  CHAT_PERMISSION_MODES,
+  type ChatAgentStatus,
+  type ChatAttachment,
+  type ChatPermissionMode,
+  type ChatSessionInfo,
+} from './chat'
 import { MAX_PAGE_LIMIT } from './chunk'
 import { peekErrorMsg, type PeekError } from './errors'
 import {
@@ -59,6 +65,8 @@ export const COMMAND_NAMES = [
   'chat.detach',
   'chat.respondPermission',
   'chat.setMode',
+  'chat.sessions.list',
+  'chat.sessions.delete',
   'state.read',
   'conn.book.list',
   'conn.book.forget',
@@ -248,6 +256,21 @@ export const ChatViewSpecSchema = z.object({
   /** Stage context on the new conversation before its first prompt. */
   attachments: z.array(ChatAttachmentSpecSchema).max(MAX_CHAT_ATTACHMENTS).optional(),
   title: z.string().optional(),
+  /**
+   * Open this view onto an **existing** agent session instead of a new one — the
+   * id comes from `chat.sessions.list`.
+   *
+   * Two things change when it is present, and both are stated in
+   * `design/2026-08-02-chat-session-management.md`: the agent is asked to
+   * `session/load` rather than `session/new`, and the session is brought up
+   * immediately rather than on the first prompt (a conversation opened to be read
+   * cannot wait for a prompt that may never come).
+   *
+   * An id that no longer exists is a failed load reported on the conversation,
+   * not a rejected command: the catalogue is the agent's and it can change
+   * between the list and the click.
+   */
+  resumeSessionId: z.string().min(1).optional(),
 })
 
 /** Input spec for view.open: no id, because main generates it */
@@ -890,6 +913,31 @@ export const ChatSetModeInputSchema = z.object({
   mode: ChatPermissionModeSchema,
 })
 
+/**
+ * Read the agent's catalogue of past conversations.
+ *
+ * A read-only command, with `conn.book.list` as its precedent: it changes no
+ * Workspace state and exists to answer a question the window has to ask before
+ * it can draw anything. The answer is not mirrored into Workspace either —
+ * it belongs to the agent, it can change without peek's involvement, and a copy
+ * kept in sync through patches would buy nothing.
+ */
+export const ChatSessionsListInputSchema = z.object({})
+
+/**
+ * Delete one of the agent's stored conversations.
+ *
+ * The **only** destructive command in the chat family, and the only one that
+ * reaches outside peek's own state: what it destroys is a transcript the agent
+ * wrote under its working directory. It is deliberately absent from the MCP tool
+ * surface (`mcp/tools/` has no file for it) — an embedded agent that can delete
+ * its own history, or its neighbours', is an attack surface with no matching
+ * benefit.
+ */
+export const ChatSessionsDeleteInputSchema = z.object({
+  sessionId: z.string().min(1),
+})
+
 export const StateReadInputSchema = z.object({
   /** Ask for only the parts you need, to save tokens; omit for everything */
   include: z.array(z.enum(['layout', 'views', 'connections', 'results'])).optional(),
@@ -973,6 +1021,8 @@ export const commandSchemas = {
   'chat.detach': ChatDetachInputSchema,
   'chat.respondPermission': ChatRespondPermissionInputSchema,
   'chat.setMode': ChatSetModeInputSchema,
+  'chat.sessions.list': ChatSessionsListInputSchema,
+  'chat.sessions.delete': ChatSessionsDeleteInputSchema,
   'state.read': StateReadInputSchema,
   'conn.book.list': ConnBookListInputSchema,
   'conn.book.forget': ConnBookForgetInputSchema,
@@ -1209,6 +1259,38 @@ export interface ChatSetModeResult extends ChatResultBase {
   previousMode: ChatPermissionMode
 }
 
+/**
+ * The agent's conversation catalogue.
+ *
+ * `supported: false` is a first-class answer, not an error. An ACP agent is not
+ * obliged to advertise `loadSession`, and one that does not simply has no
+ * catalogue to offer — the UI owes the user that sentence rather than an empty
+ * list, which would read as "you have never had a conversation".
+ */
+export interface ChatSessionsListResult {
+  sessions: ChatSessionInfo[]
+  /** Whether this agent advertises session history at all. */
+  supported: boolean
+  /** The working directory the catalogue was read from; peek's own chat workdir. */
+  cwd: string | null
+}
+
+/**
+ * The receipt says what peek accepted, not what the agent has finished.
+ *
+ * A conversation that is **open in a view** is refused with CONFLICT rather than
+ * closed on the user's behalf: closing panels as a side effect of a delete makes
+ * one click do two things, and the one it does silently is the one that loses
+ * work. The window says "close it first", which is a sentence, not a surprise.
+ *
+ * Past that check the deletion runs as an effect, so this receipt cannot report
+ * its outcome — a failure arrives as a notification and the conversation simply
+ * reappears the next time the list is opened.
+ */
+export interface ChatSessionsDeleteResult {
+  sessionId: string
+}
+
 export interface StateReadResult {
   snapshot: WorkspaceSnapshot
 }
@@ -1334,6 +1416,8 @@ export interface CommandResultMap {
   'chat.detach': ChatDetachResult
   'chat.respondPermission': ChatRespondPermissionResult
   'chat.setMode': ChatSetModeResult
+  'chat.sessions.list': ChatSessionsListResult
+  'chat.sessions.delete': ChatSessionsDeleteResult
   'state.read': StateReadResult
   'conn.book.list': ConnBookListResult
   'conn.book.forget': ConnBookForgetResult

@@ -20,6 +20,7 @@ export const chat = {
   'chat.status.idle': 'Idle',
   'chat.status.starting': 'Starting the agent…',
   'chat.status.authenticating': 'Signing in…',
+  'chat.status.loading': 'Loading the conversation…',
   'chat.status.ready': 'Ready',
   'chat.status.streaming': 'Replying…',
   'chat.status.awaiting-permission': 'Waiting for you',
@@ -151,6 +152,31 @@ export const chat = {
   'chat.gap.command':
     'The Command Bus has no “{name}” command yet, so this action cannot be sent. Nothing was changed.',
   'chat.error.title': 'The agent reported an error',
+
+  /* ---- The session catalogue --------------------------------------- */
+  'chat.sessions.title': 'Conversations',
+  'chat.sessions.railToggleTitle': 'Show or hide the conversation list',
+  'chat.sessions.collapse': 'Collapse the conversation list',
+  'chat.sessions.expand': 'Show the conversation list',
+  'chat.sessions.new': 'New conversation',
+  'chat.sessions.loading': 'Reading the conversation list…',
+  'chat.sessions.empty': 'No conversations yet.',
+  'chat.sessions.emptyHint': 'Start one and it will show up here, even after peek restarts.',
+  /* Not an empty list: the agent in use keeps no history at all, which is a
+   * different sentence and has to read like one. */
+  'chat.sessions.unsupported': 'This agent keeps no conversation history.',
+  'chat.sessions.unsupportedHint':
+    'Reopening past conversations needs an agent that advertises session history; this one does not, so nothing is stored to list.',
+  'chat.sessions.untitled': 'Untitled conversation',
+  'chat.sessions.open': 'Open',
+  'chat.sessions.openTitle': 'Reopen this conversation in the focused panel',
+  'chat.sessions.inUse': 'Already open',
+  'chat.sessions.inUseTitle': 'This conversation is open in a panel already',
+  'chat.sessions.delete': 'Delete',
+  'chat.sessions.deleteConfirm': 'Delete for good?',
+  'chat.sessions.deleteTitle': 'Delete this conversation from disk',
+  'chat.sessions.refresh': 'Refresh',
+  'chat.sessions.failed': 'Could not read the conversation list',
 } as const
 
 export type ChatMessages = typeof chat

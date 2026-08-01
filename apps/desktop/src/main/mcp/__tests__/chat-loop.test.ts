@@ -74,7 +74,14 @@ function harness(): Harness {
   const store = new WorkspaceStore(createEmptyWorkspace(asPanelId('panel_root')))
   const bus = new CommandBus({ store, deps: inertDeps, ids: createSeqIdFactory(), now: () => 1_000 })
   bus.registerAll(coreHandlers)
-  bus.registerAll(createChatHandlers({ run: (e) => void effects.push(e) }))
+  bus.registerAll(
+    createChatHandlers({
+      run: (e) => void effects.push(e),
+      // No agent in this harness, so no catalogue — the same answer peek gives
+      // before the ACP host is assembled.
+      listSessions: () => Promise.resolve({ sessions: [], supported: false, cwd: null }),
+    }),
+  )
 
   const ctx: ToolContext = {
     // 'agent' throughout: this file exercises the embedded assistant's path, which

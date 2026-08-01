@@ -570,6 +570,36 @@ test('an agent crash does not lock the composer', () => {
   assert.match(view, /chat\.retry\.hint/)
 })
 
+test('a conversation being replayed disables the composer without claiming a turn', () => {
+  // `loading` is the state a view opened from the session list sits in while the
+  // agent replays its transcript. Two things have to be true at once and they
+  // pull in opposite directions: the box must not accept a message yet (the
+  // session is not up), and no stop button may appear (there is no turn to
+  // stop). Grouping it with `starting` gets both; grouping it with `streaming`
+  // would get neither.
+  const view = code('../ChatView.tsx')
+  const notReady = /const notReady =([^\n]*(?:\n(?!\s*const)[^\n]*)*)/.exec(view)?.[1] ?? ''
+  assert.match(notReady, /'loading'/, 'a replaying conversation must not take a message yet')
+  const busy = /const busy =([^\n]*)/.exec(view)?.[1] ?? ''
+  assert.doesNotMatch(busy, /'loading'/, 'and must not show a stop button for a turn that does not exist')
+})
+
+test('every agent status the contract declares has something to say in both locales', () => {
+  // The failure this catches is silent: a new `ChatAgentStatus` member renders as
+  // its own key, or as nothing, and only in the state that is hardest to
+  // reproduce. `statusKey` is exhaustive by type; the catalogs are not.
+  const statuses = /export type ChatAgentStatus =([\s\S]*?)\n\n/.exec(
+    src('../../../../../../../packages/core/src/chat.ts'),
+  )?.[1]
+  assert.ok(statuses, 'ChatAgentStatus is no longer a plain union; this rule needs rewriting')
+  const members = [...statuses.matchAll(/'([a-z-]+)'/g)].map((m) => m[1])
+  assert.ok(members.length >= 7, `expected the full union, found ${members.join(', ')}`)
+  for (const member of members) {
+    assert.ok(`chat.status.${member}` in chatEn, `en has no wording for status ${member}`)
+    assert.ok(`chat.status.${member}` in chatZhCN, `zh-CN has no wording for status ${member}`)
+  }
+})
+
 test('the panel writes no state of its own', () => {
   // Every mutation is a Command. The only exception is the draft in Composer,
   // which is not state until it is sent.

@@ -317,6 +317,7 @@ function buildViewState(spec: ViewOpenSpec, ctx: ReduceCtx): ViewState {
       ...(spec.connId === undefined ? {} : { connId: spec.connId }),
       ...(spec.permissionMode === undefined ? {} : { permissionMode: spec.permissionMode }),
       ...(spec.title === undefined ? {} : { title: spec.title }),
+      ...(spec.resumeSessionId === undefined ? {} : { resumeSessionId: spec.resumeSessionId }),
     })
   }
   const base = { id, connId: spec.connId, status: 'idle' as const, ...(spec.title ? { title: spec.title } : {}) }

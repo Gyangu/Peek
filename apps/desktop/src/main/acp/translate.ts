@@ -42,6 +42,7 @@ import {
   type ChatId,
   type ChatMessage,
   type ChatMessageId,
+  type ChatRole,
   type ChatUsage,
   type PeekError,
   type ToolCallContent,
@@ -169,6 +170,34 @@ export class TranscriptTranslator {
   #currentText = ''
   #messageCount = 0
   #tools = new Map<string, ToolCallRecord>()
+  /** Who the open message belongs to. Only a replay ever makes this `user`. */
+  #currentRole: ChatRole = 'agent'
+  /**
+   * Whether the updates arriving right now are a **replay** of a stored
+   * conversation rather than a live turn.
+   *
+   * It changes exactly one decision — what to do with `user_message_chunk` — and
+   * that decision genuinely has two right answers depending on where the update
+   * came from. See `handle`.
+   */
+  #replaying = false
+
+  /**
+   * Mark the boundaries of a `session/load` replay.
+   *
+   * Called by the host around the request, not inferred from the traffic: an
+   * agent may keep sending updates after the load returns, and a heuristic that
+   * guessed from message shape would eventually swallow a live user echo or
+   * duplicate one. The flag is set by the code that knows, because it is the code
+   * that asked.
+   */
+  beginReplay(): void {
+    this.#replaying = true
+  }
+
+  endReplay(): void {
+    this.#replaying = false
+  }
 
   readonly chatId: ChatId
   readonly #now: () => number
@@ -190,6 +219,7 @@ export class TranscriptTranslator {
   reset(): TranslationOutput {
     this.#currentMessageId = null
     this.#currentAcpMessageId = null
+    this.#currentRole = 'agent'
     this.#currentText = ''
     this.#messageCount = 0
     this.#tools.clear()
@@ -254,9 +284,18 @@ export class TranscriptTranslator {
       case 'agent_thought_chunk':
         return this.#appendChunk('thought.append', contentBlockText(update.content), update.messageId ?? null)
       case 'user_message_chunk':
-        // The agent echoing the user's own turn back. peek already recorded it
-        // when the command ran; replaying it would duplicate the bubble.
-        return { deltas: [], state: {}, ignored: 'user_message_chunk' }
+        // Two opposite right answers, decided by where the update came from.
+        //
+        // **Live:** the agent is echoing back the turn peek itself recorded when
+        // `chat.send` ran. Keeping it would draw the user's message twice.
+        //
+        // **Replay:** peek recorded nothing — the conversation happened in a
+        // previous run of the app, possibly on a previous day. Dropping it here
+        // leaves a transcript in which Claude answers questions nobody appears
+        // to have asked, which is what this branch used to do and what the
+        // real-agent check caught.
+        if (!this.#replaying) return { deltas: [], state: {}, ignored: 'user_message_chunk' }
+        return this.#appendChunk('text.append', contentBlockText(update.content), update.messageId ?? null, 'user')
       case 'tool_call':
         return this.#toolCall(update)
       case 'tool_call_update':
@@ -320,9 +359,16 @@ export class TranscriptTranslator {
    * agent may emit several distinct messages, and collapsing them into one bubble
    * would merge separate answers.
    */
-  #ensureMessage(acpMessageId: string | null): ChatDelta[] {
+  #ensureMessage(acpMessageId: string | null, role: ChatRole): ChatDelta[] {
+    // A change of speaker always starts a new message, even when the agent sent
+    // no `messageId` to distinguish them. Without this test a replayed
+    // conversation whose updates carry no ids would concatenate the whole
+    // exchange — question, answer, next question — into one bubble attributed to
+    // whoever spoke first.
     const sameMessage =
-      this.#currentMessageId !== null && (acpMessageId === null || acpMessageId === this.#currentAcpMessageId)
+      this.#currentMessageId !== null &&
+      this.#currentRole === role &&
+      (acpMessageId === null || acpMessageId === this.#currentAcpMessageId)
     if (sameMessage) return []
 
     const deltas: ChatDelta[] = []
@@ -337,19 +383,25 @@ export class TranscriptTranslator {
     const id = newChatMessageId()
     this.#currentMessageId = id
     this.#currentAcpMessageId = acpMessageId
+    this.#currentRole = role
     this.#currentText = ''
     this.#messageCount += 1
     deltas.push({
       type: 'message.start',
       chatId: this.chatId,
-      message: { id, role: 'agent', blocks: [], createdAt: this.#now(), complete: false },
+      message: { id, role, blocks: [], createdAt: this.#now(), complete: false },
     })
     return deltas
   }
 
-  #appendChunk(type: 'text.append' | 'thought.append', text: string, acpMessageId: string | null): TranslationOutput {
+  #appendChunk(
+    type: 'text.append' | 'thought.append',
+    text: string,
+    acpMessageId: string | null,
+    role: ChatRole = 'agent',
+  ): TranslationOutput {
     if (!text) return { deltas: [], state: {} }
-    const deltas = this.#ensureMessage(acpMessageId)
+    const deltas = this.#ensureMessage(acpMessageId, role)
     const messageId = this.#currentMessageId
     if (!messageId) return { deltas: [], state: {} }
     if (type === 'text.append') this.#currentText += text
@@ -361,7 +413,10 @@ export class TranscriptTranslator {
   }
 
   #toolCall(update: Extract<SessionUpdate, { sessionUpdate: 'tool_call' }>): TranslationOutput {
-    const deltas = this.#ensureMessage(null)
+    // A tool call always belongs to the agent, replay or not — so it also closes
+    // a replayed user message and opens the agent's turn, which is exactly the
+    // order the conversation happened in.
+    const deltas = this.#ensureMessage(null, 'agent')
     const messageId = this.#currentMessageId
     if (!messageId) return { deltas: [], state: {} }
 

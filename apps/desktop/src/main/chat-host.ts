@@ -217,6 +217,16 @@ export function createAcpChatRuntime(deps: ChatRuntimeDeps): ChatRuntime {
           // process the moment a panel opens would cost every user who opens one
           // and never types. `watchChatViews` still reports the open so the
           // runtime could pre-warm; deliberately, it does not.
+          //
+          // A view opened onto an existing conversation is the exception, and the
+          // only one. It has something to show before anybody types, and waiting
+          // for a prompt would leave the user looking at the empty state of a
+          // chat they picked precisely because it has history in it.
+          if (effect.resumeSessionId !== undefined) {
+            void manager.openChat(effect.chatId, effect.resumeSessionId).catch((raw: unknown) => {
+              fail(effect.chatId, raw, 'loading the conversation failed')
+            })
+          }
           return
 
         case 'session.close':
@@ -283,7 +293,40 @@ export function createAcpChatRuntime(deps: ChatRuntimeDeps): ChatRuntime {
         case 'clear':
           manager.clear(effect.chatId)
           return
+
+        case 'sessions.delete':
+          // No `onError` to reach: by the time this runs the conversation is not
+          // in the window, so there is no transcript to put an error banner on.
+          // A notification is the only honest destination — and the list the user
+          // is still looking at will show the conversation again on its next read,
+          // which is itself the report that nothing was deleted.
+          void manager.deleteSession(effect.sessionId).catch((raw: unknown) => {
+            const error = toPeekError(raw)
+            console.error('[peek/chat] deleting the conversation failed', error.message)
+            notify({
+              level: 'error',
+              message: 'Could not delete that conversation.',
+              detail: error.message,
+            })
+          })
+          return
       }
+    },
+
+    listSessions() {
+      return manager.listSessions().then((result) => ({
+        sessions: result.sessions.map((session) => ({
+          sessionId: session.sessionId,
+          cwd: session.cwd,
+          // `null` and absent mean the same thing here and only one of them is
+          // representable in `ChatSessionInfo`, so the optionals are normalised
+          // at the boundary rather than in every reader.
+          ...(session.title == null ? {} : { title: session.title }),
+          ...(session.updatedAt == null ? {} : { updatedAt: session.updatedAt }),
+        })),
+        supported: result.supported,
+        cwd: result.cwd,
+      }))
     },
   }
 }

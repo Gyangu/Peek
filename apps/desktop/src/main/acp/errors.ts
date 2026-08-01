@@ -17,6 +17,7 @@
 import {
   ConnectionConfigSchema,
   REDACTED,
+  isPeekError,
   peekError,
   redactConnectionConfig,
   type PeekError,
@@ -333,6 +334,12 @@ export function classifyAcpError(
   secrets: readonly string[] = [],
   context: AcpFailureContext = {},
 ): PeekError {
+  // Already ours: peek raised it, with a code it chose deliberately. Running it
+  // through the wire-error taxonomy below can only lose that — an
+  // `UNSUPPORTED_CAPABILITY` carries no JSON-RPC code, so it would fall through
+  // every branch and come out as `INTERNAL`, which is both wrong and unhelpful.
+  if (isPeekError(raw)) return raw
+
   const message = sanitizeLine(redact(messageOf(raw), secrets))
   const rawDetail = detailOf(raw)
   const detail = rawDetail === undefined ? undefined : sanitizeLine(redact(rawDetail, secrets), 1_000)
@@ -378,4 +385,18 @@ export function classifyAcpError(
 /** A timeout with the operation named, so the toast is actionable. */
 export function acpTimeout(operation: string, ms: number): PeekError {
   return peekError('TIMEOUT', `${operation} did not finish within ${ms} ms.`, { retryable: true })
+}
+
+/**
+ * The agent has no session history, but something asked it to open one.
+ *
+ * Reachable only through a race: the session list refuses to draw rows for an
+ * agent that does not advertise `loadSession`, so getting here means the agent
+ * was replaced between the list and the click. Not retryable — trying again does
+ * not grow a capability.
+ */
+export function loadUnsupportedError(): PeekError {
+  return peekError('UNSUPPORTED_CAPABILITY', 'This agent cannot reopen past conversations.', {
+    detail: 'The agent does not advertise session history, so there is nothing to load.',
+  })
 }

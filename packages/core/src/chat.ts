@@ -303,11 +303,21 @@ export interface ChatAttachmentReceipt {
  * already exists on the machine, so the common path never visits this state. It
  * exists because `initialize` advertises `authMethods` and a fresh machine has
  * to go somewhere.
+ *
+ * `loading` is the one state that is **not** about a turn. A view opened onto an
+ * existing session replays that session's history first, and the replay arrives
+ * as ordinary `session/update` notifications — the same shape a live turn uses.
+ * Without a state of its own the panel would be indistinguishable from one that
+ * is generating: the composer would lock and a stop button would appear over a
+ * conversation with no turn to stop. It sits beside `starting` rather than
+ * beside `streaming` for exactly that reason.
  */
 export type ChatAgentStatus =
   | 'idle'
   | 'starting'
   | 'authenticating'
+  /** Replaying an existing session's history into a freshly opened view. */
+  | 'loading'
   | 'ready'
   | 'streaming'
   | 'awaiting-permission'
@@ -358,3 +368,40 @@ export const CHAT_PERMISSION_MODES = [
   'bypassPermissions',
 ] as const
 export type ChatPermissionMode = (typeof CHAT_PERMISSION_MODES)[number]
+
+/* ================================================================== */
+/* 5. The session catalogue                                            */
+/* ================================================================== */
+
+/**
+ * One past conversation, as the **agent** describes it.
+ *
+ * ## peek is not the owner of this record
+ *
+ * Everything else in this file describes state peek holds. This one does not:
+ * the rows come from the agent's `session/list`, which reads the transcripts it
+ * wrote under its own working directory. peek keeps no copy, which is the whole
+ * point — a second history would be a second answer to "what does the model
+ * remember", and only one of the two would be right.
+ *
+ * That has a consequence worth stating rather than discovering: an agent that
+ * does not advertise `loadSession` has no catalogue, and the honest rendering of
+ * that is an explanation, not an empty list.
+ */
+export interface ChatSessionInfo {
+  /** The agent's session id. This is the identity of a conversation across views and restarts. */
+  sessionId: string
+  /** The agent's working directory the session belongs to; peek's is always the chat workdir. */
+  cwd: string
+  /**
+   * The agent's own title — a user `/rename` if there was one, otherwise the
+   * summary it generated.
+   *
+   * **Untrusted.** It is derived from conversation content, which can include
+   * whatever a database cell contained, so it is rendered through the same path
+   * as any other untrusted string and never as markup.
+   */
+  title?: string
+  /** ISO 8601, from the agent. Used for ordering and for a relative timestamp. */
+  updatedAt?: string
+}

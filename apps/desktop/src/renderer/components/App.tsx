@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import { useAnnouncement, useGlobalKeys, useLayoutAnnouncer } from '../hooks'
 import { useT } from '../i18n'
 import { useWorkspaceStore } from '../state/workspaceStore'
+import { ChatSessionsRail } from './chat'
 import { LayoutTree } from './LayoutTree'
 import { Sidebar } from './Sidebar'
 import { StatusBar } from './StatusBar'
@@ -36,6 +37,11 @@ export function App(): ReactElement {
         <div className="workarea">
           <LayoutTree />
         </div>
+        {/* Squeezes the work area rather than floating over it: the panel tab
+            strip lives in the top-right corner, and an overlay would sit on the
+            split and close buttons. See
+            `design/2026-08-02-chat-sessions-side-rail.md` §2.1. */}
+        <ChatSessionsRail />
       </div>
 
       <StatusBar />

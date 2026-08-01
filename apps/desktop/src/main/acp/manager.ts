@@ -75,6 +75,7 @@ import {
   type McpServer,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
+  type SessionInfo,
   type SessionNotification,
   type StopReason,
 } from '@agentclientprotocol/sdk'
@@ -91,7 +92,15 @@ import {
 import { TypedEmitter } from '../connections/emitter'
 import { AgentProcess, agentGoneError, resolveAgentEntry } from './agent-process'
 import { DeltaBatcher } from './batcher'
-import { AUTH_HELP, acpTimeout, classifyAcpError, isAuthFailure, redact, sanitizeLine } from './errors'
+import {
+  AUTH_HELP,
+  acpTimeout,
+  classifyAcpError,
+  isAuthFailure,
+  loadUnsupportedError,
+  redact,
+  sanitizeLine,
+} from './errors'
 import { PermissionBroker, type PermissionDecision } from './permissions'
 import { buildAgentSessionMeta, buildPeekMcpServer, ensureChatWorkdir } from './session-config'
 import { TranscriptTranslator, type ChatStateDelta, type TranslationOutput } from './translate'
@@ -140,6 +149,16 @@ interface ChatSession {
   chatId: ChatId
   /** The agent's session id. Null until `session/new` returns, and again after a crash. */
   agentSessionId: string | null
+  /**
+   * The existing session this chat was opened onto, when it was opened from the
+   * catalogue rather than as a new conversation.
+   *
+   * Set once, before any agent work, and never cleared — it is what makes the
+   * bringup idempotent across an agent restart. A crashed agent leaves
+   * `agentSessionId` null; the restart then reloads the *same* conversation
+   * instead of quietly starting an empty one under a panel full of history.
+   */
+  resumeSessionId: string | null
   translator: TranscriptTranslator
   batcher: DeltaBatcher
   /** A turn is in flight. */
@@ -384,6 +403,91 @@ export class AcpManager {
   }
 
   /**
+   * Open a view onto an **existing** conversation.
+   *
+   * The one place the lazy-session policy is deliberately broken. Everywhere else
+   * a chat panel costs nothing until the user types (`chat-host.ts` explains
+   * why), but a panel opened to *read* a conversation has to fetch it — waiting
+   * for a prompt that may never come would leave the user staring at the empty
+   * state of a chat they know has history in it.
+   *
+   * Resolves when the replay has been requested and accepted, not when every
+   * delta has been rendered. Rejects like any other bringup failure; the caller
+   * puts the error on the conversation.
+   */
+  async openChat(chatId: ChatId, resumeSessionId: string): Promise<void> {
+    if (this.#disposed) throw peekError('CONFLICT', 'The chat host is shutting down.')
+    const session = this.#touchSession(chatId)
+    // Already up on the right session: reopening the same tab twice must not
+    // replay the transcript a second time on top of itself.
+    if (session.agentSessionId === resumeSessionId) return
+    session.resumeSessionId = resumeSessionId
+    await this.#ensureSession(chatId)
+  }
+
+  /**
+   * The agent's catalogue of past conversations, filtered to peek's own workdir.
+   *
+   * Filtering is not cosmetic. Every peek conversation runs in the chat workdir
+   * (`~/.peek/chat`), and the same agent binary is what the user runs in their
+   * own projects — an unfiltered list would offer to open, and to delete, work
+   * that has nothing to do with this window.
+   *
+   * `supported: false` rather than an exception when the agent has no catalogue:
+   * an ACP agent is not obliged to advertise `loadSession`, and "this agent does
+   * not keep history" is an answer, not a failure.
+   */
+  async listSessions(): Promise<{ sessions: SessionInfo[]; supported: boolean; cwd: string | null }> {
+    if (this.#disposed) throw peekError('CONFLICT', 'The chat host is shutting down.')
+    const cwd = this.#config.resolveCwd()
+    // Starting the agent to answer this is correct and cheap relative to what it
+    // buys: the window cannot know whether history exists without asking, and the
+    // user who opened the session list is about to use it.
+    await this.#ensureAgent()
+    if (!this.#supportsSessionList()) return { sessions: [], supported: false, cwd }
+    const connection = this.#connection
+    if (!connection) throw agentGoneError()
+
+    const response = await withTimeout(
+      connection.listSessions({ cwd }),
+      this.#config.timeouts.listSessionsMs,
+      'Reading the conversation list',
+    )
+    // Pagination is deliberately not followed. The first page is the recent end
+    // of a list ordered by activity, which is the part a person opens this to
+    // find; a chat workdir with more sessions than one page holds is a reason to
+    // add search, not a reason to stream thousands of rows into a dialog.
+    return { sessions: response.sessions.filter((s) => s.cwd === cwd), supported: true, cwd }
+  }
+
+  /**
+   * Delete one stored conversation.
+   *
+   * The only method on this class that destroys something outside peek. It is
+   * reachable from exactly one command, which is reachable from exactly one
+   * button, and from no MCP tool at all.
+   */
+  async deleteSession(sessionId: string): Promise<void> {
+    if (this.#disposed) throw peekError('CONFLICT', 'The chat host is shutting down.')
+    await this.#ensureAgent()
+    if (this.#agentCaps?.sessionCapabilities?.delete === undefined) {
+      throw peekError('UNSUPPORTED_CAPABILITY', 'This agent cannot delete stored conversations.')
+    }
+    const connection = this.#connection
+    if (!connection) throw agentGoneError()
+    await withTimeout(
+      connection.deleteSession({ sessionId }),
+      this.#config.timeouts.deleteSessionMs,
+      'Deleting the conversation',
+    )
+  }
+
+  /** Both halves have to be there: a catalogue you cannot open is not a catalogue. */
+  #supportsSessionList(): boolean {
+    return this.#agentCaps?.loadSession === true && this.#agentCaps.sessionCapabilities?.list !== undefined
+  }
+
+  /**
    * Forget a conversation's transcript. The view itself is Workspace's business.
    *
    * A turn still in flight is cancelled first, because the alternative is text
@@ -400,9 +504,18 @@ export class AcpManager {
   /**
    * Release everything held for one chat (the view was closed).
    *
-   * The agent session is cancelled rather than merely forgotten: an abandoned
-   * turn keeps burning tokens and can still ask for permissions nobody will ever
-   * see.
+   * ## This detaches; it does not destroy
+   *
+   * An in-flight turn is cancelled — an abandoned turn keeps burning tokens and
+   * can still ask for permissions nobody will ever see — and every local resource
+   * is released. What is **not** touched is the agent's own session: no
+   * `session/close`, no `session/delete`. The conversation survives on the
+   * agent's side and can be reopened from the catalogue later.
+   *
+   * That was already true by accident (this method never had an ACP call in it);
+   * as of `design/2026-08-02-chat-session-management.md` it is a promise the
+   * session list depends on, so a test asserts the absence. Deleting a
+   * conversation for real is `chat.sessions.delete`, and nothing else.
    */
   closeChat(chatId: ChatId): void {
     const session = this.#sessions.get(chatId)
@@ -684,6 +797,7 @@ export class AcpManager {
     const session: ChatSession = {
       chatId,
       agentSessionId: null,
+      resumeSessionId: null,
       translator: new TranscriptTranslator(chatId),
       batcher: new DeltaBatcher(chatId, this.#config.batch, (id, deltas) => {
         this.#deps.emitDeltas(id, deltas)
@@ -705,7 +819,11 @@ export class AcpManager {
     const session = this.#touchSession(chatId)
     if (session.agentSessionId) return session
 
-    this.#patch(chatId, { status: 'starting' })
+    // `loading` and `starting` differ only in what the user is told, and that is
+    // the whole reason both exist: a panel replaying an hour-old conversation is
+    // not "starting a chat", and a composer disabled with the wrong sentence is
+    // how a two-second wait reads as a broken panel.
+    this.#patch(chatId, { status: session.resumeSessionId ? 'loading' : 'starting' })
     try {
       await this.#ensureAgent()
       await this.#openAgentSession(session)
@@ -740,16 +858,60 @@ export class AcpManager {
     }
 
     const mcpServers: McpServer[] = peekMcp ? [peekMcp] : []
+    const cwd = this.#config.resolveCwd()
+    // The sandbox. Without it the session inherits the user's whole Claude Code
+    // configuration — MCP servers, `CLAUDE.md`, and the permission allowlist that
+    // makes the dialog below decorative. See `buildAgentSessionMeta`. It is
+    // passed to `session/load` as well as `session/new`: a resumed conversation
+    // is exactly as much of a sandbox question as a fresh one.
+    const _meta = buildAgentSessionMeta()
+
+    const resumeId = session.resumeSessionId
+    if (resumeId !== null) {
+      if (this.#agentCaps?.loadSession !== true) throw loadUnsupportedError()
+
+      // Registered **before** the request, not after, and this ordering is load
+      // -bearing. `session/load` replays the whole transcript as ordinary
+      // `session/update` notifications *while the request is still open*, so a
+      // reverse index populated from the response would be empty for every one
+      // of them and the history would arrive addressed to nobody. The id is
+      // known here because the caller supplied it, which is what makes the early
+      // registration possible at all — `session/new` has no such luxury and does
+      // not need one, having nothing to replay.
+      session.agentSessionId = resumeId
+      this.#byAgentSession.set(resumeId, session)
+      // Bracketing the request, for the same reason the registration precedes it:
+      // every replayed update arrives while it is open. Inside the bracket the
+      // translator keeps the user's own turns, which it drops during a live turn
+      // because peek recorded those itself. Without this a reopened conversation
+      // shows Claude answering questions nobody appears to have asked.
+      session.translator.beginReplay()
+      try {
+        await withTimeout(
+          connection.loadSession({ sessionId: resumeId, cwd, mcpServers, _meta }),
+          this.#config.timeouts.loadSessionMs,
+          'Loading the conversation',
+        )
+      } catch (raw) {
+        // Undo the optimistic registration: leaving it in place would route a
+        // later notification for that session id into a chat that never loaded.
+        session.agentSessionId = null
+        this.#byAgentSession.delete(resumeId)
+        throw raw
+      } finally {
+        session.translator.endReplay()
+      }
+      // The replay left the last message open, because a replay has no
+      // `stopReason` to close it with. Closing it here is what makes the restored
+      // transcript look finished rather than perpetually mid-answer.
+      const tail = session.translator.finishTurn('end_turn')
+      this.#emit(session, tail.deltas, tail.state, { flush: true })
+      await this.#applyPermissionMode(connection, resumeId, session.chatId)
+      return
+    }
+
     const created = await withTimeout(
-      connection.newSession({
-        cwd: this.#config.resolveCwd(),
-        mcpServers,
-        // The sandbox. Without it the session inherits the user's whole Claude
-        // Code configuration — MCP servers, `CLAUDE.md`, and the permission
-        // allowlist that makes the dialog below decorative. See
-        // `buildAgentSessionMeta`.
-        _meta: buildAgentSessionMeta(),
-      }),
+      connection.newSession({ cwd, mcpServers, _meta }),
       this.#config.timeouts.newSessionMs,
       'Creating the chat session',
     )
@@ -757,17 +919,34 @@ export class AcpManager {
     session.agentSessionId = created.sessionId
     this.#byAgentSession.set(created.sessionId, session)
 
-    // The agent's own default is `auto`, where a classifier decides permissions
-    // without a human. peek asks for its configured mode explicitly; failing to
-    // set it is not fatal, but it does mean the gate is not what was promised,
-    // so it is surfaced rather than swallowed.
+    await this.#applyPermissionMode(connection, created.sessionId, session.chatId)
+  }
+
+  /**
+   * Put the session into peek's configured permission mode.
+   *
+   * The agent's own default is `auto`, where a classifier decides permissions
+   * without a human. peek asks for its configured mode explicitly; failing to set
+   * it is not fatal, but it does mean the gate is not what was promised, so it is
+   * surfaced rather than swallowed.
+   *
+   * A **resumed** session needs this at least as much as a new one: the mode is
+   * per-session state on the agent's side, and a conversation that was last used
+   * in `plan` would otherwise come back in `plan` while peek's UI reports
+   * whatever it defaults to.
+   */
+  async #applyPermissionMode(
+    connection: ClientSideConnection,
+    agentSessionId: string,
+    chatId: ChatId,
+  ): Promise<void> {
     try {
       await withTimeout(
-        connection.setSessionMode({ sessionId: created.sessionId, modeId: this.#config.permissionMode }),
+        connection.setSessionMode({ sessionId: agentSessionId, modeId: this.#config.permissionMode }),
         this.#config.timeouts.setModeMs,
         'Setting the permission mode',
       )
-      this.#patch(session.chatId, { permissionMode: this.#config.permissionMode })
+      this.#patch(chatId, { permissionMode: this.#config.permissionMode })
     } catch (raw) {
       this.#log('warn', 'could not set the permission mode', raw)
       this.#deps.notify({
