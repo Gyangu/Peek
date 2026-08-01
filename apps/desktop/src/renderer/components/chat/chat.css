@@ -1,0 +1,1018 @@
+/* ==================================================================
+ * Chat panel styles.
+ *
+ * Same dark, compact, data-tool density as the rest of peek, built only on the
+ * CSS variables `styles.css` already defines — no new palette, no UI library.
+ *
+ * It ships as its own file rather than as a section of `styles.css` because that
+ * file is shared and this panel is being built alongside the ACP backend; the
+ * import lives in `ChatView.tsx`, so the CSS is code-split with the panel and a
+ * workspace that never opens a chat never parses it. Folding it into
+ * `styles.css` later is a copy-paste — nothing here depends on the file boundary.
+ * ================================================================== */
+
+.chat-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+}
+
+/* ------------------------------------------------------------------ */
+/* Toolbar                                                             */
+/* ------------------------------------------------------------------ */
+
+.chat-toolbar {
+  gap: 8px;
+}
+
+.chat-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.chat-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-faint);
+}
+
+.chat-status.ready .chat-status-dot,
+.chat-status.idle .chat-status-dot {
+  background: var(--ok);
+}
+
+.chat-status.streaming .chat-status-dot,
+.chat-status.starting .chat-status-dot,
+.chat-status.authenticating .chat-status-dot {
+  background: var(--accent);
+  animation: chat-pulse 1.1s ease-in-out infinite;
+}
+
+.chat-status.awaiting-permission .chat-status-dot {
+  background: var(--warn);
+  animation: chat-pulse 1.1s ease-in-out infinite;
+}
+
+.chat-status.error .chat-status-dot {
+  background: var(--err);
+}
+
+@keyframes chat-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.chat-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chat-mode-label {
+  color: var(--fg-faint);
+}
+
+.chat-mode select {
+  padding: 1px 4px;
+  font-size: 11px;
+}
+
+/* A mode that removes the human from the loop is flagged, never hidden. */
+.chat-mode select.permissive {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.chat-usage {
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Degraded / empty states                                             */
+/* ------------------------------------------------------------------ */
+
+.chat-gap {
+  flex: 0 0 auto;
+  margin: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-2);
+  color: var(--fg-dim);
+  border-radius: 4px;
+  user-select: text;
+}
+
+.chat-gap strong {
+  color: var(--warn);
+}
+
+/* Shown while `agentStatus` is `error`. The composer beside it stays live —
+   sending is the retry — so this reads as an instruction, not as a wall. */
+.chat-retry {
+  flex: 0 0 auto;
+  margin: 0 6px 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-left: 2px solid var(--warn);
+  background: var(--bg-2);
+  color: var(--fg-dim);
+  border-radius: 4px;
+  font-size: 11px;
+  user-select: text;
+}
+
+.chat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 24px;
+  text-align: center;
+  color: var(--fg-faint);
+}
+
+.chat-empty-title {
+  color: var(--fg-dim);
+  font-size: 13px;
+}
+
+.chat-empty-hint {
+  max-width: 420px;
+  line-height: 1.6;
+}
+
+/* ------------------------------------------------------------------ */
+/* Transcript                                                          */
+/* ------------------------------------------------------------------ */
+
+.chat-list-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.chat-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overflow-anchor: none; /* the follow logic owns the scroll position */
+  padding: 8px 0;
+}
+
+.chat-list-inner {
+  position: relative;
+  width: 100%;
+}
+
+.chat-list-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.chat-jump {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  background: var(--bg-3);
+  border-color: var(--border-strong);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 45%);
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------------ */
+/* One message                                                         */
+/* ------------------------------------------------------------------ */
+
+.chat-msg {
+  padding: 6px 12px 10px;
+  user-select: text;
+}
+
+.chat-msg.user {
+  background: var(--bg-1);
+  border-left: 2px solid var(--accent-dim);
+}
+
+.chat-msg-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.chat-msg-role {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-dim);
+  letter-spacing: 0.02em;
+}
+
+.chat-msg.agent .chat-msg-role {
+  color: var(--accent);
+}
+
+.chat-msg-live {
+  font-size: 11px;
+  color: var(--fg-faint);
+}
+
+.chat-msg-body {
+  line-height: 1.6;
+}
+
+/* A user turn is shown verbatim: it is what they typed, not Markdown. */
+.chat-user-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-ui);
+}
+
+.chat-msg-stop {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--fg-faint);
+  font-style: italic;
+}
+
+.chat-msg-error {
+  margin-top: 6px;
+  padding: 5px 7px;
+  border: 1px solid #5c2f2f;
+  background: #2a1c1c;
+  color: var(--err);
+  border-radius: 4px;
+}
+
+.chat-msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Reasoning                                                           */
+/* ------------------------------------------------------------------ */
+
+.chat-thought {
+  margin: 4px 0;
+}
+
+.chat-thought-head {
+  padding: 1px 4px;
+  font-size: 11px;
+  color: var(--fg-faint);
+}
+
+.chat-thought-body {
+  margin: 3px 0 0 10px;
+  padding: 5px 8px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--fg-dim);
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tool calls                                                          */
+/* ------------------------------------------------------------------ */
+
+.chat-tool {
+  margin: 5px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-1);
+  overflow: hidden;
+}
+
+/* peek's own MCP tools: the agent is acting on the window in front of you. */
+.chat-tool.peek {
+  border-color: var(--accent-dim);
+}
+
+.chat-tool.peek.mutating {
+  border-color: var(--accent);
+  background: linear-gradient(to right, rgb(77 156 255 / 9%), transparent 55%), var(--bg-1);
+}
+
+.chat-tool.failed {
+  border-color: #5c2f2f;
+}
+
+.chat-tool.lookup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border: none;
+  background: transparent;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.chat-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 4px 7px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  min-width: 0;
+}
+
+.chat-tool-head:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.chat-tool-head .grow {
+  flex: 1;
+}
+
+.chat-tool-mark {
+  flex: 0 0 auto;
+  width: 12px;
+  text-align: center;
+  color: var(--fg-faint);
+}
+
+.chat-tool-mark.completed {
+  color: var(--ok);
+}
+
+.chat-tool-mark.failed {
+  color: var(--err);
+}
+
+.chat-tool-mark.in_progress {
+  color: var(--accent);
+  animation: chat-spin 1.1s linear infinite;
+}
+
+@keyframes chat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.chat-tool-name {
+  flex: 0 0 auto;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.chat-tool-badge {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--bg-3);
+  color: var(--fg-dim);
+  font-size: 10px;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.chat-tool-badge.mutating {
+  background: var(--accent-dim);
+  color: #dce9fb;
+}
+
+/* A tool that is not peek's did something this window cannot account for. It is
+   marked more loudly than peek's own calls, not less. */
+.chat-tool-badge.outside {
+  background: var(--warn);
+  color: #2a2109;
+  font-weight: 600;
+}
+
+.chat-tool.outside {
+  border-color: var(--warn);
+}
+
+.chat-tool-args {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.chat-tool-elapsed,
+.chat-tool-chevron {
+  flex: 0 0 auto;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.chat-tool-body {
+  padding: 5px 8px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.chat-tool-raw {
+  color: var(--fg-faint);
+  font-size: 11px;
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+
+.chat-tool-section {
+  margin: 6px 0 3px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-faint);
+}
+
+.chat-tool-in,
+.chat-tool-out {
+  margin: 0;
+  padding: 5px 7px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-1);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-tool-empty {
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Plan                                                                */
+/* ------------------------------------------------------------------ */
+
+.chat-plan {
+  margin: 5px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-1);
+}
+
+.chat-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-plan-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+}
+
+.chat-plan-count {
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.chat-plan-list {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+
+.chat-plan-item {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 2px 8px;
+}
+
+.chat-plan-mark {
+  flex: 0 0 auto;
+  width: 10px;
+  color: var(--fg-faint);
+}
+
+.chat-plan-item.completed .chat-plan-mark {
+  color: var(--ok);
+}
+
+.chat-plan-item.in_progress .chat-plan-mark {
+  color: var(--accent);
+}
+
+.chat-plan-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.chat-plan-item.completed .chat-plan-text {
+  color: var(--fg-faint);
+  text-decoration: line-through;
+}
+
+.chat-plan-status {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--fg-faint);
+}
+
+/* ------------------------------------------------------------------ */
+/* Permission prompt                                                   */
+/* ------------------------------------------------------------------ */
+
+.chat-permission {
+  flex: 0 0 auto;
+  margin: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 4px;
+  background: #2a2415;
+  user-select: text;
+}
+
+.chat-permission.mutating {
+  border-color: var(--accent);
+  background: #16233a;
+}
+
+.chat-permission-title {
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 6px;
+}
+
+.chat-permission-row {
+  display: flex;
+  gap: 8px;
+  margin: 2px 0;
+  font-size: 11px;
+}
+
+.chat-permission-key {
+  flex: 0 0 68px;
+  color: var(--fg-faint);
+}
+
+.chat-permission-val {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg-dim);
+  word-break: break-word;
+}
+
+.chat-permission-note {
+  margin: 7px 0 8px;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+
+.chat-permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chat-perm-always {
+  border-color: var(--border-strong);
+}
+
+.chat-perm-reject {
+  border-color: #5c2f2f;
+  color: var(--err);
+}
+
+/* ------------------------------------------------------------------ */
+/* Attachments                                                         */
+/* ------------------------------------------------------------------ */
+
+.chat-attach-bar {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+  min-height: 26px;
+}
+
+.chat-attach-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-faint);
+  margin-right: 2px;
+}
+
+.chat-attach-empty {
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.chat-attach-bar .grow {
+  flex: 1;
+}
+
+.chat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 260px;
+  padding: 0 2px 0 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--bg-2);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.chat-chip.receipt {
+  padding-right: 6px;
+  opacity: 0.75;
+}
+
+/* A receipt that carries a truncation notice is the one thing on this strip the
+   user has to actually read, so it does not get the muted treatment. */
+.chat-chip.receipt:has(.chat-chip-detail) {
+  opacity: 1;
+  border-color: var(--warn);
+}
+
+.chat-chip.receipt.failed {
+  border-color: var(--err);
+}
+
+.chat-chip-detail {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--warn);
+  font-size: 10px;
+}
+
+.chat-chip.receipt.failed .chat-chip-detail {
+  color: var(--err);
+}
+
+.chat-chip-kind {
+  color: var(--accent);
+  font-size: 10px;
+}
+
+.chat-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+}
+
+.chat-chip-x {
+  padding: 0 3px;
+  border: none;
+  background: transparent;
+  color: var(--fg-faint);
+  line-height: 14px;
+}
+
+.chat-chip-x:hover {
+  background: transparent;
+  color: var(--err);
+}
+
+.chat-attach-add {
+  font-size: 11px;
+}
+
+.chat-attach-menu {
+  position: absolute;
+  right: 8px;
+  bottom: 100%;
+  z-index: 20;
+  min-width: 240px;
+  max-width: 360px;
+  max-height: 280px;
+  overflow: auto;
+  margin-bottom: 4px;
+  padding: 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg-2);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 55%);
+}
+
+.chat-attach-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  text-align: left;
+}
+
+.chat-attach-option:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.chat-attach-option-hint {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-faint);
+  font-size: 10px;
+}
+
+.chat-attach-none {
+  padding: 4px 6px;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Composer                                                            */
+/* ------------------------------------------------------------------ */
+
+.chat-composer {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px 7px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+}
+
+.chat-input {
+  width: 100%;
+  min-height: 34px;
+  max-height: 220px;
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.5;
+  background: var(--bg);
+}
+
+.chat-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-composer-bar .grow {
+  flex: 1;
+}
+
+.chat-composer-hint {
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.chat-stop {
+  border-color: var(--err);
+  color: var(--err);
+}
+
+/* ------------------------------------------------------------------ */
+/* Markdown                                                            */
+/* ------------------------------------------------------------------ */
+
+.md {
+  word-break: break-word;
+}
+
+.md > :first-child {
+  margin-top: 0;
+}
+
+.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md p {
+  margin: 6px 0;
+  white-space: pre-wrap;
+}
+
+.md-h {
+  margin: 10px 0 5px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.md-h1 {
+  font-size: 15px;
+}
+
+.md-h2 {
+  font-size: 14px;
+}
+
+.md-h3 {
+  font-size: 13px;
+}
+
+.md-h4,
+.md-h5,
+.md-h6 {
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.md-hr {
+  height: 1px;
+  margin: 10px 0;
+  background: var(--border);
+}
+
+.md-quote {
+  margin: 6px 0;
+  padding: 2px 0 2px 9px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--fg-dim);
+}
+
+.md-list {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.md-list li {
+  margin: 2px 0;
+}
+
+.md-list li.md-task {
+  list-style: none;
+  margin-left: -16px;
+}
+
+.md-check {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  font-size: 9px;
+  line-height: 10px;
+  text-align: center;
+  vertical-align: -1px;
+}
+
+.md-check.on {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.md-code {
+  padding: 0 3px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* Not an anchor: agent output is untrusted and the renderer must not navigate. */
+.md-link {
+  color: var(--accent);
+  text-decoration: underline dotted;
+  cursor: help;
+}
+
+.md-table-wrap {
+  margin: 6px 0;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.md-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.md-table th,
+.md-table td {
+  padding: 2px 7px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.md-table th {
+  background: var(--bg-2);
+  color: var(--fg-dim);
+  text-align: left;
+  font-weight: 600;
+}
+
+.md-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* ---- Fenced code ------------------------------------------------- */
+
+.md-pre {
+  margin: 7px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-1);
+  overflow: hidden;
+}
+
+/* Still streaming: the closing fence has not arrived. */
+.md-pre.streaming {
+  border-style: dashed;
+}
+
+.md-pre-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1px 4px 1px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+
+.md-pre-lang {
+  color: var(--fg-faint);
+  font-size: 10px;
+  text-transform: lowercase;
+}
+
+.md-copy {
+  font-size: 10px;
+  padding: 0 5px;
+}
+
+.md-pre pre {
+  margin: 0;
+  padding: 6px 8px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+/* Token colours: the same hues the SQL editor uses, so code reads the same
+   whether the user or the agent wrote it. */
+.tok-keyword {
+  color: #c792ea;
+}
+
+.tok-type {
+  color: #7fd1c0;
+}
+
+.tok-string {
+  color: #c3e88d;
+}
+
+.tok-number {
+  color: #f78c6c;
+}
+
+.tok-comment {
+  color: var(--fg-faint);
+  font-style: italic;
+}
+
+.tok-punct {
+  color: var(--fg-dim);
+}

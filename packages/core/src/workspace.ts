@@ -11,7 +11,23 @@ import type {
 } from './capability'
 import { collectionRefLabel, defaultConnectionLabel, redactConnectionConfig } from './capability'
 import type { PeekError } from './errors'
-import { newPanelId, type ConnId, type PanelId, type ResultId, type SplitId, type ViewId } from './ids'
+import {
+  newPanelId,
+  type ChatId,
+  type ChatMessageId,
+  type ConnId,
+  type PanelId,
+  type ResultId,
+  type SplitId,
+  type ViewId,
+} from './ids'
+import type {
+  ChatAgentStatus,
+  ChatAttachment,
+  ChatPermissionMode,
+  ChatUsage,
+  PendingPermission,
+} from './chat'
 
 // The branded types are re-exported here so they can be pulled straight from
 // workspace, the way PLAN §5 describes them.
@@ -59,17 +75,34 @@ export interface ConnectionState {
 
 export type ViewStatus = 'idle' | 'loading' | 'ready' | 'error'
 
+/**
+ * Fields every view has.
+ *
+ * `connId` deliberately lives one level down, on `ConnectedViewBase`. Until the
+ * chat view arrived every view was a window onto exactly one database, and
+ * "a view" and "a view of a connection" were the same idea; a chat is the first
+ * view that is a peer of the connections rather than a child of one. Widening
+ * this to `connId?: ConnId` was considered and rejected — it would let a table
+ * view compile with no connection, which is the invariant most of the codebase
+ * leans on. Splitting the base instead means the compiler points at each site
+ * that assumed the old equivalence, which is the same reasoning `PanelNode`
+ * records for dropping its `viewId`.
+ */
 export interface ViewBase {
   id: ViewId
-  connId: ConnId
   /** Tab title; when absent the UI derives one from the content */
   title?: string
   status: ViewStatus
   error?: PeekError
 }
 
+/** Base for the views that are a window onto one connection — i.e. all but chat. */
+export interface ConnectedViewBase extends ViewBase {
+  connId: ConnId
+}
+
 /** Collection browsing: tables, keyspaces and collections all use this one */
-export interface TableViewState extends ViewBase {
+export interface TableViewState extends ConnectedViewBase {
   kind: 'table'
   ref: CollectionRef
   filter?: FilterSpec[]
@@ -82,20 +115,20 @@ export interface TableViewState extends ViewBase {
 }
 
 /** Free-form query (SQL and friends) */
-export interface QueryViewState extends ViewBase {
+export interface QueryViewState extends ConnectedViewBase {
   kind: 'query'
   text: string
   resultId?: ResultId
 }
 
 /** Single-value / single-row inspector */
-export interface InspectorViewState extends ViewBase {
+export interface InspectorViewState extends ConnectedViewBase {
   kind: 'inspector'
   ref: ValueRef
 }
 
 /** Namespace tree */
-export interface TreeViewState extends ViewBase {
+export interface TreeViewState extends ConnectedViewBase {
   kind: 'tree'
   /** NamespaceNode.ids that are expanded */
   expanded: string[]
@@ -104,7 +137,7 @@ export interface TreeViewState extends ViewBase {
 }
 
 /** Vector search */
-export interface VectorViewState extends ViewBase {
+export interface VectorViewState extends ConnectedViewBase {
   kind: 'vector'
   collection: string
   queryVec?: number[]
@@ -137,16 +170,73 @@ export interface VectorViewState extends ViewBase {
   resultId?: ResultId
 }
 
+/**
+ * Conversation with an ACP agent.
+ *
+ * **Metadata only — the transcript is not here.** `chat.ts` carries the full
+ * argument; the short version is that this object is diffed by immer and
+ * broadcast on every committed Command, and is echoed to the model by
+ * `read_workspace`, so a growing transcript in it would make both costs scale
+ * with how much the user has chatted. Messages live in main's `ChatId`-keyed
+ * transcript store and reach the renderer as `ChatDelta`s.
+ *
+ * Everything that *is* here earns its place by being small **and** by being
+ * something either the AI or the layout needs to see: whether a turn is in
+ * flight, whether a human is being asked for permission, what is staged for the
+ * next prompt.
+ */
+export interface ChatViewState extends ViewBase {
+  kind: 'chat'
+  /** peek's conversation id; the key into the transcript store. Stable for the view's life. */
+  chatId: ChatId
+  /**
+   * The agent's own session id, once `session/new` has returned. Null before the
+   * agent process is up, and again after it dies — the two ids have different
+   * lifetimes on purpose (see `ChatIdSchema`).
+   */
+  agentSessionId: string | null
+  agentStatus: ChatAgentStatus
+  /** Permission mode in effect. peek defaults to a restrictive one, never `bypassPermissions`. */
+  permissionMode: ChatPermissionMode
+  /**
+   * The message currently streaming, or null between turns. Its presence is what
+   * a "stop" button binds to, and what tells the AI a turn is already in flight.
+   */
+  streamingMessageId: ChatMessageId | null
+  /** Total messages in the transcript, so the UI and MCP can report size without reading it. */
+  messageCount: number
+  /**
+   * First ~200 characters of the most recent message. Feeds the tab title and
+   * `describeView`; it is a *preview*, and nothing may reconstruct the
+   * conversation from a sequence of these.
+   */
+  lastMessagePreview?: string
+  /** Staged for the next prompt. Descriptors, never payloads — see `ChatAttachment`. */
+  attachments: ChatAttachment[]
+  /** Set while the agent is blocked on a human decision. Small, modal, and the AI must see it. */
+  pendingPermission?: PendingPermission
+  /** Context-window usage the agent last reported. */
+  usage?: ChatUsage
+  /**
+   * The connection this chat is "about", when the user opened it from one.
+   * Purely advisory — it seeds attachment pickers and nothing more. A chat works
+   * with no connection at all, which is why it is optional here and absent from
+   * `ConnectedViewBase`.
+   */
+  connId?: ConnId
+}
+
 export type ViewState =
   | TableViewState
   | QueryViewState
   | InspectorViewState
   | TreeViewState
   | VectorViewState
+  | ChatViewState
 
 export type ViewKind = ViewState['kind']
 
-export const VIEW_KINDS = ['table', 'query', 'inspector', 'tree', 'vector'] as const
+export const VIEW_KINDS = ['table', 'query', 'inspector', 'tree', 'vector', 'chat'] as const
 
 /** Narrow ViewState down to one concrete kind */
 export type ViewStateOf<K extends ViewKind> = Extract<ViewState, { kind: K }>
@@ -634,10 +724,42 @@ export interface ConnectionSummary {
   error?: PeekError
 }
 
+/**
+ * The machine-readable half of a chat view's summary.
+ *
+ * `describe` already says all of this in one English sentence, and that sentence
+ * is the right thing for a reader skimming the window. It is the wrong thing for a
+ * reader that has to *act*: answering a permission prompt needs the exact
+ * `optionId` strings, and those are not derivable from prose — note in particular
+ * that an option's `optionId` and its `kind` differ (`allow` versus `allow_once`),
+ * so a caller that guesses from the description gets its answer rejected.
+ *
+ * Still **no messages**: the transcript is not in the Workspace and must not leak
+ * into the snapshot by this or any other route (see `chat.ts`). Everything here is
+ * bounded by a small constant.
+ */
+export interface ChatViewSummary {
+  chatId: ChatId
+  agentStatus: ChatAgentStatus
+  permissionMode: ChatPermissionMode
+  /** True while a turn is in flight; `chat.send` refuses a second one. */
+  streaming: boolean
+  messageCount: number
+  /** Staged for the next prompt — descriptors, never payloads. */
+  attachments: ChatAttachment[]
+  /** Set while the conversation is blocked on a human decision. */
+  pendingPermission?: PendingPermission
+  usage?: ChatUsage
+}
+
 export interface ViewSummary {
   id: ViewId
   kind: ViewKind
-  connId: ConnId
+  /**
+   * Absent on a chat view that is not tied to a connection. Every other kind
+   * always has one, so a reader narrowing on `kind` keeps the guarantee it had.
+   */
+  connId?: ConnId
   /** The panel it currently sits in; null means unmounted */
   panelId: PanelId | null
   /** Position in that panel's tab bar; -1 when unmounted */
@@ -659,6 +781,8 @@ export interface ViewSummary {
   /** One sentence about what this view is showing, so the AI can perceive the window */
   describe: string
   resultId?: ResultId
+  /** Present exactly when `kind === 'chat'`. */
+  chat?: ChatViewSummary
   error?: PeekError
 }
 
@@ -692,6 +816,15 @@ export function describeView(view: ViewState): string {
       return `Namespace tree · ${view.expanded.length} nodes expanded`
     case 'vector':
       return `Vector search ${view.collection} · topK ${view.topK}`
+    case 'chat': {
+      // Deliberately reports the *state* of the conversation, not its contents:
+      // read_workspace consumes this, and feeding the transcript back to the
+      // model that wrote it is both expensive and circular.
+      const parts = [`Chat · ${view.messageCount} message(s) · ${view.agentStatus}`]
+      if (view.pendingPermission) parts.push(`awaiting permission for ${view.pendingPermission.toolName}`)
+      if (view.attachments.length > 0) parts.push(`${view.attachments.length} attachment(s) staged`)
+      return parts.join(' · ')
+    }
   }
 }
 
@@ -712,6 +845,28 @@ export function viewTitle(view: ViewState): string {
       return 'Object tree'
     case 'vector':
       return `Vector · ${view.collection}`
+    case 'chat':
+      return 'Chat'
+  }
+}
+
+/**
+ * The structured facts about a conversation, for a caller that has to act on them.
+ *
+ * Nothing is redacted, because nothing here is a secret: ids, counts, a mode, and
+ * the options of a question the user is already being shown on screen. The one
+ * thing that would need redacting — what was said — is not in the Workspace at all.
+ */
+function summarizeChat(view: ChatViewState): ChatViewSummary {
+  return {
+    chatId: view.chatId,
+    agentStatus: view.agentStatus,
+    permissionMode: view.permissionMode,
+    streaming: view.streamingMessageId !== null,
+    messageCount: view.messageCount,
+    attachments: view.attachments,
+    ...(view.pendingPermission === undefined ? {} : { pendingPermission: view.pendingPermission }),
+    ...(view.usage === undefined ? {} : { usage: view.usage }),
   }
 }
 
@@ -750,7 +905,7 @@ export function snapshotWorkspace(ws: Workspace): WorkspaceSnapshot {
     return {
       id: v.id,
       kind: v.kind,
-      connId: v.connId,
+      ...(v.connId === undefined ? {} : { connId: v.connId }),
       panelId: at?.panelId ?? null,
       tabIndex: at?.tabIndex ?? -1,
       visible: at?.visible ?? false,
@@ -758,6 +913,7 @@ export function snapshotWorkspace(ws: Workspace): WorkspaceSnapshot {
       status: v.status,
       describe: describeView(v),
       ...('resultId' in v && v.resultId !== undefined ? { resultId: v.resultId } : {}),
+      ...(v.kind === 'chat' ? { chat: summarizeChat(v) } : {}),
       ...(v.error === undefined ? {} : { error: v.error }),
     }
   })

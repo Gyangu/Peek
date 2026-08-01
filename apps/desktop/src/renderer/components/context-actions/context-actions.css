@@ -1,0 +1,135 @@
+/* ==================================================================
+ * "Add to chat" surfaces: the right-click menu, the selection bar, the
+ * attachment chips and the one-time disclosure.
+ *
+ * A scoped stylesheet rather than more of styles.css, following the
+ * precedent keyboard-nav.css already sets. It keeps this feature's rules
+ * next to the components that own them, and it keeps parallel work off
+ * a single 1,400-line file. Every colour comes from the :root custom
+ * properties in styles.css — nothing here introduces a new one.
+ * ================================================================== */
+
+/* ---- Right-click menu -------------------------------------------- */
+
+.ctx-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+}
+
+.ctx-menu {
+  position: absolute;
+  min-width: 232px;
+  max-width: 320px;
+  padding: 4px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 12px 32px #000b;
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.ctx-menu:focus {
+  outline: none;
+}
+
+.ctx-menu-head {
+  padding: 4px 8px 6px;
+  color: var(--fg-faint);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ctx-menu-item {
+  display: block;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ctx-menu-item:hover,
+.ctx-menu-item:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+
+.ctx-menu-note {
+  padding: 5px 8px;
+  color: var(--warn);
+  font-size: 11px;
+}
+
+/* ---- Floating selection bar --------------------------------------
+ * Anchored to the bottom of the panel it belongs to, so it never covers
+ * the rows the user just selected. The panel needs `position: relative`;
+ * every .panel already has it. */
+
+.ctx-selection-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 44px;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  padding: 6px 8px;
+  background: var(--bg-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  box-shadow: 0 8px 24px #0009;
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.ctx-selection-warning {
+  max-width: 380px;
+  color: var(--warn);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+/* ---- Disclosure --------------------------------------------------
+ * Narrower than the generic .modal: this is prose to be read, and a
+ * 760px measure is past the point where people stop reading lines. */
+
+.ctx-consent {
+  width: min(520px, 86vw);
+  padding: 16px 18px 14px;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.ctx-consent p {
+  margin: 0 0 10px;
+  color: var(--fg);
+}
+
+.ctx-consent-title {
+  margin: 0 0 12px;
+  color: var(--warn);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ctx-consent-once {
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+.ctx-consent-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}

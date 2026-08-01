@@ -141,3 +141,52 @@ describe('positioning context and scroll axes in styles.css', () => {
     assert.match(cssBlock('.grid-overlay'), /position:\s*absolute/)
   })
 })
+
+/* ==================================================================
+ * "Add what I am looking at to the chat" — is it actually reachable?
+ *
+ * This whole feature shipped once as a directory of correct, tested, and
+ * completely unmounted components: nothing outside `context-actions/` imported
+ * `SelectionActionBar` or `ContextMenu`, the grid had no row selection at all,
+ * and three of the six attachment kinds were unreachable by a human. Every unit
+ * test in that directory passed the entire time, because a component that is
+ * never rendered fails no test.
+ *
+ * So the invariant guarded here is mounting, not behaviour: the grid holds a
+ * selection, offers the two surfaces, and puts the floating bar where it can be
+ * seen — `.ctx-selection-bar` is `position: absolute`, so inside `.grid` it would
+ * slide out of view on the first horizontal scroll exactly as the scrollbar once
+ * did.
+ * ================================================================== */
+describe('the grid is where a chat attachment is created', () => {
+  const wrap = byClass(all, 'grid-wrap')
+  const grid = byClass(all, 'grid')
+
+  it('DataGrid holds a row selection and drives it with the shared click rules', () => {
+    assert.match(GRID_TSX, /applyRowClick/, 'the grid must use the shared selection rules, not its own')
+    assert.match(GRID_TSX, /RowSelection/)
+    assert.match(GRID_TSX, /e\.shiftKey/, 'shift-click extends a range')
+    assert.match(GRID_TSX, /e\.metaKey \|\| e\.ctrlKey/, 'cmd/ctrl-click toggles one row')
+  })
+
+  it('<SelectionActionBar> is mounted, and outside the horizontal scroll container', () => {
+    assert.ok(byTag(all, 'SelectionActionBar'), 'the selection bar is unmounted again: selecting rows leads nowhere')
+    assert.ok(
+      !byTag(collect(grid!), 'SelectionActionBar'),
+      'inside .grid the bar translates with scrollLeft and disappears',
+    )
+    assert.ok(byTag(collect(wrap!), 'SelectionActionBar'), 'it must hang off .grid-wrap, like the scrollbar')
+  })
+
+  it('<ContextMenu> is mounted and opens from a right-click on a row', () => {
+    assert.ok(byTag(all, 'ContextMenu'), 'right-click offers nothing again')
+    assert.match(GRID_TSX, /onContextMenu=/, 'the row has to open it')
+  })
+
+  it('.ctx-selection-bar is absolute, so its anchor is load-bearing', () => {
+    const css = src('../context-actions/context-actions.css')
+    const i = css.indexOf('\n.ctx-selection-bar {')
+    assert.notEqual(i, -1)
+    assert.match(css.slice(i, css.indexOf('}', i)), /position:\s*absolute/)
+  })
+})

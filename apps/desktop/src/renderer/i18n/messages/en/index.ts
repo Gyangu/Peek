@@ -1,6 +1,7 @@
 import { ERROR_MESSAGES } from '@peek/core'
 import { a11y } from './a11y'
 import { app } from './app'
+import { context } from './context'
 import { grid } from './grid'
 import { keyboard } from './keyboard'
 import { panel } from './panel'
@@ -26,6 +27,7 @@ export const en = {
   ...keyboard,
   ...views,
   ...a11y,
+  ...context,
   ...ERROR_MESSAGES,
 } as const
 

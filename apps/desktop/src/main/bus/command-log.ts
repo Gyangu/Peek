@@ -79,16 +79,44 @@ export class CommandLog {
 }
 
 /**
- * Redact command input: a conn.open config carries a cleartext password, which
- * must never reach the log. Parsing through core's schema rather than casting
- * also drops malformed input for free.
+ * How much of a chat prompt is kept in the log. The buffer holds
+ * `COMMAND_LOG_CAPACITY` entries in memory, and a prompt may be a hundred
+ * kilobytes, so the untruncated version turns a debugging aid into a
+ * multi-megabyte retention of whatever the user typed.
+ */
+const MAX_LOGGED_PROMPT_CHARS = 500
+
+/**
+ * Redact command input.
+ *
+ * Two cases, and they are different kinds of problem. A `conn.open` config
+ * carries a cleartext password, which must never reach the log at all. A
+ * `chat.send` prompt is not a secret but is unbounded, and the log is a fixed-size
+ * ring held in memory — so it is truncated rather than removed, because knowing
+ * *what was asked* is most of the value of having the entry.
+ *
+ * Parsing through core's schema rather than casting also drops malformed input for
+ * free.
  */
 export function redactCommandInput(name: CommandName, input: unknown): unknown {
-  if (name !== 'conn.open') return input
   if (typeof input !== 'object' || input === null) return input
-  const record: Record<string, unknown> = { ...(input as Record<string, unknown>) }
-  const parsed = ConnectionConfigSchema.safeParse(record['config'])
-  if (parsed.success) record['config'] = redactConnectionConfig(parsed.data)
-  else delete record['config']
-  return record
+
+  if (name === 'conn.open') {
+    const record: Record<string, unknown> = { ...(input as Record<string, unknown>) }
+    const parsed = ConnectionConfigSchema.safeParse(record['config'])
+    if (parsed.success) record['config'] = redactConnectionConfig(parsed.data)
+    else delete record['config']
+    return record
+  }
+
+  if (name === 'chat.send') {
+    const record: Record<string, unknown> = { ...(input as Record<string, unknown>) }
+    const text = record['text']
+    if (typeof text === 'string' && text.length > MAX_LOGGED_PROMPT_CHARS) {
+      record['text'] = `${text.slice(0, MAX_LOGGED_PROMPT_CHARS)}… (${String(text.length)} chars)`
+    }
+    return record
+  }
+
+  return input
 }

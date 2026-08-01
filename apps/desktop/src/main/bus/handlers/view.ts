@@ -212,5 +212,16 @@ function applyViewPatch(view: Draft<ViewState>, patch: ViewPatch): boolean {
       }
       return affects
     }
+
+    /**
+     * A chat has nothing patchable but its title, which `applyViewPatch` has
+     * already written above. Every other field is either the agent's
+     * (`agentSessionId`, `agentStatus`, `usage` — written by the stream, never by
+     * a caller) or a transition with a side effect `view.update` cannot carry:
+     * `chat.setMode` has to reach `session/set_mode`, `chat.respondPermission` has
+     * to unblock a waiting JSON-RPC request.
+     */
+    case 'chat':
+      return false
   }
 }

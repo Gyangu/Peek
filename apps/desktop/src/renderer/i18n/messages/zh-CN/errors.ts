@@ -107,4 +107,21 @@ export const errors: CatalogFor<ErrorMessageCatalog> = {
   /* ---- Local database files (sqlite) ------------------------------- */
   'error.file.notFound': '数据库文件不存在：{file}',
   'error.file.notReadable': '数据库文件无法读取：{file}',
+
+  /* ---- Chat（ACP 助手面板） ---------------------------------------- */
+  'error.chat.notChatView': '视图 {viewId} 是 {kind} 视图，不是对话',
+  'error.chat.busy': '这轮对话还在进行中，先停止再发送下一条',
+  'error.chat.awaitingPermission': '对话正在等待授权，先做出选择再发送',
+  'error.chat.tooManyAttachments': '一个对话最多附带 {max} 项上下文',
+  'error.chat.attachViewMissing': '无法附加：视图 {viewId} 已经不在了',
+  'error.chat.attachResultMissing': '无法附加：结果集 {resultId} 已经不可用',
+  'error.chat.attachResultMismatch': '结果集 {resultId} 不属于视图 {viewId}',
+  'error.chat.attachNotQueryView': '视图 {viewId} 是 {kind} 视图，没有可附加的语句',
+  'error.chat.attachConnMissing': '无法附加表结构：连接 {connId} 未打开',
+  'error.chat.attachmentNotStaged': '附件 {attachmentId} 不在这个对话的待发送列表里',
+  'error.chat.noPendingPermission': '对话当前没有待授权的请求',
+  'error.chat.permissionStale': '授权请求 {requestId} 已经不是当前那一条（现在是 {actual}），请重新读取对话',
+  'error.chat.permissionOptionUnknown': '没有 {optionId} 这个授权选项，可选：{options}',
+  'error.chat.modeNotAllowed': '授权模式 {mode} 只能由本人在界面上选择，{source} 无权切换',
+  'error.chat.agentUnavailable': '聊天助手当前不可用',
 }

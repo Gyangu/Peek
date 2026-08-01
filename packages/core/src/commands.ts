@@ -8,14 +8,19 @@ import {
   type Capability,
   type ServerInfo,
 } from './capability'
+import { CHAT_PERMISSION_MODES, type ChatAgentStatus, type ChatAttachment, type ChatPermissionMode } from './chat'
 import { MAX_PAGE_LIMIT } from './chunk'
 import { peekErrorMsg, type PeekError } from './errors'
 import {
+  AttachmentIdSchema,
   ConnIdSchema,
   PanelIdSchema,
   ResultIdSchema,
   SplitIdSchema,
   ViewIdSchema,
+  type AttachmentId,
+  type ChatId,
+  type ChatMessageId,
   type ConnId,
   type PanelId,
   type ResultId,
@@ -45,6 +50,13 @@ export const COMMAND_NAMES = [
   'layout.moveView',
   'layout.splitWithView',
   'layout.setLayout',
+  'chat.send',
+  'chat.cancel',
+  'chat.clear',
+  'chat.attach',
+  'chat.detach',
+  'chat.respondPermission',
+  'chat.setMode',
   'state.read',
 ] as const
 
@@ -54,8 +66,31 @@ export function isCommandName(value: unknown): value is CommandName {
   return typeof value === 'string' && (COMMAND_NAMES as readonly string[]).includes(value)
 }
 
-/** Where a command came from; used by the command log and for auditing (the log is a recording of every action, and replayable) */
-export const CommandSourceSchema = z.enum(['ui', 'mcp', 'system'])
+/**
+ * Where a command came from; used by the command log and for auditing (the log is
+ * a recording of every action, and replayable).
+ *
+ * `source` is metadata: it is written to the log and forwarded with the patch
+ * broadcast, and it **never forks the execution path**. A human clicking a button
+ * and a model calling a tool run the same handler with the same validation, which
+ * is the property that keeps the two from ever seeing different state.
+ *
+ * The one place it is allowed to change an *outcome* is policy: `chat.setMode`
+ * refuses to hand a non-`ui` caller a permission mode that disables the human
+ * gate. That is not a second code path, it is a rule about who may ask.
+ *
+ * - `ui`     the human, through the renderer.
+ * - `mcp`    an MCP client outside peek (an editor, another agent's Claude Code).
+ * - `agent`  peek's **own embedded chat panel** driving the UI back through MCP.
+ *            Wire it up by giving the embedded agent its own `createMcpServer`
+ *            handle with `source: 'agent'`; without that it is indistinguishable
+ *            from any other MCP client, which is exactly what this member exists
+ *            to fix — "the assistant in the sidebar opened this" and "something
+ *            attached over the network opened this" are different events to a
+ *            human reading the log.
+ * - `system` main's own write-back (driver host events, agent stream events).
+ */
+export const CommandSourceSchema = z.enum(['ui', 'mcp', 'agent', 'system'])
 export type CommandSource = z.infer<typeof CommandSourceSchema>
 
 /* ================================================================== */
@@ -120,6 +155,95 @@ export const VectorViewSpecSchema = z.object({
   title: z.string().optional(),
 })
 
+/* ---- Chat ---------------------------------------------------------- */
+
+/**
+ * Ceilings on the chat command surface.
+ *
+ * Same argument as the layout caps: a Command can now be authored by a model, and
+ * an unbounded `text` or a loop of `chat.attach` must not be able to hand the
+ * agent a hundred megabytes or the Workspace a thousand descriptors. These are
+ * generous for a human and fatal only to a runaway generation.
+ */
+export const MAX_CHAT_ATTACHMENTS = 16
+/** Rows one `rows` / `result` attachment may carry into the prompt. */
+export const MAX_CHAT_ATTACHMENT_ROWS = 500
+export const MAX_CHAT_PROMPT_CHARS = 100_000
+
+export const ChatPermissionModeSchema = z.enum(CHAT_PERMISSION_MODES)
+
+/**
+ * An attachment as a *caller* describes it: no `id` (main mints one) and no
+ * `label` unless the caller wants to override the derived one.
+ *
+ * Deliberately mirrors `ChatAttachment` field for field rather than embedding
+ * payload. The reasoning is in `chat.ts`: a descriptor is resolved at **send**
+ * time, so re-running a query and then sending attaches the new rows, and a
+ * descriptor whose data has been evicted can report that instead of silently
+ * shipping a stale snapshot.
+ */
+export const ChatAttachmentSpecSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('rows'),
+    viewId: ViewIdSchema,
+    resultId: ResultIdSchema,
+    rowIndexes: z.array(z.number().int().nonnegative()).min(1).max(MAX_CHAT_ATTACHMENT_ROWS),
+    label: z.string().min(1).max(120).optional(),
+  }),
+  z.object({
+    kind: z.literal('result'),
+    viewId: ViewIdSchema,
+    resultId: ResultIdSchema,
+    maxRows: z.number().int().positive().max(MAX_CHAT_ATTACHMENT_ROWS).optional(),
+    label: z.string().min(1).max(120).optional(),
+  }),
+  z.object({
+    kind: z.literal('cell'),
+    viewId: ViewIdSchema,
+    resultId: ResultIdSchema,
+    rowIndex: z.number().int().nonnegative(),
+    column: z.string().min(1),
+    label: z.string().min(1).max(120).optional(),
+  }),
+  z.object({
+    kind: z.literal('schema'),
+    connId: ConnIdSchema,
+    ref: CollectionRefSchema,
+    label: z.string().min(1).max(120).optional(),
+  }),
+  z.object({
+    kind: z.literal('query'),
+    viewId: ViewIdSchema,
+    label: z.string().min(1).max(120).optional(),
+  }),
+  z.object({
+    kind: z.literal('workspace'),
+    label: z.string().min(1).max(120).optional(),
+  }),
+])
+export type ChatAttachmentSpec = z.infer<typeof ChatAttachmentSpecSchema>
+
+/**
+ * A chat view. **The only view spec with no `connId`** — a conversation is a peer
+ * of the connections, not a window onto one (see `ConnectedViewBase`). The
+ * optional `connId` is advisory: it seeds the attachment picker and appears in
+ * the view's description, and a chat opened without one works exactly the same.
+ */
+export const ChatViewSpecSchema = z.object({
+  kind: z.literal('chat'),
+  connId: ConnIdSchema.optional(),
+  /**
+   * Permission mode the conversation starts in. Omitted means `default`, i.e.
+   * every tool call asks a human. The agent's own default is `auto` (a classifier
+   * decides), which is not a defensible default for something that can rewrite
+   * the window the user is looking at.
+   */
+  permissionMode: ChatPermissionModeSchema.optional(),
+  /** Stage context on the new conversation before its first prompt. */
+  attachments: z.array(ChatAttachmentSpecSchema).max(MAX_CHAT_ATTACHMENTS).optional(),
+  title: z.string().optional(),
+})
+
 /** Input spec for view.open: no id, because main generates it */
 export const ViewOpenSpecSchema = z.discriminatedUnion('kind', [
   TableViewSpecSchema,
@@ -127,6 +251,7 @@ export const ViewOpenSpecSchema = z.discriminatedUnion('kind', [
   InspectorViewSpecSchema,
   TreeViewSpecSchema,
   VectorViewSpecSchema,
+  ChatViewSpecSchema,
 ])
 export type ViewOpenSpec = z.infer<typeof ViewOpenSpecSchema>
 
@@ -174,6 +299,18 @@ export const ViewPatchSchema = z.discriminatedUnion('kind', [
     /** null clears the threshold, so every match is returned again */
     scoreThreshold: z.number().nullable().optional(),
     filter: z.array(FilterSpecSchema).optional(),
+    title: z.string().optional(),
+  }),
+  /**
+   * A chat has exactly one patchable field, and that is on purpose. Everything
+   * else about a conversation either belongs to the agent (`agentSessionId`,
+   * `agentStatus`, `usage`), or is a transition with a side effect that
+   * `view.update` has no way to carry — changing the permission mode has to reach
+   * `session/set_mode`, answering a permission prompt has to unblock a waiting
+   * JSON-RPC request. Those are `chat.setMode` and `chat.respondPermission`.
+   */
+  z.object({
+    kind: z.literal('chat'),
     title: z.string().optional(),
   }),
 ])
@@ -624,6 +761,129 @@ export const LayoutSetLayoutInputSchema = LayoutSetLayoutObjectSchema.superRefin
   }
 })
 
+/* ---- Chat (M6) ----------------------------------------------------- */
+
+/**
+ * ## Why the chat panel has a Command surface at all
+ *
+ * Nothing about typing into a text box *needs* to leave the renderer. It gets a
+ * Command surface for the same reason the tab bar did: main owns the Workspace,
+ * the renderer is a read-only mirror, and anything the renderer can do that main
+ * cannot observe is a place where the human's screen and the AI's `read_workspace`
+ * can disagree.
+ *
+ * The consequence is the interesting part. Because these are ordinary Commands,
+ * they are reachable from MCP like everything else — so an agent outside peek can
+ * put a task into the conversation with the agent *inside* peek, and a human
+ * watching the window sees both. That is not a special integration; it falls out
+ * of refusing to build a side door.
+ *
+ * ## Addressed by `viewId`, never by `chatId`
+ *
+ * Every one of these takes the chat's **view** id. `read_workspace` reports view
+ * ids and nothing else, so a caller can always name its target from what it has
+ * already read; `ChatId` is main's key into the transcript store and is not in the
+ * snapshot on purpose. One address, and it is the one already in the caller's hand.
+ *
+ * ## What is *not* here
+ *
+ * There is no command for "the agent produced a token". Streaming write-back is
+ * main's own event path (`ChatEventSink`), exactly as driver-host result events
+ * are — a Command per token would put the whole transcript through immer's patch
+ * generator, which is the cost `chat.ts` exists to avoid.
+ */
+
+/**
+ * Send the next turn.
+ *
+ * Refused with CONFLICT while a turn is already streaming, or while the agent is
+ * blocked on a permission prompt. That guard is what stops an embedded agent from
+ * prompting the conversation it is *itself* running in: it can only reach this
+ * command from inside a turn, and inside a turn the conversation is busy.
+ */
+export const ChatSendInputSchema = z
+  .object({
+    viewId: ViewIdSchema,
+    text: z.string().max(MAX_CHAT_PROMPT_CHARS),
+    /**
+     * Extra context for this turn only, appended after whatever the user has
+     * already staged with `chat.attach`. Both sets are consumed by the send.
+     */
+    attachments: z.array(ChatAttachmentSpecSchema).max(MAX_CHAT_ATTACHMENTS).optional(),
+  })
+  // A turn must actually say something. Zod issue messages surface in
+  // PeekError.detail, which is never translated.
+  .refine((v) => v.text.trim() !== '' || (v.attachments?.length ?? 0) > 0, {
+    message: 'Provide text, or at least one attachment',
+  })
+
+/**
+ * Stop the turn in flight.
+ *
+ * A no-op when nothing is running, reported as `cancelled: false` rather than as
+ * an error — the same contract `query.cancel` has, and for the same reason: the
+ * caller asked for a state ("not running"), and it already held.
+ */
+export const ChatCancelInputSchema = z.object({
+  viewId: ViewIdSchema,
+})
+
+/**
+ * Empty the conversation, keeping the view.
+ *
+ * Cancels an in-flight turn on the way rather than refusing: "start over" is a
+ * button a user presses precisely when the current turn has gone wrong, and
+ * making them stop it first would be ceremony.
+ */
+export const ChatClearInputSchema = z.object({
+  viewId: ViewIdSchema,
+})
+
+/** Stage context for the next prompt. Descriptors only — see `ChatAttachmentSpec`. */
+export const ChatAttachInputSchema = z.object({
+  viewId: ViewIdSchema,
+  attachments: z.array(ChatAttachmentSpecSchema).min(1).max(MAX_CHAT_ATTACHMENTS),
+})
+
+/** Unstage. Omitting `attachmentIds` clears everything staged. */
+export const ChatDetachInputSchema = z.object({
+  viewId: ViewIdSchema,
+  attachmentIds: z.array(AttachmentIdSchema).optional(),
+})
+
+/**
+ * Answer the permission prompt the agent is blocked on.
+ *
+ * `requestId` is optional but strongly recommended: with it, an answer that
+ * arrives after the prompt it was meant for has been replaced is refused with
+ * CONFLICT instead of silently approving whatever is being asked *now*. That race
+ * is not hypothetical — a turn can raise a second permission request while a
+ * human is still reading the first.
+ */
+export const ChatRespondPermissionInputSchema = z.object({
+  viewId: ViewIdSchema,
+  requestId: z.string().min(1).optional(),
+  /**
+   * One of `pendingPermission.options[].optionId`. Note that an option's
+   * `optionId` and its `kind` are **not** the same string (`allow` vs
+   * `allow_once`); the agent only accepts the `optionId`.
+   */
+  optionId: z.string().min(1),
+})
+
+/**
+ * Change how tool calls are gated.
+ *
+ * A non-`ui` caller cannot select a mode that removes the human from the loop.
+ * The whole value of the permission prompt is that a person sees what the model
+ * is about to do; a model that can turn that off has been handed the keys, and
+ * "an agent asked nicely" is not consent.
+ */
+export const ChatSetModeInputSchema = z.object({
+  viewId: ViewIdSchema,
+  mode: ChatPermissionModeSchema,
+})
+
 export const StateReadInputSchema = z.object({
   /** Ask for only the parts you need, to save tokens; omit for everything */
   include: z.array(z.enum(['layout', 'views', 'connections', 'results'])).optional(),
@@ -656,6 +916,13 @@ export const commandSchemas = {
   'layout.moveView': LayoutMoveViewInputSchema,
   'layout.splitWithView': LayoutSplitWithViewInputSchema,
   'layout.setLayout': LayoutSetLayoutInputSchema,
+  'chat.send': ChatSendInputSchema,
+  'chat.cancel': ChatCancelInputSchema,
+  'chat.clear': ChatClearInputSchema,
+  'chat.attach': ChatAttachInputSchema,
+  'chat.detach': ChatDetachInputSchema,
+  'chat.respondPermission': ChatRespondPermissionInputSchema,
+  'chat.setMode': ChatSetModeInputSchema,
   'state.read': StateReadInputSchema,
 } as const satisfies Record<CommandName, z.ZodType>
 
@@ -826,6 +1093,68 @@ export interface LayoutSetLayoutResult extends LayoutChangeReport {
   closedViewIds: ViewId[]
 }
 
+/* ---- Chat results --------------------------------------------------- */
+
+/**
+ * Every chat result carries `viewId` **and** `chatId`.
+ *
+ * The caller addressed the view; it gets its own address echoed back so a receipt
+ * is self-describing. `chatId` is included because it is the id the transcript is
+ * keyed by, and a renderer applying `ChatDelta`s needs to know which conversation
+ * the command it just sent belongs to without a second lookup.
+ */
+export interface ChatResultBase {
+  viewId: ViewId
+  chatId: ChatId
+  /** The conversation's state after the command landed. */
+  agentStatus: ChatAgentStatus
+}
+
+export interface ChatSendResult extends ChatResultBase {
+  /** The user turn that was appended. The agent's reply streams in under its own id. */
+  messageId: ChatMessageId
+  /** Descriptors resolved into this prompt — staged ones plus any passed inline. */
+  attachments: ChatAttachment[]
+}
+
+export interface ChatCancelResult extends ChatResultBase {
+  /** False when no turn was in flight; a no-op, not a failure. */
+  cancelled: boolean
+  /** The turn that was stopped, or null for the no-op case. */
+  messageId: ChatMessageId | null
+}
+
+export interface ChatClearResult extends ChatResultBase {
+  /** How many messages the conversation held before it was emptied. */
+  clearedMessages: number
+  /** True when a turn had to be stopped to clear the conversation. */
+  cancelledTurn: boolean
+}
+
+export interface ChatAttachResult extends ChatResultBase {
+  /** Ids of the descriptors now staged, in the order they were requested. A duplicate returns the existing id. */
+  attachmentIds: AttachmentId[]
+  /** Everything staged after the command, so a caller never has to re-read the view. */
+  attachments: ChatAttachment[]
+}
+
+export interface ChatDetachResult extends ChatResultBase {
+  removedIds: AttachmentId[]
+  attachments: ChatAttachment[]
+}
+
+export interface ChatRespondPermissionResult extends ChatResultBase {
+  requestId: string
+  optionId: string
+  /** The tool the answer unblocks, so a receipt reads as an audit line. */
+  toolName: string
+}
+
+export interface ChatSetModeResult extends ChatResultBase {
+  mode: ChatPermissionMode
+  previousMode: ChatPermissionMode
+}
+
 export interface StateReadResult {
   snapshot: WorkspaceSnapshot
 }
@@ -846,6 +1175,13 @@ export interface CommandResultMap {
   'layout.moveView': LayoutMoveViewResult
   'layout.splitWithView': LayoutSplitWithViewResult
   'layout.setLayout': LayoutSetLayoutResult
+  'chat.send': ChatSendResult
+  'chat.cancel': ChatCancelResult
+  'chat.clear': ChatClearResult
+  'chat.attach': ChatAttachResult
+  'chat.detach': ChatDetachResult
+  'chat.respondPermission': ChatRespondPermissionResult
+  'chat.setMode': ChatSetModeResult
   'state.read': StateReadResult
 }
 

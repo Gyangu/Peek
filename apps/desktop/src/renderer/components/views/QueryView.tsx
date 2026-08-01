@@ -111,7 +111,7 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
 
       <ViewError error={view.error} />
 
-      <DataGrid connId={connId} resultId={resultId} emptyHint={t('query.empty')} />
+      <DataGrid connId={connId} view={view} resultId={resultId} emptyHint={t('query.empty')} />
     </div>
   )
 }

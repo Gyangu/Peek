@@ -18,6 +18,7 @@ import {
   type PeekError,
 } from '@peek/core'
 import { renderPanelBrief, toJson } from './summary'
+import { diffUiEffects, renderUiEffects, type UiEffect } from './ui-effects'
 import type {
   CommandOutcome,
   CommandToolSpec,
@@ -43,7 +44,7 @@ export async function dispatchCommand(
   const run = <K extends CommandName>(c: {
     name: K
     input: CommandInput<K>
-  }): Promise<CommandResult<unknown>> => ctx.dispatch(c.name, c.input, 'mcp')
+  }): Promise<CommandResult<unknown>> => ctx.dispatch(c.name, c.input, ctx.source ?? 'mcp')
   return run(cmd)
 }
 
@@ -61,6 +62,23 @@ function defaultRender(outcomes: CommandOutcome[], ctx: ToolContext): ToolOutput
   return {
     text: `${head}\n\n${body}\n\nCurrent panels:\n${renderPanelBrief(snap)}`,
     ...(failed ? { isError: true } : {}),
+  }
+}
+
+/**
+ * Attach the window diff to a receipt.
+ *
+ * Applied by the executor to **every** command tool, after that tool's own
+ * renderer has run, so a tool cannot opt out and cannot describe the window
+ * differently from what the window did. An unchanged window still says so
+ * explicitly: silence would leave a model unable to tell "nothing happened" from
+ * "this tool does not report".
+ */
+function withUiEffects(out: ToolOutput, effects: UiEffect[]): ToolOutput {
+  return {
+    ...out,
+    text: `${out.text}\n\n${renderUiEffects(effects)}`,
+    ...(effects.length === 0 ? {} : { uiEffects: effects }),
   }
 }
 
@@ -114,6 +132,11 @@ export function defineCommandTool<S extends z.ZodType>(spec: CommandToolSpec<S>)
       const parsed = parseInput(spec, rawInput)
       if (!parsed.ok) return errorOutput(parsed.error)
 
+      // Taken before anything is dispatched, so the diff covers the whole call —
+      // including the changes a later command in the sequence made, and including
+      // the ones this tool never meant to make.
+      const before = ctx.getSnapshot()
+
       let commands: Command[]
       try {
         commands = await spec.toCommands(parsed.value, ctx)
@@ -146,14 +169,23 @@ export function defineCommandTool<S extends z.ZodType>(spec: CommandToolSpec<S>)
       }
 
       const anyFailed = outcomes.some((o) => !o.ok)
+      let out: ToolOutput
       if (spec.render && !anyFailed) {
         try {
-          return await spec.render(outcomes, parsed.value, ctx)
+          out = await spec.render(outcomes, parsed.value, ctx)
         } catch (err) {
-          return errorOutput(toPeekError(err))
+          // A renderer that throws still leaves the window changed, so the diff
+          // is reported anyway — the caller needs to know what landed before the
+          // receipt fell over.
+          return withUiEffects(errorOutput(toPeekError(err)), diffUiEffects(before, ctx.getSnapshot()))
         }
+      } else {
+        out = defaultRender(outcomes, ctx)
       }
-      return defaultRender(outcomes, ctx)
+      // Deliberately computed after the renderer: `open_view` waits for its result
+      // set inside `render`, and a diff taken earlier would miss the rows that
+      // arrived while it waited.
+      return withUiEffects(out, diffUiEffects(before, ctx.getSnapshot()))
     },
   }
 }

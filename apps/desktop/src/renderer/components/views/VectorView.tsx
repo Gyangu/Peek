@@ -220,6 +220,7 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
 
       <DataGrid
         connId={connId}
+        view={view}
         resultId={resultId}
         emptyHint={hasQuery ? t('vector.empty') : t('vector.needQuery')}
       />

@@ -31,6 +31,16 @@ import { putView, removeView, runningResultOf, startResult } from '../../store/m
 import { failMsg } from '../failure'
 import { firstEmptyPanel, firstPanel, mountViewInPanel } from '../layout-ops'
 import type { ReduceCtx } from '../types'
+import { buildChatViewState, stageChatAttachments } from './chat'
+
+/**
+ * The views that fetch data — everything except `inspector`, `tree` and `chat`.
+ *
+ * Named because `beginResult` and its callers only ever apply to these three, and
+ * saying so in the type is what keeps a chat view (which has no `connId` at all)
+ * from having to be defended against at every line of the fetch path.
+ */
+type FetchingViewState = TableViewState | QueryViewState | VectorViewState
 
 /** Default topK for a vector view */
 const DEFAULT_TOP_K = 10
@@ -215,7 +225,13 @@ export function openView(
 ): ViewOpenResult {
   // The connection must exist, but need not be ready yet: the view opens now and
   // fetches once the connection comes up.
-  requireConnection(draft, spec.connId)
+  //
+  // A chat is the one view that is not a window onto a connection (see
+  // `ConnectedViewBase`), so it has nothing to check here — and when it *does*
+  // name one, that is advisory: a conversation about a database the user has
+  // since disconnected is still a conversation, and refusing to open it would be
+  // a worse answer than opening it unbound.
+  if (spec.kind !== 'chat') requireConnection(draft, spec.connId)
 
   const target = resolvePanel(draft, opts.panelId)
   const panelId: PanelId = target.id
@@ -230,8 +246,15 @@ export function openView(
     closeView(draft, target.activeViewId, ctx)
   }
 
-  const view = buildViewState(spec, ctx.ids.view())
+  const view = buildViewState(spec, ctx)
   putView(draft, view)
+  // Staging happens after the view is in `views` so a bad descriptor aborts the
+  // whole command — immer discards the draft, and no half-built conversation is
+  // left mounted.
+  if (spec.kind === 'chat' && spec.attachments && spec.attachments.length > 0) {
+    const chat = draft.views[view.id]
+    if (chat?.kind === 'chat') stageChatAttachments(draft, chat, spec.attachments, ctx)
+  }
 
   const layout = mountViewInPanel(plain(draft.layout), panelId, view.id, {
     ...(index === undefined ? {} : { index }),
@@ -271,7 +294,9 @@ export function closeView(draft: Draft<Workspace>, viewId: ViewId, ctx: ReduceCt
   const view = draft.views[viewId]
   if (!view) return { panelId: null, activatedViewId: null }
   const running = runningResultOf(draft, viewId)
-  if (running !== null) {
+  // `runningResultOf` is already null for a chat (it holds no `resultId`), so the
+  // `connId` test only narrows the type — it is not a second condition.
+  if (running !== null && view.connId !== undefined) {
     // Best effort: a failed cancel must not stop the view from closing.
     ctx.plan({ type: 'cancel', connId: view.connId, resultId: running, soft: true })
   }
@@ -282,7 +307,18 @@ export function closeView(draft: Draft<Workspace>, viewId: ViewId, ctx: ReduceCt
   return { panelId, activatedViewId: findPanel(plain(draft.layout), panelId)?.activeViewId ?? null }
 }
 
-function buildViewState(spec: ViewOpenSpec, id: ViewId): ViewState {
+function buildViewState(spec: ViewOpenSpec, ctx: ReduceCtx): ViewState {
+  const id = ctx.ids.view()
+  // Chat is built elsewhere: everything it decides (no agent session yet, a
+  // restrictive default permission mode) is chat policy rather than view
+  // plumbing, and it is the one kind with no `connId` to put in `base`.
+  if (spec.kind === 'chat') {
+    return buildChatViewState(id, ctx.ids.chat(), {
+      ...(spec.connId === undefined ? {} : { connId: spec.connId }),
+      ...(spec.permissionMode === undefined ? {} : { permissionMode: spec.permissionMode }),
+      ...(spec.title === undefined ? {} : { title: spec.title }),
+    })
+  }
   const base = { id, connId: spec.connId, status: 'idle' as const, ...(spec.title ? { title: spec.title } : {}) }
   switch (spec.kind) {
     case 'table':
@@ -367,7 +403,7 @@ export function autoFetch(
  */
 function beginResult(
   draft: Draft<Workspace>,
-  view: Draft<ViewState>,
+  view: Draft<FetchingViewState>,
   ctx: ReduceCtx,
   summary: string,
 ): ResultId {
@@ -386,11 +422,7 @@ function beginResult(
   }
 
   const resultId = ctx.ids.result()
-  // Switch on `kind` rather than `'resultId' in view`: the property is optional,
-  // so `in` is false until something assigns it.
-  if (view.kind === 'table' || view.kind === 'query' || view.kind === 'vector') {
-    view.resultId = resultId
-  }
+  view.resultId = resultId
   view.status = 'loading'
   delete view.error
   startResult(draft, {

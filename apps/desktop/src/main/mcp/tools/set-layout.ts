@@ -237,6 +237,10 @@ export default defineCommandTool({
       }
       if (leaf.panelId !== undefined) requirePanelExists(snap, leaf.panelId, where, 'BAD_REQUEST')
       for (const [i, spec] of (leaf.open ?? []).entries()) {
+        // A chat spec's `connId` is optional and advisory — a conversation is not
+        // a window onto a connection — so there is nothing to pre-flight when it
+        // is absent.
+        if (spec.connId === undefined) continue
         requireConnExists(snap, spec.connId, `${where} open #${String(i + 1)}`)
       }
     })

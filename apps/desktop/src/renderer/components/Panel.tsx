@@ -127,22 +127,39 @@ export function PanelView({ panel, index }: { panel: PanelNode; index: number })
 /* ------------------------------------------------------------------ */
 
 /**
- * `tabIndex` is threaded in rather than defaulted: these two buttons are
- * interactive descendants of a panel, and an unfocused panel keeps every one of
- * its descendants out of the document tab order (level 1 of the roving model).
- * Sixteen empty panels would otherwise be thirty-two stops between the sidebar
+ * `tabIndex` is threaded in rather than defaulted: these buttons are interactive
+ * descendants of a panel, and an unfocused panel keeps every one of its
+ * descendants out of the document tab order (level 1 of the roving model).
+ * Sixteen empty panels would otherwise be dozens of stops between the sidebar
  * and the grid.
+ *
+ * The chat button sits in **both** branches while the data buttons sit in only
+ * one, and that asymmetry is the point: a conversation is a peer of the
+ * connections rather than a window onto one, so it is the single thing here that
+ * is worth offering to somebody who has not connected to anything yet.
  */
 function EmptyPanel({ panelId, tabIndex }: { panelId: PanelNode['id']; tabIndex: 0 | -1 }): ReactElement {
   const t = useT()
   const conns = useConnections()
   const ready = conns.filter((c) => c.status === 'ready')
 
+  const newChat = (
+    <button
+      tabIndex={tabIndex}
+      onClick={() => {
+        void dispatch('view.open', { spec: { kind: 'chat' }, panelId })
+      }}
+    >
+      {t('panel.newChat')}
+    </button>
+  )
+
   if (ready.length === 0) {
     return (
       <div className="panel-empty">
         <div>{t('panel.empty')}</div>
         <div style={{ color: 'var(--fg-faint)' }}>{t('panel.emptyHint')}</div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>{newChat}</div>
       </div>
     )
   }
@@ -176,6 +193,7 @@ function EmptyPanel({ panelId, tabIndex }: { panelId: PanelNode['id']; tabIndex:
         >
           {t('panel.objectTree')}
         </button>
+        {newChat}
       </div>
     </div>
   )

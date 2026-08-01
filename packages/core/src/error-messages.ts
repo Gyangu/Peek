@@ -83,6 +83,30 @@ export const ERROR_MESSAGES = {
   'error.layout.wouldUnplace':
     'The target layout leaves out {count} open view(s); pass unplaced="close" to close them or "keep" to unmount them',
 
+  /* ---- Chat (ACP agent panel) -------------------------------------- */
+  'error.chat.notChatView': 'View {viewId} is a {kind} view, not a conversation',
+  'error.chat.busy': 'The conversation is already running a turn; stop it before sending another',
+  'error.chat.awaitingPermission':
+    'The conversation is waiting for a permission decision; answer it before sending',
+  'error.chat.tooManyAttachments': 'A conversation stages at most {max} attachments',
+  'error.chat.attachViewMissing': 'Cannot attach: view {viewId} is not open any more',
+  'error.chat.attachResultMissing': 'Cannot attach: result set {resultId} is not available any more',
+  'error.chat.attachResultMismatch': 'Result set {resultId} does not belong to view {viewId}',
+  'error.chat.attachNotQueryView': 'View {viewId} is a {kind} view and has no statement to attach',
+  'error.chat.attachConnMissing': 'Cannot attach a schema: connection {connId} is not open',
+  'error.chat.attachmentNotStaged': 'Attachment {attachmentId} is not staged on this conversation',
+  'error.chat.noPendingPermission': 'The conversation is not waiting for a permission decision',
+  'error.chat.permissionStale':
+    'Permission request {requestId} is no longer the one being asked (it is now {actual}); read the conversation again',
+  'error.chat.permissionOptionUnknown': 'No such permission option {optionId}; the choices are {options}',
+  /**
+   * Not a capability check but a policy one: a mode that removes the human from
+   * the loop may only be chosen by the human. See `ChatSetModeInputSchema`.
+   */
+  'error.chat.modeNotAllowed':
+    'Permission mode {mode} can only be chosen by the person at the keyboard, not by {source}',
+  'error.chat.agentUnavailable': 'The chat agent is not available',
+
   /* ---- Queries and result sets ------------------------------------- */
   'error.query.emptyText': 'The statement is empty',
   'error.query.needViewOrConn': 'Provide either viewId, or connId together with text',

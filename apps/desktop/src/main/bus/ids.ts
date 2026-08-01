@@ -1,14 +1,23 @@
 import {
+  asAttachmentId,
+  asChatId,
+  asChatMessageId,
   asConnId,
   asPanelId,
   asResultId,
   asSplitId,
   asViewId,
+  newAttachmentId,
+  newChatId,
+  newChatMessageId,
   newConnId,
   newPanelId,
   newResultId,
   newSplitId,
   newViewId,
+  type AttachmentId,
+  type ChatId,
+  type ChatMessageId,
   type ConnId,
   type PanelId,
   type ResultId,
@@ -27,6 +36,14 @@ export interface IdFactory {
   panel(): PanelId
   split(): SplitId
   result(): ResultId
+  /**
+   * A conversation. Minted when a chat **view** opens, and deliberately not the
+   * agent's `sessionId`: the view exists before any agent process does, survives
+   * the agent crashing, and may outlive several agent sessions (see `ChatIdSchema`).
+   */
+  chat(): ChatId
+  chatMessage(): ChatMessageId
+  attachment(): AttachmentId
 }
 
 export const defaultIdFactory: IdFactory = {
@@ -35,6 +52,9 @@ export const defaultIdFactory: IdFactory = {
   panel: newPanelId,
   split: newSplitId,
   result: newResultId,
+  chat: newChatId,
+  chatMessage: newChatMessageId,
+  attachment: newAttachmentId,
 }
 
 /** For tests: a reproducible counting id factory. */
@@ -51,5 +71,8 @@ export function createSeqIdFactory(prefix = 't'): IdFactory {
     panel: () => asPanelId(next('panel')),
     split: () => asSplitId(next('split')),
     result: () => asResultId(next('res')),
+    chat: () => asChatId(next('chat')),
+    chatMessage: () => asChatMessageId(next('msg')),
+    attachment: () => asAttachmentId(next('att')),
   }
 }

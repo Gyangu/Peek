@@ -45,6 +45,7 @@ export const panel = {
   'view.kind.inspector': 'Inspector',
   'view.kind.tree': 'Object tree',
   'view.kind.vector': 'Vector search',
+  'view.kind.chat': 'Chat',
 
   /* One-line view descriptions for the status bar — the localized counterpart of
    * `describeView()` in core, which stays English because MCP reads it.
@@ -62,6 +63,15 @@ export const panel = {
     other: '{kind} · {count} nodes expanded',
   },
   'view.describe.vector': '{kind} {collection} · topK {topK}',
+  'view.describe.chat': {
+    one: '{kind} · {count} message',
+    other: '{kind} · {count} messages',
+  },
+
+  /* The empty-panel affordance for starting a conversation. Unlike the buttons
+   * beside it this one needs no connection — a chat is a peer of the connections,
+   * not a window onto one. */
+  'panel.newChat': 'New chat',
 } as const
 
 export type PanelMessages = typeof panel

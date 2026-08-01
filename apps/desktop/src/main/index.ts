@@ -4,7 +4,15 @@ import { app, BrowserWindow, ipcMain, shell, type WebContents } from 'electron'
 import type { ConnId, NamespaceNode, NotifyMessage, PeekError, WorkspaceSnapshot } from '@peek/core'
 import { toPeekError } from '@peek/core'
 import { createCommandBus, type CommandBus, type CommandDeps } from './bus'
-import { installBusIpc, sendNotify } from './bus/ipc-main'
+import { createChatEventSink, createChatHandlers, watchChatViews } from './bus/handlers'
+import { installBusIpc, sendChatDeltas, sendNotify } from './bus/ipc-main'
+import { AcpManager, defaultAcpConfig, type McpEndpointInfo } from './acp'
+import {
+  createAcpChatRuntime,
+  createChatStateApplier,
+  createContextSource,
+  createDeltaEmitter,
+} from './chat-host'
 import { ConnectionManager } from './connections'
 import { createMcpServer, type McpServerHandle } from './mcp'
 import { WorkspaceStore, createResultEventSink } from './store'
@@ -89,6 +97,16 @@ const resultSink = createResultEventSink(store)
 
 let mainWindow: BrowserWindow | null = null
 let mcp: McpServerHandle | null = null
+/**
+ * Set only once the MCP server is really listening, and cleared if it dies.
+ *
+ * The ACP host reads this at session-creation time and refuses to pretend: ACP's
+ * `session/new` **silently degrades** when an MCP server is unreachable, so
+ * without this check the user would get a Claude that cannot see the window and
+ * no error anywhere explaining why.
+ */
+let mcpEndpoint: McpEndpointInfo | null = null
+let acp: AcpManager | null = null
 const disposers: (() => void)[] = []
 
 /** The renderers that should receive patches and notifications; the window may not exist yet or may be destroyed */
@@ -393,10 +411,13 @@ async function startMcp(commandBus: CommandBus, rows: ResultRowsBroker): Promise
 
   try {
     const endpoint = await handle.start()
+    // Only now is the endpoint real; the chat panel's agent may be told about it.
+    mcpEndpoint = { url: endpoint.url, token: handle.token }
     console.log(`[peek/mcp] listening on ${endpoint.url}`)
     console.log(`[peek/mcp] how to connect: ${endpoint.hint}`)
   } catch (raw) {
     mcp = null
+    mcpEndpoint = null
     const error: PeekError = toPeekError(raw)
     notify({
       level: 'error',
@@ -439,9 +460,112 @@ function bootstrap(): void {
     rows.dispose()
   })
 
+  // The chat panel is optional; the rest of peek is not. Anything that goes
+  // wrong assembling it — most plausibly a `~/.peek` that cannot be written —
+  // must not stop a window from ever being created. `createCommandBus` has
+  // already registered the `createUnavailableChatRuntime` stubs, so leaving them
+  // in place degrades chat panels visibly and leaves everything else intact.
+  try {
+    wireChatHost(commandBus, rows)
+  } catch (error) {
+    const failure = toPeekError(error)
+    console.error('[peek/error] the chat host could not be assembled', failure)
+    notify({
+      level: 'error',
+      message: 'The chat panel is unavailable.',
+      detail: failure.detail ?? failure.message,
+    })
+  }
+
   createWindow()
 
   void startMcp(commandBus, rows)
+}
+
+/* ================================================================== */
+/* 7. The chat panel's back end                                        */
+/* ================================================================== */
+
+/**
+ * Assemble the ACP host and hand the bus a runtime that can actually reach it.
+ *
+ * ## The loop this closes
+ *
+ * The agent is a child process of main. It reaches back into peek over peek's own
+ * MCP endpoint, which means an agent tool call travels
+ * `agent → HTTP → main → Command Bus` — the same path a click takes, with the
+ * same validation and the same command log. That is the whole point of the
+ * feature, and it is also why two rules below are not negotiable:
+ *
+ * 1. **No command may stay open for the length of a turn.** `ChatRuntime.run` is
+ *    never awaited by the bus, and `AcpManager.send` resolves when the turn is
+ *    *accepted*, not when it finishes. A command that blocked until the agent was
+ *    done would be holding the very event loop the agent's tool calls need.
+ * 2. **The agent's session is created lazily, after MCP is listening.** Sessions
+ *    come up on the first prompt, and `resolveMcpEndpoint` reports `null` until
+ *    `startMcp` has actually bound the port.
+ *
+ * The two channels out of the host stay split for the reason `core/chat.ts`
+ * argues at length: control-plane fields (status, mode, usage, the pending
+ * permission) are small, low-frequency and must be visible to both the human and
+ * `read_workspace`, so they go into the Workspace; the transcript is token-by-token
+ * data plane and takes its own IPC channel, exactly as result chunks do.
+ */
+function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
+  const sink = createChatEventSink(store)
+  const applyState = createChatStateApplier(store)
+
+  const manager = new AcpManager(
+    {
+      applyState,
+      emitDeltas: createDeltaEmitter(renderers, sendChatDeltas),
+      notify,
+      resolveMcpEndpoint: () => mcpEndpoint,
+    },
+    { ...defaultAcpConfig(), clientVersion: app.getVersion() },
+  )
+  acp = manager
+
+  // Diagnostics, not state: the host reports its own process lifecycle here, and
+  // only the terminal case is worth interrupting the user for.
+  manager.events.on('log', ({ level, message, detail }) => {
+    if (level === 'error') console.error('[peek/acp]', message, detail ?? '')
+    else if (level === 'warn') console.warn('[peek/acp]', message, detail ?? '')
+    else console.log('[peek/acp]', message, detail ?? '')
+  })
+  manager.events.on('ready', ({ pid, agentName, agentVersion }) => {
+    console.log(`[peek/acp] agent ready: ${agentName} ${agentVersion} (pid ${pid ?? '?'})`)
+  })
+  manager.events.on('gaveUp', ({ error }) => {
+    notify({
+      level: 'error',
+      message: `The chat agent could not be restarted: ${error.message}`,
+      detail: 'Chat panels are unusable until peek is restarted. Everything else is unaffected.',
+    })
+  })
+
+  const runtime = createAcpChatRuntime({
+    manager,
+    source: createContextSource({ store, connections, rows }),
+    notify,
+    // Failures that escape the agent land on the conversation the user is looking
+    // at, through the same sink the streaming path writes with.
+    onError: (chatId, error) => {
+      sink.onAgentError(chatId, error)
+    },
+  })
+
+  // Overwrites the `createUnavailableChatRuntime` stubs `createCommandBus`
+  // registered, by name. Until this line a chat view opens, stages attachments
+  // and accepts a message that is never answered — which is the honest degraded
+  // state, not a crash.
+  commandBus.registerAll(createChatHandlers(runtime))
+
+  // Conversations appear and disappear through at least four routes (view.close,
+  // layout.close, setLayout with unplaced:'close', conn.close). Watching the state
+  // answers "which conversations exist" once, for every route including ones
+  // added later, instead of hanging a hook on each.
+  disposers.push(watchChatViews(store, runtime))
 }
 
 let shuttingDown = false
@@ -459,6 +583,15 @@ async function shutdown(): Promise<void> {
     console.error('[peek/error] failed to close the MCP server', error)
   })
   mcp = null
+  mcpEndpoint = null
+  // Then the agent, and only then the drivers. The agent is a child process that
+  // would otherwise be orphaned, and it may still be mid-turn; taking its MCP
+  // endpoint away first means anything it tries fails cleanly instead of racing
+  // driver teardown.
+  await acp?.dispose().catch((error: unknown) => {
+    console.error('[peek/error] failed to shut the chat agent down', error)
+  })
+  acp = null
   await connections.disposeAll().catch((error: unknown) => {
     console.error('[peek/error] failed to reclaim driver processes', error)
   })

@@ -13,12 +13,25 @@ import {
   type ColumnSizingState,
 } from '@tanstack/react-table'
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual'
-import type { ColumnDef, ConnId, ResultId, SortSpec } from '@peek/core'
+import type { ColumnDef, ConnId, ResultId, SortSpec, ViewState } from '@peek/core'
 import { isTruncatedValue } from '@peek/core'
 import { useT, type TFunction } from '../i18n'
 import { getCell, isRowLoaded, setViewport } from '../state/resultCache'
 import { useResult } from '../state/useResult'
 import { cellClass, cellText, formatCount, formatMs, isExpandable } from '../util/format'
+import {
+  ContextMenu,
+  EMPTY_SELECTION,
+  MAX_SELECTION_SPAN,
+  SelectionActionBar,
+  applyRowClick,
+  isRowSelected,
+  selectAllRows,
+  selectedIndexes,
+  selectionSize,
+  type ContextTarget,
+  type RowSelection,
+} from './context-actions'
 import { GridScrollbar } from './GridScrollbar'
 import { ValueModal } from './ValueModal'
 import { HEAD_H, ROW_H, VScrollDriver, rowTopIn } from './vscroll'
@@ -53,6 +66,15 @@ const EMPTY_DATA: RowStub[] = []
 
 export interface DataGridProps {
   connId: ConnId
+  /**
+   * The view this grid belongs to.
+   *
+   * Required only because of "add this to the chat": a `ChatAttachment` is a
+   * descriptor naming a view and a result, so without the view the grid can
+   * build no descriptor and the whole gesture is unreachable — which is exactly
+   * how the feature shipped inert the first time.
+   */
+  view: ViewState
   resultId: ResultId | undefined
   /** Current sort (passed by the table view, drives the header indicator). */
   sort?: SortSpec[] | undefined
@@ -68,7 +90,7 @@ interface CellPos {
 }
 
 export function DataGrid(props: DataGridProps): ReactElement {
-  const { connId, resultId, sort, onSortColumn, emptyHint } = props
+  const { connId, view, resultId, sort, onSortColumn, emptyHint } = props
   const t = useT()
   const snap = useResult(resultId)
   /** The horizontal scroll container (.grid). Vertical is hidden, so it only scrolls scrollLeft. */
@@ -87,6 +109,15 @@ export function DataGrid(props: DataGridProps): ReactElement {
   const [sizing, setSizing] = useState<ColumnSizingState>({})
   const [selected, setSelected] = useState<CellPos | null>(null)
   const [expanded, setExpanded] = useState<CellPos | null>(null)
+  /**
+   * Rows highlighted for "add these to the chat".
+   *
+   * Distinct from `selected`, which is a single *cell* and drives the value
+   * inspector. Both exist because they answer different questions: the cell is
+   * "what am I looking at", the row set is "what do I want to send".
+   */
+  const [rowSelection, setRowSelection] = useState<RowSelection>(EMPTY_SELECTION)
+  const [menu, setMenu] = useState<{ x: number; y: number; cell: CellPos | null } | null>(null)
 
   const schema = snap.schema
   const rowCount = snap.rowCount
@@ -137,6 +168,10 @@ export function DataGrid(props: DataGridProps): ReactElement {
     setSizing({})
     setSelected(null)
     setExpanded(null)
+    // Row indexes address positions in *this* result set. Carrying them into the
+    // next one would attach rows the user never looked at.
+    setRowSelection(EMPTY_SELECTION)
+    setMenu(null)
     // The vertical position lives in the driver alone; never write el.scrollTop —
     // that element has no vertical scrolling any more.
     driver.reset()
@@ -264,7 +299,17 @@ export function DataGrid(props: DataGridProps): ReactElement {
     (e: ReactKeyboardEvent<HTMLDivElement>): void => {
       const m = driver.metrics
       const page = Math.max(ROW_H, m.bodyH - ROW_H)
-      if (e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      if (e.key === 'Escape') {
+        setRowSelection(EMPTY_SELECTION)
+        setMenu(null)
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
+        // Bounded by the same span the attachment will accept. Selecting a
+        // million rows would build a million-entry Set to produce a selection
+        // `resolveAttachment` refuses anyway — a gesture that cannot lead
+        // anywhere is worse than one that is simply absent.
+        if (rowCount > MAX_SELECTION_SPAN) return
+        setRowSelection(selectAllRows(rowCount))
+      } else if (e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         driver.scrollTo(e.key === 'ArrowUp' ? 0 : m.maxTop)
       } else if (e.key === 'ArrowDown') driver.scrollBy(ROW_H)
       else if (e.key === 'ArrowUp') driver.scrollBy(-ROW_H)
@@ -275,7 +320,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
       else return
       e.preventDefault()
     },
-    [driver],
+    [driver, rowCount],
   )
 
   const setSurface = useCallback(
@@ -323,6 +368,37 @@ export function DataGrid(props: DataGridProps): ReactElement {
     if (expand) setExpanded({ row, col })
   }, [])
 
+  /**
+   * Row selection, from the two gestures a table is expected to have.
+   *
+   * `gutter` is what separates "I clicked a row number" from "I clicked a cell".
+   * A plain click on a cell must not replace the row selection: people click
+   * cells constantly to read them, and popping the action bar up every time —
+   * or worse, silently discarding a selection they built — makes the feature
+   * something to fight. So a plain cell click is inspection only, while the row
+   * number is the selection handle and shift/⌘ work from anywhere on the row.
+   */
+  const handleRowSelect = useCallback(
+    (row: number, mods: { shift: boolean; toggle: boolean; gutter: boolean }): void => {
+      if (!mods.gutter && !mods.shift && !mods.toggle) return
+      setRowSelection((prev) => applyRowClick(prev, row, { shift: mods.shift, toggle: mods.toggle }))
+    },
+    [],
+  )
+
+  const clearRowSelection = useCallback(() => {
+    setRowSelection(EMPTY_SELECTION)
+  }, [])
+
+  const handleRowContextMenu = useCallback((row: number, col: number, x: number, y: number): void => {
+    setSelected({ row, col })
+    setMenu({ x, y, cell: col < 0 ? null : { row, col } })
+  }, [])
+
+  const closeMenu = useCallback(() => {
+    setMenu(null)
+  }, [])
+
   const closeModal = useCallback(() => {
     setExpanded(null)
   }, [])
@@ -351,9 +427,25 @@ export function DataGrid(props: DataGridProps): ReactElement {
         cols={stableCols}
         dataVersion={isRowLoaded(resultId, i) ? 0 : snap.version}
         selectedCol={selected && selected.row === i ? selected.col : -1}
+        // A boolean, not the Set: `GridRow` is memoized on its props, and
+        // handing every row the same Set identity would defeat that for the
+        // whole window on every selection change.
+        rowSelected={isRowSelected(rowSelection, i)}
         onCellClick={handleCellClick}
+        onRowSelect={handleRowSelect}
+        onRowContextMenu={handleRowContextMenu}
       />,
     )
+  }
+
+  const contextTarget: ContextTarget = {
+    view,
+    ...(resultId === undefined ? {} : { resultId }),
+    ...(selectionSize(rowSelection) > 0 ? { selectedRows: selectedIndexes(rowSelection) } : {}),
+    ...(menu?.cell && schema?.[menu.cell.col]
+      ? { cell: { rowIndex: menu.cell.row, column: schema[menu.cell.col].name } }
+      : {}),
+    rowCount,
   }
 
   return (
@@ -404,12 +496,23 @@ export function DataGrid(props: DataGridProps): ReactElement {
           </div>
         </div>
 
-        {/* The next two are **siblings** of .grid, not descendants: they have to
-            stay pinned to the panel */}
+        {/* The next three are **siblings** of .grid, not descendants: they have to
+            stay pinned to the panel. The action bar is `position: absolute`, so
+            inside .grid it would slide away with scrollLeft exactly as the
+            scrollbar once did. */}
         {overlay !== null ? <div className="grid-overlay">{overlay}</div> : null}
+
+        <SelectionActionBar
+          viewId={view.id}
+          resultId={resultId}
+          selection={rowSelection}
+          onClear={clearRowSelection}
+        />
 
         <GridScrollbar driver={driver} snap={geom} thumbRef={setThumb} />
       </div>
+
+      {menu ? <ContextMenu x={menu.x} y={menu.y} target={contextTarget} onClose={closeMenu} /> : null}
 
       <GridFooter
         rowCount={rowCount}
@@ -455,23 +558,51 @@ interface GridRowProps {
    *  row refreshes by itself when its data arrives. */
   dataVersion: number
   selectedCol: number
+  /** Part of the row set staged for "add these to the chat". */
+  rowSelected: boolean
   onCellClick: (row: number, col: number, expand: boolean) => void
+  onRowSelect: (row: number, mods: { shift: boolean; toggle: boolean; gutter: boolean }) => void
+  /** `col` is -1 when the pointer was over the row-number gutter. */
+  onRowContextMenu: (row: number, col: number, x: number, y: number) => void
 }
 
 const GridRow = memo(function GridRow(props: GridRowProps): ReactElement {
-  const { resultId, schema, rowIndex, top, width, cols, selectedCol, onCellClick } = props
+  const {
+    resultId,
+    schema,
+    rowIndex,
+    top,
+    width,
+    cols,
+    selectedCol,
+    rowSelected,
+    onCellClick,
+    onRowSelect,
+    onRowContextMenu,
+  } = props
 
   // Cells carry no handlers of their own: the event is delegated to the row and
   // the column index is read back off data-col
   const onClick = (e: ReactMouseEvent<HTMLDivElement>): void => {
+    const gutter = (e.target as HTMLElement).dataset['gutter'] !== undefined
+    onRowSelect(rowIndex, { shift: e.shiftKey, toggle: e.metaKey || e.ctrlKey, gutter })
     const raw = (e.target as HTMLElement).dataset['col']
     if (raw === undefined) return
     const col = Number(raw)
     const value = getCell(resultId, rowIndex, col)
     // A truncated value expands on a single click (fetching the rest via
-    // valuePeek); everything else expands on a double click
-    const expand = isTruncatedValue(value) || (e.detail >= 2 && isExpandable(value))
+    // valuePeek); everything else expands on a double click. A modified click is
+    // a selection gesture, never an expand — otherwise ⌘-clicking to build a
+    // row set keeps opening the value modal.
+    const modified = e.shiftKey || e.metaKey || e.ctrlKey
+    const expand = !modified && (isTruncatedValue(value) || (e.detail >= 2 && isExpandable(value)))
     onCellClick(rowIndex, col, expand)
+  }
+
+  const onContextMenu = (e: ReactMouseEvent<HTMLDivElement>): void => {
+    e.preventDefault()
+    const raw = (e.target as HTMLElement).dataset['col']
+    onRowContextMenu(rowIndex, raw === undefined ? -1 : Number(raw), e.clientX, e.clientY)
   }
 
   const style: CSSProperties = {
@@ -497,17 +628,29 @@ const GridRow = memo(function GridRow(props: GridRowProps): ReactElement {
     )
   }
 
+  const rowClass =
+    (rowIndex % 2 === 1 ? 'grid-row odd' : 'grid-row') + (rowSelected ? ' row-selected' : '')
+
   return (
-    <div
-      className={rowIndex % 2 === 1 ? 'grid-row odd' : 'grid-row'}
-      style={style}
-      onClick={onClick}
-    >
-      <div className="grid-rownum">{rowIndex + 1}</div>
+    <div className={rowClass} style={style} onClick={onClick} onContextMenu={onContextMenu}>
+      {/* `data-gutter` is what tells a plain click "this is a selection", the
+          same delegation trick `data-col` uses for cells. */}
+      <div className="grid-rownum" data-gutter="" title={ROWNUM_TITLE}>
+        {rowIndex + 1}
+      </div>
       {cells}
     </div>
   )
 })
+
+/**
+ * Tooltip on the row number.
+ *
+ * Key notation only, and identical in every language — the same rule the query
+ * editor's shortcut hints follow. It is the one place the selection gesture is
+ * discoverable without trying it.
+ */
+const ROWNUM_TITLE = 'click · ⇧ range · ⌘/ctrl toggle'
 
 /* ------------------------------------------------------------------ */
 

@@ -5,6 +5,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 // Type-only imports from '@peek/core' are fine; they vanish at compile time.
 import { IPC, PEEK_BRIDGE_KEY } from '../../../../packages/core/src/ipc'
 import type {
+  ChatDeltaMessage,
   DriverRpcRequest,
   DriverRpcResponse,
   KeyValueWindow,
@@ -17,6 +18,7 @@ import type {
   StateSnapshotMessage,
 } from '../../../../packages/core/src/ipc'
 import type {
+  ChatDelta,
   CommandInput,
   CommandName,
   CommandResultFor,
@@ -66,6 +68,8 @@ interface InternalBridge {
   driverRpc(req: DriverRpcRequest): Promise<DriverRpcResponse>
   onResultRowsRequest(handler: (msg: ResultRowsRequestMessage) => void): Unsubscribe
   replyResultRows(msg: ResultRowsReplyMessage): void
+  /** Chat transcript data plane; the envelope is unwrapped to plain deltas here. */
+  onChatDelta(handler: (deltas: ChatDelta[]) => void): Unsubscribe
 }
 
 const internal: InternalBridge = {
@@ -107,6 +111,15 @@ const internal: InternalBridge = {
   },
   replyResultRows(msg) {
     ipcRenderer.send(IPC.RESULT_ROWS_REPLY, msg)
+  },
+  onChatDelta(handler) {
+    const listener = (_event: IpcRendererEvent, msg: ChatDeltaMessage): void => {
+      handler(msg.deltas)
+    }
+    ipcRenderer.on(IPC.CHAT_DELTA, listener)
+    return () => {
+      ipcRenderer.off(IPC.CHAT_DELTA, listener)
+    }
   },
 }
 
@@ -217,6 +230,9 @@ function bootstrapMainWorld(internalKey: string, relayKey: string, bridgeKey: st
     replyResultRows(msg) {
       bridge.replyResultRows(msg)
     },
+    onChatDelta(handler) {
+      return bridge.onChatDelta(handler)
+    },
   }
 
   Object.defineProperty(window, bridgeKey, {
@@ -294,6 +310,7 @@ if (!bootstrapped) {
     replyResultRows: (msg) => {
       internal.replyResultRows(msg)
     },
+    onChatDelta: (handler) => internal.onChatDelta(handler),
   }
 
   contextBridge.exposeInMainWorld(PEEK_BRIDGE_KEY, fallback)

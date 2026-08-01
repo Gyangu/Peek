@@ -13,10 +13,11 @@ import type {
   SortSpec,
   ValueRef,
 } from './capability'
+import type { ChatDelta } from './chat'
 import type { ColumnDef, ResultPause } from './chunk'
 import type { CommandInput, CommandName, CommandResultFor, CommandSource } from './commands'
 import type { PeekError } from './errors'
-import type { ConnId, ResultId, ViewId } from './ids'
+import type { ChatId, ConnId, ResultId, ViewId } from './ids'
 import type { ConnStatus, Workspace, WorkspaceSnapshot } from './workspace'
 
 /* ================================================================== */
@@ -80,6 +81,22 @@ export const IPC = {
   RESULT_ROWS_REQUEST: 'peek:result:rows:request',
   /** R→M: the reply to RESULT_ROWS_REQUEST, paired by requestId */
   RESULT_ROWS_REPLY: 'peek:result:rows:reply',
+
+  /**
+   * M→R: append-only chat transcript deltas, already batched by main.
+   *
+   * The second data-plane channel, and it exists for the same reason
+   * RESULT_PORT does: `packages/core/src/chat.ts` keeps the transcript out of
+   * the Workspace, because a token-by-token stream routed through immer diffing
+   * and patch broadcast would bump `rev` hundreds of times a turn, slow every
+   * unrelated command as the conversation grows, and stuff the whole
+   * conversation into every `read_workspace` reply.
+   *
+   * The renderer still invents nothing: it projects a delta stream main
+   * authored, exactly as it projects the patch stream main authored. Only the
+   * transport differs — not who decides.
+   */
+  CHAT_DELTA: 'peek:chat:delta',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
@@ -198,6 +215,22 @@ export type ResultRowsReplyMessage =
     }
   | { requestId: string; ok: false; error: PeekError }
 
+/* ------------------------------------------------------------------ */
+/* Chat transcript (main → renderer)                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One flush of transcript deltas for a single conversation.
+ *
+ * `deltas` is a batch, not a single event: main coalesces on a time and size
+ * budget before it crosses IPC (see `DEFAULT_DELTA_BUDGET`), so the common case
+ * is a phrase rather than a character. The renderer applies them in order.
+ */
+export interface ChatDeltaMessage {
+  chatId: ChatId
+  deltas: ChatDelta[]
+}
+
 /* ================================================================== */
 /* 3. The narrow bridge preload exposes to the renderer                */
 /* ================================================================== */
@@ -250,6 +283,17 @@ export interface PeekBridge {
 
   /** Reply to onResultRowsRequest */
   replyResultRows?(msg: ResultRowsReplyMessage): void
+
+  /**
+   * Transcript deltas for every open conversation, batched by main.
+   *
+   * The handler receives one conversation's batch at a time; every `ChatDelta`
+   * names its own `chatId`, so the batch needs no envelope once it is across.
+   * Optional like the members above, and the chat panel feature-detects it:
+   * without this channel it says plainly that the transcript is not connected
+   * rather than showing an empty conversation that looks like a working one.
+   */
+  onChatDelta?(handler: (deltas: ChatDelta[]) => void): () => void
 }
 
 declare global {

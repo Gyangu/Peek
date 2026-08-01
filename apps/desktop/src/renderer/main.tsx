@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './components/App'
+import { startChat } from './components/chat'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { initLocale } from './i18n'
 import { startRenderer } from './state/sync'
@@ -23,6 +24,13 @@ import './styles.css'
 initLocale()
 
 startRenderer()
+
+// Two subscriptions in one call, and at module scope for the same reason
+// `startRenderer` is: StrictMode double-invokes effects, and this must not
+// subscribe twice. It attaches the transcript delta channel and registers the
+// `ContextActionPort` the data grids' "attach this selection" menus dispatch
+// through — without it those menus are visible but inert.
+startChat()
 
 const root = document.getElementById('root')
 // Not localized on purpose: this fires before React (and the catalog) matter, and

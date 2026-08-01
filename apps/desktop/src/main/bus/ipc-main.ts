@@ -2,6 +2,9 @@ import type { IpcMain, MessagePortMain, WebContents } from 'electron'
 import {
   IPC,
   isCommandName,
+  type ChatDelta,
+  type ChatDeltaMessage,
+  type ChatId,
   type CommandName,
   type CommandSource,
   type NotifyMessage,
@@ -116,5 +119,26 @@ export function sendResultPort(wc: WebContents, message: ResultPortMessage, port
 export function sendNotify(renderers: readonly WebContents[], message: NotifyMessage): void {
   for (const wc of renderers) {
     if (!wc.isDestroyed()) wc.send(IPC.NOTIFY, message)
+  }
+}
+
+/**
+ * Ship one batch of chat transcript deltas to every renderer.
+ *
+ * The transcript's data plane, and the counterpart of `sendNotify` rather than
+ * of the patch broadcast above: it carries no `rev`, participates in no
+ * continuity check, and is append-only by construction. The batching that makes
+ * this affordable happens upstream in the ACP host (`DeltaBatcher`), so this
+ * function stays a plain fan-out.
+ */
+export function sendChatDeltas(
+  renderers: readonly WebContents[],
+  chatId: ChatId,
+  deltas: readonly ChatDelta[],
+): void {
+  if (deltas.length === 0) return
+  const message: ChatDeltaMessage = { chatId, deltas: [...deltas] }
+  for (const wc of renderers) {
+    if (!wc.isDestroyed()) wc.send(IPC.CHAT_DELTA, message)
   }
 }

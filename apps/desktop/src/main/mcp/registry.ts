@@ -59,11 +59,24 @@ export function collectBuiltinTools(): PeekTool[] {
 /* Registration on an MCP server                                        */
 /* ================================================================== */
 
-/** ToolOutput → MCP CallToolResult. Tool errors always travel via isError, never as protocol exceptions. */
+/**
+ * ToolOutput → MCP CallToolResult. Tool errors always travel via isError, never as
+ * protocol exceptions.
+ *
+ * `uiEffects` becomes a block of its own rather than being folded into `data`,
+ * because the two have different owners: `data` is whatever the tool chose to
+ * return, `uiEffects` is what the executor observed the window do. Keeping them
+ * apart is what lets a client find the second one without knowing which tool it
+ * came from — and ACP hands a tool's result blocks through to the chat panel
+ * untouched, so this block is the panel's route to a clickable "go to that pane".
+ */
 export function toCallToolResult(out: ToolOutput): CallToolResult {
   const content: CallToolResult['content'] = [{ type: 'text', text: out.text }]
   if (out.data !== undefined) {
     content.push({ type: 'text', text: toJson(out.data) })
+  }
+  if (out.uiEffects !== undefined && out.uiEffects.length > 0) {
+    content.push({ type: 'text', text: toJson({ peekUiEffects: out.uiEffects }) })
   }
   return { content, ...(out.isError === true ? { isError: true } : {}) }
 }

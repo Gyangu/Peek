@@ -165,6 +165,7 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
           exactly what a collection the driver cannot order should offer. */}
       <DataGrid
         connId={connId}
+        view={view}
         resultId={resultId}
         sort={sort}
         {...(controls.sortable ? { onSortColumn } : {})}

@@ -34,10 +34,14 @@ export const panel: CatalogFor<PanelMessages> = {
   'view.kind.inspector': '检查器',
   'view.kind.tree': '对象树',
   'view.kind.vector': '向量检索',
+  'view.kind.chat': '对话',
 
   'view.describe.table': '{kind} {ref} · 偏移 {offset} 限制 {limit}',
   'view.describe.query': '{kind} {text}',
   'view.describe.inspector': '{kind} {ref}',
   'view.describe.tree': { other: '{kind} · 已展开 {count} 个节点' },
   'view.describe.vector': '{kind} {collection} · topK {topK}',
+  'view.describe.chat': { other: '{kind} · {count} 条消息' },
+
+  'panel.newChat': '新建对话',
 }

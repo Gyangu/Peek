@@ -21,6 +21,7 @@ import type {
   ResultId,
   WorkspaceSnapshot,
 } from '@peek/core'
+import type { UiEffect } from './ui-effects'
 
 /* ================================================================== */
 /* 1. Injected dependencies (never import a Command Bus instance —      */
@@ -87,6 +88,16 @@ export interface McpLogger {
 
 export interface ToolContext {
   readonly dispatch: CommandDispatch
+  /**
+   * Who these tool calls are attributed to in the command log.
+   *
+   * Defaults to `'mcp'`. peek's **own** embedded chat panel gets its own server
+   * handle with `'agent'`, so a human reading the log can tell "the assistant in
+   * the sidebar opened this" from "something attached over the network opened
+   * this". It changes attribution and one policy rule (`chat.setMode` refuses to
+   * disable the human gate for a non-`ui` caller) — never the execution path.
+   */
+  readonly source?: CommandSource
   /** Snapshot of main's Workspace source of truth (already redacted). */
   readonly getSnapshot: () => WorkspaceSnapshot
   readonly introspect?: IntrospectReader
@@ -108,6 +119,16 @@ export interface ToolOutput {
   text: string
   /** Structured attachment, serialized and returned as a second text block; omitted if absent. */
   data?: unknown
+  /**
+   * What the call did to the window, derived by diffing the workspace before and
+   * after (see `ui-effects.ts`). **Not written by tools** — the executor fills it
+   * in for every command tool, so a tool cannot forget it and cannot misreport it.
+   *
+   * It is returned as its own block so that a client rendering the agent's tool
+   * calls — peek's own chat panel, above all — can turn "opened public.harness in
+   * the right pane" into something clickable rather than having to parse prose.
+   */
+  uiEffects?: UiEffect[]
   /** Tool-level error (not a protocol-level one: the server never crashes over this). */
   isError?: boolean
 }

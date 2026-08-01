@@ -226,6 +226,11 @@ function describeViewLocalized(t: TFunction, view: ViewState): string {
         collection: view.collection,
         topK: view.topK,
       })
+    // A conversation has no ref, no query and no connection to name, so the
+    // message count is the only thing here worth a line in the status bar. The
+    // agent's status is already a light in the panel's own toolbar.
+    case 'chat':
+      return t('view.describe.chat', { kind: t('view.kind.chat'), count: view.messageCount })
   }
 }
 

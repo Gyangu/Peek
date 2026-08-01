@@ -936,6 +936,21 @@ body.view-dragging.view-drag-nodrop * {
   background: var(--bg-1);
 }
 
+/* Rows staged for "add these to the chat". Written after the odd/hover rules so
+   it wins on specificity ties: a selection the user built must not disappear
+   under the zebra striping. */
+.grid-row.row-selected .grid-cell,
+.grid-row.odd.row-selected .grid-cell,
+.grid-row.row-selected:hover .grid-cell,
+.grid-row.odd.row-selected:hover .grid-cell {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+}
+
+.grid-row.row-selected .grid-rownum {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 24%, var(--bg-1));
+}
+
 .grid-rownum {
   position: sticky;
   left: 0;
@@ -953,6 +968,9 @@ body.view-dragging.view-drag-nodrop * {
   font-family: var(--font-mono);
   font-size: 11px;
   overflow: hidden;
+  /* The gutter is the selection handle; saying so with the cursor is the
+     cheapest bit of discoverability the gesture has. */
+  cursor: pointer;
 }
 
 .grid-cell {

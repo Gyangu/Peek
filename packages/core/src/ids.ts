@@ -30,6 +30,27 @@ export type SplitId = z.infer<typeof SplitIdSchema>
 export const ResultIdSchema = z.string().min(1).brand<'ResultId'>()
 export type ResultId = z.infer<typeof ResultIdSchema>
 
+/**
+ * Id of one chat conversation.
+ *
+ * Deliberately **peek's own id, not the agent's `sessionId`**. The two have
+ * different lifetimes: a chat view exists before any agent process has been
+ * spawned (so there is no agent session yet), it survives the agent crashing and
+ * being respawned, and — once the agent supports resume — one peek conversation
+ * may map onto a succession of agent sessions. `ChatViewState.agentSessionId`
+ * holds the current agent-side id, and it is nullable for exactly this reason.
+ */
+export const ChatIdSchema = z.string().min(1).brand<'ChatId'>()
+export type ChatId = z.infer<typeof ChatIdSchema>
+
+/** Id of one message inside a conversation (a user turn, or one agent turn). */
+export const ChatMessageIdSchema = z.string().min(1).brand<'ChatMessageId'>()
+export type ChatMessageId = z.infer<typeof ChatMessageIdSchema>
+
+/** Id of one context attachment staged on a chat view. */
+export const AttachmentIdSchema = z.string().min(1).brand<'AttachmentId'>()
+export type AttachmentId = z.infer<typeof AttachmentIdSchema>
+
 /* ------------------------------------------------------------------ */
 /* Assertion constructors: only for strings already known to be safe    */
 /* ------------------------------------------------------------------ */
@@ -39,6 +60,9 @@ export const asViewId = (raw: string): ViewId => raw as ViewId
 export const asPanelId = (raw: string): PanelId => raw as PanelId
 export const asSplitId = (raw: string): SplitId => raw as SplitId
 export const asResultId = (raw: string): ResultId => raw as ResultId
+export const asChatId = (raw: string): ChatId => raw as ChatId
+export const asChatMessageId = (raw: string): ChatMessageId => raw as ChatMessageId
+export const asAttachmentId = (raw: string): AttachmentId => raw as AttachmentId
 
 /* ------------------------------------------------------------------ */
 /* Id generation                                                       */
@@ -67,5 +91,8 @@ export const newViewId = (): ViewId => asViewId(makeId('view'))
 export const newPanelId = (): PanelId => asPanelId(makeId('panel'))
 export const newSplitId = (): SplitId => asSplitId(makeId('split'))
 export const newResultId = (): ResultId => asResultId(makeId('res'))
+export const newChatId = (): ChatId => asChatId(makeId('chat'))
+export const newChatMessageId = (): ChatMessageId => asChatMessageId(makeId('msg'))
+export const newAttachmentId = (): AttachmentId => asAttachmentId(makeId('att'))
 /** Command envelope id — a plain string, deliberately not branded */
 export const newCommandId = (): string => makeId('cmd')

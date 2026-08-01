@@ -69,8 +69,14 @@ export interface ViewBrief {
   /** One line: what this view is currently looking at. */
   describe: string
   status: ViewSummary['status']
-  connId: string
-  connLabel: string
+  /**
+   * Absent on a chat view that is bound to no connection — a conversation is a
+   * peer of the connections, not a window onto one. Omitted rather than rendered
+   * as the string "undefined", which is what a reader would otherwise be handed
+   * and would reasonably treat as a connection id.
+   */
+  connId?: string
+  connLabel?: string
   /** The panel holding this view; null means it is open but mounted nowhere. */
   panelId: string | null
   /**
@@ -239,7 +245,7 @@ function briefView(
   connById: Map<string, ConnectionSummary>,
   resultById: Map<string, ResultMeta>,
 ): ViewBrief {
-  const conn = connById.get(String(v.connId))
+  const conn = v.connId === undefined ? undefined : connById.get(String(v.connId))
   const result = v.resultId === undefined ? undefined : resultById.get(String(v.resultId))
   return {
     viewId: String(v.id),
@@ -247,8 +253,9 @@ function briefView(
     title: v.title,
     describe: v.describe,
     status: v.status,
-    connId: String(v.connId),
-    connLabel: conn?.label ?? '(unknown connection)',
+    ...(v.connId === undefined
+      ? {}
+      : { connId: String(v.connId), connLabel: conn?.label ?? '(unknown connection)' }),
     panelId: v.panelId === null ? null : String(v.panelId),
     visible: v.visible,
     ...(result === undefined ? {} : { result: briefResult(result) }),
@@ -268,7 +275,9 @@ export function briefViews(snap: WorkspaceSnapshot): ViewBrief[] {
 /* ================================================================== */
 
 function viewLine(view: ViewBrief): string {
-  const bits = [view.kind, view.describe, `conn=${view.connLabel}`, `status=${view.status}`]
+  const bits = [view.kind, view.describe]
+  if (view.connLabel !== undefined) bits.push(`conn=${view.connLabel}`)
+  bits.push(`status=${view.status}`)
   if (view.result) {
     bits.push(`rows=${view.result.rows}`)
     if (view.result.status === 'paused') {
