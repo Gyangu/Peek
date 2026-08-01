@@ -29,13 +29,38 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { packager } from '@electron/packager'
 import { stageNodeModules } from './stage-node-modules.mjs'
 
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+/**
+ * Every workspace package directory, as an extra resolution root.
+ *
+ * Read off disk rather than from pnpm-workspace.yaml: the point is where things
+ * actually are, and a new driver package should not need this file edited.
+ */
+function workspacePackageDirs() {
+  const packagesDir = resolve(packageDir, '..', '..', 'packages')
+  if (!existsSync(packagesDir)) return []
+  return readdirSync(packagesDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && existsSync(join(packagesDir, e.name, 'package.json')))
+    .map((e) => join(packagesDir, e.name))
+}
+
+/**
+ * Packages resolved at runtime rather than imported, so no scan can find them.
+ *
+ * The ACP host locates the agent with `createRequire` against
+ * '@agentclientprotocol/claude-agent-acp/dist/index.js' — a path built at
+ * runtime, which is deliberate (the agent is spawned as a child process, never
+ * linked). Nothing in the bundles mentions it as a specifier, so it has to be
+ * named here or the packaged app ships a chat panel that cannot start an agent.
+ */
+const RUNTIME_RESOLVED = ['@agentclientprotocol/claude-agent-acp']
 
 const APP_NAME = 'peek'
 const BUNDLE_ID = 'io.github.gyangu.peek'
@@ -110,10 +135,15 @@ function stage(version) {
     )}\n`,
   )
 
+  // The bundles inline every workspace package, so a leftover external may be a
+  // dependency of any of them rather than of the app. Under pnpm's strict layout
+  // those are not visible from the app directory — mysql2 belongs to
+  // @peek/driver-sql — so each workspace package is offered as a starting point.
   const externals = stageNodeModules({
     buildDir: join(stageDir, 'out'),
-    resolveFrom: packageDir,
+    resolveFrom: [packageDir, ...workspacePackageDirs()],
     stageDir,
+    alsoInclude: RUNTIME_RESOLVED,
   })
 
   assertContains(stageDir, 'The staging directory', manifestPathsOf(externals))

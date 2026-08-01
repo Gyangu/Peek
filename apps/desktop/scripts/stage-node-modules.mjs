@@ -37,10 +37,29 @@ const NOT_A_PACKAGE = new Set([...builtinModules, 'electron'])
  * Every shape a bare specifier can take in the built output. The bundles are
  * rollup output, so specifiers are always plain string literals — no template
  * strings, no computed requires — which is what makes a regex scan sound here.
+ *
+ * What the regexes cannot see is whether the match is *code*. A `require(...)`
+ * quoted inside a string literal reads identically, and at least one bundled
+ * dependency ships exactly that: mysql2 raises
+ *
+ *     "…pass userland Promise implementation as parameter,
+ *      for example: { Promise: require('bluebird') }"
+ *
+ * so a scan alone concludes the app depends on bluebird. {@link isInstalled}
+ * settles it — see there for why that test is the right one.
  */
 const SPECIFIER_PATTERNS = [
   // import x from 'pkg' / export { x } from 'pkg'
-  /(?:^|[\s;}])(?:import|export)[\s\S]{0,400}?\sfrom\s*["']([^"']+)["']/g,
+  //
+  // `\bfrom`, not `\sfrom`: the output is minified, so the clause before the
+  // keyword usually ends in a brace with no space — `…isDraft as Vr}from"immer"`.
+  // Requiring whitespace here missed every named import in the main bundle, which
+  // is how a package the app genuinely needs went unstaged while a name quoted
+  // inside an error message got staged in its place.
+  //
+  // The gap is `[^'"]` rather than `[\s\S]` so a match cannot start in one import
+  // clause and take its specifier from a later string.
+  /(?:^|[\s;}])(?:import|export)\b[^'"]{0,400}?\bfrom\s*["']([^"']+)["']/g,
   // import 'pkg'  (side effect only)
   /(?:^|[\s;}])import\s*["']([^"']+)["']/g,
   // await import('pkg')
@@ -64,6 +83,41 @@ function jsFilesUnder(dir) {
     found.push(join(entry.parentPath, entry.name))
   }
   return found
+}
+
+/**
+ * Is this package anywhere in the workspace install?
+ *
+ * pnpm materialises every package it installs — direct, transitive, optional —
+ * as a directory in the virtual store. So the test is decisive in both
+ * directions, which is what makes it safe to act on:
+ *
+ * - **Present in the store, unresolvable from the importer.** A real problem:
+ *   the package exists but the importer cannot reach it. Staging must fail
+ *   rather than ship a bundle that throws on first use.
+ * - **Absent from the store.** Then `require` of it could never have succeeded
+ *   at runtime either, in this workspace or in the packaged app. A name that
+ *   cannot resolve and was never installed is not a dependency the build lost —
+ *   it is text that looked like code to a regex.
+ *
+ * Reading the store rather than the lockfile keeps this honest about what is
+ * actually on disk, which is what the staged tree is copied from.
+ */
+function isInstalled(name, rootDir) {
+  let dir = rootDir
+  for (;;) {
+    const store = join(dir, 'node_modules', '.pnpm')
+    if (existsSync(store)) {
+      // Store entries are `name@version` with `/` escaped as `+`.
+      const prefix = `${name.replace(/\//g, '+')}@`
+      if (readdirSync(store).some((e) => e.startsWith(prefix))) return true
+    }
+    // Non-pnpm layouts, and the workspace packages themselves.
+    if (existsSync(join(dir, 'node_modules', name, 'package.json'))) return true
+    const parent = dirname(dir)
+    if (parent === dir) return false
+    dir = parent
+  }
 }
 
 /** The package names the built bundles import but do not contain. */
@@ -104,6 +158,27 @@ function resolvePackageDir(name, fromDir) {
 }
 
 /**
+ * Resolve from the first of several starting points that can see the package.
+ *
+ * Only the top level needs this. The bundles inline the workspace packages, so
+ * an external left in `driver-host.js` may belong to any of them — mysql2 is
+ * `@peek/driver-sql`'s dependency, and under pnpm's strict layout `apps/desktop`
+ * cannot see it. Resolving from the app alone would call a correctly installed
+ * dependency missing.
+ *
+ * Below the top level the starting point is the requiring package's own
+ * directory, which is the only correct one: that is what Node will do at
+ * runtime, and it is what makes a nested version shadow the root copy.
+ */
+function resolveFromAny(name, fromDirs) {
+  for (const dir of fromDirs) {
+    const found = resolvePackageDir(name, dir)
+    if (found !== null) return found
+  }
+  return null
+}
+
+/**
  * Walk the declared dependency graph and decide where each package lands in the
  * staged tree.
  *
@@ -118,14 +193,26 @@ function planClosure(rootNames, rootDir) {
   const placements = new Map()
   /** Package name -> real source directory of the copy placed at the tree root */
   const atRoot = new Map()
+  /** Names the scan produced that are not real dependencies — see isInstalled. */
+  const skipped = new Set()
 
   /** @param {string} name @param {string} fromDir @param {string} stagedParent */
   const visit = (name, fromDir, stagedParent) => {
-    const sourceDir = resolvePackageDir(name, fromDir)
+    const fromDirs = Array.isArray(fromDir) ? fromDir : [fromDir]
+    const sourceDir = resolveFromAny(name, fromDirs)
     if (sourceDir === null) {
+      if (!isInstalled(name, fromDirs[0])) {
+        // Never installed, so nothing could ever have required it successfully.
+        // The scan read a package name out of a string literal — see the note on
+        // SPECIFIER_PATTERNS. Say so and carry on; failing here would block every
+        // build over a dependency the app does not have.
+        console.warn(`[stage] ignoring "${name}": matched in the bundle text but not installed anywhere`)
+        skipped.add(name)
+        return
+      }
       throw new Error(
-        `Cannot resolve "${name}" from ${fromDir}. The build output imports it, `
-          + 'so the workspace install is incomplete — run "pnpm install".',
+        `Cannot resolve "${name}" from ${fromDirs.join(', ')}, though it is installed in the workspace. `
+          + 'The staged tree would ship a bundle that throws on first use — run "pnpm install".',
       )
     }
 
@@ -148,7 +235,7 @@ function planClosure(rootNames, rootDir) {
   }
 
   for (const name of rootNames) visit(name, rootDir, '')
-  return [...placements].map(([to, from]) => ({ from, to }))
+  return { copies: [...placements].map(([to, from]) => ({ from, to })), skipped }
 }
 
 /**
@@ -173,12 +260,15 @@ function copyPackage(from, to) {
  * Returns the package names placed at the root of the staged tree, for logging
  * and for the post-package verification.
  */
-export function stageNodeModules({ buildDir, resolveFrom, stageDir }) {
-  const externals = collectExternalImports(buildDir)
+export function stageNodeModules({ buildDir, resolveFrom, stageDir, alsoInclude = [] }) {
+  const externals = [...new Set([...collectExternalImports(buildDir), ...alsoInclude])].sort()
   if (externals.length === 0) return []
 
-  for (const { from, to } of planClosure(externals, resolveFrom)) {
+  const { copies, skipped } = planClosure(externals, resolveFrom)
+  for (const { from, to } of copies) {
     copyPackage(from, join(stageDir, to))
   }
-  return externals
+  // Report what is actually on disk. A name the scan invented is not something
+  // the caller should then assert the presence of.
+  return externals.filter((name) => !skipped.has(name))
 }
