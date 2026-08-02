@@ -7,7 +7,7 @@ import {
   type CollectionBrowseStyle,
   type PeekError,
   type VectorCollectionRef,
-} from '@peek/core'
+} from '../index'
 
 /**
  * One value, one verdict: the browse style a driver *declares* and the browse

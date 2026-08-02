@@ -9,7 +9,7 @@ import {
   rowOffsetCursor,
   tryDecodeScanCursor,
   type DriverId,
-} from '@peek/core'
+} from '../index'
 
 /**
  * The continuation cursor, now that all four drivers mint one shape.

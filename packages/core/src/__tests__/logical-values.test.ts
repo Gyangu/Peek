@@ -9,7 +9,7 @@ import {
   canonicalNumeric,
   canonicalTime,
   canonicalTimestamp,
-} from '@peek/core'
+} from '../index'
 
 /**
  * The canonical JS representation of a cell, per `LogicalType`.

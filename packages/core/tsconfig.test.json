@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    /* The only difference from the production config, and the only place in this
+       package where node types are visible. `assert.ok` narrowing depends on it:
+       without @types/node, `assert` is unresolved, so `catch (err)` stays
+       `unknown` and every type guard in the suites stops working. */
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": []
+}

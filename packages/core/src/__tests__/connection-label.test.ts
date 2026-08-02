@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { connectionDetail, defaultConnectionLabel, REDACTED, type ConnectionConfig } from '@peek/core'
+import { connectionDetail, defaultConnectionLabel, REDACTED, type ConnectionConfig } from '../index'
 
 /* ==================================================================
  * What a connection is called in a 240px sidebar row.

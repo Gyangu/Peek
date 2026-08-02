@@ -16,13 +16,15 @@
     "src"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "node --import ./src/__tests__/register.mjs --test src/__tests__/*.test.ts"
   },
   "dependencies": {
     "immer": "^11.1.15",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/node": "^26.1.2",
     "typescript": "^5.9.3"
   }
 }

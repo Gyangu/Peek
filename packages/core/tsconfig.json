@@ -1,8 +1,14 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    /* `types: []` is a real constraint, not boilerplate: core is the frozen
+       contract the other five packages depend on, and its production code must
+       not be able to reach node's runtime. Relaxing it so the test files could
+       see `node:test` would also license `process.env` in `errors.ts`, so the
+       tests get their own config instead — tsconfig.test.json. */
     "types": [],
     "lib": ["ES2023", "DOM"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/__tests__/**"]
 }

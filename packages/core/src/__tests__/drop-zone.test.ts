@@ -15,7 +15,7 @@ import {
   tabDropIndex,
   type DropZone,
   type TabRect,
-} from '@peek/core'
+} from '../index'
 
 /* ==================================================================
  * Drop-zone geometry — the pure half of view dragging.
