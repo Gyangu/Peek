@@ -717,7 +717,11 @@ body.view-dragging.view-drag-nodrop * {
    a no-op, and a forbidden cursor would read as an error rather than as "this
    changes nothing". */
 .panel.drag-source {
-  opacity: 0.55;
+  /* 0.75, not the 0.55 this shipped with. Only "dimmed" was ever argued for; the
+     number was not, and at 0.55 the panel's own --fg-dim text composited to
+     3.23:1 against the desktop behind it. 0.75 keeps the intent and clears AA
+     (--fg 7.10, --fg-dim 4.87). See the legibility baseline §2.2.1. */
+  opacity: 0.75;
 }
 
 /* The panel a release would land in. The border reads at the edge of vision
@@ -836,6 +840,14 @@ body.view-dragging.view-drag-nodrop * {
   color: var(--err);
   border-radius: 4px;
   user-select: text;
+}
+
+/* Secondary evidence inside the error box — the driver's own code, a character
+   offset. Was an inline `opacity: 0.7`, which took the inherited `--err` to
+   3.52:1 on `--err-bg`; this is 7.48:1 and is a token the contrast test can see.
+   See design/2026-08-02-ui-legibility-baseline.md §2.2.1. */
+.view-error-aside {
+  color: var(--fg-dim);
 }
 
 .view-error .detail {

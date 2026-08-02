@@ -20,9 +20,16 @@ export function ViewError({ error }: { error: PeekError | undefined }): ReactEle
     <div className="view-error">
       <div>
         <strong>[{error.code}]</strong> {text}
-        {error.driverCode ? <span style={{ opacity: 0.7 }}> · {error.driverCode}</span> : null}
+        {/*
+         * `--fg-dim` rather than `opacity: 0.7`. Dimming the inherited `--err`
+         * measured 3.52:1 against this box — below the floor the theme commits to,
+         * and invisible to `theme-contrast.test.ts`, which compares token pairs and
+         * never modelled alpha. `--fg-dim` is what "secondary" is called here, and
+         * it reads 7.48:1 on `--err-bg`. See the legibility baseline §2.2.1.
+         */}
+        {error.driverCode ? <span className="view-error-aside"> · {error.driverCode}</span> : null}
         {error.position !== undefined ? (
-          <span style={{ opacity: 0.7 }}> · {t('app.error.position', { position: error.position })}</span>
+          <span className="view-error-aside"> · {t('app.error.position', { position: error.position })}</span>
         ) : null}
       </div>
       {error.detail ? <div className="detail">{error.detail}</div> : null}

@@ -4,6 +4,7 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
 
+import { decomment, openingTags } from '../../__tests__/sourceScan'
 import {
   ACTION_ID_PATTERN,
   BUTTON_SIZE_NAMES,
@@ -60,11 +61,6 @@ function tsxFiles(): string[] {
   return out.sort()
 }
 
-/** Strip comments so a commented-out example never trips a rule. */
-function decomment(css: string): string {
-  return css.replace(/\/\*[\s\S]*?\*\//g, '')
-}
-
 interface Rule {
   selectors: string[]
   properties: string[]
@@ -79,123 +75,6 @@ function rules(css: string): Rule[] {
       .filter(Boolean)
     const properties = [...m[2].matchAll(/(^|;)\s*([a-z-]+)\s*:/g)].map((p) => p[2])
     if (selectors.length > 0) out.push({ selectors, properties })
-  }
-  return out
-}
-
-/**
- * Blank out comments and string bodies, preserving length so offsets still line
- * up with the original source.
- *
- * The CSS side of this file has had `decomment()` from the start, with the
- * docstring "so a commented-out example never trips a rule". The TSX side did
- * not, and the omission was not cosmetic — three assertions read `openingTags`,
- * and every one of them degrades:
- *
- *  - `PanelTabs.tsx` explains in a JSDoc why a tab is "a `div` with
- *    `role="tab"` rather than a `<button>`". Nothing is masked today because it
- *    also has four real ones, but the moment it is migrated (batch 2 in the
- *    design record) that sentence keeps the file on the ledger for good, while
- *    the stale-entry check reports the ledger clean. A shrink-only list that
- *    cannot shrink is the exact hole its own failure message warns about;
- *  - a new file whose comment says a bare `<button>` would bypass the spec gets
- *    told to use `<Button>` — which it already does — and the cheapest way out
- *    of that contradiction is to append to the shrink-only list;
- *  - worst, `buttonUsages` feeds the permission-prompt boundary. Its tripwire
- *    asserts the file still renders at least one `<Button>`; a comment naming
- *    one satisfies it, and the `exposure="agent-ok"` scan then iterates prose
- *    and passes trivially. The one check written to outlive its author was
- *    defeatable by a sentence.
- *
- * String bodies go too, so a JSX tag quoted inside a literal is not scanned
- * either — and so an apostrophe in prose cannot open a string that never closes.
- */
-function blankNonCode(src: string): string {
-  const out = [...src]
-  let i = 0
-  const blank = (from: number, to: number): void => {
-    for (let k = from; k < to && k < out.length; k += 1) if (out[k] !== '\n') out[k] = ' '
-  }
-  while (i < src.length) {
-    const c = src[i]
-    const next = src[i + 1]
-    if (c === '/' && next === '/') {
-      const end = src.indexOf('\n', i)
-      const stop = end === -1 ? src.length : end
-      blank(i, stop)
-      i = stop
-    } else if (c === '/' && next === '*') {
-      const end = src.indexOf('*/', i + 2)
-      const stop = end === -1 ? src.length : end + 2
-      blank(i, stop)
-      i = stop
-    } else if (c === '"' || c === "'" || c === '`') {
-      let j = i + 1
-      while (j < src.length && src[j] !== c) {
-        if (src[j] === '\\') j += 1
-        j += 1
-      }
-      // The quotes themselves stay, so `attr()` still sees `name=""` and simply
-      // reads an empty value rather than the attribute vanishing.
-      blank(i + 1, j)
-      i = j + 1
-    } else {
-      i += 1
-    }
-  }
-  return out.join('')
-}
-
-/**
- * A JSX opening tag is not a regex-shaped thing — `onClick={() => a > b}` puts a
- * `>` inside it. Scan for the closing angle bracket at brace depth zero instead,
- * so an arrow function in a handler cannot truncate the attribute text and hide
- * whatever follows it.
- *
- * The attribute text is sliced out of the *original* source, so the values this
- * returns are real; only the search runs over the blanked copy.
- */
-function openingTags(source: string, tag: string): string[] {
-  const src = blankNonCode(source)
-  const out: string[] = []
-  const open = new RegExp(`<${tag}(?=[\\s/>])`, 'g')
-  for (const m of src.matchAll(open)) {
-    const start = m.index + m[0].length
-    let depth = 0
-    let quote: string | null = null
-    let comment: 'line' | 'block' | null = null
-    for (let i = start; i < src.length; i += 1) {
-      const c = src[i]
-      const next = src[i + 1]
-      if (comment === 'line') {
-        if (c === '\n') comment = null
-        continue
-      }
-      if (comment === 'block') {
-        if (c === '*' && next === '/') {
-          comment = null
-          i += 1
-        }
-        continue
-      }
-      if (quote !== null) {
-        if (c === quote) quote = null
-        continue
-      }
-      if (c === '/' && next === '/') {
-        comment = 'line'
-        i += 1
-      } else if (c === '/' && next === '*') {
-        comment = 'block'
-        i += 1
-      } else if (c === '"' || c === "'" || c === '`') quote = c
-      else if (c === '{') depth += 1
-      else if (c === '}') depth -= 1
-      else if (c === '>' && depth === 0) {
-        out.push(source.slice(start, i))
-        break
-      }
-    }
   }
   return out
 }

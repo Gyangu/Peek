@@ -716,16 +716,45 @@
   line-height: 18px;
 }
 
+/*
+ * A receipt — an attachment already sent — reads quieter than a staged chip.
+ *
+ * It used to say `opacity: 0.75`, and that is the thing this rule is now written
+ * to avoid. `opacity` composites the whole chip, text included, so the muting was
+ * happening somewhere `theme-contrast.test.ts` structurally could not look: it
+ * compares `:root` token pairs, and nothing here changed a token. Measured, the
+ * `--accent` kind label came out at **3.72:1** against the composited chip.
+ *
+ * The parameter cannot be tuned out of it either — `--accent` only clears 4.5 at
+ * about α = 0.88, by which point the chip is not visibly muted at all. So the
+ * muting moves into the colours, at full opacity, where every value is a token
+ * the audit can see. See design/2026-08-02-ui-legibility-baseline.md §2.2.1.
+ */
 .chat-chip.receipt {
   padding-right: 6px;
-  opacity: 0.75;
+  border-color: var(--border);
+}
+
+.chat-chip.receipt .chat-chip-kind {
+  color: var(--fg-dim);
+}
+
+.chat-chip.receipt .chat-chip-label {
+  color: var(--fg-faint);
 }
 
 /* A receipt that carries a truncation notice is the one thing on this strip the
    user has to actually read, so it does not get the muted treatment. */
 .chat-chip.receipt:has(.chat-chip-detail) {
-  opacity: 1;
   border-color: var(--warn);
+}
+
+.chat-chip.receipt:has(.chat-chip-detail) .chat-chip-kind {
+  color: var(--accent);
+}
+
+.chat-chip.receipt:has(.chat-chip-detail) .chat-chip-label {
+  color: var(--fg-dim);
 }
 
 .chat-chip.receipt.failed {
