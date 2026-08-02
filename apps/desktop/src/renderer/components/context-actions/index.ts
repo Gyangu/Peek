@@ -73,6 +73,6 @@ export {
 export { useContextActions, type ContextActionsApi } from './useContextActions'
 
 export { ConsentDialog, type ConsentDialogProps } from './ConsentDialog'
-export { ContextMenu, type ContextMenuProps } from './ContextMenu'
+export { ContextMenu, type ContextMenuExtraItem, type ContextMenuProps } from './ContextMenu'
 export { SelectionActionBar, type SelectionActionBarProps } from './SelectionActionBar'
 export { detailFor, type AttachmentStatus } from './chipDetail'

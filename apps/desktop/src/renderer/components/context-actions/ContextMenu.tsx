@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 import type { ReactElement } from 'react'
+import { useModalDialog } from '../../hooks'
 import { useT } from '../../i18n'
 import { hasContextConsent } from './consent'
 import { ConsentDialog } from './ConsentDialog'
@@ -38,6 +39,25 @@ export interface ContextMenuProps {
   y: number
   target: ContextTarget
   onClose: () => void
+  /**
+   * Entries the caller owns, drawn above the "add to chat" group.
+   *
+   * This is how the grid's copy commands get here without this module learning
+   * about the result cache. `contextActionsFor` is built entirely around
+   * producing a `ChatAttachment` — every item there has a `build()` — and
+   * copying produces nothing of the sort, so folding it in would mean either a
+   * discriminated union in `ContextAction` or a `build()` whose null return has
+   * a second meaning. A prop keeps "the menu" and "what is in the menu"
+   * separable, which is what they always were.
+   */
+  extraItems?: readonly ContextMenuExtraItem[]
+}
+
+export interface ContextMenuExtraItem {
+  id: string
+  label: string
+  title?: string
+  onSelect: () => void
 }
 
 /** Roughly the menu's size, used to keep it inside the viewport before it has been measured. */
@@ -46,26 +66,17 @@ const MENU_H = 260
 const EDGE_GAP = 8
 
 export function ContextMenu(props: ContextMenuProps): ReactElement | null {
-  const { x, y, target, onClose } = props
+  const { x, y, target, onClose, extraItems = [] } = props
   const t = useT()
   const actions = useContextActions()
-  const ref = useRef<HTMLDivElement | null>(null)
+  // Escape, focus containment and focus restoration, from the same place every
+  // dialog gets them. It matters here for a specific reason: this menu opens
+  // over the grid, whose own Escape clears the row selection — and the menu is
+  // frequently open *because* of that selection. Before the stack, dismissing
+  // the menu with Escape threw the selection away in the same keystroke.
+  const ref = useModalDialog({ label: 'context-menu', onClose })
 
   const items = useMemo(() => contextActionsFor(target, t), [target, t])
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [onClose])
-
-  useEffect(() => {
-    ref.current?.focus()
-  }, [])
 
   // The consent dialog replaces the menu rather than stacking on it: two modal
   // surfaces at once is never what the user meant by one right-click.
@@ -99,6 +110,25 @@ export function ContextMenu(props: ContextMenuProps): ReactElement | null {
         style={{ left, top }}
         onClick={stop}
       >
+        {/* Copy first: it is the commonest thing anyone wants from a cell, and
+            it needs neither a chat panel nor the disclosure gate. */}
+        {extraItems.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="menuitem"
+            className="ctx-menu-item"
+            {...(item.title === undefined ? {} : { title: item.title })}
+            onClick={() => {
+              item.onSelect()
+              onClose()
+            }}
+          >
+            {item.label}
+          </button>
+        ))}
+        {extraItems.length > 0 ? <div className="ctx-menu-sep" /> : null}
+
         <div className="ctx-menu-head">{t('context.menu.title')}</div>
 
         {!actions.hasChatTarget ? (

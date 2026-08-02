@@ -23,6 +23,18 @@ export const grid: CatalogFor<GridMessages> = {
   'grid.paused': '已暂停 · 数据有效，重新执行可继续',
   'grid.pausedTitle': '{reason}。已加载的行是完整有效的数据；重新执行可继续取数。',
   'grid.truncated': '已截断',
+
+  /* ---- 复制出去 ---------------------------------------------------- */
+  'grid.copy.cell': '复制值',
+  'grid.copy.cellTitle': '完整的值，与库里存的一致——不是行里显示的那段预览',
+  'grid.copy.rows': { other: '复制 {count} 行' },
+  'grid.copy.rowsTitle': '制表符分隔，带表头，可直接粘进表格软件',
+  'grid.copy.cellDone': '已复制该值。',
+  'grid.copy.rowsDone': { other: '已复制 {count} 行。' },
+  'grid.copy.previewOnly': {
+    other: '有 {count} 个值太大，窗口里只留了预览，复制的是预览。',
+  },
+  'grid.copy.failed': '剪贴板拒绝了这次复制。',
   'grid.truncatedTitle': '达到 maxRows 上限，后面还有数据',
   'grid.evicted': { other: '淘汰 {count} 块' },
   'grid.evictedTitle': '超出 200MB 缓存预算，远端 chunk 已按 LRU 淘汰；滚回去会显示占位符',

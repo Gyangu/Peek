@@ -26,6 +26,21 @@ export const grid = {
   'grid.pausedTitle':
     '{reason}. The rows already loaded are complete and valid; re-run the query to keep fetching.',
   'grid.truncated': 'Truncated',
+
+  /* ---- Copying out ------------------------------------------------- */
+  'grid.copy.cell': 'Copy value',
+  'grid.copy.cellTitle': 'The whole value, exactly as stored — not the preview the row shows',
+  'grid.copy.rows': { one: 'Copy {count} row', other: 'Copy {count} rows' },
+  'grid.copy.rowsTitle': 'Tab-separated with a header line: paste straight into a spreadsheet',
+  'grid.copy.cellDone': 'Value copied.',
+  'grid.copy.rowsDone': { one: 'Copied {count} row.', other: 'Copied {count} rows.' },
+  /* Said out loud rather than left to be discovered when the paste will not
+     parse: a large value only exists in this window as its first 4KB. */
+  'grid.copy.previewOnly': {
+    one: '{count} value was too large to hold in full, so its preview was copied.',
+    other: '{count} values were too large to hold in full, so their previews were copied.',
+  },
+  'grid.copy.failed': 'The clipboard refused the copy.',
   'grid.truncatedTitle': 'Hit the maxRows ceiling; there is more data behind it',
   'grid.evicted': { one: '{count} chunk evicted', other: '{count} chunks evicted' },
   'grid.evictedTitle':

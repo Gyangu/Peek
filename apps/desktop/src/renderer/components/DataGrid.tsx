@@ -9,7 +9,8 @@ import {
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual'
 import type { ColumnDef, ConnId, ResultId, SortSpec, ViewState } from '@peek/core'
 import { isTruncatedValue } from '@peek/core'
-import { useT, type TFunction } from '../i18n'
+import { tStatic, useT, type TFunction } from '../i18n'
+import { notify } from '../state/notifyStore'
 import { getCell, isRowLoaded, setViewport } from '../state/resultCache'
 import { useResult } from '../state/useResult'
 import { cellClass, cellText, formatCount, formatMs, isExpandable } from '../util/format'
@@ -23,9 +24,11 @@ import {
   selectAllRows,
   selectedIndexes,
   selectionSize,
+  type ContextMenuExtraItem,
   type ContextTarget,
   type RowSelection,
 } from './context-actions'
+import { copyCellPlan, copyRowsPlan, type CopyPlan, type GridCopySource } from './gridCopy'
 import {
   columnWindowKey,
   useColumnModel,
@@ -284,6 +287,51 @@ export function DataGrid(props: DataGridProps): ReactElement {
     }
   }, [driver])
 
+  /* --- Copying out ---
+   * The grid is not text: `body` sets `user-select: none` and the cells never
+   * opted out, so there is no native selection for ⌘C to act on and no way to
+   * drag-select a value. That is the right call — a drag over cells is the row
+   * selection gesture — but it means the copy path has to be built rather than
+   * inherited, and until now it simply was not there. See gridCopy.ts. */
+  const copySource = useMemo<GridCopySource>(
+    () => ({ columns: schema ?? [], read: (row, col) => getCell(resultId, row, col) }),
+    [schema, resultId],
+  )
+
+  const runCopy = useCallback((plan: CopyPlan, done: string): void => {
+    void navigator.clipboard.writeText(plan.text).then(
+      () => {
+        // tStatic, not `t`: a toast is worded once, when it is raised.
+        notify(
+          'info',
+          plan.truncated > 0
+            ? `${done} ${tStatic('grid.copy.previewOnly', { count: plan.truncated })}`
+            : done,
+        )
+      },
+      () => {
+        // The clipboard can be refused outright; a button that looks like it
+        // worked is worse than a warning that it did not.
+        notify('warn', tStatic('grid.copy.failed'))
+      },
+    )
+  }, [])
+
+  const copyRows = useCallback(
+    (rows: readonly number[]): void => {
+      if (rows.length === 0) return
+      runCopy(copyRowsPlan(copySource, rows), tStatic('grid.copy.rowsDone', { count: rows.length }))
+    },
+    [copySource, runCopy],
+  )
+
+  const copyCell = useCallback(
+    (row: number, col: number): void => {
+      runCopy(copyCellPlan(copySource, row, col), tStatic('grid.copy.cellDone'))
+    },
+    [copySource, runCopy],
+  )
+
   /* --- Keyboard: with overflow-y hidden there is no native scrolling left, so
    * arrows, page keys, Home and End all have to be handled here --- */
   const onKeyDown = useCallback(
@@ -300,6 +348,15 @@ export function DataGrid(props: DataGridProps): ReactElement {
         // anywhere is worse than one that is simply absent.
         if (rowCount > MAX_SELECTION_SPAN) return
         setRowSelection(selectAllRows(rowCount))
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'C')) {
+        // Rows win over the cell: a row set is something the user built on
+        // purpose, while the selected cell is wherever they last clicked to
+        // read something. Neither one present means there is nothing to copy,
+        // and the event is left alone rather than swallowed.
+        const rows = selectedIndexes(rowSelection)
+        if (rows.length > 0) copyRows(rows)
+        else if (selected !== null) copyCell(selected.row, selected.col)
+        else return
       } else if (e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         driver.scrollTo(e.key === 'ArrowUp' ? 0 : m.maxTop)
       } else if (e.key === 'ArrowDown') driver.scrollBy(ROW_H)
@@ -311,7 +368,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
       else return
       e.preventDefault()
     },
-    [driver, rowCount],
+    [driver, rowCount, rowSelection, selected, copyRows, copyCell],
   )
 
   const setSurface = useCallback(
@@ -426,6 +483,33 @@ export function DataGrid(props: DataGridProps): ReactElement {
     )
   }
 
+  /* The clipboard half of the right-click menu. Built here rather than inside
+   * `contextActionsFor` because these produce no `ChatAttachment` — see the note
+   * on `ContextMenuProps.extraItems`. */
+  const copyItems: ContextMenuExtraItem[] = []
+  if (menu?.cell) {
+    const cell = menu.cell
+    copyItems.push({
+      id: 'copy-cell',
+      label: t('grid.copy.cell'),
+      title: t('grid.copy.cellTitle'),
+      onSelect: () => {
+        copyCell(cell.row, cell.col)
+      },
+    })
+  }
+  const selectedRowIndexes = selectedIndexes(rowSelection)
+  if (selectedRowIndexes.length > 0) {
+    copyItems.push({
+      id: 'copy-rows',
+      label: t('grid.copy.rows', { count: selectedRowIndexes.length }),
+      title: t('grid.copy.rowsTitle'),
+      onSelect: () => {
+        copyRows(selectedRowIndexes)
+      },
+    })
+  }
+
   const contextTarget: ContextTarget = {
     view,
     ...(resultId === undefined ? {} : { resultId }),
@@ -500,7 +584,15 @@ export function DataGrid(props: DataGridProps): ReactElement {
         <GridScrollbar driver={driver} snap={geom} thumbRef={setThumb} />
       </div>
 
-      {menu ? <ContextMenu x={menu.x} y={menu.y} target={contextTarget} onClose={closeMenu} /> : null}
+      {menu ? (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          target={contextTarget}
+          onClose={closeMenu}
+          extraItems={copyItems}
+        />
+      ) : null}
 
       <GridFooter
         rowCount={rowCount}
