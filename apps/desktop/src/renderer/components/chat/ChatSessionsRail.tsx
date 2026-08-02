@@ -6,6 +6,7 @@ import { dispatch } from '../../state/dispatch'
 import { useViews } from '../../state/workspaceStore'
 import { ConfirmPair } from '../ConfirmPair'
 import { setChatRailCollapsed, useChatRailStore } from './railStore'
+import { Button } from '../../ui/Button'
 
 /**
  * The conversation catalogue, as a rail down the right-hand side of the window.
@@ -73,17 +74,17 @@ export function ChatSessionsRail(): ReactElement {
   if (collapsed) {
     return (
       <div className="chat-rail collapsed">
-        <button
-          className="ghost chat-rail-handle"
-          title={t('chat.sessions.expand')}
-          aria-label={t('chat.sessions.expand')}
+        <Button
+          variant="ghost"
+          icon
+          label={t('chat.sessions.expand')}
           aria-expanded={false}
           onClick={() => {
             setChatRailCollapsed(false)
           }}
         >
           ‹
-        </button>
+        </Button>
       </div>
     )
   }
@@ -122,8 +123,8 @@ export function ChatSessionsRail(): ReactElement {
     <div className="chat-rail">
       <div className="sidebar-head">
         <span className="chat-rail-title">{t('chat.sessions.title')}</span>
-        <button
-          className="ghost"
+        <Button
+          variant="ghost"
           title={t('chat.sessions.new')}
           aria-label={t('chat.sessions.new')}
           onClick={() => {
@@ -131,27 +132,27 @@ export function ChatSessionsRail(): ReactElement {
           }}
         >
           ＋
-        </button>
-        <button
-          className="ghost"
+        </Button>
+        <Button
+          variant="ghost"
           disabled={busy}
           title={t('chat.sessions.refresh')}
           aria-label={t('chat.sessions.refresh')}
           onClick={refresh}
         >
           ↻
-        </button>
-        <button
-          className="ghost chat-rail-handle"
-          title={t('chat.sessions.collapse')}
-          aria-label={t('chat.sessions.collapse')}
+        </Button>
+        <Button
+          variant="ghost"
+          icon
+          label={t('chat.sessions.collapse')}
           aria-expanded={true}
           onClick={() => {
             setChatRailCollapsed(true)
           }}
         >
           ›
-        </button>
+        </Button>
       </div>
 
       <div className="session-list">
@@ -237,14 +238,14 @@ function SessionRow(props: RowProps): ReactElement {
         <span className="session-when">{formatWhen(session.updatedAt, locale)}</span>
       </div>
       <div className="conn-actions">
-        <button
-          className="ghost"
+        <Button
+          variant="ghost"
           disabled={busy}
           title={busy ? t('chat.sessions.inUseTitle') : t('chat.sessions.openTitle')}
           onClick={props.onOpen}
         >
           {busy ? t('chat.sessions.inUse') : t('chat.sessions.open')}
-        </button>
+        </Button>
         {/* Two clicks rather than a modal, exactly as forgetting a saved
             connection works: it cannot be undone, but a dialog in front of it
             would be heavier than the act deserves. Cancel takes the position

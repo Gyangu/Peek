@@ -12,6 +12,7 @@ import { dispatch } from '../state/dispatch'
 import { useView } from '../state/workspaceStore'
 import { beginViewDrag, registerPanelHeadEl, usePanelTabCaret } from './dragStore'
 import { viewTitleOf } from './panelTitle'
+import { Button } from '../ui/Button'
 
 /**
  * A panel's tab strip, and the panel's action buttons beside it.
@@ -139,33 +140,33 @@ export function PanelTabs({ panel, focus }: PanelTabsProps): ReactElement {
         glyph and never the title.
       */}
       <div className="panel-actions">
-        <button
-          className="ghost"
+        <Button
+          variant="ghost"
+          icon
+          label={t('panel.splitRow')}
           tabIndex={focus.childTabIndex}
-          title={t('panel.splitRow')}
-          aria-label={t('panel.splitRow')}
           onClick={split('row')}
         >
           <span aria-hidden="true">⊞</span>
-        </button>
-        <button
-          className="ghost"
+        </Button>
+        <Button
+          variant="ghost"
+          icon
+          label={t('panel.splitCol')}
           tabIndex={focus.childTabIndex}
-          title={t('panel.splitCol')}
-          aria-label={t('panel.splitCol')}
           onClick={split('col')}
         >
           <span aria-hidden="true">⊟</span>
-        </button>
-        <button
-          className="ghost"
+        </Button>
+        <Button
+          variant="ghost"
+          icon
+          label={t('panel.closePanel')}
           tabIndex={focus.childTabIndex}
-          title={t('panel.closePanel')}
-          aria-label={t('panel.closePanel')}
           onClick={closePanel}
         >
           <span aria-hidden="true">✕</span>
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -241,7 +242,15 @@ function PanelTab({ panelId, viewId, index, active, focus, roving }: PanelTabPro
       {/* Not a tab stop of its own: a strip of twelve tabs would otherwise be
           twenty-four stops. The keyboard closes a tab with Delete/Backspace
           (see `useTabRoving`), the mouse clicks this. */}
-      <button
+      {/*
+       * `aria-hidden`, so `icon`'s mandatory label would be a name nothing can
+       * read. It is hidden on purpose — the keyboard closes a tab with
+       * Delete/Backspace, and exposing this would double the strip's stops — so
+       * `title` alone is right, and the `icon` prop deliberately not used.
+       */}
+      <Button
+        variant="ghost"
+        size="sm"
         className="tab-close"
         tabIndex={-1}
         aria-hidden="true"
@@ -249,7 +258,7 @@ function PanelTab({ panelId, viewId, index, active, focus, roving }: PanelTabPro
         onClick={onClose}
       >
         ✕
-      </button>
+      </Button>
     </div>
   )
 }

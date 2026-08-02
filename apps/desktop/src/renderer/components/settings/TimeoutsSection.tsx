@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import type { ExecutionBudgets } from '@peek/core'
 import { useT, type TFunction } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
+import { Button } from '../../ui/Button'
 
 /**
  * How long a request may run.
@@ -97,9 +98,9 @@ export function TimeoutsSection(): ReactElement {
       <div className="form-hint">{t('settings.timeouts.zeroHint')}</div>
 
       <div className="conn-actions">
-        <button disabled={busy || draft === null} onClick={apply}>
+        <Button disabled={busy || draft === null} onClick={apply}>
           {t('settings.timeouts.apply')}
-        </button>
+        </Button>
       </div>
       {notice ? <div className="form-hint">{notice}</div> : null}
 

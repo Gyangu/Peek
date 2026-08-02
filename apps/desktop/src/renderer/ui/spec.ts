@@ -199,6 +199,34 @@ export const ACTION_ID_PATTERN = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/
 export const BASE_CLASS = 'btn'
 export const ICON_CLASS = 'btn-icon'
 
+/**
+ * Orthogonal modifiers — shapes and surfaces that cut across every variant.
+ *
+ * Separate from `BUTTON_VARIANTS` because they answer a different question.
+ * A variant says what the action *means*; these say what the control has to
+ * survive — no room for a word, or an unpredictable surface behind it. Folding
+ * either into the variant list would double it for a fact that changes no
+ * semantics.
+ *
+ * Declared here rather than as string literals in the component because the
+ * stray-class assertion reads this list: an unregistered `btn-*` class is a
+ * variant invented locally, and that check caught `btn-elevated` the moment it
+ * was written — from inside the same change that added it.
+ */
+export const BUTTON_MODIFIERS = {
+  [ICON_CLASS]: {
+    intent: 'Square, no words. Requires a `label`, which the type union enforces.',
+  },
+  'btn-elevated': {
+    intent:
+      'Floats over scrolling content, so it must separate itself from whatever happens to be behind it.',
+  },
+} as const
+
+export const BUTTON_MODIFIER_NAMES = Object.keys(BUTTON_MODIFIERS) as readonly string[]
+
+export const ELEVATED_CLASS = 'btn-elevated'
+
 export function variantClass(variant: ButtonVariant): string {
   return `${BASE_CLASS}-${variant}`
 }
@@ -266,6 +294,17 @@ export const LAYOUT_ONLY_PROPERTIES: readonly string[] = [
   'grid-row',
   'order',
   'transform',
+  /*
+   * Whether the surrounding UI reveals a control at all is the caller's
+   * business, in exactly the way `position` is — the tab strip keeps its ✕
+   * hidden until the tab is hovered so the title beside it never reflows. It
+   * hides the whole control without saying anything about what the control looks
+   * like when shown, which is the line this list draws.
+   *
+   * `display` is deliberately *not* here: `.btn` sets `inline-flex`, and
+   * overriding that rearranges the control's interior.
+   */
+  'visibility',
   'width',
   'max-width',
   'min-width',

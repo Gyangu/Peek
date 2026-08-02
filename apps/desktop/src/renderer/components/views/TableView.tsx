@@ -9,6 +9,7 @@ import { DataGrid } from '../DataGrid'
 import { ViewError } from '../ViewError'
 import { CacheGapNotice, CancelButton } from './ResultControls'
 import { refreshPatch, tableControls } from './browseControls'
+import { Button } from '../../ui/Button'
 
 const PAGE_SIZES = [100, 200, 500, 1000, 5000]
 
@@ -97,13 +98,13 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
           {collectionRefLabel(ref)}
         </span>
         <span className="sep" />
-        <button
-          className="ghost"
+        <Button
+          variant="ghost"
           onClick={refresh}
           title={controls.offsetPager ? t('table.refreshTitle') : t('table.refreshCursorTitle')}
         >
           ⟳ {t('table.refresh')}
-        </button>
+        </Button>
         {/* A collection scan is the longest-running thing peek does — a million-row
             table walks for minutes — and this view was the one with no way to stop
             it. It has one now, on the same control the other two result views use. */}
@@ -111,40 +112,40 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
         <span className="sep" />
         {controls.offsetPager ? (
           <>
-            <button
-              className="ghost"
+            <Button
+              variant="ghost"
               disabled={page.offset <= 0}
               onClick={() => {
                 setOffset(page.offset - page.limit)
               }}
             >
               ← {t('table.prevPage')}
-            </button>
+            </Button>
             <span className="mono">
               {page.offset + 1} – {page.offset + page.limit}
             </span>
-            <button
-              className="ghost"
+            <Button
+              variant="ghost"
               onClick={() => {
                 setOffset(page.offset + page.limit)
               }}
             >
               {t('table.nextPage')} →
-            </button>
+            </Button>
           </>
         ) : (
           <>
             {/* No row-range label: without random access there is no honest row
                 number to show, and "1 – 50" on the fourth page is simply false. */}
             <span title={t('table.cursorPagedTitle')}>{t('table.cursorPaged')}</span>
-            <button
-              className="ghost"
+            <Button
+              variant="ghost"
               disabled={cursorToken === undefined}
               onClick={nextCursorPage}
               title={cursorToken === undefined ? t('table.noMorePages') : t('table.cursorPagedTitle')}
             >
               {t('table.nextPage')} →
-            </button>
+            </Button>
           </>
         )}
         <span className="sep" />

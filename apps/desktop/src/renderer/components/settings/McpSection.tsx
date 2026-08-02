@@ -4,6 +4,7 @@ import type { McpStatus } from '@peek/core'
 import { useT } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
 import { notify } from '../../state/notifyStore'
+import { Button } from '../../ui/Button'
 
 /**
  * The MCP endpoint, as something the user can see and change.
@@ -156,33 +157,33 @@ export function McpSection(): ReactElement {
         />
       </div>
       <div className="conn-actions">
-        <button
-          className="ghost"
+        <Button
+          variant="ghost"
           disabled={token === ''}
           onClick={() => {
             setReveal((value) => !value)
           }}
         >
           {reveal ? t('mcp.hide') : t('mcp.reveal')}
-        </button>
-        <button
-          className="ghost"
+        </Button>
+        <Button
+          variant="ghost"
           disabled={token === ''}
           onClick={() => {
             copy(token, t('mcp.tokenCopied'))
           }}
         >
           {t('mcp.copyToken')}
-        </button>
-        <button
-          className="primary"
+        </Button>
+        <Button
+          variant="primary"
           disabled={status?.hint === undefined || status.hint === ''}
           onClick={() => {
             copy(status?.hint ?? '', t('mcp.commandCopied'))
           }}
         >
           {t('mcp.copyCommand')}
-        </button>
+        </Button>
       </div>
       <div className="form-hint mono" style={{ wordBreak: 'break-all' }}>
         {status?.hint === '' ? t('mcp.noCommandYet') : status?.hint}
@@ -214,12 +215,12 @@ export function McpSection(): ReactElement {
       {status?.error ? <div className="form-hint" style={{ color: 'var(--err)' }}>{status.error.message}</div> : null}
 
       <div className="conn-actions">
-        <button disabled={busy} onClick={applyPort}>
+        <Button disabled={busy} onClick={applyPort}>
           {t('mcp.applyPort')}
-        </button>
-        <button disabled={busy} onClick={rotate}>
+        </Button>
+        <Button disabled={busy} onClick={rotate}>
           {t('mcp.rotateToken')}
-        </button>
+        </Button>
       </div>
       <div className="form-hint">{t('mcp.rotateWarning')}</div>
 

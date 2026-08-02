@@ -10,6 +10,7 @@ import { formatCount, formatMs } from '../../util/format'
 import { DataGrid } from '../DataGrid'
 import { ViewError } from '../ViewError'
 import { CacheGapNotice, CancelButton } from './ResultControls'
+import { Button } from '../../ui/Button'
 import {
   findCollectionNodeId,
   namedVectorsOf,
@@ -88,9 +89,9 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
   return (
     <>
       <div className="toolbar">
-        <button className="primary" disabled={!ready || running || !hasQuery} onClick={search}>
+        <Button variant="primary" disabled={!ready || running || !hasQuery} onClick={search}>
           ▶ {t('vector.run')}
-        </button>
+        </Button>
         {/* Always drawn now, including on drivers without the `cancel` capability —
             where it is disabled and carries the reason. Hiding it left a user
             watching a qdrant scroll with no way to learn why nothing could stop it;

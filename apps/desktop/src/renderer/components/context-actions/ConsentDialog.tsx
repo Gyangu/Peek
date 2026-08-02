@@ -4,6 +4,7 @@ import { useModalDialog } from '../../hooks'
 import { useT } from '../../i18n'
 import { grantContextConsent } from './consent'
 import './context-actions.css'
+import { Button } from '../../ui/Button'
 
 /**
  * The one-time disclosure, shown before the first attachment is ever staged.
@@ -58,12 +59,12 @@ export function ConsentDialog(props: ConsentDialogProps): ReactElement {
         <p>{t('context.consent.production')}</p>
         <p className="ctx-consent-once">{t('context.consent.once')}</p>
         <div className="ctx-consent-actions">
-          <button type="button" onClick={onCancel}>
+          <Button type="button" onClick={onCancel}>
             {t('context.consent.cancel')}
-          </button>
-          <button type="button" ref={acceptRef} className="primary" onClick={accept}>
+          </Button>
+          <Button type="button" ref={acceptRef} variant="primary" onClick={accept}>
             {t('context.consent.accept')}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

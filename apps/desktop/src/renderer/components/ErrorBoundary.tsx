@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { tStatic } from '../i18n'
+import { Button } from '../ui/Button'
 
 /**
  * The last line of defence around the whole window.
@@ -61,13 +62,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <div className="crash-title">{tStatic('app.crash.title')}</div>
           <div className="crash-body">{tStatic('app.crash.body')}</div>
           <pre className="crash-detail">{detail}</pre>
-          <button
+          <Button
             onClick={() => {
               location.reload()
             }}
           >
             {tStatic('app.crash.reload')}
-          </button>
+          </Button>
         </div>
       </div>
     )

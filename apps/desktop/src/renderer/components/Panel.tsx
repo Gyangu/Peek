@@ -10,6 +10,7 @@ import { registerPanelEl, useIsDragSource, usePanelDropZone, usePanelTabCaret } 
 import { PanelTabs } from './PanelTabs'
 import { viewTitleOf } from './panelTitle'
 import { ViewHost } from './ViewHost'
+import { Button } from '../ui/Button'
 
 /**
  * A leaf of the tiled layout: one panel, holding a stack of views as tabs, of
@@ -144,14 +145,14 @@ function EmptyPanel({ panelId, tabIndex }: { panelId: PanelNode['id']; tabIndex:
   const ready = conns.filter((c) => c.status === 'ready')
 
   const newChat = (
-    <button
+    <Button
       tabIndex={tabIndex}
       onClick={() => {
         void dispatch('view.open', { spec: { kind: 'chat' }, panelId })
       }}
     >
       {t('panel.newChat')}
-    </button>
+    </Button>
   )
 
   if (ready.length === 0) {
@@ -171,7 +172,7 @@ function EmptyPanel({ panelId, tabIndex }: { panelId: PanelNode['id']; tabIndex:
         {t('panel.emptyWithConn', { label: first.label })}
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-        <button
+        <Button
           tabIndex={tabIndex}
           onClick={() => {
             void dispatch('view.open', {
@@ -181,8 +182,8 @@ function EmptyPanel({ panelId, tabIndex }: { panelId: PanelNode['id']; tabIndex:
           }}
         >
           {t('panel.newQuery')}
-        </button>
-        <button
+        </Button>
+        <Button
           tabIndex={tabIndex}
           onClick={() => {
             void dispatch('view.open', {
@@ -192,7 +193,7 @@ function EmptyPanel({ panelId, tabIndex }: { panelId: PanelNode['id']; tabIndex:
           }}
         >
           {t('panel.objectTree')}
-        </button>
+        </Button>
         {newChat}
       </div>
     </div>

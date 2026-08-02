@@ -7,6 +7,7 @@ import { describe, test } from 'node:test'
 import { decomment, openingTags, stylesheets } from '../../__tests__/sourceScan'
 import {
   ACTION_ID_PATTERN,
+  BUTTON_MODIFIER_NAMES,
   CONTROL_SIZE_NAMES,
   BUTTON_VARIANTS,
   BUTTON_VARIANT_NAMES,
@@ -203,7 +204,7 @@ describe('controls.css covers the whole matrix', () => {
   test('no stray .btn-* class exists outside the spec', () => {
     const declared = new Set<string>([
       'btn',
-      'btn-icon',
+      ...BUTTON_MODIFIER_NAMES,
       ...BUTTON_VARIANT_NAMES.map((v) => `btn-${v}`),
       ...CONTROL_SIZE_NAMES.map((s) => `btn-${s}`),
     ])
@@ -465,55 +466,85 @@ describe('an agent cannot be handed its own permission prompt', () => {
  * ------------------------------------------------------------------ */
 
 /**
- * Files still rendering a bare `<button>`. This list may only get shorter.
+ * Bare `<button>` elements that are deliberately **not** controls.
  *
- * It is a migration ledger, not an exemption: 87 call sites could not be moved
- * in one change without the change becoming unreviewable. Each line is a debt,
- * recorded in PLAN §11.2.
+ * The ledger below started from an assumption that turned out to be false:
+ * that every `<button>` in the renderer wants to be a `<Button>`. Migrating 80
+ * of them proved otherwise. What is left is a different kind of element — a menu
+ * item, a disclosure header, a tab — that needs button *semantics* (focusable,
+ * activated by Enter and Space, announced as pressable) and nothing at all from
+ * the control layer. Forcing one through `<Button>` would mean overriding every
+ * declaration `.btn` makes, which is not migration, it is a fight.
  *
- * The honest limit: this cannot stop someone appending a new file. A newly
- * created file is indistinguishable from a half-migrated one to a static check.
- * That half is enforced by people; saying so beats a test that pretends to cover
- * it.
+ * They are listed rather than pattern-matched because "this is not a control" is
+ * a judgement, and a judgement that nobody wrote down is indistinguishable from
+ * an oversight. Same demand as the opacity census and the hit-target exemptions:
+ * **being outside the rule has to be a sentence somebody wrote.**
+ *
+ * `count` is the part that keeps this honest at file granularity. Without it,
+ * a file admitted here for its two menu items would silently accept a third
+ * element that *is* a control.
  */
-const BARE_BUTTON_ALLOWLIST: readonly string[] = [
-  'components/ErrorBoundary.tsx',
-  'components/Panel.tsx',
-  'components/PanelTabs.tsx',
-  'components/Sidebar.tsx',
-  'components/chat/AttachmentBar.tsx',
-  'components/chat/ChatSessionsRail.tsx',
-  'components/chat/ChatView.tsx',
-  'components/chat/Markdown.tsx',
-  'components/chat/MessageItem.tsx',
-  'components/chat/MessageList.tsx',
-  'components/chat/ToolCallCard.tsx',
-  'components/context-actions/ConsentDialog.tsx',
-  'components/context-actions/ContextMenu.tsx',
-  'components/error-center/ErrorCenter.tsx',
-  'components/settings/McpSection.tsx',
-  'components/settings/SettingsDialog.tsx',
-  'components/settings/TimeoutsSection.tsx',
-  'components/views/InspectorView.tsx',
-  'components/views/QueryView.tsx',
-  'components/views/ResultControls.tsx',
-  'components/views/TableView.tsx',
-  'components/views/TreeView.tsx',
-  'components/views/VectorView.tsx',
+const NOT_CONTROLS: readonly { where: string; count: number; reason: string }[] = [
+  {
+    where: 'components/context-actions/ContextMenu.tsx',
+    count: 2,
+    reason:
+      'Menu items. Full-width, left-aligned, transparent, no border — every one of those is `.btn` ' +
+      'being undone. The right home for them is a `<Menu>` primitive with roles and arrow keys, ' +
+      'which is a separate change; a Button wearing a menu item costume is not a step towards it.',
+  },
+  {
+    where: 'components/chat/AttachmentBar.tsx',
+    count: 1,
+    reason: 'A menu item, in the attach dropdown. Same shape and same answer as the context menu above.',
+  },
+  {
+    where: 'components/chat/ToolCallCard.tsx',
+    count: 1,
+    reason:
+      'A disclosure header: it carries `aria-expanded` and wraps a status mark, a name and a summary ' +
+      'across the full width of the card. It is a region you can open, not an action you can take.',
+  },
+  {
+    where: 'components/chat/MessageItem.tsx',
+    count: 1,
+    reason: 'The thinking block\'s disclosure header. Same kind as ToolCallCard\'s.',
+  },
+  {
+    where: 'components/settings/SettingsDialog.tsx',
+    count: 1,
+    reason:
+      'A tab — `role="tab"` inside a `role="tablist"`, so a screen reader announces "2 of 4". ' +
+      'PanelTabs reached the same conclusion from the other direction and uses a `div role="tab"`.',
+  },
 ]
 
 /**
- * The primitives themselves. Not on the ledger and never will be: they are what
- * the ledger points *at*, and they have to render the real element.
+ * Files still to migrate. This list may only get shorter.
+ *
+ * It is down to one, and that one is blocked on something outside the change:
+ * `TreeView.tsx` has uncommitted work in it from another thread, and migrating a
+ * file someone else is editing trades a tidy ledger for a merge conflict.
+ *
+ * The honest limit, unchanged: this cannot stop someone appending a new file. A
+ * newly created file is indistinguishable from a half-migrated one to a static
+ * check. That half is enforced by people; saying so beats a test that pretends
+ * to cover it.
  */
+const MIGRATION_LEDGER: readonly string[] = ['components/views/TreeView.tsx']
+
+/** Not on either list — they are the primitives, and must render the real element. */
 const PRIMITIVES: readonly string[] = ['ui/Button.tsx', 'ui/Segmented.tsx']
 
-describe('bare <button> is confined to the migration ledger', () => {
-  test('no file outside the allowlist renders one', () => {
+describe('bare <button> is confined to what is written down', () => {
+  const exempt = new Set([...PRIMITIVES, ...MIGRATION_LEDGER, ...NOT_CONTROLS.map((n) => n.where)])
+
+  test('no file outside those lists renders one', () => {
     const offenders: string[] = []
     for (const path of tsxFiles()) {
       const rel = relative(RENDERER, path)
-      if (PRIMITIVES.includes(rel) || BARE_BUTTON_ALLOWLIST.includes(rel)) continue
+      if (exempt.has(rel)) continue
       if (openingTags(readFileSync(path, 'utf8'), 'button').length > 0) offenders.push(rel)
     }
     assert.deepEqual(
@@ -526,8 +557,36 @@ describe('bare <button> is confined to the migration ledger', () => {
     )
   })
 
+  test('a file that is not a control has exactly the elements it declared', () => {
+    // The tightening that makes a file-level exemption safe: an entry admitted
+    // for its two menu items must not quietly grow a third element that is a
+    // control.
+    const wrong: string[] = []
+    for (const entry of NOT_CONTROLS) {
+      const found = openingTags(readFileSync(join(RENDERER, entry.where), 'utf8'), 'button').length
+      if (found !== entry.count) wrong.push(`${entry.where}: declared ${entry.count}, found ${found}`)
+    }
+    assert.deepEqual(
+      wrong,
+      [],
+      `A file listed as not-a-control changed shape:\n${wrong.join('\n')}\n\n` +
+        `If the new element is a menu item or a disclosure like its neighbours, raise the count and ` +
+        `say so in the reason. If it is a control, it belongs in <Button>.`,
+    )
+  })
+
+  test('every not-a-control entry says why', () => {
+    for (const entry of NOT_CONTROLS) {
+      assert.ok(
+        entry.reason.trim().length > 60,
+        `${entry.where} is exempt without a reason worth reading. "This is not a control" is a ` +
+          `judgement, and a judgement nobody wrote down cannot be told apart from an oversight.`,
+      )
+    }
+  })
+
   test('the ledger has no stale entries', () => {
-    const stale = BARE_BUTTON_ALLOWLIST.filter((rel) => {
+    const stale = MIGRATION_LEDGER.filter((rel) => {
       let src: string
       try {
         src = readFileSync(join(RENDERER, rel), 'utf8')
@@ -540,7 +599,7 @@ describe('bare <button> is confined to the migration ledger', () => {
       stale,
       [],
       `These files are on the migration ledger but no longer need to be — they are done, or gone:\n` +
-        `${stale.join('\n')}\n\nDelete their lines from BARE_BUTTON_ALLOWLIST. The list only ever ` +
+        `${stale.join('\n')}\n\nDelete their lines from MIGRATION_LEDGER. The list only ever ` +
         `shrinks, and leaving a finished entry on it re-opens the hole for the next edit to that file.`,
     )
   })

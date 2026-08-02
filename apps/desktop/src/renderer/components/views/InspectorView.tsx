@@ -20,6 +20,7 @@ import { useConnection } from '../../state/workspaceStore'
 import { formatBytes, fullValueText } from '../../util/format'
 import { ViewError } from '../ViewError'
 import { nextKeyWindow, windowSize } from './keyWindow'
+import { Button } from '../../ui/Button'
 
 /**
  * Single value / single row inspector.
@@ -112,25 +113,25 @@ export function InspectorView({ view }: { view: InspectorViewState }): ReactElem
         {/* `ref.kind` is the addressing scheme's own name — an identifier. */}
         <span className="mono">{ref.kind}</span>
         <span className="sep" />
-        <button className="ghost" disabled={loading || !canRead} onClick={fetchFull}>
+        <Button variant="ghost" disabled={loading || !canRead} onClick={fetchFull}>
           {loading
             ? t('inspector.fetching')
             : isKeyValue
               ? t('inspector.reload')
               : t('inspector.fetchFull')}
-        </button>
+        </Button>
         {more ? (
           <>
             <span className="sep" />
-            <button
-              className="ghost"
+            <Button
+              variant="ghost"
               disabled={loading}
               onClick={() => {
                 fetchKeyValue(more)
               }}
             >
               {t('inspector.nextWindow')} →
-            </button>
+            </Button>
           </>
         ) : null}
         <span className="grow" />
@@ -349,9 +350,9 @@ function ElementText({
       <span className="trunc-mark">
         {' … '}
         {ref && bridgeExtras.hasPeekValue() ? (
-          <button className="ghost" disabled={busy} onClick={fetchWhole}>
+          <Button variant="ghost" disabled={busy} onClick={fetchWhole}>
             {busy ? t('inspector.fetching') : t('inspector.fetchElement')}
-          </button>
+          </Button>
         ) : (
           t('inspector.elementTruncated', { bytes: formatBytes(element.byteLength ?? 0) })
         )}

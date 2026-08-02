@@ -4,6 +4,7 @@ import { tStatic, useT } from '../../i18n'
 import { notify } from '../../state/notifyStore'
 import { highlight, normalizeLang } from './highlight'
 import { parseMarkdown, type MdAlign, type MdBlock, type MdInline } from './mdParser'
+import { Button } from '../../ui/Button'
 
 /**
  * Renders agent Markdown.
@@ -222,9 +223,12 @@ function CodeBlock({
     <div className={`md-pre${closed ? '' : ' streaming'}`}>
       <div className="md-pre-bar">
         <span className="md-pre-lang">{lang || normalized}</span>
-        <button type="button" className="ghost md-copy" onClick={copy}>
+        {/* `sm` carries the height and padding `.md-copy` used to spell out; the
+            class is down to the one thing that is layout — no margin in a strip
+            whose own padding is 1px. */}
+        <Button variant="ghost" size="sm" className="md-copy" onClick={copy}>
           {copied ? t('chat.code.copied') : t('chat.code.copy')}
-        </button>
+        </Button>
       </div>
       <pre>
         <code>

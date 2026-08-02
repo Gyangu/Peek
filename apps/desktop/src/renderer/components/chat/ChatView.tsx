@@ -149,9 +149,8 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
           </span>
         ) : null}
 
-        <button
-          type="button"
-          className="ghost"
+        <Button
+          variant="ghost"
           disabled={messageCount === 0 && view.messageCount === 0}
           title={t('chat.clearTitle')}
           onClick={() => {
@@ -159,7 +158,7 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
           }}
         >
           {t('chat.clear')}
-        </button>
+        </Button>
       </div>
 
       {pendingMode === null ? null : (

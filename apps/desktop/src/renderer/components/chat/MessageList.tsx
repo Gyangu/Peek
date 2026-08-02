@@ -5,6 +5,7 @@ import type { ChatId, ChatMessageId } from '@peek/core'
 import { useT } from '../../i18n'
 import { MessageItem } from './MessageItem'
 import { subscribeChat, useChatMessage, useChatMessageIds } from './transcriptStore'
+import { Button } from '../../ui/Button'
 
 /* ==================================================================
  * The transcript list.
@@ -134,8 +135,9 @@ export function MessageList({ chatId }: { chatId: ChatId }): ReactElement {
       </div>
 
       {showJump ? (
-        <button
-          type="button"
+        <Button
+          size="sm"
+          elevated
           className="chat-jump"
           onClick={() => {
             follow.current = true
@@ -144,7 +146,7 @@ export function MessageList({ chatId }: { chatId: ChatId }): ReactElement {
           }}
         >
           ↓ {t('chat.jumpToLatest')}
-        </button>
+        </Button>
       ) : null}
     </div>
   )

@@ -186,15 +186,18 @@
   width: 100%;
 }
 
+/*
+ * Where it sits, and nothing else. The raised surface is `elevated`, the type
+ * size is `sm`, and the border is what `default` already draws — this rule used
+ * to state all four, which is what made it the one class the control layer's
+ * design record predicted would fail the fence. It did, and this is the split it
+ * asked for.
+ */
 .chat-jump {
   position: absolute;
   left: 50%;
   bottom: 10px;
   transform: translateX(-50%);
-  background: var(--bg-3);
-  border-color: var(--border-strong);
-  box-shadow: 0 2px 10px rgb(0 0 0 / 45%);
-  font-size: var(--fs-sm);
 }
 
 /* ------------------------------------------------------------------ */
@@ -795,28 +798,17 @@
  * attachment by mistake costs one re-add, which is why this is the place the
  * floor is allowed to bend.
  */
-.chat-chip-x {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  min-height: 0; /* see the note on `button` in styles.css */
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--fg-faint);
-  line-height: 1;
-}
-
-.chat-chip-x:hover {
-  background: transparent;
-  color: var(--err);
-}
-
-.chat-attach-add {
-  font-size: var(--fs-sm);
-}
+/*
+ * Both of these were `size="sm"` spelled out by hand — an 18px box, its own
+ * `min-height: 0`, its own `--fs-sm`. The rung says all of it, so the rules are
+ * gone rather than trimmed.
+ *
+ * One deliberate loss: the chip's ✕ used to turn `--err` on hover. Removing a
+ * staged attachment is not destructive — it is re-addable in one click — so
+ * `danger` would have overstated it, and `ghost`'s own hover already says the
+ * control is live. Colour spent on a reversible act is colour unavailable for an
+ * irreversible one.
+ */
 
 .chat-attach-menu {
   position: absolute;
@@ -1089,12 +1081,13 @@
   text-transform: lowercase;
 }
 
+/*
+ * Layout only. The height, the padding and the `min-height: 0` that let this ride
+ * in the code fence's 1px-padded title bar are now what `size="sm"` means — this
+ * was one of the four rules that each rediscovered that rung separately.
+ */
 .md-copy {
-  font-size: var(--fs-sm);
-  padding: 0 5px;
-  /* Rides in the code fence's 1px-padded title bar; the floor would double that
-     bar's height. See the note on `button` in styles.css. */
-  min-height: 0;
+  margin: 0;
 }
 
 .md-pre pre {

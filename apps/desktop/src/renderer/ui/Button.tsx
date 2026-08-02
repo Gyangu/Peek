@@ -4,6 +4,7 @@ import './controls.css'
 import {
   BASE_CLASS,
   DEFAULT_EXPOSURE,
+  ELEVATED_CLASS,
   ICON_CLASS,
   sizeClass,
   variantClass,
@@ -71,6 +72,19 @@ interface ButtonBase extends NativeButtonProps {
   action?: string
   /** Who may operate this. Defaults to `human-only`; see `EXPOSURES`. */
   exposure?: Exposure
+  /**
+   * The control floats over content rather than sitting in a bar.
+   *
+   * Orthogonal to `variant`, not a variant of its own: "what this action means"
+   * and "what is behind it" are different questions, and folding them together
+   * would multiply the matrix by two for a fact that changes no semantics.
+   *
+   * One caller today — the chat transcript's jump-to-latest. It exists because
+   * the className fence rejected `.chat-jump`'s `background` and `box-shadow`
+   * and asking "which variant is this?" had no honest answer. If it is still
+   * alone in a year, delete it and inline the two declarations there.
+   */
+  elevated?: boolean
   ref?: Ref<HTMLButtonElement>
   children?: ReactNode
 }
@@ -94,6 +108,7 @@ export function Button(props: ButtonProps): ReactNode {
     className,
     action,
     exposure = DEFAULT_EXPOSURE,
+    elevated = false,
     type = 'button',
     title,
     'aria-label': ariaLabel,
@@ -103,6 +118,7 @@ export function Button(props: ButtonProps): ReactNode {
 
   const classes = [BASE_CLASS, variantClass(variant), sizeClass(size)]
   if (icon) classes.push(ICON_CLASS)
+  if (elevated) classes.push(ELEVATED_CLASS)
   if (className !== undefined && className !== '') classes.push(className)
 
   return (

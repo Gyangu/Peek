@@ -8,6 +8,7 @@ import { formatCount, formatMs } from '../../util/format'
 import { DataGrid } from '../DataGrid'
 import { ViewError } from '../ViewError'
 import { CacheGapNotice, CancelButton } from './ResultControls'
+import { Button } from '../../ui/Button'
 
 // CodeMirror is the heaviest thing in the bundle, so it gets its own lazily
 // loaded chunk — the "cold start to interactive under 1.5s" budget (PLAN §8)
@@ -67,8 +68,9 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
     <div className="query-view">
       <div className="toolbar">
         {/* The title is key notation, not prose: the same symbols in every language. */}
-        <button
-          className="primary"
+        <Button
+          variant="primary"
+          action="query.run"
           disabled={running || conn?.status !== 'ready'}
           onClick={() => {
             run(text)
@@ -76,7 +78,7 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
           title="⌘/Ctrl + Enter"
         >
           ▶ {t('query.run')}
-        </button>
+        </Button>
         <CancelButton viewId={viewId} conn={conn} running={running} />
         <span className="sep" />
         <span>{conn?.label ?? connId}</span>

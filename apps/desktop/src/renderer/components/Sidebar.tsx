@@ -12,6 +12,7 @@ import { buildConnectionRows, type ConnectionRow } from './connectionRows'
 import { ConfirmPair } from './ConfirmPair'
 import { ConnectDialog } from './ConnectDialog'
 import { FirstRunGuide } from './FirstRunGuide'
+import { Button } from '../ui/Button'
 
 /**
  * Connection list sidebar.
@@ -63,8 +64,8 @@ export function Sidebar(): ReactElement {
     <div className="sidebar">
       <div className="sidebar-head">
         <span>{t('sidebar.connections')}</span>
-        <button
-          className="ghost"
+        <Button
+          variant="ghost"
           title={t('sidebar.newConnection')}
           aria-label={t('sidebar.newConnection')}
           onClick={() => {
@@ -72,7 +73,7 @@ export function Sidebar(): ReactElement {
           }}
         >
           ＋
-        </button>
+        </Button>
       </div>
       <div className="sidebar-list">
         {rows.length === 0 ? (
@@ -207,9 +208,9 @@ function ConnectionRowItem({ row, active, onActivate, onEdit, onForgotten }: Row
         <div className="conn-actions">
           {conn === undefined ? (
             <>
-              <button className="ghost" disabled={busy} onClick={connect}>
+              <Button variant="ghost" disabled={busy} onClick={connect}>
                 {t('sidebar.action.connect')}
-              </button>
+              </Button>
               <EditButton editable={editable} onEdit={onEdit} />
               {/* Two clicks rather than a modal: removing an entry drops a stored
                   credential, which cannot be undone, but it is also not
@@ -263,14 +264,14 @@ function EditButton({
   const t = useT()
   if (editable === undefined) return null
   return (
-    <button
-      className="ghost"
+    <Button
+      variant="ghost"
       onClick={() => {
         onEdit(editable)
       }}
     >
       {t('sidebar.action.edit')}
-    </button>
+    </Button>
   )
 }
 
@@ -307,25 +308,25 @@ function LiveActions({ conn, editable, onEdit }: LiveActionProps): ReactElement 
     <>
       {conn.status === 'error' ? null : (
         <>
-          <button
-            className="ghost"
+          <Button
+            variant="ghost"
             disabled={!canTree}
             onClick={() => {
               void dispatch('view.open', { spec: { kind: 'tree', connId: conn.id } })
             }}
           >
             {t('sidebar.action.tree')}
-          </button>
+          </Button>
           {hasQuery ? (
-            <button
-              className="ghost"
+            <Button
+              variant="ghost"
               disabled={!canQuery}
               onClick={() => {
                 void dispatch('view.open', { spec: { kind: 'query', connId: conn.id } })
               }}
             >
               {t('sidebar.action.query')}
-            </button>
+            </Button>
           ) : (
             // Not a disabled button: "temporarily unavailable" and "this database
             // has no query language" are different statements, and only the
@@ -339,9 +340,9 @@ function LiveActions({ conn, editable, onEdit }: LiveActionProps): ReactElement 
           )}
         </>
       )}
-      <button className="ghost" onClick={close}>
+      <Button variant="ghost" onClick={close}>
         {t('sidebar.action.disconnect')}
-      </button>
+      </Button>
       <EditButton editable={editable} onEdit={onEdit} />
     </>
   )

@@ -12,6 +12,7 @@ import {
   type ErrorEntry,
   type ErrorSource,
 } from './errorLog'
+import { Button } from '../../ui/Button'
 
 /**
  * The error centre: the window's memory of what went wrong.
@@ -51,14 +52,28 @@ export function ErrorCenterButton(): ReactElement | null {
   if (count === 0) return null
   return (
     <>
-      <button
-        className={unseen > 0 ? 'ghost seg err' : 'ghost seg'}
+      {/*
+       * The alarm colour moved onto the text, off the control.
+       *
+       * It used to be `ghost seg err`, where `err` painted the whole button red.
+       * But opening the error centre is not a destructive act — the *count* is
+       * what is alarming, and `danger` would have said the wrong thing about the
+       * button. Colouring the label instead is both what the control layer's
+       * fence forces and the more accurate statement.
+       *
+       * (`seg` in that class list was `.statusbar .seg`, which `<Segmented>`
+       * renamed to `.cell`; `.btn` already provides what it declared.)
+       */}
+      <Button
+        variant="ghost"
         title={t('app.errors.openTitle')}
         aria-expanded={open}
         onClick={toggleErrorCenter}
       >
-        ⚠ {unseen > 0 ? t('app.errors.unseen', { count: unseen }) : t('app.errors.count', { count })}
-      </button>
+        <span className={unseen > 0 ? 'err' : undefined}>
+          ⚠ {unseen > 0 ? t('app.errors.unseen', { count: unseen }) : t('app.errors.count', { count })}
+        </span>
+      </Button>
       {open ? <ErrorCenterPanel /> : null}
     </>
   )
@@ -96,20 +111,20 @@ function ErrorCenterPanel(): ReactElement {
       <div className="toolbar" style={HEADER_STYLE}>
         <strong>{t('app.errors.title')}</strong>
         <span className="grow" />
-        <button
-          className="ghost"
+        <Button
+          variant="ghost"
           onClick={() => {
             copy(formatErrorLog(entries), 'all')
           }}
         >
           {copied === 'all' ? t('app.errors.copied') : t('app.errors.copyAll')}
-        </button>
-        <button className="ghost" onClick={clearErrorLog}>
+        </Button>
+        <Button variant="ghost" onClick={clearErrorLog}>
           {t('app.errors.clear')}
-        </button>
-        <button className="ghost" title={t('app.errors.close')} onClick={closeErrorCenter}>
+        </Button>
+        <Button variant="ghost" title={t('app.errors.close')} onClick={closeErrorCenter}>
           ✕
-        </button>
+        </Button>
       </div>
 
       <div style={LIST_STYLE}>
@@ -170,9 +185,9 @@ function ErrorRow({
           </span>
         )}
         <span className="grow" />
-        <button className="ghost" onClick={onCopy}>
+        <Button variant="ghost" onClick={onCopy}>
           {copied ? t('app.errors.copied') : t('app.errors.copyEntry')}
-        </button>
+        </Button>
       </div>
       <div>{text}</div>
       {entry.detail === undefined ? null : (

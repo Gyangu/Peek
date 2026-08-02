@@ -207,10 +207,42 @@
  * missing rung looks like. See the legibility baseline §2.3, which this promotes
  * from an exemption to a rung.
  */
+/*
+ * `font-size` belongs to the rung, not to the caller.
+ *
+ * Every site that reached for this height also wrote `font-size: var(--fs-sm)`
+ * next to it — `.md-copy`, `.chat-attach-add`, `.tab-close`, `.chat-thought-head`.
+ * That is the same discovery the height itself produced: four rules each
+ * restating one fact is what a missing rung looks like. A 20px control with 12px
+ * text was never what any of them wanted.
+ */
 .btn-sm {
   min-height: 0;
   height: 20px;
   padding: 0 7px;
+  font-size: var(--fs-sm);
+}
+
+/* ------------------------------------------------------------------
+ * Elevation
+ *
+ * A control that floats over scrolling content has to separate itself from
+ * whatever happens to be behind it at the moment — which, in a transcript, is
+ * anything. A lighter surface and a shadow do that; the variant underneath keeps
+ * saying what the action means.
+ * ------------------------------------------------------------------ */
+
+.btn-elevated {
+  background: var(--bg-3);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 45%);
+}
+
+.btn-elevated:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.btn-elevated:active:not(:disabled) {
+  background: var(--bg-2);
 }
 
 /* ------------------------------------------------------------------

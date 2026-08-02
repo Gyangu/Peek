@@ -736,10 +736,17 @@ describe('structure — where the gesture lives', () => {
     // An accessible name is computed from aria-label, then content, then title.
     // A button whose only content is "⊞" therefore announces the glyph and its
     // `title` never wins — the label has to be explicit, and the glyph hidden.
+    //
+    // The name now arrives as `<Button icon label={…}>`, which emits both the
+    // aria-label and the tooltip. Asserted on `label=` rather than on the raw
+    // attribute because the requirement is that the control **has a name**, and
+    // pinning the assertion to one spelling of it is what made this test fail a
+    // migration that strengthened the very property it guards: `icon` makes the
+    // label a type error to omit, which `aria-label` never was.
     const actions = PANEL_TABS_TSX.slice(PANEL_TABS_TSX.indexOf('panel-actions'))
     for (const key of ['panel.splitRow', 'panel.splitCol', 'panel.closePanel']) {
       assert.ok(
-        actions.includes(`aria-label={t('${key}')}`),
+        actions.includes(`label={t('${key}')}`),
         `the ${key} button has no accessible name of its own`,
       )
     }

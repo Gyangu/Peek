@@ -642,22 +642,19 @@ textarea:focus {
   background: var(--warn);
 }
 
+/*
+ * Layout only now. The 20px box that used to be spelled out here is what
+ * `size="sm"` means — it was one of the four rules that each reinvented that
+ * rung with its own `min-height: 0`, which is why the rung exists.
+ *
+ * 20 and not 16 is still the point: the strip is 30px tall, and a ✕ that has to
+ * be aimed at is a ✕ that gets missed onto the tab underneath, which activates a
+ * view instead of closing one.
+ */
 .tab-close {
   flex: 0 0 auto;
-  /* 20, not 16: the strip is 30px tall, so 20 still leaves 5px of air above and
-     below, and a ✕ that has to be aimed at is a ✕ that gets missed onto the tab
-     underneath — which activates a view instead of closing one. */
-  width: 20px;
-  height: 20px;
-  min-height: 0; /* an inline control in a 30px strip; see the note on `button` */
-  padding: 0;
-  line-height: 1;
-  font-size: var(--fs-sm);
-  background: transparent;
-  border-color: transparent;
-  color: var(--fg-faint);
-  /* Reserved, not revealed on hover: a ✕ that appears under the cursor shifts
-     the title it sits next to, and a strip that reflows while being read is
+  /* Space reserved, not revealed on hover: a ✕ that appears under the cursor
+     shifts the title beside it, and a strip that reflows while being read is
      worse than a permanently visible glyph. */
   visibility: hidden;
 }
@@ -666,11 +663,6 @@ textarea:focus {
 .panel-tab.active .tab-close,
 .tab-close:focus-visible {
   visibility: visible;
-}
-
-.tab-close:hover:not(:disabled) {
-  background: var(--bg-3);
-  color: var(--fg);
 }
 
 /* An empty panel has no tabs to label itself with, and a bare strip reads as a
@@ -1685,10 +1677,6 @@ body.view-dragging.view-drag-nodrop * {
   width: 100%;
   height: var(--bar-h);
   padding: 0;
-}
-
-.chat-rail-handle {
-  color: var(--fg-dim);
 }
 
 /* The head carries four things, one more than the sidebar's, so the buttons are

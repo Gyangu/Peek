@@ -4,6 +4,7 @@ import { useT } from '../../i18n'
 import { connHas } from '../../state/capabilities'
 import { dispatch } from '../../state/dispatch'
 import { useResult } from '../../state/useResult'
+import { Button } from '../../ui/Button'
 
 /**
  * The controls every result view shares: stop the request, and say something when
@@ -65,21 +66,21 @@ export function CancelButton({ viewId, conn, running }: CancelButtonProps): Reac
 
   if (!cancellable) {
     return (
-      <button
-        className="ghost"
+      <Button
+        variant="ghost"
         disabled
         title={t('result.cancelUnsupportedTitle', { driverId: conn?.driverId ?? '—' })}
         aria-label={t('result.cancelUnsupportedTitle', { driverId: conn?.driverId ?? '—' })}
       >
         ■ {t('result.cancelUnsupported')}
-      </button>
+      </Button>
     )
   }
 
   return (
-    <button className="ghost" disabled={!running} onClick={cancel} title={t('result.cancelTitle')}>
+    <Button variant="ghost" disabled={!running} onClick={cancel} title={t('result.cancelTitle')}>
       ■ {t('result.cancel')}
-    </button>
+    </Button>
   )
 }
 
@@ -122,9 +123,9 @@ export function CacheGapNotice({ resultId, onRefetch, disabled }: CacheGapNotice
       <div>
         <strong>{t('result.cacheGap')}</strong> {t('result.cacheGapDetail')}
       </div>
-      <button className="ghost" disabled={disabled === true} onClick={onRefetch}>
+      <Button variant="ghost" disabled={disabled === true} onClick={onRefetch}>
         ⟳ {t('result.cacheGapRefetch')}
-      </button>
+      </Button>
     </div>
   )
 }

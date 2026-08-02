@@ -11,6 +11,7 @@ import { AboutSection } from './AboutSection'
 import { AppearanceSection } from './AppearanceSection'
 import { McpSection } from './McpSection'
 import { TimeoutsSection } from './TimeoutsSection'
+import { Button } from '../../ui/Button'
 
 /**
  * Everything peek can be configured to do, in one place.
@@ -63,9 +64,9 @@ function OpenSettings({ section }: { section: SettingsSection }): ReactElement {
         <div className="modal-head">
           <span className="t">{t('settings.title')}</span>
           <span style={{ flex: 1 }} />
-          <button className="ghost" onClick={closeSettings} aria-label={t('settings.close')}>
+          <Button variant="ghost" icon label={t('settings.close')} onClick={closeSettings}>
             ✕
-          </button>
+          </Button>
         </div>
 
         <div className="settings-split">
@@ -94,9 +95,9 @@ function OpenSettings({ section }: { section: SettingsSection }): ReactElement {
         </div>
 
         <div className="modal-foot">
-          <button className="primary" onClick={closeSettings}>
+          <Button variant="primary" onClick={closeSettings}>
             {t('settings.done')}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
