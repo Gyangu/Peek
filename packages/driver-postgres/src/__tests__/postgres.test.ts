@@ -12,15 +12,23 @@ import {
 } from '@peek/core'
 import { PostgresSession } from '../session'
 import { nodeId } from '../introspect'
+import { createFixture, FIXTURE_TABLES, HARNESS_ROWS } from './fixture'
 
 /**
  * Integration against a real database (default postgresql://postgres@localhost:5432/postgres,
  * overridable with PEEK_TEST_PG_URL). Covers introspect, collectionScan,
  * tabularQuery's streamed framing, large-value truncation plus valuePeek,
  * cancellation and timeouts.
+ *
+ * The tables come from `fixture.ts` and live in a schema this suite creates and
+ * drops; nothing here assumes anything about what the target database already
+ * holds. Any empty database will do.
  */
 
 const TEST_URL = process.env['PEEK_TEST_PG_URL'] ?? 'postgresql://postgres@localhost:5432/postgres'
+
+/** Fixed rather than random, so a run killed halfway leaves nothing to clean up. */
+const SCHEMA = 'peek_test_pg'
 
 /** One row exercising every logical type whose JS shape the four drivers had disagreed on */
 const PG_LOGICAL_SQL = `
@@ -67,11 +75,12 @@ function assertFrameProtocol(frames: ChunkFrame[]): void {
 
 describe('driver-postgres against a real database', () => {
   let session: PostgresSession
+  let dropFixture: () => Promise<void>
 
   /**
-   * The table's real row count. The test database is live (other processes write
-   * to it), so row-count assertions cannot hard-code a number and must be
-   * measured against the server's own count(*).
+   * The table's real row count, measured through the driver rather than assumed.
+   * The fixture fixes it now, but reading it back is what makes the scan
+   * assertion "a scan emits every row" instead of "a scan emits five rows".
    */
   async function rowCountOf(table: string): Promise<number> {
     const frames = await drain(
@@ -83,11 +92,13 @@ describe('driver-postgres against a real database', () => {
   }
 
   before(async () => {
+    dropFixture = await createFixture(TEST_URL, SCHEMA)
     session = await PostgresSession.connect(CONFIG)
   })
 
   after(async () => {
     await session?.close()
+    await dropFixture?.()
   })
 
   it('the capability set after connecting matches core DRIVER_CAPABILITIES.postgres', () => {
@@ -113,17 +124,21 @@ describe('driver-postgres against a real database', () => {
     const schemas = await session.listChildren(roots[0]?.id ?? '')
     const names = schemas.map((s) => s.name)
     assert.ok(names.includes('public'), `the schema level should contain public, got ${names.join(',')}`)
+    // The fixture schema is the only one this suite can guarantee exists, which
+    // is also what makes the line below a real test of SCHEMA_SQL's ordering
+    // rather than a tautology about a one-element list.
+    assert.ok(names.includes(SCHEMA), `the schema level should contain ${SCHEMA}, got ${names.join(',')}`)
     assert.equal(names[0], 'public', 'public sorts first')
     for (const s of schemas) assert.equal(s.kind, 'schema')
   })
 
-  it('the public schema holds exactly 3 tables, each with a directly openable ref', async () => {
-    const tables = await session.listChildren(nodeId.schema('public'))
-    assert.deepEqual(tables.map((t) => t.name).sort(), ['account', 'harness', 'document'])
+  it('the fixture schema holds exactly its 3 tables, each with a directly openable ref', async () => {
+    const tables = await session.listChildren(nodeId.schema(SCHEMA))
+    assert.deepEqual(tables.map((t) => t.name).sort(), [...FIXTURE_TABLES])
     for (const t of tables) {
       assert.equal(t.kind, 'table')
       assert.equal(t.hasChildren, false, 'a table is a leaf; its columns come from describeCollection')
-      assert.deepEqual(t.ref, { kind: 'relation', schema: 'public', name: t.name })
+      assert.deepEqual(t.ref, { kind: 'relation', schema: SCHEMA, name: t.name })
     }
   })
 
@@ -159,7 +174,7 @@ describe('driver-postgres against a real database', () => {
   it('describeCollection reports column definitions and the primary key', async () => {
     const info = await session.describeCollection({
       kind: 'relation',
-      schema: 'public',
+      schema: SCHEMA,
       name: 'harness',
     })
     assert.deepEqual(info.columns.map((c) => c.name), ['id', 'account_id', 'created_at', 'name'])
@@ -181,9 +196,9 @@ describe('driver-postgres against a real database', () => {
   /* -------------------- collectionScan -------------------- */
 
   it('scanning harness yields exactly count(*) rows, and the first-frame schema flags the primary key', async () => {
-    const expected = await rowCountOf('public.harness')
-    assert.ok(expected > 0, 'harness should not be empty in the test database')
-    const cursor = await session.scan({ resultId: newResultId(), ref: { kind: 'relation', schema: 'public', name: 'harness' } })
+    const expected = await rowCountOf(`${SCHEMA}.harness`)
+    assert.equal(expected, HARNESS_ROWS, 'the fixture decides how many rows harness has')
+    const cursor = await session.scan({ resultId: newResultId(), ref: { kind: 'relation', schema: SCHEMA, name: 'harness' } })
     const frames = await drain(cursor)
     assertFrameProtocol(frames)
     const total = frames.reduce((n, f) => n + f.rowCount, 0)
@@ -198,7 +213,7 @@ describe('driver-postgres against a real database', () => {
   it('filters are parameterized, so an injection string stays an ordinary value', async () => {
     const cursor = await session.scan({
       resultId: newResultId(),
-      ref: { kind: 'relation', schema: 'public', name: 'harness' },
+      ref: { kind: 'relation', schema: SCHEMA, name: 'harness' },
       filter: [{ column: 'name', op: 'eq', value: "no-such-name'; DROP TABLE harness; --" }],
     })
     const frames = await drain(cursor)
@@ -206,12 +221,12 @@ describe('driver-postgres against a real database', () => {
     assert.equal(frames[frames.length - 1]?.done?.rows, 0, 'an empty result set still emits one frame carrying done')
     assert.equal(frames[0]?.rowCount, 0)
     // The table is still there, so the injection did nothing
-    const after = await session.describeCollection({ kind: 'relation', schema: 'public', name: 'harness' })
+    const after = await session.describeCollection({ kind: 'relation', schema: SCHEMA, name: 'harness' })
     assert.equal(after.columns.length, 4)
   })
 
   it('pagination returns a nextCursor that fetches the following page', async () => {
-    const ref = { kind: 'relation', schema: 'public', name: 'harness' } as const
+    const ref = { kind: 'relation', schema: SCHEMA, name: 'harness' } as const
     const first = await drain(await session.scan({ resultId: newResultId(), ref, limit: 2, sort: [{ column: 'id', dir: 'asc' }] }))
     const done = first[first.length - 1]?.done
     assert.equal(done?.rows, 2)
@@ -370,7 +385,7 @@ describe('driver-postgres against a real database', () => {
   it('valuePeek resolves a relation cell by primary key', async () => {
     const idCursor = await session.query({
       resultId: newResultId(),
-      text: 'SELECT id, name FROM public.harness ORDER BY id LIMIT 1',
+      text: `SELECT id, name FROM ${SCHEMA}.harness ORDER BY id LIMIT 1`,
     })
     const frames = await drain(idCursor)
     const id = frames[0]?.cols[0]?.[0]
@@ -379,7 +394,7 @@ describe('driver-postgres against a real database', () => {
 
     const peeked = await session.peekValue({
       kind: 'relationCell',
-      collection: { kind: 'relation', schema: 'public', name: 'harness' },
+      collection: { kind: 'relation', schema: SCHEMA, name: 'harness' },
       pk: { id },
       column: 'name',
     })

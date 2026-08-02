@@ -18,6 +18,7 @@ import {
   type ResultStreamMessage,
 } from '@peek/core'
 import { DriverHost, type HostChannelLike, type HostPortLike } from '../host-runtime'
+import { createFixture, FIXTURE_TABLES } from './fixture'
 
 /**
  * End-to-end driver host protocol: a pair of in-memory fake ports stands in for
@@ -28,6 +29,9 @@ import { DriverHost, type HostChannelLike, type HostPortLike } from '../host-run
  */
 
 const TEST_URL = process.env['PEEK_TEST_PG_URL'] ?? 'postgresql://postgres@localhost:5432/postgres'
+
+/** Its own schema, distinct from postgres.test.ts's: node runs the two files in parallel processes. */
+const SCHEMA = 'peek_test_host'
 
 const CONFIG: PostgresConnectionConfig = {
   driverId: 'postgres',
@@ -126,6 +130,7 @@ describe('driver host protocol', () => {
   let channel: FakeChannel
   let host: DriverHost
   let port: FakePort
+  let dropFixture: () => Promise<void>
 
   /**
    * Send one RPC and await its response.
@@ -151,10 +156,9 @@ describe('driver host protocol', () => {
   }
 
   /**
-   * The table's real row count. The test database is live (other processes write
-   * to it), so row-count assertions can only be measured against count(*).
-   * Going through query.run and reading the result back off the data plane also
-   * proves that path works.
+   * The table's real row count. The fixture fixes it, but going through
+   * query.run and reading the result back off the data plane is the point:
+   * it proves that path works before the scan assertion relies on it.
    */
   async function rowCountOf(table: string): Promise<number> {
     const resultId = newResultId()
@@ -170,6 +174,7 @@ describe('driver host protocol', () => {
   }
 
   before(async () => {
+    dropFixture = await createFixture(TEST_URL, SCHEMA)
     channel = new FakeChannel()
     host = new DriverHost(channel)
     port = new FakePort()
@@ -182,6 +187,7 @@ describe('driver host protocol', () => {
 
   after(async () => {
     await host.dispose()
+    await dropFixture?.()
   })
 
   it('emits ready and returns the capability set with the connect response', () => {
@@ -201,19 +207,22 @@ describe('driver host protocol', () => {
   })
 
   it('introspect.children returns the 3 tables over RPC', async () => {
-    const res = await call('introspect.children', { parentId: 'schema:public' })
+    // The node id is spelled out rather than built with `nodeId.schema()`: this
+    // suite is about the wire protocol, and deriving the id from the same helper
+    // the driver uses would stop testing that the documented format is accepted.
+    const res = await call('introspect.children', { parentId: `schema:${SCHEMA}` })
     assert.ok(res.ok)
     const result = res.result as HostResult<'introspect.children'>
-    assert.deepEqual(result.nodes.map((n) => n.name).sort(), ['account', 'harness', 'document'])
+    assert.deepEqual(result.nodes.map((n) => n.name).sort(), [...FIXTURE_TABLES])
   })
 
   it('collection.scan results travel only over the MessagePort, never the control plane', async () => {
-    const expected = await rowCountOf('public.harness')
+    const expected = await rowCountOf(`${SCHEMA}.harness`)
     const resultId = newResultId()
     const before = port.received.length
     const res = await call('collection.scan', {
       resultId,
-      ref: { kind: 'relation', schema: 'public', name: 'harness' },
+      ref: { kind: 'relation', schema: SCHEMA, name: 'harness' },
     })
     assert.ok(res.ok)
     const result = res.result as HostResult<'collection.scan'>
