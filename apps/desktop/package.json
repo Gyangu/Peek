@@ -27,7 +27,6 @@
     "@peek/driver-qdrant": "workspace:*",
     "@peek/driver-redis": "workspace:*",
     "@peek/driver-sql": "workspace:*",
-    "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.14.9",
     "codemirror": "^6.0.2",
     "immer": "^11.1.15",

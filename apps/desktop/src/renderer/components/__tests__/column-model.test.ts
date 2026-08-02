@@ -267,6 +267,16 @@ describe('the grid pays for no general-purpose table engine', () => {
     )
   })
 
+  it('and nothing else can import it either, because it is not a dependency', () => {
+    // Stronger than the line above, which only watches one file. The package
+    // stayed declared for a release after the last import went away: rollup had
+    // tree-shaken it, so no measurement noticed, and a dependency nobody removes
+    // is an invitation to import it again.
+    const pkg = readFileSync(fileURLToPath(new URL('../../../../package.json', import.meta.url)), 'utf8')
+    const deps = JSON.parse(pkg) as { dependencies?: Record<string, string> }
+    assert.equal(deps.dependencies?.['@tanstack/react-table'], undefined)
+  })
+
   it('DataGrid gets its headers and widths from the in-house model', () => {
     assert.match(gridSrc, /useColumnModel\(columns, sizing, setSizing\)/)
   })
