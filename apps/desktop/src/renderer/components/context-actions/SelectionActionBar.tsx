@@ -5,6 +5,7 @@ import { ConsentDialog } from './ConsentDialog'
 import { rowsAttachment } from './descriptors'
 import { MAX_SELECTION_SPAN, selectedIndexes, selectionSpan, type RowSelection } from './selection'
 import { useContextActions } from './useContextActions'
+import { Button } from '../../ui/Button'
 import './context-actions.css'
 
 /**
@@ -58,19 +59,16 @@ export function SelectionActionBar(props: SelectionActionBarProps): ReactElement
           {t('context.float.spanWarning', { span, count })}
         </span>
       ) : null}
-      <button
-        type="button"
-        className="primary"
+      <Button
+        variant="primary"
         disabled={tooWide}
         onClick={() => {
           void actions.add(rowsAttachment(viewId, resultId, indexes, label), chatViewId)
         }}
       >
         {label}
-      </button>
-      <button type="button" onClick={onClear}>
-        {t('context.float.clear')}
-      </button>
+      </Button>
+      <Button onClick={onClear}>{t('context.float.clear')}</Button>
     </div>
   )
 }

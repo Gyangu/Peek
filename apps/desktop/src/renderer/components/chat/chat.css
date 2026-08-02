@@ -84,7 +84,7 @@
 
 .chat-mode select {
   padding: 1px 4px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 /* A mode that removes the human from the loop is flagged, never hidden. */
@@ -95,7 +95,7 @@
 
 .chat-usage {
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 /* ------------------------------------------------------------------ */
@@ -128,7 +128,7 @@
   background: var(--bg-2);
   color: var(--fg-dim);
   border-radius: 4px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   user-select: text;
 }
 
@@ -146,7 +146,7 @@
 
 .chat-empty-title {
   color: var(--fg-dim);
-  font-size: 13px;
+  font-size: var(--fs-lg);
 }
 
 .chat-empty-hint {
@@ -194,7 +194,7 @@
   background: var(--bg-3);
   border-color: var(--border-strong);
   box-shadow: 0 2px 10px rgb(0 0 0 / 45%);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 /* ------------------------------------------------------------------ */
@@ -219,7 +219,7 @@
 }
 
 .chat-msg-role {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--fg-dim);
   letter-spacing: 0.02em;
@@ -230,7 +230,7 @@
 }
 
 .chat-msg-live {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--fg-faint);
 }
 
@@ -247,7 +247,7 @@
 
 .chat-msg-stop {
   margin-top: 5px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--fg-faint);
   font-style: italic;
 }
@@ -255,8 +255,8 @@
 .chat-msg-error {
   margin-top: 6px;
   padding: 5px 7px;
-  border: 1px solid #5c2f2f;
-  background: #2a1c1c;
+  border: 1px solid var(--err-border);
+  background: var(--err-bg);
   color: var(--err);
   border-radius: 4px;
 }
@@ -278,7 +278,7 @@
 
 .chat-thought-head {
   padding: 1px 4px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--fg-faint);
 }
 
@@ -315,7 +315,7 @@
 }
 
 .chat-tool.failed {
-  border-color: #5c2f2f;
+  border-color: var(--err-border);
 }
 
 .chat-tool.lookup {
@@ -326,7 +326,7 @@
   border: none;
   background: transparent;
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .chat-tool-head {
@@ -388,7 +388,7 @@
   border-radius: 8px;
   background: var(--bg-3);
   color: var(--fg-dim);
-  font-size: 10px;
+  font-size: var(--fs-sm);
   line-height: 15px;
   white-space: nowrap;
 }
@@ -417,14 +417,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .chat-tool-elapsed,
 .chat-tool-chevron {
   flex: 0 0 auto;
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .chat-tool-body {
@@ -435,14 +435,14 @@
 
 .chat-tool-raw {
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   margin-bottom: 6px;
   word-break: break-all;
 }
 
 .chat-tool-section {
   margin: 6px 0 3px;
-  font-size: 10px;
+  font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--fg-faint);
@@ -457,7 +457,7 @@
   border: 1px solid var(--border);
   border-radius: 3px;
   background: var(--bg-1);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -465,7 +465,7 @@
 
 .chat-tool-empty {
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 /* ------------------------------------------------------------------ */
@@ -488,7 +488,7 @@
 }
 
 .chat-plan-title {
-  font-size: 10px;
+  font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--fg-dim);
@@ -496,7 +496,7 @@
 
 .chat-plan-count {
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .chat-plan-list {
@@ -539,7 +539,7 @@
 
 .chat-plan-status {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: var(--fs-sm);
   color: var(--fg-faint);
 }
 
@@ -557,6 +557,19 @@
   user-select: text;
 }
 
+/* The panel takes focus when it appears (see PermissionPrompt) so that Tab
+   reaches the answers. That is a programmatic focus, not a keyboard one, and a
+   ring drawn around a panel the user did not navigate to reads as an error
+   state — so the ring is kept for the case it means something. */
+.chat-permission:focus {
+  outline: none;
+}
+
+.chat-permission:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .chat-permission.mutating {
   border-color: var(--accent);
   background: #16233a;
@@ -572,7 +585,7 @@
   display: flex;
   gap: 8px;
   margin: 2px 0;
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .chat-permission-key {
@@ -589,7 +602,7 @@
 
 .chat-permission-note {
   margin: 7px 0 8px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--fg-dim);
 }
 
@@ -599,13 +612,59 @@
   gap: 6px;
 }
 
-.chat-perm-always {
-  border-color: var(--border-strong);
+/*
+ * The one answer that outlives this call.
+ *
+ * Dashed and in --warn, which is a mark rather than a promotion: it must read as
+ * "this one is different", not as "this one is recommended". None of the four
+ * buttons is `.primary` — the reasoning is on the component, and the short
+ * version is that a bright Allow trains the hand and a bright Reject trains it
+ * just as badly in the other direction.
+ */
+
+
+.chat-permission-always-note {
+  margin-top: 7px;
+  font-size: var(--fs-sm);
+  color: var(--fg-faint);
 }
 
-.chat-perm-reject {
-  border-color: #5c2f2f;
-  color: var(--err);
+/* ------------------------------------------------------------------ */
+/* Switching to a mode that stops asking                               */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Same shape as the permission panel, because it is the same kind of moment: a
+ * question about authority that must be answered deliberately. It is reached
+ * from the toolbar's mode select, which is a control people click while looking
+ * for something else — and the two modes behind this gate switch the tool
+ * approvals off for the rest of the conversation.
+ */
+.chat-mode-confirm {
+  flex: 0 0 auto;
+  margin: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 4px;
+  background: #2a2415;
+  user-select: text;
+}
+
+.chat-mode-confirm-title {
+  font-weight: 600;
+  color: var(--warn);
+  margin-bottom: 5px;
+}
+
+.chat-mode-confirm-body {
+  color: var(--fg-dim);
+  margin-bottom: 8px;
+}
+
+.chat-mode-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 /* ------------------------------------------------------------------ */
@@ -626,7 +685,7 @@
 }
 
 .chat-attach-label {
-  font-size: 10px;
+  font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--fg-faint);
@@ -635,7 +694,7 @@
 
 .chat-attach-empty {
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .chat-attach-bar .grow {
@@ -651,8 +710,10 @@
   border: 1px solid var(--border-strong);
   border-radius: 9px;
   background: var(--bg-2);
-  font-size: 11px;
-  line-height: 16px;
+  font-size: var(--fs-sm);
+  /* 18, not 16: it sets the chip's height, and the chip has to be tall enough to
+     hold an 18px ✕ (see .chat-chip-x). */
+  line-height: 18px;
 }
 
 .chat-chip.receipt {
@@ -677,7 +738,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--warn);
-  font-size: 10px;
+  font-size: var(--fs-sm);
 }
 
 .chat-chip.receipt.failed .chat-chip-detail {
@@ -686,7 +747,7 @@
 
 .chat-chip-kind {
   color: var(--accent);
-  font-size: 10px;
+  font-size: var(--fs-sm);
 }
 
 .chat-chip-label {
@@ -697,12 +758,26 @@
   font-family: var(--font-mono);
 }
 
+/*
+ * The smallest control in the window, and the one exception to --hit-min: a chip
+ * is 20px tall by design (it is an inline token in a wrapping strip, not a row),
+ * so 24px does not fit inside one. 18×18 is what the chip can give, and it is
+ * still a third more area than the ~14×14 this used to be. Removing an
+ * attachment by mistake costs one re-add, which is why this is the place the
+ * floor is allowed to bend.
+ */
 .chat-chip-x {
-  padding: 0 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  min-height: 0; /* see the note on `button` in styles.css */
+  padding: 0;
   border: none;
   background: transparent;
   color: var(--fg-faint);
-  line-height: 14px;
+  line-height: 1;
 }
 
 .chat-chip-x:hover {
@@ -711,7 +786,7 @@
 }
 
 .chat-attach-add {
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .chat-attach-menu {
@@ -754,13 +829,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--fg-faint);
-  font-size: 10px;
+  font-size: var(--fs-sm);
 }
 
 .chat-attach-none {
   padding: 4px 6px;
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 /* ------------------------------------------------------------------ */
@@ -799,13 +874,9 @@
 
 .chat-composer-hint {
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
-.chat-stop {
-  border-color: var(--err);
-  color: var(--err);
-}
 
 /* ------------------------------------------------------------------ */
 /* Markdown                                                            */
@@ -843,13 +914,13 @@
 }
 
 .md-h3 {
-  font-size: 13px;
+  font-size: var(--fs-lg);
 }
 
 .md-h4,
 .md-h5,
 .md-h6 {
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--fg-dim);
 }
 
@@ -887,7 +958,7 @@
   margin-right: 5px;
   border: 1px solid var(--border-strong);
   border-radius: 2px;
-  font-size: 9px;
+  font-size: var(--fs-mark);
   line-height: 10px;
   text-align: center;
   vertical-align: -1px;
@@ -904,14 +975,27 @@
   border-radius: 3px;
   background: var(--bg-2);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
-/* Not an anchor: agent output is untrusted and the renderer must not navigate. */
+/*
+ * Not an anchor: agent output is untrusted and the renderer must not navigate.
+ *
+ * But it used to *look* exactly like one — accent, underlined — while doing
+ * nothing at all on click, with `cursor: help` as the only hint. That is a
+ * deceptive affordance: the pointer promised something the element could not
+ * do. It now copies the URL, and `cursor: copy` says so before the click. The
+ * security position is unchanged — peek still has no external-browser channel,
+ * and this adds none.
+ */
 .md-link {
   color: var(--accent);
   text-decoration: underline dotted;
-  cursor: help;
+  cursor: copy;
+}
+
+.md-link:hover {
+  text-decoration: underline solid;
 }
 
 .md-table-wrap {
@@ -925,7 +1009,7 @@
   border-collapse: collapse;
   width: 100%;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .md-table th,
@@ -972,13 +1056,16 @@
 
 .md-pre-lang {
   color: var(--fg-faint);
-  font-size: 10px;
+  font-size: var(--fs-sm);
   text-transform: lowercase;
 }
 
 .md-copy {
-  font-size: 10px;
+  font-size: var(--fs-sm);
   padding: 0 5px;
+  /* Rides in the code fence's 1px-padded title bar; the floor would double that
+     bar's height. See the note on `button` in styles.css. */
+  min-height: 0;
 }
 
 .md-pre pre {
@@ -986,7 +1073,7 @@
   padding: 6px 8px;
   overflow-x: auto;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   line-height: 1.55;
 }
 
@@ -1015,4 +1102,25 @@
 
 .tok-punct {
   color: var(--fg-dim);
+}
+
+/* ------------------------------------------------------------------ */
+/* Reduced motion                                                      */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The chat panel's two indefinite animations, stopped when the OS asks. Same
+ * rule as the block at the foot of styles.css: neither one is load-bearing.
+ * A streaming agent still shows a solid --accent dot next to the word
+ * "Streaming"; a running tool still shows its ◐ mark in --accent next to an
+ * elapsed-time readout that keeps counting. The motion was emphasis.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .chat-status.streaming .chat-status-dot,
+  .chat-status.starting .chat-status-dot,
+  .chat-status.authenticating .chat-status-dot,
+  .chat-status.awaiting-permission .chat-status-dot,
+  .chat-tool-mark.in_progress {
+    animation: none;
+  }
 }

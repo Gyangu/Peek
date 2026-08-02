@@ -1,6 +1,7 @@
 import { Fragment, memo, useCallback, useMemo, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
-import { useT } from '../../i18n'
+import { tStatic, useT } from '../../i18n'
+import { notify } from '../../state/notifyStore'
 import { highlight, normalizeLang } from './highlight'
 import { parseMarkdown, type MdAlign, type MdBlock, type MdInline } from './mdParser'
 
@@ -137,12 +138,49 @@ function renderInline(nodes: MdInline[]): ReactNode {
       case 'link':
         return (
           // Deliberately not an anchor — see the note at the top of the file.
-          <span key={i} className="md-link" title={node.href}>
+          // It is a *copy* control, though, which is the part that used to be
+          // missing: it was styled like a link, carried `cursor: help`, and did
+          // nothing whatsoever when clicked. Promising navigation and then
+          // silently refusing is worse than either navigating or looking inert.
+          <span
+            key={i}
+            className="md-link"
+            role="button"
+            tabIndex={0}
+            title={node.href}
+            onClick={() => {
+              copyLink(node.href)
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' && e.key !== ' ') return
+              e.preventDefault()
+              copyLink(node.href)
+            }}
+          >
             {renderInline(node.children)}
           </span>
         )
     }
   })
+}
+
+/**
+ * The clipboard, as what a link in agent output actually does.
+ *
+ * Not navigation: the renderer has no vetted external-browser channel, agent
+ * output is untrusted, and giving one to a string the model produced is a
+ * different decision from this one. Copying keeps the URL useful without opening
+ * that door.
+ */
+function copyLink(href: string): void {
+  void navigator.clipboard.writeText(href).then(
+    () => {
+      notify('info', tStatic('chat.md.linkCopied'))
+    },
+    () => {
+      notify('warn', tStatic('chat.md.linkCopyFailed'))
+    },
+  )
 }
 
 /* ------------------------------------------------------------------ */

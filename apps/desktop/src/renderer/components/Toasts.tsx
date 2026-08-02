@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import { useT } from '../i18n'
 import { useNotifyStore } from '../state/notifyStore'
+import { Button } from '../ui/Button'
 
 /**
  * Bottom-right notifications: command failures, driver crashes, and NOTIFY
@@ -18,18 +19,30 @@ export function Toasts(): ReactElement | null {
   return (
     <div className="toasts">
       {toasts.map((toast) => (
-        <div key={toast.id} className={`toast ${toast.level}`}>
+        // A screen reader heard none of these before: the window's one live
+        // region (`App`'s `LiveRegion`) is driven by `useLayoutAnnouncer` and
+        // carries layout changes only, so every failure notice in peek — a
+        // driver crash, a refused command — arrived silently. `alert` is the
+        // assertive role and is right for a warning or an error; an info toast
+        // is `status`, which is polite and waits its turn.
+        <div
+          key={toast.id}
+          className={`toast ${toast.level}`}
+          role={toast.level === 'info' ? 'status' : 'alert'}
+        >
           <div className="msg">
             <span className="grow">{toast.message}</span>
-            <button
-              className="ghost"
-              title={t('app.toast.dismiss')}
+            <Button
+              variant="ghost"
+              size="sm"
+              icon
+              label={t('app.toast.dismiss')}
               onClick={() => {
                 dismiss(toast.id)
               }}
             >
               ✕
-            </button>
+            </Button>
           </div>
           {toast.detail ? <div className="detail">{toast.detail}</div> : null}
         </div>

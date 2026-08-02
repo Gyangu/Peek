@@ -27,7 +27,7 @@
   border-radius: 6px;
   box-shadow: 0 12px 32px #000b;
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .ctx-menu:focus {
@@ -37,7 +37,7 @@
 .ctx-menu-head {
   padding: 4px 8px 6px;
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -64,7 +64,16 @@
 .ctx-menu-note {
   padding: 5px 8px;
   color: var(--warn);
-  font-size: 11px;
+  font-size: var(--fs-sm);
+}
+
+/* Between the caller's own entries and the "add to chat" group. They answer
+   different questions — one puts data on the clipboard, the other sends it to
+   Anthropic — and that distinction is worth a line. */
+.ctx-menu-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
 }
 
 /* ---- Floating selection bar --------------------------------------
@@ -88,13 +97,13 @@
   border-radius: 7px;
   box-shadow: 0 8px 24px #0009;
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .ctx-selection-warning {
   max-width: 380px;
   color: var(--warn);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   line-height: 1.35;
 }
 
@@ -124,7 +133,7 @@
 
 .ctx-consent-once {
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .ctx-consent-actions {

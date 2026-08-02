@@ -144,6 +144,18 @@ export const chat = {
   'chat.permission.kind.reject_once': 'Reject',
   'chat.permission.kind.reject_always': 'Always reject',
   'chat.permission.waiting': 'The conversation is paused until you decide.',
+  'chat.permission.label': 'Tool permission request',
+  'chat.md.linkCopied': 'Link copied.',
+  'chat.md.linkCopyFailed': 'The clipboard refused the copy.',
+  /* Spelled out because it is the only option here that changes anything beyond
+     this one call, and nothing in a four-button row says so on its own. */
+  'chat.permission.alwaysNote':
+    '“Always allow” covers this tool for the rest of the conversation — you will not be asked about it again.',
+  'chat.mode.confirmTitle': 'This takes you out of the loop',
+  'chat.mode.confirmBody':
+    '“{mode}” lets the agent run tools — including ones that change this window and read the data in it — without asking you first. It stays in effect until you change it back.',
+  'chat.mode.confirmAccept': 'Switch anyway',
+  'chat.mode.confirmCancel': 'Keep asking me',
 
   /* ---- Degraded states --------------------------------------------- */
   'chat.gap.title': 'The chat panel is not connected yet',
@@ -173,7 +185,8 @@ export const chat = {
   'chat.sessions.inUse': 'Already open',
   'chat.sessions.inUseTitle': 'This conversation is open in a panel already',
   'chat.sessions.delete': 'Delete',
-  'chat.sessions.deleteConfirm': 'Delete for good?',
+  'chat.sessions.deleteConfirm': 'Delete for good',
+  'chat.sessions.deleteCancel': 'Keep',
   'chat.sessions.deleteTitle': 'Delete this conversation from disk',
   'chat.sessions.refresh': 'Refresh',
   'chat.sessions.failed': 'Could not read the conversation list',

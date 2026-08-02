@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 import type { ColumnDef, ConnId, PeekedValue, ResultId, ValueRef } from '@peek/core'
 import { VALUE_PEEK_MAX_BYTES, isTruncatedValue } from '@peek/core'
 import { bridgeExtras } from '../bridge'
+import { useModalDialog } from '../hooks'
 import { tStatic, useT, type TFunction } from '../i18n'
 import { notify } from '../state/notifyStore'
+import { Button } from '../ui/Button'
 import { formatBytes, fullValueText } from '../util/format'
 
 export interface ValueModalProps {
@@ -35,15 +37,11 @@ export function ValueModal(props: ValueModalProps): ReactElement {
   const truncated = isTruncatedValue(value) ? value : null
   const canPeek = bridgeExtras.hasPeekValue()
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [onClose])
+  // Escape, focus containment and focus restoration, shared with every other
+  // modal. It used to register its own `window` listener that closed on Escape
+  // without stopping the event — so one press both closed this and cleared the
+  // grid's row selection behind it. See hooks/modalStack.ts.
+  const dialogRef = useModalDialog({ label: 'value', onClose })
 
   const ref: ValueRef | null =
     truncated?.ref
@@ -72,7 +70,14 @@ export function ValueModal(props: ValueModalProps): ReactElement {
 
   return (
     <div className="modal-mask" onMouseDown={onClose}>
-      <div className="modal" onMouseDown={stop}>
+      <div
+        className="modal"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={column.name}
+        onMouseDown={stop}
+      >
         <div className="modal-head">
           <span className="t mono">{column.name}</span>
           <span style={{ color: 'var(--fg-faint)' }}>
@@ -81,18 +86,21 @@ export function ValueModal(props: ValueModalProps): ReactElement {
           </span>
           <span style={{ flex: 1 }} />
           {truncated && !peeked ? (
-            <button
-              className="primary"
+            <Button
+              variant="primary"
               disabled={loading || !canPeek || !ref}
               onClick={doPeek}
               title={canPeek ? t('value.fetchFullTitle') : t('value.peekUnavailable')}
             >
               {loading ? t('value.fetching') : t('value.fetchFull')}
-            </button>
+            </Button>
           ) : null}
-          <button className="ghost" onClick={onClose}>
+          {/* The close box had neither a tooltip nor an accessible name: to a
+              screen reader it was a button called "✕". `icon` makes the label
+              mandatory, which is the whole reason that prop is a type union. */}
+          <Button variant="ghost" icon label={t('app.errors.close')} onClick={onClose}>
             ✕
-          </button>
+          </Button>
         </div>
         <div className="modal-body">
           {truncated && !peeked ? (

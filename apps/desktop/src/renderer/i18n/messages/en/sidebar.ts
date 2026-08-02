@@ -20,7 +20,10 @@ export const sidebar = {
   'sidebar.action.disconnect': 'Disconnect',
   'sidebar.action.edit': 'Edit',
   'sidebar.action.remove': 'Remove',
-  'sidebar.action.removeConfirm': 'Remove for good?',
+  'sidebar.action.removeConfirm': 'Remove for good',
+  /* Occupies the position the Remove button was in, so the second click of an
+     accidental double-click lands here. See the baseline design doc §2.5. */
+  'sidebar.action.removeCancel': 'Keep',
   /* Shown instead of the query action on a driver with no tabularQuery capability. */
   'sidebar.action.noQuery': 'No query language',
   'sidebar.action.noQueryTitle': '{driverId} has no statement interface; browse it through the object tree',

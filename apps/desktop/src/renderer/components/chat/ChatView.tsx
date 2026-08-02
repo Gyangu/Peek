@@ -1,14 +1,16 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, ReactElement } from 'react'
 import { CHAT_PERMISSION_MODES, type ChatAgentStatus, type ChatPermissionMode, type ChatViewState } from '@peek/core'
 import { useT } from '../../i18n'
 import { useConnection, useViews } from '../../state/workspaceStore'
 import { formatCount } from '../../util/format'
+import { Button } from '../../ui/Button'
 import { ViewError } from '../ViewError'
 import { AttachmentBar } from './AttachmentBar'
 import { cancelChat, clearChat, sendChat, setChatMode } from './chatCommands'
 import { Composer } from './Composer'
 import { MessageList } from './MessageList'
+import { isPermissiveMode, needsModeConfirmation } from './permissionOptions'
 import { PermissionPrompt } from './PermissionPrompt'
 import { useChatChannelReady, useChatMessageCount } from './transcriptStore'
 
@@ -73,11 +75,30 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
     void cancelChat(view.id)
   }, [view.id])
 
+  /**
+   * A mode change that removes the human from the loop is confirmed first.
+   *
+   * The select sits in a toolbar people click through while looking for
+   * something else, and two of its six entries switch tool approvals off for the
+   * rest of the conversation. Nothing else in peek lets one click on a dropdown
+   * do that much, so this is the one control that gets a second question.
+   *
+   * The select is controlled by `view.permissionMode`, so *not* dispatching is
+   * all it takes to leave it where it was — the box snaps back on its own while
+   * the confirmation is up, which is the honest reading: nothing has changed yet.
+   */
+  const [pendingMode, setPendingMode] = useState<ChatPermissionMode | null>(null)
+
   const onMode = useCallback(
     (e: ChangeEvent<HTMLSelectElement>) => {
-      void setChatMode(view.id, e.target.value as ChatPermissionMode)
+      const next = e.target.value as ChatPermissionMode
+      if (needsModeConfirmation(next, view.permissionMode)) {
+        setPendingMode(next)
+        return
+      }
+      void setChatMode(view.id, next)
     },
-    [view.id],
+    [view.id, view.permissionMode],
   )
 
   return (
@@ -95,11 +116,16 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
           <select
             value={view.permissionMode}
             onChange={onMode}
-            className={permissive(view.permissionMode) ? 'permissive' : undefined}
+            className={isPermissiveMode(view.permissionMode) ? 'permissive' : undefined}
           >
             {CHAT_PERMISSION_MODES.map((mode) => (
+              // The ⚠ is not decoration: the permissive modes used to be marked
+              // by colour alone (`select.permissive`), which is nothing at all
+              // to a reader who cannot separate --warn from --fg — and a
+              // closed <select> shows one option, so the colour has nothing to
+              // contrast against either.
               <option key={mode} value={mode}>
-                {t(modeKey(mode))}
+                {isPermissiveMode(mode) ? `⚠ ${t(modeKey(mode))}` : t(modeKey(mode))}
               </option>
             ))}
           </select>
@@ -135,6 +161,19 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
           {t('chat.clear')}
         </button>
       </div>
+
+      {pendingMode === null ? null : (
+        <ModeConfirm
+          mode={pendingMode}
+          onCancel={() => {
+            setPendingMode(null)
+          }}
+          onAccept={() => {
+            void setChatMode(view.id, pendingMode)
+            setPendingMode(null)
+          }}
+        />
+      )}
 
       <ViewError error={view.error} />
 
@@ -183,14 +222,54 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
 }
 
 /**
- * Modes that take the human out of the loop.
+ * The second question, asked once, before the approvals go away.
  *
- * Flagged rather than hidden. The contract is explicit that this list "exists to
- * be presented, not to be silently defaulted to its most permissive member" — so
- * the user may pick one, and the select says what they picked.
+ * Focus lands on **Keep asking me**, not on the accepting button. This is a
+ * confirmation the user walked into deliberately, so a default is appropriate —
+ * and the default a confirmation offers should be the one that changes nothing.
+ * (Contrast `PermissionPrompt`, which pre-focuses no button at all: there the
+ * panel appears on the agent's schedule, not the user's, so *any* default would
+ * be under whatever key they were about to press.)
  */
-function permissive(mode: ChatPermissionMode): boolean {
-  return mode === 'dontAsk' || mode === 'bypassPermissions'
+function ModeConfirm({
+  mode,
+  onAccept,
+  onCancel,
+}: {
+  mode: ChatPermissionMode
+  onAccept: () => void
+  onCancel: () => void
+}): ReactElement {
+  const t = useT()
+  const cancelRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    cancelRef.current?.focus()
+  }, [])
+
+  return (
+    <div className="chat-mode-confirm" role="group" aria-label={t('chat.mode.confirmTitle')} aria-live="assertive">
+      <div className="chat-mode-confirm-title">{t('chat.mode.confirmTitle')}</div>
+      <div className="chat-mode-confirm-body">
+        {t('chat.mode.confirmBody', { mode: t(modeKey(mode)) })}
+      </div>
+      <div className="chat-mode-confirm-actions">
+        <Button ref={cancelRef} onClick={onCancel}>
+          {t('chat.mode.confirmCancel')}
+        </Button>
+        {/* Turning the asking off is not destructive — it is the other thing
+            `caution` names: a choice whose consequence outlives the click. */}
+        <Button
+          variant="caution"
+          action="chat.setMode"
+          exposure="human-only"
+          onClick={onAccept}
+        >
+          {t('chat.mode.confirmAccept')}
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 type StatusKey =

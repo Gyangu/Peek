@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import type { SettingsReadResult } from '@peek/core'
 import { useT, type TFunction } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
+import { Gallery } from '../../ui/Gallery'
 
 /**
  * The version, and where peek keeps what it keeps.
@@ -53,6 +54,21 @@ export function AboutSection(): ReactElement {
         </div>
       ))}
       <div className="form-hint">{t('settings.about.pathsHint')}</div>
+
+      {/*
+       * The control gallery, in dev builds only. It lives here rather than
+       * behind its own command because it is a reference, not a feature — and
+       * because a reference nobody can find is the state this codebase was
+       * already in. `import.meta.env.DEV` is a compile-time constant, so the
+       * whole subtree is dropped from the production bundle.
+       */}
+      {import.meta.env.DEV ? (
+        <>
+          <hr className="gal-sep" />
+          <div className="form-hint">Control gallery — renderer/ui/CLAUDE.md</div>
+          <Gallery />
+        </>
+      ) : null}
     </>
   )
 }

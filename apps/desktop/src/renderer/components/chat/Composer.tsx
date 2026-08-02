@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react'
 import { MAX_CHAT_PROMPT_CHARS } from '@peek/core'
 import { useT } from '../../i18n'
+import { Button } from '../../ui/Button'
 
 const MIN_H = 34
 const MAX_H = 220
@@ -119,13 +120,16 @@ export function Composer({
         <span className="chat-composer-hint">{t('chat.composer.hint')}</span>
         <span className="grow" />
         {busy ? (
-          <button type="button" className="chat-stop" onClick={onStop} title={t('chat.composer.stopTitle')}>
+          /* Was `.chat-stop`, the third independent spelling of "this button is
+             destructive" in the codebase. It is a `danger` variant now, and the
+             class is gone. */
+          <Button variant="danger" action="chat.cancel" onClick={onStop} title={t('chat.composer.stopTitle')}>
             ■ {t('chat.composer.stop')}
-          </button>
+          </Button>
         ) : (
-          <button type="button" className="primary" disabled={!canSend} onClick={submit}>
+          <Button variant="primary" action="chat.send" disabled={!canSend} onClick={submit}>
             {t('chat.composer.send')}
-          </button>
+          </Button>
         )}
       </div>
     </div>

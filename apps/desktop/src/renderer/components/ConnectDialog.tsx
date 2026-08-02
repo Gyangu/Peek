@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 import type { DriverId, SavedConnection } from '@peek/core'
 import { DRIVER_CAPABILITIES, DRIVER_IDS } from '@peek/core'
+import { useModalDialog } from '../hooks'
 import { useT, type TFunction } from '../i18n'
 import { dispatch } from '../state/dispatch'
 import {
@@ -47,6 +48,9 @@ export interface ConnectDialogProps {
 
 export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactElement {
   const t = useT()
+  // Escape, focus containment, focus restoration. The initial focus is left to
+  // the first field's `autoFocus` — see the note in `useModalDialog`.
+  const dialogRef = useModalDialog({ label: 'connect', onClose })
   const seed = useMemo(() => seedFrom(initial), [initial])
   const [driverId, setDriverId] = useState<DriverId>(seed.driverId)
   const [mode, setMode] = useState<ConnectMode>(seed.mode)
@@ -109,12 +113,32 @@ export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactEl
   }
 
   return (
-    <div className="modal-mask" onMouseDown={onClose}>
-      <div className="modal" style={{ width: 520 }} onMouseDown={stop}>
+    /*
+     * The mask does **not** close this one, and that is the difference between
+     * it and `ValueModal`. This dialog holds typed input — a host, a port, a
+     * password — and a stray click on the dimmed area outside it used to discard
+     * all of it with no confirmation and no undo. A read-only modal can be
+     * dismissed by clicking away; a form cannot. Escape and Cancel are the ways
+     * out, and both are deliberate acts.
+     */
+    <div className="modal-mask">
+      <div
+        className="modal"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={initial ? t('connect.editTitle') : t('connect.title')}
+        style={{ width: 520 }}
+        onMouseDown={stop}
+      >
         <div className="modal-head">
           <span className="t">{initial ? t('connect.editTitle') : t('connect.title')}</span>
           <span style={{ flex: 1 }} />
-          <button className="ghost" onClick={onClose}>
+          {/* Still a bare <button> — this file is on the migration ledger — but the
+              name is not optional. To a screen reader this control was called "✕".
+              `<Button icon>` makes the label a type requirement; until this file
+              gets there, the rule is applied by hand. */}
+          <button className="ghost" aria-label={t('app.errors.close')} title={t('app.errors.close')} onClick={onClose}>
             ✕
           </button>
         </div>

@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import { useT } from '../i18n'
 import { dispatch } from '../state/dispatch'
 import { notify } from '../state/notifyStore'
+import { Button } from '../ui/Button'
 
 /**
  * What a first launch says instead of nothing.
@@ -66,30 +67,30 @@ export function FirstRunGuide({
       </div>
 
       <Step index={1} title={t('firstRun.connectTitle')} body={t('firstRun.connectBody')}>
-        <button className="primary" onClick={onConnect}>
+        <Button variant="primary" action="conn.open" onClick={onConnect}>
           {t('firstRun.connectAction')}
-        </button>
+        </Button>
       </Step>
 
       <Step index={2} title={t('firstRun.mcpTitle')} body={t('firstRun.mcpBody')}>
-        <button className="ghost" disabled={hint === null} onClick={copyCommand}>
+        <Button variant="ghost" disabled={hint === null} onClick={copyCommand}>
           {copied ? t('firstRun.mcpCopied') : t('firstRun.mcpAction')}
-        </button>
-        <button className="ghost" onClick={onOpenSettings}>
+        </Button>
+        <Button variant="ghost" onClick={onOpenSettings}>
           {t('firstRun.mcpSettings')}
-        </button>
+        </Button>
         {hint === null ? <div style={{ color: 'var(--err)' }}>{t('firstRun.mcpDown')}</div> : null}
       </Step>
 
       <Step index={3} title={t('firstRun.chatTitle')} body={t('firstRun.chatBody')}>
-        <button
-          className="ghost"
+        <Button
+          variant="ghost"
           onClick={() => {
             void dispatch('view.open', { spec: { kind: 'chat' } })
           }}
         >
           {t('firstRun.chatAction')}
-        </button>
+        </Button>
       </Step>
     </div>
   )

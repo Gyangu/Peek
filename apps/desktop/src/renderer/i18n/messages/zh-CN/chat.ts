@@ -143,6 +143,16 @@ export const chat: CatalogFor<ChatMessages> = {
   'chat.permission.kind.reject_once': '拒绝',
   'chat.permission.kind.reject_always': '始终拒绝',
   'chat.permission.waiting': '在你做出选择之前，对话会一直暂停。',
+  'chat.permission.label': '工具权限请求',
+  'chat.md.linkCopied': '已复制链接。',
+  'chat.md.linkCopyFailed': '剪贴板拒绝了这次复制。',
+  'chat.permission.alwaysNote':
+    '「始终允许」对这次对话剩下的部分一直生效——这个工具之后不会再问你。',
+  'chat.mode.confirmTitle': '这一档会把你排除在外',
+  'chat.mode.confirmBody':
+    '「{mode}」会让 agent 直接调用工具——包括改动这个窗口、读取其中数据的那些——不再事先问你。在你改回来之前一直有效。',
+  'chat.mode.confirmAccept': '仍然切换',
+  'chat.mode.confirmCancel': '继续问我',
 
   /* ---- Degraded states --------------------------------------------- */
   'chat.gap.title': '对话面板尚未接通',
@@ -169,7 +179,8 @@ export const chat: CatalogFor<ChatMessages> = {
   'chat.sessions.inUse': '已打开',
   'chat.sessions.inUseTitle': '这个对话已经在某个面板里打开了',
   'chat.sessions.delete': '删除',
-  'chat.sessions.deleteConfirm': '确认永久删除？',
+  'chat.sessions.deleteConfirm': '确认永久删除',
+  'chat.sessions.deleteCancel': '保留',
   'chat.sessions.deleteTitle': '把这个对话从磁盘上删掉',
   'chat.sessions.refresh': '刷新',
   'chat.sessions.failed': '读取对话列表失败',

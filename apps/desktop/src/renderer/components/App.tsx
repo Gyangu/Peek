@@ -9,6 +9,7 @@ import { SettingsDialog } from './settings'
 import { Sidebar } from './Sidebar'
 import { StatusBar } from './StatusBar'
 import { Toasts } from './Toasts'
+import { Button } from '../ui/Button'
 import '../keyboard-nav.css'
 
 export function App(): ReactElement {
@@ -36,16 +37,17 @@ export function App(): ReactElement {
             than to a connection or a panel, which is exactly what settings are.
             The gear used to sit on the connection list's title row, where it
             read as "settings for connections". */}
-        <button
-          className="ghost"
-          title={t('settings.open')}
-          aria-label={t('settings.open')}
+        <Button
+          variant="ghost"
+          icon
+          label={t('settings.open')}
+          action="settings.open"
           onClick={() => {
             openSettings()
           }}
         >
           ⚙
-        </button>
+        </Button>
       </div>
 
       <div className="body">

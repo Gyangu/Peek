@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import type { ReactElement } from 'react'
+import { useModalDialog } from '../../hooks'
 import { useT } from '../../i18n'
 import { grantContextConsent } from './consent'
 import './context-actions.css'
@@ -28,18 +29,11 @@ export function ConsentDialog(props: ConsentDialogProps): ReactElement {
   const t = useT()
   const acceptRef = useRef<HTMLButtonElement | null>(null)
 
-  // Focus the primary action, and let Escape cancel. Both are what a keyboard
-  // user expects from a modal, and neither is free in a plain div.
-  useEffect(() => {
-    acceptRef.current?.focus()
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onCancel()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [onCancel])
+  // Escape cancels, Tab stays inside, and focus goes back where it came from —
+  // all three from the shared hook now. `initialFocus` is the accept button
+  // rather than the first control in DOM order: this dialog is read and then
+  // answered, and the answer it is waiting for is the one further along.
+  const dialogRef = useModalDialog({ label: 'consent', onClose: onCancel, initialFocus: acceptRef })
 
   const accept = (): void => {
     grantContextConsent()
@@ -50,6 +44,7 @@ export function ConsentDialog(props: ConsentDialogProps): ReactElement {
     <div className="modal-mask" onClick={onCancel}>
       <div
         className="modal ctx-consent"
+        ref={dialogRef}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="ctx-consent-title"

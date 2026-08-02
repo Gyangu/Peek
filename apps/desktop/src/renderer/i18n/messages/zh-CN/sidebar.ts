@@ -17,7 +17,8 @@ export const sidebar: CatalogFor<SidebarMessages> = {
   'sidebar.action.disconnect': '断开',
   'sidebar.action.edit': '编辑',
   'sidebar.action.remove': '移出列表',
-  'sidebar.action.removeConfirm': '确认移出？',
+  'sidebar.action.removeConfirm': '确认移出',
+  'sidebar.action.removeCancel': '保留',
   'sidebar.action.noQuery': '无查询语言',
   'sidebar.action.noQueryTitle': '{driverId} 没有语句接口，请用对象树浏览',
 

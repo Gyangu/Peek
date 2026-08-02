@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { makePanel, placeholdersOf } from '@peek/core'
+import { CHAT_PERMISSION_MODES, makePanel, placeholdersOf } from '@peek/core'
 import type {
   AttachmentId,
   ChatAttachment,
@@ -12,6 +12,7 @@ import type {
   ChatMessageId,
   ConnId,
   PanelId,
+  PermissionOption,
   ResultId,
   SplitId,
   ToolCallRecord,
@@ -24,6 +25,12 @@ import { highlight, normalizeLang } from '../highlight'
 import { chat as chatEn } from '../../../i18n/messages/en/chat'
 import { chat as chatZhCN } from '../../../i18n/messages/zh-CN/chat'
 import { parseInline, parseMarkdown, type MdInline } from '../mdParser'
+import {
+  isPermissiveMode,
+  needsModeConfirmation,
+  orderPermissionOptions,
+  permissionButtonVariant,
+} from '../permissionOptions'
 import {
   extractPlan,
   parseToolTitle,
@@ -702,4 +709,87 @@ test('defaultChatViewId prefers the focused panel, then a visible chat, then any
     null,
   )
   assert.equal(defaultChatViewId(null), null)
+})
+
+/* ==================================================================
+ * The permission gate's presentation.
+ *
+ * This is the one surface in peek where a wrong default is not a cosmetic
+ * problem: it is the only thing standing between an agent and a database. The
+ * assertions below are about *emphasis and order*, which is exactly the kind of
+ * thing that drifts back silently during an unrelated redesign.
+ *
+ * See design/2026-08-02-ui-legibility-baseline.md §2.6.
+ * ================================================================== */
+
+const OPTIONS: PermissionOption[] = [
+  { optionId: 'a', name: 'Yes', kind: 'allow_once' },
+  { optionId: 'b', name: 'Yes, always', kind: 'allow_always' },
+  { optionId: 'c', name: 'No', kind: 'reject_once' },
+  { optionId: 'd', name: 'No, never', kind: 'reject_always' },
+]
+
+test('no permission answer is the primary button', () => {
+  // The whole point. `allow_once` carried `.primary` — the brightest control on
+  // screen — while rejecting was the quietest, which is a thumb on the scale.
+  // Moving the emphasis to reject would be the same mistake pointed the other
+  // way: it manufactures confirmation fatigue.
+  for (const option of OPTIONS) {
+    assert.notEqual(permissionButtonVariant(option), 'primary', `${option.kind} must not be the primary button`)
+  }
+  assert.equal(permissionButtonVariant(OPTIONS[0]), 'default', 'allow_once is a plain button')
+  assert.equal(permissionButtonVariant(OPTIONS[2]), 'danger', 'reject reads as the negative answer')
+})
+
+test('the answer that outlives this call is the one that is marked', () => {
+  // `allow_always` is the only option that changes anything beyond this single
+  // call, so it is the only one that gets a mark of its own.
+  //
+  // `caution`, not `danger`: granting a standing permission destroys nothing,
+  // it stops asking. Keeping the two apart is what lets a reject and an
+  // allow-always sit side by side in the same prompt and still read as
+  // different questions.
+  assert.equal(permissionButtonVariant(OPTIONS[1]), 'caution')
+  assert.equal(permissionButtonVariant(OPTIONS[3]), 'danger', 'reject_always is still a rejection')
+})
+
+test('one-shot answers come before the ones that change future behaviour', () => {
+  const ordered = orderPermissionOptions([OPTIONS[1], OPTIONS[3], OPTIONS[0], OPTIONS[2]])
+  assert.deepEqual(
+    ordered.map((o) => o.kind),
+    ['allow_once', 'reject_once', 'allow_always', 'reject_always'],
+  )
+})
+
+test('an option kind this build does not know is still offered, at the end', () => {
+  // Refusing to draw it would leave a request the user cannot answer at all.
+  const exotic = { optionId: 'e', name: 'Escalate', kind: 'escalate' } as unknown as PermissionOption
+  const ordered = orderPermissionOptions([exotic, OPTIONS[0]])
+  assert.deepEqual(
+    ordered.map((o) => o.optionId),
+    ['a', 'e'],
+  )
+  assert.equal(permissionButtonVariant(exotic), 'default')
+})
+
+test('every move into a permissive mode is confirmed, including between them', () => {
+  assert.equal(needsModeConfirmation('dontAsk', 'default'), true)
+  assert.equal(needsModeConfirmation('bypassPermissions', 'default'), true)
+  // Not the same authority: having already turned the asking off is not consent
+  // to turn something else off as well.
+  assert.equal(needsModeConfirmation('bypassPermissions', 'dontAsk'), true)
+  assert.equal(needsModeConfirmation('dontAsk', 'bypassPermissions'), true)
+})
+
+test('restoring an approval gate never asks for confirmation', () => {
+  for (const safe of ['default', 'auto', 'plan', 'acceptEdits'] as const) {
+    assert.equal(needsModeConfirmation(safe, 'bypassPermissions'), false)
+  }
+  // Re-selecting the mode you are already in is not a change at all.
+  assert.equal(needsModeConfirmation('dontAsk', 'dontAsk'), false)
+})
+
+test('exactly the two documented modes are treated as permissive', () => {
+  const permissive = CHAT_PERMISSION_MODES.filter(isPermissiveMode)
+  assert.deepEqual(permissive, ['dontAsk', 'bypassPermissions'])
 })

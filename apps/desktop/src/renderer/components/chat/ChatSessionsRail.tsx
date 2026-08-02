@@ -4,6 +4,7 @@ import { metaText, type ChatSessionInfo, type ChatSessionsListResult } from '@pe
 import { useLocale, useT, type TFunction } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
 import { useViews } from '../../state/workspaceStore'
+import { ConfirmPair } from '../ConfirmPair'
 import { setChatRailCollapsed, useChatRailStore } from './railStore'
 
 /**
@@ -233,7 +234,7 @@ function SessionRow(props: RowProps): ReactElement {
         </span>
       </div>
       <div className="session-row">
-        <span style={{ color: 'var(--fg-faint)', fontSize: 10 }}>{formatWhen(session.updatedAt, locale)}</span>
+        <span className="session-when">{formatWhen(session.updatedAt, locale)}</span>
       </div>
       <div className="conn-actions">
         <button
@@ -244,28 +245,21 @@ function SessionRow(props: RowProps): ReactElement {
         >
           {busy ? t('chat.sessions.inUse') : t('chat.sessions.open')}
         </button>
-        {confirming ? (
-          // Two clicks rather than a modal, exactly as forgetting a saved
-          // connection works: it cannot be undone, but a dialog in front of it
-          // would be heavier than the act deserves.
-          <button
-            className="ghost"
-            style={{ color: 'var(--err)' }}
-            onClick={props.onDelete}
-            onBlur={props.onDisarmDelete}
-          >
-            {t('chat.sessions.deleteConfirm')}
-          </button>
-        ) : (
-          <button
-            className="ghost"
-            disabled={busy}
-            title={busy ? t('chat.sessions.inUseTitle') : t('chat.sessions.deleteTitle')}
-            onClick={props.onArmDelete}
-          >
-            {t('chat.sessions.delete')}
-          </button>
-        )}
+        {/* Two clicks rather than a modal, exactly as forgetting a saved
+            connection works: it cannot be undone, but a dialog in front of it
+            would be heavier than the act deserves. Cancel takes the position
+            the Delete button had — see ConfirmPair. */}
+        <ConfirmPair
+          armed={confirming}
+          disabled={busy}
+          title={busy ? t('chat.sessions.inUseTitle') : t('chat.sessions.deleteTitle')}
+          label={t('chat.sessions.delete')}
+          confirmLabel={t('chat.sessions.deleteConfirm')}
+          cancelLabel={t('chat.sessions.deleteCancel')}
+          onArm={props.onArmDelete}
+          onDisarm={props.onDisarmDelete}
+          onConfirm={props.onDelete}
+        />
       </div>
     </div>
   )

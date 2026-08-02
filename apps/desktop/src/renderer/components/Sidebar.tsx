@@ -9,6 +9,7 @@ import { invalidateConnection } from '../state/namespaceStore'
 import { openSettings } from '../state/settingsDialogStore'
 import { useConnections } from '../state/workspaceStore'
 import { buildConnectionRows, type ConnectionRow } from './connectionRows'
+import { ConfirmPair } from './ConfirmPair'
 import { ConnectDialog } from './ConnectDialog'
 import { FirstRunGuide } from './FirstRunGuide'
 
@@ -210,30 +211,24 @@ function ConnectionRowItem({ row, active, onActivate, onEdit, onForgotten }: Row
                 {t('sidebar.action.connect')}
               </button>
               <EditButton editable={editable} onEdit={onEdit} />
-              {confirming ? (
-                // Two clicks rather than a modal: removing an entry drops a stored
-                // credential, which cannot be undone, but it is also not
-                // destructive enough to deserve a dialog in front of it.
-                <button
-                  className="ghost"
-                  style={{ color: 'var(--err)' }}
-                  onClick={forget}
-                  onBlur={() => {
-                    setConfirming(false)
-                  }}
-                >
-                  {t('sidebar.action.removeConfirm')}
-                </button>
-              ) : (
-                <button
-                  className="ghost"
-                  onClick={() => {
-                    setConfirming(true)
-                  }}
-                >
-                  {t('sidebar.action.remove')}
-                </button>
-              )}
+              {/* Two clicks rather than a modal: removing an entry drops a stored
+                  credential, which cannot be undone, but it is also not
+                  destructive enough to deserve a dialog in front of it. The
+                  second click lands on "Keep" — see ConfirmPair for why that
+                  matters more than the count. */}
+              <ConfirmPair
+                armed={confirming}
+                label={t('sidebar.action.remove')}
+                confirmLabel={t('sidebar.action.removeConfirm')}
+                cancelLabel={t('sidebar.action.removeCancel')}
+                onArm={() => {
+                  setConfirming(true)
+                }}
+                onDisarm={() => {
+                  setConfirming(false)
+                }}
+                onConfirm={forget}
+              />
             </>
           ) : (
             <LiveActions conn={conn} editable={editable} onEdit={onEdit} />

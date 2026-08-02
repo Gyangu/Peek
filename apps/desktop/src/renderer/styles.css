@@ -13,12 +13,29 @@
   --bg-hover: #2d333b;
   --bg-sel: #16324f;
 
+  /*
+   * Three text weights, all of them legible. The old --fg-faint (#5a626c) sat at
+   * 2.49–2.88:1 depending on the layer under it — below the WCAG floor on every
+   * one of them, and it was the weight handed to the *smallest* type in the
+   * window. The ladder below is 12.4 / 7.6 / 5.0 against --bg-1, which is a
+   * wider spread than the old one actually delivered, because the old last rung
+   * was not readable at all. Floor: --fg-faint on --bg-2 ≥ 4.5.
+   * See design/2026-08-02-ui-legibility-baseline.md §2.2.
+   */
   --fg: #d3d8de;
-  --fg-dim: #8a929c;
-  --fg-faint: #5a626c;
+  --fg-dim: #a8b0ba;
+  --fg-faint: #858d97;
 
-  --border: #2a2f36;
-  --border-strong: #3a414a;
+  /*
+   * Two borders with different jobs, because WCAG asks different things of them.
+   * --border is decoration: grid lines, panel outlines. It groups, it does not
+   * announce anything clickable, so it stays quiet. --border-strong is the
+   * boundary of an actual control (input, button, select) and is therefore
+   * subject to 1.4.11 — it now clears 3:1 against --bg-1, where it used to be
+   * 1.62 and a text field was effectively invisible.
+   */
+  --border: #333941;
+  --border-strong: #666f79;
 
   --accent: #4d9cff;
   --accent-dim: #2a5a95;
@@ -26,14 +43,67 @@
   --warn: #e0b341;
   --err: #f0736f;
 
+  /*
+   * The resting border of a destructive control: red enough to be read as one,
+   * quieter than `--err` so a delete button is not shouting before it has been
+   * armed.
+   *
+   * It exists because the value it replaces did not. Three separate rules
+   * (`.confirm-danger`, `.chat-perm-reject`, `.chat-stop`) each hard-coded
+   * `#7a3f3f`, which measures **1.91:1** against `--bg-2` — well under the 3:1
+   * that 1.4.11 asks of a control boundary, and under the floor this very theme
+   * had already committed to for `--border-strong`. It survived because
+   * `theme-contrast.test.ts` reads `:root`, and a literal in a rule is somewhere
+   * that test can never look. Naming it is what puts it under audit.
+   */
+  --danger-border: #b25e59;
+
+  /*
+   * The error *block* — a failed query, a failed tool call — as opposed to the
+   * error *control* above. Decorative by 1.4.11's reckoning: what carries the
+   * meaning is the `--err` text inside, so the boundary only has to group, like
+   * `--border` does, and is held to the same 1.45 rather than to 3:1.
+   *
+   * Named for the same reason as `--danger-border`, and found the same way:
+   * `.view-error` in styles.css and `.chat-msg-error` in chat.css declared an
+   * identical border, background and colour, each in ignorance of the other.
+   */
+  --err-border: #5c2f2f;
+  --err-bg: #2a1c1c;
+
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI',
     'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-mono: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  /*
+   * The type scale, as names rather than as loose numbers scattered over 1,700
+   * lines. Two floors, and they are the point of the whole set:
+   *
+   *   - anything that is *words* is at least --fs-sm (11px). The window used to
+   *     go down to 9px, and it ships zh-CN, where 10px PingFang runs its strokes
+   *     together. 11px is also the smallest size macOS itself uses (caption2).
+   *   - --fs-mark is for pure geometry — a disclosure caret, a checkbox tick.
+   *     Those are read by shape, not by type, so they are allowed under the text
+   *     floor, but only on the condition that they carry no letters and have a
+   *     size of their own (the caret is 14px wide, the tick 11px square).
+   *
+   * --fs-data is half a pixel over --fs-sm on purpose: cell values are set in a
+   * monospace face, whose stroke density reads heavier than the UI face at the
+   * same nominal size.
+   */
+  --fs-sm: 11px;
+  --fs-md: 12px;
+  --fs-lg: 13px;
+  --fs-data: 11.5px;
+  --fs-mark: 10px;
 
   --row-h: 24px;
   --head-h: 26px;
   --bar-h: 30px;
   --gutter-w: 54px;
+
+  /* Smallest side of anything a pointer is expected to hit. */
+  --hit-min: 24px;
 }
 
 * {
@@ -52,7 +122,7 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: var(--fs-md);
   line-height: 1.45;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -66,7 +136,19 @@ button {
   background: var(--bg-2);
   border: 1px solid var(--border-strong);
   border-radius: 4px;
-  padding: 2px 8px;
+  padding: 3px 9px;
+  /*
+   * Padding alone does not get there and cannot: a button inherits its font
+   * size, so the same rule yields 25.4px in the 12px body and 23.9px inside the
+   * 11px status bar — measured, not assumed. `min-height` is what makes the
+   * floor a floor regardless of the context the control lands in.
+   *
+   * The exemptions are the inline controls in compact strips (`.tab-close`,
+   * `.tree-action`, `.chat-chip-x`, `.md-copy`), each of which sets its own
+   * height and says why. They are listed in
+   * design/2026-08-02-ui-legibility-baseline.md §2.3.
+   */
+  min-height: var(--hit-min);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -121,14 +203,14 @@ textarea:focus {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #3a414a;
+  background: var(--border-strong);
   border: 3px solid transparent;
   background-clip: content-box;
   border-radius: 6px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4a525c;
+  background: var(--fg-faint);
   background-clip: content-box;
 }
 
@@ -214,7 +296,7 @@ textarea:focus {
   padding: 0 8px;
   border-bottom: 1px solid var(--border);
   color: var(--fg-dim);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: 0.6px;
 }
@@ -263,7 +345,7 @@ textarea:focus {
 
 .conn-sub {
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   margin-top: 1px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -273,14 +355,14 @@ textarea:focus {
 .conn-driver {
   flex: 0 0 auto;
   color: var(--fg-faint);
-  font-size: 10px;
+  font-size: var(--fs-sm);
 }
 
 /* Only drawn when there is a credential in the vault; its absence says the rest. */
 .conn-key {
   flex: 0 0 auto;
-  font-size: 9px;
-  opacity: 0.7;
+  font-size: var(--fs-sm);
+  opacity: 0.85;
 }
 
 .conn-actions {
@@ -288,6 +370,15 @@ textarea:focus {
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 5px;
+}
+
+/* The armed state of a destructive action: cancel first, in the position the
+   resting button occupied. See components/ConfirmPair.tsx. The confirm button
+   is `<Button variant="danger">`; the `.confirm-danger` class this rule was
+   paired with is gone — it was a duplicate of `.chat-perm-reject`. */
+.confirm-pair {
+  display: inline-flex;
+  gap: 4px;
 }
 
 .dot {
@@ -534,11 +625,15 @@ textarea:focus {
 
 .tab-close {
   flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
+  /* 20, not 16: the strip is 30px tall, so 20 still leaves 5px of air above and
+     below, and a ✕ that has to be aimed at is a ✕ that gets missed onto the tab
+     underneath — which activates a view instead of closing one. */
+  width: 20px;
+  height: 20px;
+  min-height: 0; /* an inline control in a 30px strip; see the note on `button` */
   padding: 0;
   line-height: 1;
-  font-size: 10px;
+  font-size: var(--fs-sm);
   background: transparent;
   border-color: transparent;
   color: var(--fg-faint);
@@ -736,8 +831,8 @@ body.view-dragging.view-drag-nodrop * {
   flex: 0 0 auto;
   margin: 6px;
   padding: 6px 8px;
-  border: 1px solid #5c2f2f;
-  background: #2a1c1c;
+  border: 1px solid var(--err-border);
+  background: var(--err-bg);
   color: var(--err);
   border-radius: 4px;
   user-select: text;
@@ -746,7 +841,7 @@ body.view-dragging.view-drag-nodrop * {
 .view-error .detail {
   color: var(--fg-dim);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   white-space: pre-wrap;
   max-height: 120px;
   overflow: auto;
@@ -834,21 +929,28 @@ body.view-dragging.view-drag-nodrop * {
   z-index: 6;
 }
 
+/*
+ * Solid, not a 40%-opacity wash. There is no native vertical scrollbar behind
+ * this one (see the note at the top of vscroll.ts), so it is the only vertical
+ * navigation affordance a million-row result set has — and at --fg-faint × 0.4
+ * it measured 1.46:1 against the grid, i.e. you had to know it was there. It now
+ * clears the 3:1 that WCAG 1.4.11 asks of a control boundary, and brightens to
+ * full --fg-faint under the pointer.
+ */
 .grid-vsb-thumb {
   position: absolute;
   top: 0;
   left: 2px;
   right: 2px;
   border-radius: 4px;
-  background: var(--fg-faint);
-  opacity: 0.4;
+  background: var(--border-strong);
   cursor: default;
   will-change: transform;
 }
 
 .grid-vsb-thumb:hover,
 .grid-vsb-thumb.dragging {
-  opacity: 0.8;
+  background: var(--fg-faint);
 }
 
 .grid-vsb-bubble {
@@ -859,7 +961,7 @@ body.view-dragging.view-drag-nodrop * {
   border-radius: 3px;
   background: var(--bg-3);
   color: var(--fg);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   white-space: nowrap;
   pointer-events: none;
 }
@@ -887,7 +989,7 @@ body.view-dragging.view-drag-nodrop * {
   padding: 0 6px;
   border-right: 1px solid var(--border);
   color: var(--fg-dim);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   overflow: hidden;
   white-space: nowrap;
 }
@@ -904,7 +1006,7 @@ body.view-dragging.view-drag-nodrop * {
 
 .grid-head-cell .ctype {
   color: var(--fg-faint);
-  font-size: 10px;
+  font-size: var(--fs-sm);
   flex: 0 0 auto;
 }
 
@@ -955,8 +1057,10 @@ body.view-dragging.view-drag-nodrop * {
   background: var(--bg-1);
 }
 
+/* Was #191c20, which measured 1.04:1 against --bg — a stripe nobody could see is
+   a stripe not worth painting. Still deliberately faint at 1.11. */
 .grid-row.odd .grid-cell {
-  background: #191c20;
+  background: #1e2228;
 }
 
 .grid-row.odd:hover .grid-cell {
@@ -970,12 +1074,18 @@ body.view-dragging.view-drag-nodrop * {
 .grid-row.odd.row-selected .grid-cell,
 .grid-row.row-selected:hover .grid-cell,
 .grid-row.odd.row-selected:hover .grid-cell {
-  background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+  background: color-mix(in srgb, var(--accent) 24%, var(--bg));
 }
 
+/* The bar is the part that survives a colour-vision difference: a 24% accent
+   wash is 1.49:1 against the unselected row, which is a hue change more than a
+   luminance one. A 2px rule down the gutter is a *shape* difference, and it is
+   drawn on the one column that is always on screen no matter how far right the
+   table is scrolled. */
 .grid-row.row-selected .grid-rownum {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 24%, var(--bg-1));
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .grid-rownum {
@@ -993,7 +1103,7 @@ body.view-dragging.view-drag-nodrop * {
   background: var(--bg-1);
   border-right: 1px solid var(--border);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   overflow: hidden;
   /* The gutter is the selection handle; saying so with the cursor is the
      cheapest bit of discoverability the gesture has. */
@@ -1009,7 +1119,7 @@ body.view-dragging.view-drag-nodrop * {
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--fs-data);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1110,7 +1220,7 @@ body.view-dragging.view-drag-nodrop * {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 
 .cm-editor.cm-focused {
@@ -1181,7 +1291,9 @@ body.view-dragging.view-drag-nodrop * {
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 22px;
+  /* Was 22px. Matching --row-h lines the tree up with the grid beside it and
+     leaves room for a 20px per-node action button. */
+  height: var(--row-h);
   padding-right: 8px;
   white-space: nowrap;
 }
@@ -1194,12 +1306,15 @@ body.view-dragging.view-drag-nodrop * {
   background: var(--bg-sel);
 }
 
+/* A disclosure triangle is geometry, not a word, so it sits below the text floor
+   at --fs-mark — on the condition it keeps a size of its own (14px wide) and the
+   whole 24px row, not the glyph, is the click target. */
 .tree-caret {
   width: 14px;
   flex: 0 0 auto;
   text-align: center;
   color: var(--fg-faint);
-  font-size: 9px;
+  font-size: var(--fs-mark);
 }
 
 .tree-caret.spin {
@@ -1212,10 +1327,17 @@ body.view-dragging.view-drag-nodrop * {
   }
 }
 
+/*
+ * The node-kind glyph does **not** get the --fs-mark exemption the caret gets,
+ * and the difference is worth stating: the caret has two states and they differ
+ * by 90°, while these are ⛁ ❏ ▦ ◫ ◪ ⧉ ◇ — a set the reader is meant to tell
+ * apart. ◫ and ◪ differ by which half is filled, which at 10px is a coin flip.
+ * A glyph that has to be identified is sized *above* the text floor, not below.
+ */
 .tree-icon {
   flex: 0 0 auto;
   color: var(--fg-dim);
-  font-size: 10px;
+  font-size: var(--fs-md);
   width: 14px;
   text-align: center;
 }
@@ -1227,7 +1349,7 @@ body.view-dragging.view-drag-nodrop * {
 
 .tree-detail {
   color: var(--fg-faint);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   margin-left: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1238,9 +1360,10 @@ body.view-dragging.view-drag-nodrop * {
 .tree-action {
   margin-left: auto;
   flex: 0 0 auto;
-  height: 16px;
-  padding: 0 6px;
-  font-size: 10px;
+  height: 20px;
+  min-height: 0; /* inline in a 24px row; see the note on `button` */
+  padding: 0 7px;
+  font-size: var(--fs-sm);
   visibility: hidden;
 }
 
@@ -1268,9 +1391,9 @@ body.view-dragging.view-drag-nodrop * {
 
 .toolbar input.vq {
   flex: 0 0 auto;
-  height: 20px;
+  height: 22px;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .toolbar input.vq-id {
@@ -1319,7 +1442,7 @@ body.view-dragging.view-drag-nodrop * {
   border-radius: 4px;
   padding: 8px;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--fs-data);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-height: 100%;
@@ -1615,12 +1738,22 @@ body.view-dragging.view-drag-nodrop * {
   white-space: nowrap;
 }
 
+/* The row's timestamp. It used to be an inline `fontSize: 10` in the component,
+   which is both under the text floor and invisible to the type-scale test. */
+.session-when {
+  color: var(--fg-faint);
+  font-size: var(--fs-sm);
+}
+
 /* ------------------------------------------------------------------ */
 /* Status bar and notifications                                          */
 /* ------------------------------------------------------------------ */
 
+/* 26px, not 22px. The bar carries real buttons (new conversation, the rail
+   toggle, the error centre), a button is 25.4px tall, and `overflow: hidden` on
+   a 22px bar was quietly clipping every one of them. */
 .statusbar {
-  height: 22px;
+  height: 26px;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -1629,7 +1762,7 @@ body.view-dragging.view-drag-nodrop * {
   background: var(--bg-1);
   border-top: 1px solid var(--border);
   color: var(--fg-dim);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   overflow: hidden;
   white-space: nowrap;
 }
@@ -1655,7 +1788,8 @@ body.view-dragging.view-drag-nodrop * {
 .toasts {
   position: fixed;
   right: 12px;
-  bottom: 32px;
+  /* Clears the status bar, which is now 26px + its 1px top rule. */
+  bottom: 36px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1698,7 +1832,7 @@ body.view-dragging.view-drag-nodrop * {
 .toast .detail {
   color: var(--fg-dim);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   white-space: pre-wrap;
   max-height: 140px;
   overflow: auto;
@@ -1738,7 +1872,7 @@ body.view-dragging.view-drag-nodrop * {
 }
 
 .crash-title {
-  font-size: 13px;
+  font-size: var(--fs-lg);
   font-weight: 600;
 }
 
@@ -1757,10 +1891,44 @@ body.view-dragging.view-drag-nodrop * {
   border-radius: 4px;
   color: var(--fg-faint);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 180px;
   overflow: auto;
   user-select: text;
+}
+
+/* ==================================================================
+ * Reduced motion.
+ *
+ * Everything that loops in this window loops *forever* — a connection that is
+ * dialling, a tree node that is loading, a tool call that is running. An
+ * indefinite animation is exactly what the OS-level "reduce motion" switch
+ * exists to turn off, and until now peek ignored it outright.
+ *
+ * The rule that makes this safe: **no state in peek is carried by motion
+ * alone**. A dialling connection is a solid --warn dot whether or not it
+ * pulses, and it is still distinguishable from idle (hollow) and ready (green)
+ * with every animation stopped. The pulse is emphasis, never the message. Any
+ * future state that needs to be legible only while animating is a bug against
+ * this block.
+ *
+ * `animation: none` rather than a slower duration: a spinner that creeps is
+ * more distracting than one that stands still, and the mark it is drawn from
+ * (◐) reads as "in progress" without turning.
+ * ================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .dot.connecting,
+  .tree-caret.spin {
+    animation: none;
+  }
+
+  /* The drop highlight slides between zones as the pointer moves; with motion
+     reduced it snaps instead. The block itself is unchanged, so the target is
+     just as legible. */
+  .drop-highlight {
+    transition: none;
+  }
 }

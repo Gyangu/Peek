@@ -56,6 +56,31 @@
   outline-offset: -2px;
 }
 
+/*
+ * The grid was the hole in the set above.
+ *
+ * `.grid-wrap` carries `tabIndex={0}` — it has to, because with `overflow-y:
+ * hidden` there is no native scrolling and every arrow, Page key, Home and End
+ * is handled by its own `onKeyDown`. But `styles.css` sets `outline: none` on it
+ * (inherited from the days when it was not focusable), and none of the three
+ * selectors above reach it. Net effect: a keyboard user could Tab into the one
+ * element in the window that owns the most keys, and nothing anywhere said so.
+ *
+ * Inset by 2px like the others, so it lands inside the panel's own border rather
+ * than doubling it.
+ */
+.layout-root .grid-wrap:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Same omission, smaller surface: the context menu takes focus on open (so that
+   Escape and the arrow keys reach it) and then hides the ring. */
+.ctx-menu:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* ==================================================================
  * Visually hidden, still announced.
  *

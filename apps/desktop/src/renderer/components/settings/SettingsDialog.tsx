@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
+import { useModalDialog } from '../../hooks'
 import { useT } from '../../i18n'
 import {
   SETTINGS_SECTIONS,
@@ -32,29 +32,29 @@ import { TimeoutsSection } from './TimeoutsSection'
  *   this straight on the MCP section. See `state/settingsDialogStore.ts`.
  */
 export function SettingsDialog(): ReactElement | null {
-  const t = useT()
   const section = useSettingsDialogStore((s) => s.section)
-
-  // Escape closes, the same as every other modal in the window. Registered on
-  // `window` rather than on the dialog because focus may be inside an input,
-  // and no dialog should need a click before its Escape key works.
-  useEffect(() => {
-    if (section === null) return
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') closeSettings()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [section])
-
   if (section === null) return null
+  return <OpenSettings section={section} />
+}
+
+/**
+ * The dialog, when there is one.
+ *
+ * Split out because `useModalDialog` — which owns Escape, the focus trap and
+ * putting focus back where it came from — cannot be called conditionally, and
+ * the closed state renders nothing. Keeping the hook mounted exactly as long as
+ * the dialog is on screen is also what makes its push/pop of the modal stack
+ * correct with no extra bookkeeping.
+ */
+function OpenSettings({ section }: { section: SettingsSection }): ReactElement {
+  const t = useT()
+  const dialogRef = useModalDialog({ label: 'settings', onClose: closeSettings })
 
   return (
     <div className="modal-mask" onMouseDown={closeSettings}>
       <div
         className="modal settings-modal"
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={t('settings.title')}
