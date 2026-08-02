@@ -1,6 +1,7 @@
 import type { IpcMain } from 'electron'
 import {
   IPC,
+  isKeyValueShape,
   toPeekError,
   type ConnId,
   type DriverRpcRequest,
@@ -132,15 +133,23 @@ function readRequest(raw: unknown): DriverRpcRequest | null {
  * of NaN silently becoming 0 would look like an empty hash. `cursorToken` and
  * `match` are opaque strings that the driver validates — a malformed cursor is a
  * BAD_REQUEST there, which is more useful than being swallowed here.
+ *
+ * `shape` is the exception: it is checked against the known set rather than
+ * merely typed as a string, because `keyValueReadOptions` switches on it and an
+ * unrecognised value falls through to the branch that *infers* the addressing.
+ * Dropping this field here — which is what happened until now — meant that
+ * branch was the only one production ever took.
  */
 function readKeyValueWindow(raw: unknown): KeyValueWindow | null {
   if (typeof raw !== 'object' || raw === null) return null
   const rec = raw as Record<string, unknown>
+  const shape = rec['shape']
   const limit = rec['limit']
   const offset = rec['offset']
   const cursorToken = rec['cursorToken']
   const match = rec['match']
   const window: KeyValueWindow = {
+    ...(isKeyValueShape(shape) ? { shape } : {}),
     ...(typeof limit === 'number' && Number.isFinite(limit)
       ? { limit: Math.max(1, Math.trunc(limit)) }
       : {}),

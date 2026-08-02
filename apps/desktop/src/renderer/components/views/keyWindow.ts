@@ -11,10 +11,15 @@ import type { KeyValueResult, KeyValueShape, KeyValueWindow } from '@peek/core'
  *   stream        an exclusive entry id ('(1712…-0') → goes back as `cursorToken`
  *
  * Handing a hash cursor back as an offset silently skips or repeats fields, and
- * nothing in the types stops you: `KeyValueReadOptions` is a flat bag of
- * optional fields and the caller is expected to infer which one applies. This
- * function is that inference, written once, so the inspector cannot get it
- * wrong in one branch and right in another.
+ * nothing in the wire type stops you: `KeyValueWindow` is a flat bag of optional
+ * fields, because it crosses a process boundary where the compiler checks
+ * nothing. This function is the inference, written once, so the inspector cannot
+ * get it wrong in one branch and right in another.
+ *
+ * The window also carries the shape it was derived from. Without it the boundary
+ * has to guess the addressing back — and guesses wrong for a stream, whose entry
+ * id looks exactly like a hash cursor, so a stream's next page was validated as
+ * a map's. Sending what we already know turns that guess into a check.
  * ================================================================== */
 
 /** Which `KeyValueReadOptions` field addresses the next window of a shape. */
@@ -43,12 +48,13 @@ export function windowFieldFor(shape: KeyValueShape): 'cursorToken' | 'offset' |
 export function nextKeyWindow(result: KeyValueResult, limit: number): KeyValueWindow | null {
   const cursor = result.nextCursor
   if (cursor === undefined || cursor === '') return null
-  const field = windowFieldFor(result.value.shape)
+  const shape = result.value.shape
+  const field = windowFieldFor(shape)
   if (field === null) return null
-  if (field === 'cursorToken') return { limit, cursorToken: cursor }
+  if (field === 'cursorToken') return { limit, shape, cursorToken: cursor }
   const offset = Number(cursor)
   if (!Number.isInteger(offset) || offset < 0) return null
-  return { limit, offset }
+  return { limit, shape, offset }
 }
 
 /** How many elements the current window actually holds — the "showing N of M" numerator. */

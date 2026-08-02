@@ -1044,6 +1044,18 @@ export const KEY_VALUE_SHAPES = [
 export type KeyValueShape = (typeof KEY_VALUE_SHAPES)[number]
 
 /**
+ * Narrow an untrusted value to a shape.
+ *
+ * The process boundary needs this: `keyValueReadOptions` switches on `shape`, and
+ * an unrecognised string would fall through to the "shape unknown" branch — which
+ * is the guessing path, not a rejection. A parser that accepted any string would
+ * therefore turn a typo into a silently different read.
+ */
+export function isKeyValueShape(value: unknown): value is KeyValueShape {
+  return typeof value === 'string' && (KEY_VALUE_SHAPES as readonly string[]).includes(value)
+}
+
+/**
  * One element of a value. A `TruncatedValue` means the element itself blew past
  * VALUE_PREVIEW_BYTES and only a preview travelled; its `ref` addresses the whole
  * thing through valuePeek.
@@ -1187,9 +1199,10 @@ export type KeyValueReadOptions =
  * someone writes it anyway".
  *
  * `shape` is optional here for the same reason it is optional in the union: the
- * first read of a key does not know it yet. A caller that *does* know it — the
- * inspector always does, it is holding the previous `KeyValueResult` — should
- * send it, and gets its window validated against the shape rather than guessed.
+ * first read of a key does not know it yet. Every later read does — the
+ * inspector is holding the previous `KeyValueResult` — and sends it
+ * (`renderer/components/views/keyWindow.ts`), so its window is validated against
+ * the shape rather than guessed.
  */
 export interface KeyValueWindow {
   shape?: KeyValueShape
