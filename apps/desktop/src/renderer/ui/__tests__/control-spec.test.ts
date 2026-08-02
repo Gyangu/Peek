@@ -526,7 +526,7 @@ describe('action handles', () => {
       bad,
       [],
       `Action ids share a vocabulary with the Command Bus (PLAN §6), so they take its shape: ` +
-        `lower-case \`domain.verb\`, e.g. "connection.forget".\n${bad.join('\n')}`,
+        `lower-case \`domain.verb\`, e.g. "conn.book.forget".\n${bad.join('\n')}`,
     )
   })
 
@@ -609,12 +609,6 @@ const BARE_BUTTON_ALLOWLIST: readonly string[] = [
   'components/Panel.tsx',
   'components/PanelTabs.tsx',
   'components/Sidebar.tsx',
-  // Both of its controls are `.seg`, which carries a `border-radius` — paint,
-  // not layout, so the className fence would reject it. That is the fence
-  // working: `.seg` is a segmented *group*, and it needs a `<Segmented>` of its
-  // own rather than a variant. Bending the rule on the layer's first day to get
-  // one more file migrated would have been the worse trade.
-  'components/StatusBar.tsx',
   'components/chat/AttachmentBar.tsx',
   'components/chat/ChatSessionsRail.tsx',
   'components/chat/ChatView.tsx',

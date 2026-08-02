@@ -67,7 +67,21 @@ export function FirstRunGuide({
       </div>
 
       <Step index={1} title={t('firstRun.connectTitle')} body={t('firstRun.connectBody')}>
-        <Button variant="primary" action="conn.open" onClick={onConnect}>
+        {/*
+         * `conn.openDialog`, not `conn.open`. This button dispatches nothing —
+         * `onConnect` is Sidebar's `openConnectDialog()`, which puts a form on
+         * screen; the `conn.open` command is dispatched later, by the form, if the
+         * user completes it.
+         *
+         * It said `conn.open` for exactly one day. An action id names what the
+         * control actually triggers, and borrowing a real command name for a
+         * control that does not send it is precisely the "shipped under the wrong
+         * name" failure §1.4 of the design record warns about — committed, by me,
+         * in the change that added the warning. The rule cannot be checked
+         * statically (nothing can tell what a callback eventually reaches), so it
+         * is written here and in spec.ts rather than pretended into CI.
+         */}
+        <Button variant="primary" action="conn.openDialog" onClick={onConnect}>
           {t('firstRun.connectAction')}
         </Button>
       </Step>

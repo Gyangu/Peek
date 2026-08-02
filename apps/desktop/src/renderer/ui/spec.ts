@@ -165,6 +165,22 @@ export const DEFAULT_EXPOSURE: Exposure = 'human-only'
  * Three uses, in order of certainty: a test selector that survives i18n today;
  * an a11y fallback for icon-only buttons today; the address an MCP tool would
  * use tomorrow.
+ *
+ * ## The rule the pattern cannot enforce
+ *
+ * **An id names what the control actually triggers.** The regex checks shape; it
+ * cannot check truth, and the difference is not academic — `FirstRunGuide`'s
+ * connect button shipped as `action="conn.open"`, which is a real command it does
+ * not dispatch. What it does is open a form; the form sends `conn.open` later, if
+ * the user finishes. It is `connectDialog.open` now.
+ *
+ * Borrowing a real command name for a control that does not send it is worse than
+ * inventing one, because the borrowed name reads as verified. Nothing can catch
+ * it statically — no analysis follows a callback to whatever it eventually
+ * reaches — so it is stated here and left to review, per the same principle as
+ * the one-primary-per-container rule. Membership in `COMMAND_NAMES` would not
+ * help: it would have accepted `conn.open` on that very button while rejecting
+ * honest local names like `settings.open`.
  */
 export const ACTION_ID_PATTERN = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/
 
@@ -201,6 +217,20 @@ export function stateSelector(variant: ButtonVariant, state: ControlState): stri
  * `control-spec.test.ts` looks every passed class up in the stylesheets and
  * asserts its declarations stay inside this list. Anything touching colour,
  * border, type or box size belongs to the spec and fails.
+ *
+ * ## Why `align-self` but not `align-items`
+ *
+ * The dividing line is not "is this a layout property" — it is **whose layout**.
+ * `align-self`, `justify-self`, `order` and the margins place the control inside
+ * whatever contains it, which is the caller's business. `align-items`,
+ * `justify-content`, `gap` and `display` arrange the control's *interior*, and
+ * `.btn` already sets all four; a class overriding them is not positioning the
+ * button, it is arguing with the primitive about what a button is.
+ *
+ * The design record's §2.5 wrote this list as `align-*` / `justify-*`, which
+ * reads as though the whole family were allowed. The wildcard was loose prose,
+ * not a decision — the doc has been narrowed to match. Recorded because the
+ * mismatch looked, briefly and convincingly, like the code being wrong.
  *
  * (`style` needs no fence — its type is `never`.)
  */

@@ -8,6 +8,7 @@ import { useCacheStats, useResult } from '../state/useResult'
 import { useWorkspace, useWorkspaceStore } from '../state/workspaceStore'
 import { formatBytes, formatCount, formatMs } from '../util/format'
 import { toggleChatRail, useChatRailStore } from './chat'
+import { Button } from '../ui/Button'
 import { ErrorCenterButton } from './error-center/ErrorCenter'
 
 /**
@@ -269,23 +270,44 @@ function ChatEntry(): ReactElement {
 
   return (
     <>
-      <button
-        className="ghost seg"
+      {/*
+       * These carried `ghost seg` until the control layer arrived. `seg` on a button
+       * resolved to `.statusbar .seg` — `display: flex; align-items: center; gap:
+       * 5px` — which is exactly what `.btn` already sets, so the class simply had
+       * nothing left to say here. The rule itself stays: the eight `<span
+       * className="seg">` cells in this bar are its real subject.
+       *
+       * `md`, not `sm`, even though 20px would fit a 26px bar more comfortably.
+       * The bar is 26px *because* the legibility baseline (§2.3) raised it from 22
+       * to hold a 24px control; dropping these to `sm` would spend that change and
+       * put the only two buttons down here back under the hit floor. Measured after
+       * the fact — the first pass did exactly that.
+       *
+       * Worth recording because the ledger comment on this file named the wrong
+       * blocker. It said `.seg` carries `border-radius`, which is true of the
+       * *other* `.seg` — `.segmented .seg`, the connect dialog's segmented control.
+       * Two unrelated classes share one name, and a name-based fence has to take
+       * the stricter meaning for both, so the diagnosis looked right for the wrong
+       * reason. What actually unblocked this file was the buttons not needing the
+       * class at all.
+       */}
+      <Button
+        variant="ghost"
         title={t('chat.sessions.new')}
         onClick={() => {
           void dispatch('view.open', { spec: { kind: 'chat' } })
         }}
       >
         {t('chat.sessions.new')}
-      </button>
-      <button
-        className="ghost seg"
+      </Button>
+      <Button
+        variant="ghost"
         title={t('chat.sessions.railToggleTitle')}
         aria-pressed={!collapsed}
         onClick={toggleChatRail}
       >
         {t('chat.sessions.title')}
-      </button>
+      </Button>
     </>
   )
 }

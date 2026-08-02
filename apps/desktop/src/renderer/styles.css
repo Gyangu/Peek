@@ -1767,6 +1767,14 @@ body.view-dragging.view-drag-nodrop * {
   white-space: nowrap;
 }
 
+
+/* The status bar's cells: the connection dot, the view description, the row
+   count, the cache watermark. Not to be confused with `.segmented .seg`, the
+   connect dialog's segmented control — two unrelated classes that happen to
+   share a name, which matters because the control layer's className fence is
+   name-based and has to take the stricter of the two meanings for both.
+   The two buttons in this bar used to carry it as well; they are `<Button>`
+   now, and `.btn` already sets exactly these three declarations. */
 .statusbar .seg {
   display: flex;
   align-items: center;
