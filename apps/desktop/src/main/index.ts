@@ -2,7 +2,8 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain, safeStorage, shell, type WebContents } from 'electron'
 import type { ConnId, NamespaceNode, NotifyMessage, WorkspaceSnapshot } from '@peek/core'
-import { toPeekError } from '@peek/core'
+import { stepUiZoom, toPeekError, UI_ZOOM_DEFAULT } from '@peek/core'
+import { installAppMenu } from './menu'
 import { createCommandBus, type CommandBus, type CommandDeps } from './bus'
 import { createChatEventSink, createChatHandlers, watchChatViews } from './bus/handlers'
 import { installBusIpc, sendChatDeltas, sendNotify } from './bus/ipc-main'
@@ -108,6 +109,31 @@ const resultSink = createResultEventSink(store)
 
 let mainWindow: BrowserWindow | null = null
 let mcp: McpController | null = null
+
+/**
+ * How large the window is drawn, and the store that remembers it.
+ *
+ * Module-level because three places need it and they run at different times:
+ * `createWindow` (every load resets `zoomFactor`, so it has to be re-applied on
+ * `did-finish-load`), the View menu, and the `settings.write` handler. The store
+ * is null until `assemble` has resolved a config dir — the menu still works then,
+ * it just cannot persist, which is the right degradation for a cosmetic setting.
+ */
+let uiZoom = UI_ZOOM_DEFAULT
+let settingsStore: SettingsStore | null = null
+
+function applyUiZoom(factor: number): void {
+  uiZoom = factor
+  mainWindow?.webContents.setZoomFactor(factor)
+}
+
+/** The View menu's handler: step, draw, remember. */
+function menuZoom(step: 1 | -1 | 0): void {
+  const next = step === 0 ? UI_ZOOM_DEFAULT : stepUiZoom(uiZoom, step)
+  if (next === uiZoom) return
+  applyUiZoom(next)
+  settingsStore?.update({ uiZoom: next })
+}
 /**
  * The saved connections.
  *
@@ -393,6 +419,10 @@ function createWindow(): BrowserWindow {
   // webContents.postMessage is lost. Every reload needs a fresh handover.
   win.webContents.on('did-finish-load', () => {
     connections.attachRenderer(win.webContents)
+    // `zoomFactor` is per-navigation state, not per-window: it resets to 1 on
+    // every load, so remembering it once at startup is not enough — a dev-server
+    // hot reload would silently undo the user's setting.
+    win.webContents.setZoomFactor(uiZoom)
   })
 
   win.on('closed', () => {
@@ -535,6 +565,10 @@ function bootstrap(): void {
   // One store, shared. Two `createSettingsStore` calls over the same path would
   // each cache the file, and the second write would silently drop the first.
   const settings = createSettingsStore(configDir)
+  settingsStore = settings
+  // Adopt the remembered zoom before the window exists, so the first frame is
+  // already the right size rather than snapping a moment after it appears.
+  uiZoom = settings.read().uiZoom ?? UI_ZOOM_DEFAULT
 
   // Timeouts are a module-level singleton in `connections/timeouts.ts`, applied
   // rather than injected. This must happen before any connection is opened —
@@ -556,6 +590,7 @@ function bootstrap(): void {
       settings,
       configDir,
       version: app.getVersion(),
+      applyZoom: applyUiZoom,
     }),
   )
 
@@ -692,6 +727,13 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(() => {
+    // Ahead of `bootstrap()` on purpose. The menu is not a feature of a fully
+    // assembled app — two of the things it does are corrections that must hold
+    // even if assembly fails: it keeps Reload and DevTools out of a packaged
+    // build, and it stops the default Window menu from binding ⌘W, which is
+    // peek's own "close tab". See menu.ts.
+    installAppMenu({ isDev, onZoom: menuZoom })
+
     bootstrap()
 
     app.on('activate', () => {

@@ -1,8 +1,12 @@
+import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
+import { UI_ZOOM_STEPS } from '@peek/core'
+import { isMacPlatform } from '../../hooks'
 import { LOCALES, setLocale, useLocale, useT } from '../../i18n'
+import { dispatch } from '../../state/dispatch'
 
 /**
- * The language picker.
+ * The language picker, and how large the window is drawn.
  *
  * It used to be a cycle button in the status bar — one click, next language —
  * which is genuinely faster than coming in here. It moved anyway: two entry
@@ -13,10 +17,14 @@ import { LOCALES, setLocale, useLocale, useT } from '../../i18n'
  * Locale names are endonyms and never pass through `t()`: a picker that says
  * "Chinese" to someone who only reads Chinese helps nobody.
  *
- * Note what this does *not* do: persist through main. The locale lives in
- * `localStorage`, not `settings.json`, because it is a renderer-local preference
- * — see the note atop `i18n/store.ts`. This dialog changed where the control is,
- * not where the choice is kept.
+ * Note what the language does *not* do: persist through main. The locale lives
+ * in `localStorage`, not `settings.json`, because it is a renderer-local
+ * preference — see the note atop `i18n/store.ts`.
+ *
+ * **The zoom is the opposite**, and the asymmetry is deliberate. It is applied
+ * by `webContents.setZoomFactor`, which only main can call, so it travels as a
+ * `settings.write` and is remembered in `settings.json` next to the port and the
+ * timeouts. See `design/2026-08-02-ui-legibility-baseline.md` §2.4.
  */
 export function AppearanceSection(): ReactElement {
   const t = useT()
@@ -43,6 +51,69 @@ export function AppearanceSection(): ReactElement {
         </div>
       </div>
       <div className="form-hint">{t('settings.languageHint')}</div>
+
+      <ZoomRow />
+    </>
+  )
+}
+
+/**
+ * The zoom stops.
+ *
+ * Read on mount rather than mirrored: the value can also change from the View
+ * menu (`⌘+` / `⌘-`), and this dialog is opened far less often than that chord
+ * is pressed. Re-reading each time it appears is one command and is always
+ * right; a mirror would need a channel from main whose only subscriber is a
+ * dialog that is usually closed.
+ *
+ * The click is optimistic because the window resizes *before* the reply comes
+ * back — main applies the zoom inside the handler. A selected state that waited
+ * for the round trip would visibly lag the thing it describes.
+ */
+function ZoomRow(): ReactElement {
+  const t = useT()
+  const [zoom, setZoom] = useState<number | null>(null)
+
+  useEffect(() => {
+    void dispatch('settings.read', {}).then((res) => {
+      if (res) setZoom(res.uiZoom)
+    })
+  }, [])
+
+  const choose = (next: number): void => {
+    setZoom(next)
+    void dispatch('settings.write', { uiZoom: next }).then((res) => {
+      // The reply is what actually took effect after clamping, so a value that
+      // was out of range corrects itself here rather than lying in the UI.
+      if (res) setZoom(res.uiZoom)
+    })
+  }
+
+  return (
+    <>
+      <div className="form-row">
+        <label>{t('settings.zoom')}</label>
+        <div className="segmented">
+          {UI_ZOOM_STEPS.map((step) => (
+            <button
+              key={step}
+              type="button"
+              className={zoom !== null && Math.abs(zoom - step) < 0.001 ? 'seg active' : 'seg'}
+              aria-pressed={zoom !== null && Math.abs(zoom - step) < 0.001}
+              onClick={() => {
+                choose(step)
+              }}
+            >
+              {`${String(Math.round(step * 100))}%`}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Modifier symbols are never translated: they are what is printed on the
+          keys in front of the reader. Same rule as `shortcutHints`. */}
+      <div className="form-hint">
+        {t('settings.zoomHint', { keys: isMacPlatform() ? '⌘+ / ⌘− / ⌘0' : 'Ctrl++ / Ctrl+− / Ctrl+0' })}
+      </div>
     </>
   )
 }

@@ -13,6 +13,7 @@
  */
 
 import type { ExecutionBudgets } from '@peek/core'
+import { UI_ZOOM_MAX, UI_ZOOM_MIN } from '@peek/core'
 import { readJsonFile, writeJsonFile } from './json-file'
 import { settingsFilePath } from './paths'
 
@@ -32,6 +33,15 @@ export interface PeekSettings {
    * `0` is a value, not an absence — it means no deadline.
    */
   executionTimeouts?: Partial<ExecutionBudgets>
+  /**
+   * Whole-window zoom factor, as Electron's `zoomFactor`.
+   *
+   * Absent means "the default", on the same principle as the two above. Out-of-
+   * range values are dropped on read rather than clamped: a hand-edited `4` is
+   * more likely a typo than a wish, and 1 is a state the user can see and fix,
+   * while 1.5-because-you-typed-4 is a state they cannot explain.
+   */
+  uiZoom?: number
 }
 
 const EXECUTION_KEYS = ['queryMs', 'scanMs', 'vectorSearchMs'] as const
@@ -93,6 +103,11 @@ function project(record: Record<string, unknown>): PeekSettings {
   const settings: PeekSettings = {}
   if (isPort(port)) settings.mcpPort = port
 
+  const zoom = record['uiZoom']
+  if (typeof zoom === 'number' && Number.isFinite(zoom) && zoom >= UI_ZOOM_MIN && zoom <= UI_ZOOM_MAX) {
+    settings.uiZoom = zoom
+  }
+
   const timeouts = record['executionTimeouts']
   if (typeof timeouts === 'object' && timeouts !== null && !Array.isArray(timeouts)) {
     const kept: Partial<ExecutionBudgets> = {}
@@ -117,6 +132,7 @@ function toRecord(patch: PeekSettings): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   if (patch.mcpPort !== undefined) out['mcpPort'] = patch.mcpPort
   if (patch.executionTimeouts !== undefined) out['executionTimeouts'] = patch.executionTimeouts
+  if (patch.uiZoom !== undefined) out['uiZoom'] = patch.uiZoom
   return out
 }
 

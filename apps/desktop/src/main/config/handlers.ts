@@ -18,7 +18,7 @@
  * the note on `McpController`.
  */
 
-import { MCP_DEFAULT_HOST, MCP_DEFAULT_PORT, MCP_HTTP_PATH } from '@peek/core'
+import { clampUiZoom, MCP_DEFAULT_HOST, MCP_DEFAULT_PORT, MCP_HTTP_PATH, UI_ZOOM_DEFAULT } from '@peek/core'
 import type {
   ConnBookForgetResult,
   ConnBookListResult,
@@ -47,10 +47,17 @@ export interface ConfigHandlerOptions {
   configDir: string
   /** `app.getVersion()`, injected so this module never imports Electron. */
   version: string
+  /**
+   * Draw the window at this zoom factor. Injected for the same reason `version`
+   * is: `webContents.setZoomFactor` is Electron, and this module stays loadable
+   * in a plain Node test. Absent in an assembly with no window (a test bus), and
+   * the setting is still persisted in that case — the next window will read it.
+   */
+  applyZoom?: (factor: number) => void
 }
 
 export function createConfigHandlers(options: ConfigHandlerOptions): CommandHandlerMap {
-  const { book, mcp, settings, configDir, version } = options
+  const { book, mcp, settings, configDir, version, applyZoom } = options
 
   return {
     'conn.book.list': {
@@ -103,6 +110,7 @@ export function createConfigHandlers(options: ConfigHandlerOptions): CommandHand
           mcpFile: mcp.status().configFile,
         },
         version,
+        uiZoom: settings.read().uiZoom ?? UI_ZOOM_DEFAULT,
       }),
     },
 
@@ -126,7 +134,18 @@ export function createConfigHandlers(options: ConfigHandlerOptions): CommandHand
           if (input.execution?.[key] !== undefined) persisted[key] = execution[key]
         }
         if (Object.keys(persisted).length > 0) settings.update({ executionTimeouts: persisted })
-        return { execution }
+
+        // Same order as the timeouts above: apply, then persist what applied.
+        // `clampUiZoom` is belt and braces — the schema already bounds it — but
+        // it is what makes this handler correct for a settings file someone
+        // edited by hand and a `settings.write` that came in over MCP.
+        let uiZoom = settings.read().uiZoom ?? UI_ZOOM_DEFAULT
+        if (input.uiZoom !== undefined) {
+          uiZoom = clampUiZoom(input.uiZoom)
+          applyZoom?.(uiZoom)
+          settings.update({ uiZoom })
+        }
+        return { execution, uiZoom }
       },
     },
   }
@@ -195,6 +214,7 @@ export const unavailableConfigHandlers = {
       execution: executionBudgets(),
       paths: { configDir: '', settingsFile: '', connectionsFile: '', mcpFile: '' },
       version: '',
+      uiZoom: UI_ZOOM_DEFAULT,
     }),
   },
   'settings.write': {
@@ -207,6 +227,9 @@ export const unavailableConfigHandlers = {
           scanMs: applied.scanMs,
           vectorSearchMs: applied.vectorSearchMs,
         },
+        // Nothing to draw and nothing to write, so the honest answer is the
+        // value that would take effect, not a claim that one did.
+        uiZoom: clampUiZoom(input.uiZoom ?? UI_ZOOM_DEFAULT),
       }
     },
   },

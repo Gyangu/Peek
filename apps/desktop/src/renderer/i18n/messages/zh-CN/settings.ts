@@ -45,6 +45,8 @@ export const settings: CatalogFor<SettingsMessages> = {
   /* ---------------- 外观 ---------------- */
   'settings.language': '语言',
   'settings.languageHint': '立即生效，并记在这台机器上。',
+  'settings.zoom': '界面大小',
+  'settings.zoomHint': '整体缩放窗口——文字、行高、控件一起放大，{keys} 是同一件事。',
 
   /* ---------------- 查询与超时 ---------------- */
   'settings.timeouts.intro': '一个请求最多能跑多久，超过就放弃。没有人显式指定期限时用这里的值。',

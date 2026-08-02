@@ -54,6 +54,13 @@ export const settings = {
   /* Language names are endonyms and never pass through t(); a picker written in
      a language you cannot read helps nobody. */
   'settings.languageHint': 'Applies immediately, and is remembered on this machine.',
+  'settings.zoom': 'Interface size',
+  /* Deliberately says "everything", because that is the difference between this
+     and a font-size setting: row heights and hit targets scale with the text, so
+     the layout keeps its proportions instead of turning into large type in
+     small boxes. */
+  'settings.zoomHint':
+    'Scales the whole window — text, row heights and controls together. {keys} do the same.',
 
   /* ---------------- Queries & timeouts ---------------- */
   'settings.timeouts.intro':

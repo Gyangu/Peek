@@ -1004,15 +1004,66 @@ export const SettingsReadInputSchema = z.object({})
 const ExecutionTimeoutMsSchema = z.number().int().min(0).max(3_600_000)
 
 /**
+ * How large the whole window is drawn, as Electron's `zoomFactor`.
+ *
+ * The bounds are not arbitrary. Below 0.8 the 11px text floor
+ * (`design/2026-08-02-ui-legibility-baseline.md` §2.1) would be scaled back
+ * under 9px, which is the exact thing that document exists to stop — a zoom
+ * control that can undo the legibility floor is not a zoom control, it is a
+ * loophole. Above 1.5 the sidebar (240px), the conversation rail (260px) and a
+ * usable panel no longer fit inside the 900px `minWidth`.
+ */
+export const UI_ZOOM_MIN = 0.8
+export const UI_ZOOM_MAX = 1.5
+export const UI_ZOOM_DEFAULT = 1
+
+/**
+ * The stops the UI offers, and the ones `⌘+` / `⌘-` step between.
+ *
+ * Discrete rather than free: a continuous zoom invites 1.03, which costs a
+ * fractional-pixel repaint of every rule in the window and buys nothing a person
+ * can perceive. Anything outside this list is still *accepted* (MCP or a
+ * hand-edited settings file may send it) and merely clamped — refusing it would
+ * turn a cosmetic preference into a failed command.
+ */
+export const UI_ZOOM_STEPS = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const
+
+const UiZoomSchema = z.number().min(UI_ZOOM_MIN).max(UI_ZOOM_MAX)
+
+/** Nearest legal zoom to `value`, for callers that cannot reject. */
+export function clampUiZoom(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return UI_ZOOM_DEFAULT
+  return Math.min(UI_ZOOM_MAX, Math.max(UI_ZOOM_MIN, value))
+}
+
+/**
+ * The stop one step away from `from`, in the given direction.
+ *
+ * Used by the View menu. Returns the current value unchanged at either end, so
+ * holding `⌘-` stops rather than wrapping around to the largest size.
+ */
+export function stepUiZoom(from: number, direction: 1 | -1): number {
+  const current = clampUiZoom(from)
+  // Nearest stop first: the value may have come from a hand-edited file and land
+  // between two of them, and stepping from "between" has to be well defined.
+  let index = 0
+  for (let i = 1; i < UI_ZOOM_STEPS.length; i += 1) {
+    if (Math.abs(UI_ZOOM_STEPS[i] - current) < Math.abs(UI_ZOOM_STEPS[index] - current)) index = i
+  }
+  const next = index + direction
+  return UI_ZOOM_STEPS[next] ?? UI_ZOOM_STEPS[index]
+}
+
+/**
  * Change the settings that live in `~/.peek/settings.json`.
  *
- * Only execution budgets today. The stage timeouts of the driver-host protocol
- * are deliberately absent: they bound one leg of an internal protocol and are
- * the app protecting itself from a wedged process, not a preference — see
+ * The stage timeouts of the driver-host protocol are deliberately absent: they
+ * bound one leg of an internal protocol and are the app protecting itself from a
+ * wedged process, not a preference — see
  * `docs/design/2026-08-02-settings-panel.md` §3.2.
  *
  * Every member is optional and only what is present is changed, so a form that
- * edits one field does not have to send the other two back unchanged and risk
+ * edits one field does not have to send the others back unchanged and risk
  * clobbering a concurrent edit.
  */
 export const SettingsWriteInputSchema = z
@@ -1027,10 +1078,15 @@ export const SettingsWriteInputSchema = z
         vectorSearchMs: ExecutionTimeoutMsSchema.optional(),
       })
       .optional(),
+    /** Whole-window zoom factor. See `UI_ZOOM_MIN`. */
+    uiZoom: UiZoomSchema.optional(),
   })
-  .refine((value) => value.execution !== undefined && Object.keys(value.execution).length > 0, {
-    message: 'settings.write needs at least one setting to change',
-  })
+  .refine(
+    (value) =>
+      value.uiZoom !== undefined ||
+      (value.execution !== undefined && Object.keys(value.execution).length > 0),
+    { message: 'settings.write needs at least one setting to change' },
+  )
 
 /* ================================================================== */
 /* 3. Registry: command name → input schema                            */
@@ -1473,6 +1529,8 @@ export interface SettingsReadResult {
   paths: SettingsPaths
   /** The app version, as Electron reports it. */
   version: string
+  /** Whole-window zoom factor; `UI_ZOOM_DEFAULT` when the user has never set one. */
+  uiZoom: number
 }
 
 export interface SettingsWriteResult {
@@ -1482,6 +1540,8 @@ export interface SettingsWriteResult {
    * honest answer to "what is the timeout now".
    */
   execution: ExecutionBudgets
+  /** Likewise: the zoom after clamping, which is what the window is drawing at. */
+  uiZoom: number
 }
 
 export interface CommandResultMap {
