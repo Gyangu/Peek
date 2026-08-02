@@ -74,9 +74,13 @@ export function ChatSessionsRail(): ReactElement {
   if (collapsed) {
     return (
       <div className="chat-rail collapsed">
+        {/* The collapsed rail is 28px of chrome and this is all of it, so the
+            handle fills it rather than sitting as a 24px square inside. Layout
+            only — `ghost` still says what it looks like. */}
         <Button
           variant="ghost"
           icon
+          className="chat-rail-handle"
           label={t('chat.sessions.expand')}
           aria-expanded={false}
           onClick={() => {

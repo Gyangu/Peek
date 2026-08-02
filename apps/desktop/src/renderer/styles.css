@@ -1686,10 +1686,17 @@ body.view-dragging.view-drag-nodrop * {
   width: 28px;
 }
 
+/*
+ * Layout only: it fills the 28px of chrome that is the entire collapsed rail.
+ *
+ * The height went with it. This used to say `height: var(--bar-h)` and the fence
+ * was right to refuse it — a control's box height is the size rung's to set, and
+ * a rule that quietly makes one control 30px while every other `md` is 24px is
+ * how a scale stops meaning anything. 24px in a 28px column is the answer the
+ * spec already had.
+ */
 .chat-rail.collapsed .chat-rail-handle {
   width: 100%;
-  height: var(--bar-h);
-  padding: 0;
 }
 
 /* The head carries four things, one more than the sidebar's, so the buttons are
