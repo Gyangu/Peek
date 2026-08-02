@@ -209,6 +209,10 @@ function sourceLabel(t: TFunction, source: ErrorSource): string {
       return t('app.errors.source.ui')
     case 'mcp':
       return t('app.errors.source.mcp')
+    // peek's own embedded chat panel, told apart from an external client since
+    // `source: 'agent'` was actually wired up.
+    case 'agent':
+      return t('app.errors.source.agent')
     case 'system':
       return t('app.errors.source.system')
   }

@@ -241,6 +241,17 @@ export interface ChatDeltaMessage {
  * `ipcRenderer` itself. Every `on*` returns an unsubscribe function.
  */
 export interface PeekBridge {
+  /**
+   * Whether preload's main-world bootstrap succeeded.
+   *
+   * `'degraded'` means the control plane is intact and the data plane does not
+   * exist: commands run, patches arrive, the tree expands — and query results
+   * never come, because `onResultPort` can only receive a MessagePort from
+   * main-world code. Required rather than optional so both preload paths have to
+   * answer; a silent third path is exactly how this went unnoticed before.
+   */
+  dataPlane: 'ok' | 'degraded'
+
   invoke<K extends CommandName>(
     name: K,
     input: CommandInput<K>,
@@ -258,10 +269,15 @@ export interface PeekBridge {
 
   /* ---------------- Read-only, non-command channel ---------------- */
   /*
-   * The members below are **optional**: if preload's main-world bootstrap has to
-   * degrade (executeInMainWorld unavailable), only the control plane works. The
-   * renderer must feature-detect at runtime and degrade its UI when they are
-   * missing — never dereference them blindly.
+   * The members below are **optional** so that a preload which does not
+   * implement them still satisfies this contract; the renderer feature-detects
+   * and degrades its UI (the tree explains itself, a large value shows its
+   * preview) rather than dereferencing them blindly.
+   *
+   * They are *not* what the degraded bootstrap loses. Each is a plain
+   * `ipcRenderer.invoke` and needs no main world, so peek's own fallback path
+   * implements all of them. The one casualty of `dataPlane: 'degraded'` is
+   * `onResultPort` above.
    */
 
   /** Lazy-load the namespace tree; maps to HostRpcMap['introspect.children'] */

@@ -51,15 +51,22 @@ export const app = {
   'app.errors.copied': 'Copied',
   'app.errors.clear': 'Clear',
   'app.errors.close': 'Close',
-  /* Deliberately honest about the limit of what the window can know — see the
-   * attribution note in components/error-center/errorLog.ts. */
+  /* Reported, not inferred: whoever asked for a result set or a connection is
+   * recorded on it when the Command Bus creates it. See errorLog.ts. */
   'app.errors.sourceTitle':
-    'Where the failure came from. “you” is a command this window sent, “peek” is the app itself ' +
-    '(a driver process, state sync). “agent” means it appeared without anything being asked from ' +
-    'this window — usually an MCP tool call — and is inferred, not reported.',
+    'Who asked for the thing that failed. “you” is this window, “MCP” an external client, ' +
+    '“chat” peek’s own chat panel, and “peek” the app itself — a driver process, a timeout, ' +
+    'state sync.',
   'app.errors.source.ui': 'you',
-  'app.errors.source.mcp': 'agent',
+  'app.errors.source.mcp': 'MCP',
+  'app.errors.source.agent': 'chat',
   'app.errors.source.system': 'peek',
+  /* Raised once at startup when preload's main-world bootstrap failed. Not a
+   * transient failure: it lasts until peek is restarted. */
+  'app.errors.dataPlaneDown': 'peek started without its data channel — queries will never return rows',
+  'app.errors.dataPlaneDownDetail':
+    'Connecting, browsing and settings still work, because those travel a different channel. ' +
+    'Restart peek. If it happens again, this is a bug worth reporting.',
 } as const
 
 export type AppMessages = typeof app

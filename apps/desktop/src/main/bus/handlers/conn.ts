@@ -39,6 +39,9 @@ export const connHandlers = {
         // Predict capabilities from the driver until we are connected; the
         // driver host fills in the real set once the connection is ready.
         capabilities: existing?.capabilities ?? [...DRIVER_CAPABILITIES[input.config.driverId]],
+        // Reopening overwrites it on purpose: whoever asked most recently is who
+        // the next failure belongs to.
+        origin: ctx.source,
       }
       putConnection(draft, conn)
 

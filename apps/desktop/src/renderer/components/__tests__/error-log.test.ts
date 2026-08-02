@@ -12,8 +12,8 @@ import { peekError } from '@peek/core'
  * with source and error code — had no UI at all.
  *
  * Covered here: the ring's bounds, what makes an entry, the source attribution
- * rule (including the part that is a documented heuristic), and the clipboard
- * format, which is the whole reason the panel is worth opening.
+ * rules, the degraded-data-plane report, and the clipboard format, which is the
+ * whole reason the panel is worth opening.
  * ================================================================== */
 
 const log = await import('../error-center/errorLog')
@@ -165,5 +165,65 @@ describe('source attribution', () => {
 
     notify('warn', 'State realigned', 'revision gap')
     assert.equal(log.useErrorLog.getState().entries.length, 1, 'a warning is still worth keeping')
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * The degraded data plane.
+ *
+ * When preload's main-world bootstrap fails the control plane still works, so
+ * the window looks healthy and every query loads forever. Before this the only
+ * trace was a console.error.
+ * ------------------------------------------------------------------ */
+
+describe('the degraded data plane announces itself', () => {
+  /** Enough of a bridge for `tryBridge` to accept it: invoke + getSnapshot must be functions. */
+  function stubBridge(dataPlane: 'ok' | 'degraded'): void {
+    const g = globalThis as unknown as Record<string, unknown>
+    g['window'] = { peek: { dataPlane, invoke: () => {}, getSnapshot: () => {} } }
+  }
+
+  function clearBridge(): void {
+    delete (globalThis as unknown as Record<string, unknown>)['window']
+  }
+
+  it('reports a degraded bridge as an error the user can see afterwards', () => {
+    log.startErrorCollection()
+    log.clearErrorLog()
+    stubBridge('degraded')
+    try {
+      log.reportDegradedDataPlane()
+    } finally {
+      clearBridge()
+    }
+
+    const entries = log.useErrorLog.getState().entries
+    assert.equal(entries.length, 1, 'a permanently broken data plane must outlive its toast')
+    // It goes out through `notify`, not `recordError`: the toast subscription is
+    // what files it, so doing both would record the same failure twice.
+    assert.equal(entries[0].source, 'system')
+    assert.match(entries[0].message, /data channel/)
+  })
+
+  it('says nothing when the bridge is healthy', () => {
+    log.startErrorCollection()
+    log.clearErrorLog()
+    stubBridge('ok')
+    try {
+      log.reportDegradedDataPlane()
+    } finally {
+      clearBridge()
+    }
+    assert.equal(log.useErrorLog.getState().entries.length, 0)
+  })
+
+  it('the attribution heuristic it replaced is gone, not merely unused', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(new URL('../error-center/errorLog.ts', import.meta.url), 'utf8')
+    // Naming the capability rather than the old identifier: the heuristic needed
+    // to know when this window last had a command in flight, and nothing else in
+    // this module has any use for that. A differently-named rewrite would still
+    // have to reach for it.
+    assert.ok(!/useBusyStore|inflight/i.test(src), 'attribution must not depend on in-flight timing again')
   })
 })

@@ -167,6 +167,7 @@ function bootstrapMainWorld(internalKey: string, relayKey: string, bridgeKey: st
   }
 
   const api: PeekBridge = {
+    dataPlane: 'ok',
     invoke<K extends CommandName>(
       name: K,
       input: CommandInput<K>,
@@ -262,6 +263,10 @@ if (!bootstrapped) {
   // Degraded path: at least keep the control plane usable (commands + patches +
   // read-only RPC). On this path onResultPort never gets a usable MessagePort —
   // see the note at the top of this file.
+  //
+  // `dataPlane: 'degraded'` below is how the renderer finds out. Until it
+  // existed, the only trace was the console.error above, so the symptom anyone
+  // actually saw was "queries load forever" with a window that otherwise works.
   const unwrapFallback = async <T,>(promise: Promise<DriverRpcResponse>): Promise<T> => {
     const res = await promise
     if (res.ok) return res.data as T
@@ -271,6 +276,7 @@ if (!bootstrapped) {
   }
 
   const fallback: PeekBridge = {
+    dataPlane: 'degraded',
     invoke<K extends CommandName>(
       name: K,
       input: CommandInput<K>,

@@ -34,9 +34,13 @@ export const app: CatalogFor<AppMessages> = {
   'app.errors.clear': '清空',
   'app.errors.close': '关闭',
   'app.errors.sourceTitle':
-    '这条失败从哪来。“你”表示本窗口发出的命令；“peek”表示应用自身（驱动进程、状态同步）。' +
-    '“助手”表示本窗口没发出过任何请求它却出现了——通常是 MCP 工具调用——这是推断出来的，不是上报的。',
+    '出问题的那件事是谁要求的。“你”是本窗口；“MCP”是外部客户端；“对话”是 peek 自己的聊天面板；' +
+    '“peek”是应用自身——驱动进程、超时、状态同步。',
   'app.errors.source.ui': '你',
-  'app.errors.source.mcp': '助手',
+  'app.errors.source.mcp': 'MCP',
+  'app.errors.source.agent': '对话',
   'app.errors.source.system': 'peek',
+  'app.errors.dataPlaneDown': 'peek 启动了，但数据通道没建立——查询永远不会返回数据',
+  'app.errors.dataPlaneDownDetail':
+    '连接、浏览和设置仍然可用，它们走的是另一条通道。请重启 peek；如果重复出现，这是一个值得上报的 bug。',
 }

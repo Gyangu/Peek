@@ -434,6 +434,10 @@ function beginResult(
     rows: 0,
     startedAt: ctx.now,
     summary,
+    // Recorded here and never again: when this result fails half a minute from
+    // now, the write-back that marks it failed knows only that a driver reported
+    // it. Who asked is knowable only at this moment.
+    origin: ctx.source,
   })
   return resultId
 }

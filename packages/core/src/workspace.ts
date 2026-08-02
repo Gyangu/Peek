@@ -16,6 +16,9 @@ import {
   defaultConnectionLabel,
   redactConnectionConfig,
 } from './capability'
+// Type-only, so the commands.ts → workspace.ts edge stays the only real one:
+// `import type` is erased entirely and creates no module cycle at runtime.
+import type { CommandSource } from './commands'
 import type { PeekError } from './errors'
 import {
   newPanelId,
@@ -73,6 +76,8 @@ export interface ConnectionState {
   readyAt?: number
   /** Pid of the driver host's utilityProcess, handy when debugging */
   pid?: number
+  /** Who asked for this connection. See the note on `ResultMeta.origin`. */
+  origin?: CommandSource
 }
 
 /* ================================================================== */
@@ -400,6 +405,17 @@ export interface ResultMeta {
   error?: PeekError
   /** Short description of the statement or scan, for MCP to read */
   summary?: string
+  /**
+   * Who asked for this. Written once by the Command Bus at creation and never
+   * changed, which is what makes it answerable long after the fact: a query that
+   * dies thirty seconds in still knows who started it, whereas the state change
+   * that marked it failed only knows that a driver process reported it.
+   *
+   * Optional in the type because tests hand-build these literals, not because it
+   * can be missing in a running app — `command-origin.test.ts` dispatches through
+   * the bus and asserts it is always set.
+   */
+  origin?: CommandSource
 }
 
 /* ================================================================== */

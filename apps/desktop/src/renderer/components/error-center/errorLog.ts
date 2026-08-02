@@ -1,7 +1,8 @@
 import { create } from 'zustand'
-import type { PeekError, PeekErrorCode } from '@peek/core'
-import { useBusyStore } from '../../state/dispatch'
-import { useNotifyStore, type Toast } from '../../state/notifyStore'
+import type { CommandSource, PeekError, PeekErrorCode } from '@peek/core'
+import { tryBridge } from '../../bridge'
+import { tStatic } from '../../i18n'
+import { notify, useNotifyStore, type Toast } from '../../state/notifyStore'
 import { useWorkspaceStore } from '../../state/workspaceStore'
 
 /* ==================================================================
@@ -22,30 +23,25 @@ import { useWorkspaceStore } from '../../state/workspaceStore'
  *
  * ## Where each entry comes from, and how `source` is decided
  *
- * Three channels, and the rule for each is written out because the honest answer
- * differs by channel:
+ * Two channels, and neither of them guesses:
  *
- *   `ui`     A command **this window** sent came back failed, or a renderer-side
- *            operation did. These arrive as toasts shaped `[CODE] …`, which only
- *            `notifyError` produces and which only renderer code can call.
- *   `system` Main pushed it over NOTIFY: driver stderr, a crashed driver process,
- *            mirror-health warnings. Any toast without the `[CODE]` shape.
- *   `mcp`    It appeared in the Workspace mirror — a result set or a connection
- *            went to error — with nothing in flight from this window.
+ *   toasts   A `[CODE] …` toast can only come from `notifyError`, which only
+ *            renderer code can call, so it is `ui`. Anything else was pushed by
+ *            main over NOTIFY — driver stderr, a crashed driver process — so it
+ *            is `system`. The shape is the evidence.
+ *   mirror   A result set or a connection went to error. Its `origin` says who
+ *            asked for it, recorded by the Command Bus when it was created.
  *
- * The third rule is a **heuristic and is documented as one**, both here and in the
- * panel's own tooltip. A failure that surfaces asynchronously (a query that dies
- * thirty seconds in) carries no evidence of who started it once it reaches the
- * renderer: patches carry a `commandName` but no `source`, and the only place that
- * knows for certain is main's Command log. Attributing it correctly needs that log
- * to reach the window, which needs a new IPC channel in `packages/core/src/ipc.ts`
- * plus a preload member — both outside this change. Until then `mcp` means
- * "nobody at this keyboard appears to have asked for it", which is the true and
- * useful part of the claim, and the code / message / detail — the fields anyone
- * actually debugs with — are exact either way.
+ * `origin` replaced a heuristic that timed out after 1.5s of no in-flight command
+ * and called anything later `mcp`. That rule was wrong in exactly the case the
+ * panel exists for: a query that dies thirty seconds in has no command in flight
+ * no matter who started it, so a person's own timed-out query was reported as an
+ * agent's. Recording the answer at creation makes it survive any amount of delay
+ * — see docs/design/2026-08-02-failure-attribution-and-degraded-boot.md.
  * ================================================================== */
 
-export type ErrorSource = 'ui' | 'mcp' | 'system'
+/** No separate enum: the panel names the same four actors the Command Bus does. */
+export type ErrorSource = CommandSource
 
 export interface ErrorEntry {
   /** Monotonic, newest highest. */
@@ -80,19 +76,9 @@ interface ErrorLogState {
 /** How many failures the ring keeps. Matches main's Command log order of magnitude without holding its memory. */
 export const ERROR_LOG_CAPACITY = 100
 
-/**
- * How long after a UI command was in flight a Workspace error still counts as
- * this window's doing. Short on purpose: it covers the synchronous case (a
- * command fails and the state change lands in the same breath) without claiming
- * anything about a query that dies a minute later.
- */
-const UI_ATTRIBUTION_WINDOW_MS = 1_500
-
 export const useErrorLog = create<ErrorLogState>(() => ({ entries: [], open: false, unseen: 0 }))
 
 let seq = 0
-/** Last moment this window had a command in flight; drives UI attribution. */
-let lastInflightAt = 0
 
 export function recordError(entry: Omit<ErrorEntry, 'id' | 'ts'>): void {
   seq += 1
@@ -154,10 +140,6 @@ export function startErrorCollection(): void {
   if (started) return
   started = true
 
-  useBusyStore.subscribe((state) => {
-    if (state.inflight > 0) lastInflightAt = Date.now()
-  })
-
   useNotifyStore.subscribe((state) => {
     for (const toast of state.toasts) {
       if (toast.id <= lastToastId) continue
@@ -172,6 +154,31 @@ export function startErrorCollection(): void {
     harvestResults(ws.results)
     harvestConnections(ws.connections)
   })
+
+  reportDegradedDataPlane()
+}
+
+/**
+ * Say out loud that preload's main-world bootstrap failed.
+ *
+ * A toast rather than a direct `recordError`, because the subscription above
+ * turns every toast into an entry — calling both would log it twice. Going
+ * through `notify` also gets it in front of the user immediately, while the
+ * error log and the status-bar badge keep it afterwards.
+ *
+ * Worth the noise because the symptom is otherwise indistinguishable from a slow
+ * database: the window opens, connections open, the tree expands, and every
+ * query loads forever. Until this existed the only trace was a `console.error`
+ * in preload, which is addressed to whoever already had devtools open.
+ *
+ * Exported so it can be driven with a stubbed bridge; production calls it once,
+ * from `startErrorCollection`.
+ */
+export function reportDegradedDataPlane(): void {
+  // No window means node, not a degraded renderer.
+  if (typeof window === 'undefined') return
+  if (tryBridge()?.dataPlane !== 'degraded') return
+  notify('error', tStatic('app.errors.dataPlaneDown'), tStatic('app.errors.dataPlaneDownDetail'))
 }
 
 function recordToast(toast: Toast): void {
@@ -196,7 +203,7 @@ function harvestResults(results: ResultsMap): void {
     if (loggedResults.has(meta.id)) continue
     loggedResults.add(meta.id)
     recordError({
-      source: attributeStateError(),
+      source: originOf(meta.origin),
       code: meta.error.code,
       message: meta.error.message,
       ...(meta.error.detail === undefined ? {} : { detail: meta.error.detail }),
@@ -229,7 +236,7 @@ function harvestConnections(connections: ConnectionsMap): void {
     if (loggedConnections.get(conn.id) === signature) continue
     loggedConnections.set(conn.id, signature)
     recordError({
-      source: attributeStateError(),
+      source: originOf(conn.origin),
       code: conn.error.code,
       message: conn.error.message,
       ...(conn.error.detail === undefined ? {} : { detail: conn.error.detail }),
@@ -242,9 +249,15 @@ function harvestConnections(connections: ConnectionsMap): void {
   }
 }
 
-/** See the module header: this is the documented heuristic, isolated so it is easy to replace. */
-function attributeStateError(): ErrorSource {
-  return Date.now() - lastInflightAt <= UI_ATTRIBUTION_WINDOW_MS ? 'ui' : 'mcp'
+/**
+ * `system` is the definition, not a fallback: `ui` / `mcp` / `agent` exhaust the
+ * ways somebody can ask for something, so an object no command created belongs to
+ * peek itself. In a running app this never fires — the Command Bus writes
+ * `origin` at both creation sites, and `command-origin.test.ts` asserts it — but
+ * the field is optional in core so that tests can hand-build state literals.
+ */
+function originOf(origin: CommandSource | undefined): ErrorSource {
+  return origin ?? 'system'
 }
 
 /* ------------------------------------------------------------------ */
