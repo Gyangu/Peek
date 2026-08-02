@@ -91,19 +91,24 @@ export function isCommandName(value: unknown): value is CommandName {
  * and a model calling a tool run the same handler with the same validation, which
  * is the property that keeps the two from ever seeing different state.
  *
- * The one place it is allowed to change an *outcome* is policy: `chat.setMode`
- * refuses to hand a non-`ui` caller a permission mode that disables the human
- * gate. That is not a second code path, it is a rule about who may ask.
+ * The two places it is allowed to change an *outcome* are both policy, not a
+ * second code path: `chat.setMode` refuses to hand a non-`ui` caller a permission
+ * mode that disables the human gate, and `chat.respondPermission` refuses an
+ * `agent` caller outright. Both are rules about who may ask.
  *
  * - `ui`     the human, through the renderer.
  * - `mcp`    an MCP client outside peek (an editor, another agent's Claude Code).
  * - `agent`  peek's **own embedded chat panel** driving the UI back through MCP.
- *            Wire it up by giving the embedded agent its own `createMcpServer`
- *            handle with `source: 'agent'`; without that it is indistinguishable
- *            from any other MCP client, which is exactly what this member exists
- *            to fix — "the assistant in the sidebar opened this" and "something
- *            attached over the network opened this" are different events to a
- *            human reading the log.
+ *            Wired via a second bearer credential on the same endpoint: the panel
+ *            authenticates with a token that is minted per process and never
+ *            written to `~/.peek/mcp.json`, so it is the one caller an external
+ *            client cannot impersonate. It is also the one caller refused
+ *            `chat.respondPermission` — an agent that can answer a permission
+ *            prompt, including one raised for a different conversation in the
+ *            same window, has no permission system.
+ *            This comment described the wiring for a long time before anything
+ *            performed it, and every request in the process arrived as `mcp`.
+ *            See design/2026-08-02-agent-source-and-permission-scope.md.
  * - `system` main's own write-back (driver host events, agent stream events).
  */
 export const CommandSourceSchema = z.enum(['ui', 'mcp', 'agent', 'system'])

@@ -385,6 +385,53 @@ test('answering a permission prompt clears it, resumes the turn, and reports wha
   })
 })
 
+test("peek's own chat panel cannot answer a permission prompt — not even its own", async () => {
+  /*
+   * The scope leak this closes: a human puts conversation A into `dontAsk`, which
+   * stops A's agent being asked before its `mcp__peek__*` calls. Nothing then
+   * stopped that agent from calling `control_chat answer_permission` against
+   * conversation **B** and approving whatever B was blocked on. The human
+   * authorised "stop asking me about A"; the reach was the whole window.
+   *
+   * `source: 'agent'` is what makes this expressible at all. It is a documented
+   * member of `CommandSource` that, until the embedded panel got its own MCP
+   * credential, no request ever carried — the enum described an isolation that
+   * did not exist.
+   *
+   * See design/2026-08-02-agent-source-and-permission-scope.md.
+   */
+  const h = harness()
+  const viewId = await openChat(h)
+  await h.bus.dispatch('chat.send', { viewId, text: 'do the thing' }, 'ui')
+  h.sink.onPermissionRequested(chatOf(h, viewId).chatId, pendingFor('mcp__peek__run_query'))
+
+  const res = await h.bus.dispatch('chat.respondPermission', { viewId, optionId: 'allow' }, 'agent')
+  assert.equal(res.ok, false)
+  if (res.ok) return
+  assert.equal(res.error.code, 'BAD_REQUEST')
+
+  // Refused, and the prompt is still standing — a rejected answer must not be
+  // mistaken for an answer.
+  assert.notEqual(chatOf(h, viewId).pendingPermission, undefined)
+  assert.equal(chatOf(h, viewId).agentStatus, 'awaiting-permission')
+  assert.notEqual(h.effects.at(-1)?.type, 'permission')
+})
+
+test('an operator outside peek still answers prompts; that is what control_chat is for', async () => {
+  // The refusal above is deliberately narrow. PLAN §7 makes "an external client
+  // can watch and drive the embedded one" a feature, and `control_chat`'s own
+  // description says answering is for an operator driving peek from outside. A
+  // blanket "non-ui may not answer" would have deleted that.
+  const h = harness()
+  const viewId = await openChat(h)
+  await h.bus.dispatch('chat.send', { viewId, text: 'do the thing' }, 'ui')
+  h.sink.onPermissionRequested(chatOf(h, viewId).chatId, pendingFor('mcp__peek__run_query'))
+
+  const res = await h.bus.dispatch('chat.respondPermission', { viewId, optionId: 'allow' }, 'mcp')
+  assert.equal(res.ok, true)
+  assert.equal(chatOf(h, viewId).pendingPermission, undefined)
+})
+
 test('rejecting is an ordinary answer: the option is passed through, nothing is special-cased', async () => {
   const h = harness()
   const viewId = await openChat(h)

@@ -686,6 +686,34 @@ export function createChatHandlers(runtime: ChatRuntime): ChatHandlerMap {
 
     'chat.respondPermission': {
       reduce(draft, input, ctx): ChatRespondPermissionResult {
+        /*
+         * The second place `source` decides an outcome, and the reason it had to
+         * become a real value rather than a comment.
+         *
+         * `control_chat answer_permission` exists for an operator driving peek
+         * from outside — its own tool description says so, and adds that if a
+         * person is sitting at the window the prompt is already in front of them
+         * and is theirs to answer. peek's *own* embedded panel is neither of
+         * those, so it has no legitimate use for this at all.
+         *
+         * What made it reachable: once a human puts one conversation into
+         * `dontAsk` or `bypassPermissions`, that panel's agent stops being asked
+         * before its `mcp__peek__*` calls — and nothing here looked at who was
+         * calling. It could then answer the prompt a *different* conversation was
+         * blocked on. The human authorised "stop asking me about **this**
+         * conversation"; the effect reached the whole window.
+         *
+         * Refused unconditionally rather than only for a foreign viewId: all
+         * embedded panels share one credential, so "its own" is not a question
+         * main can answer — and a rule that does not depend on state is a rule
+         * that cannot be manoeuvred into a state where it lapses.
+         *
+         * See design/2026-08-02-agent-source-and-permission-scope.md §2.3.
+         */
+        if (ctx.source === 'agent') {
+          failMsg('BAD_REQUEST', 'error.chat.permissionNotAnswerableByAgent')
+        }
+
         const view = requireChatView(draft, input.viewId)
         const pending = plain(view.pendingPermission)
         if (!pending) failMsg('CONFLICT', 'error.chat.noPendingPermission')

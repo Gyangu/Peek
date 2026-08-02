@@ -33,7 +33,7 @@ import {
   defaultConfigDir,
   generateToken,
   readExistingToken,
-  tokenMatches,
+  resolveCommandSource,
   writeEndpointFile,
   type McpEndpointFile,
 } from './token'
@@ -94,6 +94,22 @@ export interface CreateMcpServerOptions {
   path?: string
   /** Explicit token; otherwise reuse the one in ~/.peek/mcp.json, or mint a new one. */
   token?: string
+  /**
+   * A second bearer token that identifies peek's **own** embedded chat panel.
+   *
+   * Same port, same path — only the credential differs, and it decides the
+   * session's `source`. Two listeners would buy no isolation (they are one
+   * process) and would cost two `mcp.json` entries, two port sweeps and two
+   * addresses to explain in the settings panel.
+   *
+   * It must never reach `~/.peek/mcp.json`. That file is how an *external*
+   * client is meant to authenticate, and an agent token an external client can
+   * read is not an identity, it is a costume. Keeping it in memory is what makes
+   * `source: 'agent'` mean something.
+   *
+   * See design/2026-08-02-agent-source-and-permission-scope.md §2.1.
+   */
+  agentToken?: string
   /** Defaults to ~/.peek. */
   configDir?: string
   /** Set to false to skip writing ~/.peek/mcp.json (used by tests). */
@@ -110,6 +126,8 @@ export interface McpServerHandle {
   readonly path: string
   readonly url: string
   readonly token: string
+  /** The embedded agent's credential, when one was supplied. Never written to disk. */
+  readonly agentToken: string | null
   readonly toolNames: readonly string[]
   readonly sessionCount: number
   readonly listening: boolean
@@ -143,15 +161,28 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
 
   const tools = options.tools ?? collectBuiltinTools()
 
-  const ctx: ToolContext = {
-    dispatch: options.dispatch,
-    source: options.source ?? 'mcp',
-    getSnapshot: options.getSnapshot,
-    ...(options.introspect === undefined ? {} : { introspect: options.introspect }),
-    ...(options.readResultRows === undefined ? {} : { readResultRows: options.readResultRows }),
-    logger,
-    now: () => Date.now(),
-    sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+  const agentToken = options.agentToken ?? null
+  const externalSource: CommandSource = options.source ?? 'mcp'
+
+  /**
+   * One context per session, because `source` is now a property of *who
+   * connected* rather than of the process.
+   *
+   * A session is established by an `initialize` request, and that request
+   * carries the Authorization header, so the answer is settled once at the
+   * moment the session opens rather than recomputed per call.
+   */
+  function contextFor(source: CommandSource): ToolContext {
+    return {
+      dispatch: options.dispatch,
+      source,
+      getSnapshot: options.getSnapshot,
+      ...(options.introspect === undefined ? {} : { introspect: options.introspect }),
+      ...(options.readResultRows === undefined ? {} : { readResultRows: options.readResultRows }),
+      logger,
+      now: () => Date.now(),
+      sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    }
   }
 
   const sessions = new Map<string, SessionEntry>()
@@ -186,7 +217,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
     }
   }
 
-  async function createSession(): Promise<StreamableHTTPServerTransport> {
+  async function createSession(source: CommandSource): Promise<StreamableHTTPServerTransport> {
     await evictIfNeeded()
 
     const transport = new StreamableHTTPServerTransport({
@@ -211,7 +242,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
       capabilities: { tools: { listChanged: false } },
       instructions: MCP_INSTRUCTIONS,
     })
-    registerTools(server, tools, ctx)
+    registerTools(server, tools, contextFor(source))
     await server.connect(transport)
     return transport
   }
@@ -262,12 +293,13 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
     return true
   }
 
-  function checkAuth(req: IncomingMessage): boolean {
-    const header = req.headers.authorization
-    if (typeof header !== 'string') return false
-    const prefix = 'bearer '
-    if (header.slice(0, prefix.length).toLowerCase() !== prefix) return false
-    return tokenMatches(token, header.slice(prefix.length).trim())
+  /**
+   * Which caller this is, or null when the credential does not open the door.
+   * The rule itself lives in `token.ts` beside the other credential logic, where
+   * it can be asserted without standing up an HTTP server.
+   */
+  function identify(req: IncomingMessage): CommandSource | null {
+    return resolveCommandSource(req.headers.authorization, { token, agentToken, externalSource })
   }
 
   type BodyRead =
@@ -335,7 +367,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
       return
     }
 
-    if (!checkAuth(req)) {
+    const source = identify(req)
+    if (source === null) {
       sendRpcError(res, 401, -32000, 'Unauthorized: Authorization: Bearer <token> is required (see ~/.peek/mcp.json)', {
         'www-authenticate': 'Bearer realm="peek"',
       })
@@ -362,7 +395,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
         entry.lastSeenAt = Date.now()
         transport = entry.transport
       } else if (isInitializeRequest(body.value)) {
-        transport = await createSession()
+        transport = await createSession(source)
       } else {
         sendRpcError(res, 400, -32000, 'Bad Request: missing mcp-session-id, and this is not an initialize request')
         return
@@ -498,6 +531,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
     path,
     url: `http://${host}:${port}${path}`,
     token,
+    agentToken,
     toolNames: tools.map((t) => t.name),
     get sessionCount() {
       return sessions.size

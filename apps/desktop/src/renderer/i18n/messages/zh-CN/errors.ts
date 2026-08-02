@@ -124,5 +124,7 @@ export const errors: CatalogFor<ErrorMessageCatalog> = {
   'error.chat.permissionStale': '授权请求 {requestId} 已经不是当前那一条（现在是 {actual}），请重新读取对话',
   'error.chat.permissionOptionUnknown': '没有 {optionId} 这个授权选项，可选：{options}',
   'error.chat.modeNotAllowed': '授权模式 {mode} 只能由本人在界面上选择，{source} 无权切换',
+  'error.chat.permissionNotAnswerableByAgent':
+    '权限提示只能由键盘前的本人、或从外部驱动 peek 的 operator 来回答，peek 自己的聊天面板无权代答',
   'error.chat.agentUnavailable': '聊天助手当前不可用',
 }

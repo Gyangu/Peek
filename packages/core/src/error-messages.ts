@@ -112,6 +112,13 @@ export const ERROR_MESSAGES = {
    */
   'error.chat.modeNotAllowed':
     'Permission mode {mode} can only be chosen by the person at the keyboard, not by {source}',
+  /**
+   * Not a capability check but a policy one, like `modeNotAllowed` above: the
+   * embedded panel must not answer a permission prompt — including one raised
+   * for a different conversation in the same window.
+   */
+  'error.chat.permissionNotAnswerableByAgent':
+    "A permission prompt is answered by the person at the keyboard, or by an operator driving peek from outside — not by peek's own chat panel",
   'error.chat.agentUnavailable': 'The chat agent is not available',
 
   /* ---- Queries and result sets ------------------------------------- */

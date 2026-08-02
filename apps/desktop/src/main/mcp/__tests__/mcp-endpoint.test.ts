@@ -85,6 +85,7 @@ function harness(options: { busy?: number[]; fatalOn?: number; forcedPort?: numb
         path: MCP_HTTP_PATH,
         url,
         token: minted,
+        agentToken: null,
         toolNames: [],
         sessionCount: 0,
         get listening() {
@@ -323,6 +324,7 @@ function stubHandle(port: number): McpServerHandle {
     path: MCP_HTTP_PATH,
     url,
     token: 'stub-token-stub-token-stub-token',
+    agentToken: null,
     toolNames: [],
     sessionCount: 0,
     get listening() {

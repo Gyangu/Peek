@@ -12,6 +12,8 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
+
+import type { CommandSource } from '@peek/core'
 import { MCP_CONFIG_FILE_NAME, PEEK_CONFIG_DIR_NAME } from '@peek/core'
 
 export interface McpEndpointFile {
@@ -101,6 +103,38 @@ export function writeEndpointFile(input: WriteEndpointInput): McpEndpointFile {
     // chmod is largely meaningless on Windows; failing here does not break anything.
   }
   return file
+}
+
+/**
+ * Which caller a bearer header identifies, or null when it opens nothing.
+ *
+ * Authentication and identity are one question here, not two: the token both
+ * proves the caller may connect *and* says who they are, so matching it twice
+ * would be two chances to disagree.
+ *
+ * The agent credential is checked first and unconditionally. `agent` is the more
+ * restricted identity — it is refused `chat.respondPermission` — so the direction
+ * that must never happen is an agent request being read as an external one. Order
+ * makes that unrepresentable rather than merely unlikely.
+ *
+ * Lives beside the token helpers rather than inside the server closure so it can
+ * be asserted directly; the rule it encodes is a security boundary, and a
+ * boundary nobody can test is a boundary nobody can trust.
+ *
+ * See design/2026-08-02-agent-source-and-permission-scope.md §2.1.
+ */
+export function resolveCommandSource(
+  header: string | undefined,
+  creds: { token: string; agentToken: string | null; externalSource: CommandSource },
+): CommandSource | null {
+  if (typeof header !== 'string') return null
+  const prefix = 'bearer '
+  if (header.slice(0, prefix.length).toLowerCase() !== prefix) return null
+  const presented = header.slice(prefix.length).trim()
+  if (presented === '') return null
+  if (creds.agentToken !== null && tokenMatches(creds.agentToken, presented)) return 'agent'
+  if (tokenMatches(creds.token, presented)) return creds.externalSource
+  return null
 }
 
 /** Constant-time bearer token comparison, to avoid a timing side channel. */

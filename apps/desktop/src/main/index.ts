@@ -26,7 +26,7 @@ import {
   createDeltaEmitter,
 } from './chat-host'
 import { ConnectionManager, setTimeoutSettings } from './connections'
-import { createMcpServer } from './mcp'
+import { createMcpServer, generateToken } from './mcp'
 import { WorkspaceStore, createResultEventSink } from './store'
 import { installDriverRpc, type DriverRpcOptions } from './driver-rpc'
 import { createResultRowsBroker, type ResultRowsBroker } from './result-rows'
@@ -152,6 +152,23 @@ let book: ConnectionBook | null = null
  * no error anywhere explaining why.
  */
 let mcpEndpoint: McpEndpointInfo | null = null
+
+/**
+ * The credential the embedded chat panel authenticates with, and nobody else.
+ *
+ * Minted once per process and never written to `~/.peek/mcp.json` — that file is
+ * how an *external* client authenticates, and a token an external client can read
+ * cannot identify anyone. It is what turns `source: 'agent'` from a comment into
+ * a fact: `commands.ts` has described this wiring since the enum was written, and
+ * until now nothing produced the value.
+ *
+ * The panel cannot reach the external token either: `buildAgentSessionMeta` gives
+ * the session `tools: []` and `settingSources: []`, so it has no way to read a
+ * file. The isolation rests on that, not on the agent behaving.
+ *
+ * See design/2026-08-02-agent-source-and-permission-scope.md §2.1–2.2.
+ */
+const agentToken = generateToken()
 let acp: AcpManager | null = null
 const disposers: (() => void)[] = []
 
@@ -473,6 +490,7 @@ function buildMcpController(
         port,
         configDir,
         ...(token === undefined ? {} : { token }),
+        agentToken,
         // UI and AI share one command channel: source is recorded in the log and
         // changes no line of the execution path.
         dispatch: (name, input, source) => commandBus.dispatch(name, input, source),
@@ -497,7 +515,11 @@ function buildMcpController(
     // The ACP host reads this at session-creation time; a null endpoint is what
     // stops it from handing the user a Claude that silently cannot see the window.
     onEndpoint: (endpoint) => {
-      mcpEndpoint = endpoint
+      // Same URL, different credential. This is the whole of the wiring: the ACP
+      // host hands this straight to `buildPeekMcpServer`, so the embedded panel
+      // opens its MCP session with the agent token and every command it sends
+      // arrives as `source: 'agent'`.
+      mcpEndpoint = endpoint === null ? null : { url: endpoint.url, token: agentToken }
     },
   })
 }

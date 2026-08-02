@@ -131,7 +131,12 @@ const AGENT_TOOL_PRESET: readonly string[] = []
  *   no project `.claude/`, no `CLAUDE.md`, no inherited MCP servers, no inherited
  *   permission rules. peek's panel behaves the same on every machine, which is
  *   also what makes the permission dialog mean what it says.
- * - `tools: []` — no built-in tools at all. See `AGENT_TOOL_PRESET`.
+ * - `tools: []` — no built-in tools at all. See `AGENT_TOOL_PRESET`. This now
+ *   carries a second job: the panel authenticates to peek's MCP endpoint with its
+ *   own credential, and the *external* token sits in `~/.peek/mcp.json`. With no
+ *   file-reading tool there is no path from the session to that file, which is
+ *   what keeps `source: 'agent'` from being something the agent can take off.
+ *   See design/2026-08-02-agent-source-and-permission-scope.md §2.2.
  * - `disallowedTools` — the explicit refusal, merged on top. See above.
  * - `mcpServers: {}` — the agent merges `{...options.mcpServers, ...params.mcpServers}`,
  *   so this empties the inherited side while leaving peek's own descriptor (passed

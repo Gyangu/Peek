@@ -84,9 +84,18 @@ function harness(): Harness {
   )
 
   const ctx: ToolContext = {
-    // 'agent' throughout: this file exercises the embedded assistant's path, which
-    // is the one the loop exists for.
-    source: 'agent',
+    /*
+     * `'mcp'`: an MCP client outside peek, which is what every request in the
+     * process actually was until the embedded panel got its own credential.
+     *
+     * This said `'agent'` — written to the *intent* recorded in `CommandSource`'s
+     * comment rather than to what the wiring produced, and so it asserted a path
+     * production never took. Now that `source` is real and
+     * `chat.respondPermission` refuses `'agent'`, keeping it would have made this
+     * file test a caller that is forbidden from doing what the file checks.
+     * `agentCtx()` below covers that caller deliberately.
+     */
+    source: 'mcp',
     dispatch: (name, input, source) => bus.dispatch(name, input, source),
     getSnapshot: () => store.getSnapshot(),
     logger: { log: () => {} },
@@ -94,6 +103,11 @@ function harness(): Harness {
     sleep: async () => {},
   }
   return { bus, store, ctx, effects, sink: createChatEventSink(store) }
+}
+
+/** The same harness, seen as peek's own embedded chat panel. */
+function asAgent(h: Harness): Harness {
+  return { ...h, ctx: { ...h.ctx, source: 'agent' } }
 }
 
 function run(tool: PeekTool, input: unknown, h: Harness): Promise<ToolOutput> {
@@ -316,6 +330,31 @@ test('control_chat answers the prompt, and defaults requestId to the one it just
   assert.equal(out.isError, undefined)
   assert.deepEqual(h.effects.at(-1), { type: 'permission', chatId, requestId: 'req_1', optionId: 'allow' })
   assert.equal(h.store.getSnapshot().views.find((v) => v.id === viewId)?.chat?.pendingPermission, undefined)
+})
+
+test('control_chat answer_permission is refused when the caller is peek\'s own panel', async () => {
+  /*
+   * The tool-layer half of the boundary the bus enforces. Worth having both: this
+   * is the reachable path — `control_chat` is a tool the embedded panel can see,
+   * and once a human puts its conversation into `dontAsk` it stops being asked
+   * before calling it.
+   *
+   * The refusal does not depend on which conversation is targeted. All embedded
+   * panels share one credential, so "its own" is not a question main can answer,
+   * and a rule that holds only for foreign viewIds is a rule with a state you can
+   * manoeuvre into.
+   *
+   * See design/2026-08-02-agent-source-and-permission-scope.md §2.3.
+   */
+  const h = harness()
+  const { viewId } = await blockedChat(h)
+
+  const out = await run(controlChatTool, { viewId, action: 'answer_permission', optionId: 'allow' }, asAgent(h))
+  assert.equal(out.isError, true)
+
+  // Still blocked: a refused answer must not be mistaken for an answer.
+  assert.notEqual(h.store.getSnapshot().views.find((v) => v.id === viewId)?.chat?.pendingPermission, undefined)
+  assert.notEqual(h.effects.at(-1)?.type, 'permission')
 })
 
 test('control_chat answer_permission on a conversation that is not blocked refuses', async () => {

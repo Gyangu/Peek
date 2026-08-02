@@ -91,11 +91,19 @@ export interface ToolContext {
   /**
    * Who these tool calls are attributed to in the command log.
    *
-   * Defaults to `'mcp'`. peek's **own** embedded chat panel gets its own server
-   * handle with `'agent'`, so a human reading the log can tell "the assistant in
-   * the sidebar opened this" from "something attached over the network opened
-   * this". It changes attribution and one policy rule (`chat.setMode` refuses to
-   * disable the human gate for a non-`ui` caller) — never the execution path.
+   * Resolved **per session**, from the bearer credential the `initialize` request
+   * presented: peek's own embedded chat panel holds a second token and arrives as
+   * `'agent'`, everyone else as `'mcp'`. So a human reading the log can tell "the
+   * assistant in the sidebar opened this" from "something attached over the
+   * network opened this".
+   *
+   * It changes attribution and two policy rules — `chat.setMode` refuses to
+   * disable the human gate for a non-`ui` caller, and `chat.respondPermission`
+   * refuses an `'agent'` caller — never the execution path.
+   *
+   * This used to say the panel "gets its own server handle", in the present
+   * tense, while a single handle served everyone and the value was never
+   * produced. See design/2026-08-02-agent-source-and-permission-scope.md §1.1.
    */
   readonly source?: CommandSource
   /** Snapshot of main's Workspace source of truth (already redacted). */
