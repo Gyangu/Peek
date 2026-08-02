@@ -34,6 +34,19 @@ export {
 
 export { useGlobalKeys } from './useGlobalKeys'
 
+/* Escape ownership and focus containment, shared by every modal in the window. */
+export {
+  isTopModal,
+  modalDepth,
+  nextFocusIndex,
+  popModal,
+  pushModal,
+  resetModalStack,
+  type ModalId,
+} from './modalStack'
+
+export { useModalDialog, type ModalDialogOptions } from './useModalDialog'
+
 /* The focus contract the panel and its tab strip share. `PanelFocusApi` is the
  * only thing the two components pass between them. */
 export {
