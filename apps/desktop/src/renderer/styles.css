@@ -143,10 +143,12 @@ button {
    * 11px status bar — measured, not assumed. `min-height` is what makes the
    * floor a floor regardless of the context the control lands in.
    *
-   * The exemptions are the inline controls in compact strips (`.tab-close`,
-   * `.tree-action`, `.chat-chip-x`, `.md-copy`), each of which sets its own
-   * height and says why. They are listed in
-   * design/2026-08-02-ui-legibility-baseline.md §2.3.
+   * The exemptions used to be four rules that each set their own height and each
+   * explained why — `.tab-close`, `.tree-action`, `.chat-chip-x`, `.md-copy`.
+   * Four correct explanations of one fact is what a missing rung looks like, and
+   * they are `size="sm"` (20px, `--fs-sm`) in ui/controls.css now. `.tree-action`
+   * is the last one still written out, because TreeView has not migrated.
+   * See design/2026-08-02-ui-legibility-baseline.md §2.3 and the control spec §2.4.
    */
   min-height: var(--hit-min);
   cursor: pointer;
@@ -1525,7 +1527,18 @@ body.view-dragging.view-drag-nodrop * {
   margin-bottom: 8px;
 }
 
-.form-row label {
+/*
+ * The leading cell of a form row, matched by class rather than by element.
+ *
+ * `<label>` is a promise: it names a specific control, and a screen reader
+ * follows it there. Three rows in the settings panel were using one as a layout
+ * slot — two beside a `<Segmented>` that carries its own `aria-label`, one beside
+ * a plain `<span>` that cannot be labelled at all. Styling the slot by class lets
+ * the rows that really do name a control keep `<label htmlFor>` and the rest say
+ * `<span>`, which is what they are.
+ */
+.form-row label,
+.form-row .form-label {
   width: 88px;
   flex: 0 0 auto;
   color: var(--fg-dim);

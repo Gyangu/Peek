@@ -26,14 +26,16 @@ export function AboutSection(): ReactElement {
     <>
       {/* Version and paths are identifiers; they are never translated. */}
       <div className="form-row">
-        <label>{t('settings.about.version')}</label>
+        {/* The value is a span; a span cannot be labelled. */}
+        <span className="form-label">{t('settings.about.version')}</span>
         <span className="mono">{info?.version === '' ? t('settings.about.unavailable') : info?.version}</span>
       </div>
 
       {PATHS.map(([key, label]) => (
         <div className="form-row" key={key}>
-          <label>{t(label)}</label>
+          <label htmlFor={`peek-path-${key}`}>{t(label)}</label>
           <input
+            id={`peek-path-${key}`}
             className="mono"
             readOnly
             value={info?.paths[key] ?? ''}

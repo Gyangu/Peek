@@ -34,7 +34,10 @@ export function AppearanceSection(): ReactElement {
   return (
     <>
       <div className="form-row">
-        <label>{t('settings.language')}</label>
+        {/* A span, not a label: `<Segmented>` names itself with `aria-label`, and a
+            `<label>` with nothing to point at is a promise to a screen reader that
+            nothing keeps. */}
+        <span className="form-label">{t('settings.language')}</span>
         <Segmented
           label={t('settings.language')}
           value={locale}
@@ -84,7 +87,7 @@ function ZoomRow(): ReactElement {
   return (
     <>
       <div className="form-row">
-        <label>{t('settings.zoom')}</label>
+        <span className="form-label">{t('settings.zoom')}</span>
         {/*
          * `value` is the step this zoom *is*, resolved by proximity rather than by
          * identity: the factor round-trips through a settings file and a
