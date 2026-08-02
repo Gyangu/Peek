@@ -1,3 +1,7 @@
+import assert from 'node:assert/strict'
+import { readdirSync } from 'node:fs'
+import { join, relative } from 'node:path'
+
 /* ==================================================================
  * Reading source the way a compiler does, not the way grep does.
  *
@@ -34,8 +38,24 @@
  * Callers that need the real value slice it out of the original text.
  */
 export function blankNonCode(src: string): string {
+  return blank(src, true)
+}
+
+/**
+ * Blank comments only, leaving string literals intact.
+ *
+ * The variant you want when the thing being asserted *is* a string — an
+ * attribute value, a role, a class name. `blankNonCode` would hide it along with
+ * the prose. Strings are still tracked while scanning (a `//` inside a literal is
+ * not a comment); they are simply not erased.
+ */
+export function blankComments(src: string): string {
+  return blank(src, false)
+}
+
+function blank(src: string, eraseStrings: boolean): string {
   const out = [...src]
-  const blank = (from: number, to: number): void => {
+  const erase = (from: number, to: number): void => {
     for (let k = from; k < to && k < out.length; k += 1) if (out[k] !== '\n') out[k] = ' '
   }
 
@@ -47,7 +67,7 @@ export function blankNonCode(src: string): string {
     if (c === '/' && next === '/') {
       const end = src.indexOf('\n', i)
       const stop = end === -1 ? src.length : end
-      blank(i, stop)
+      erase(i, stop)
       i = stop
       continue
     }
@@ -55,7 +75,7 @@ export function blankNonCode(src: string): string {
     if (c === '/' && next === '*') {
       const end = src.indexOf('*/', i + 2)
       const stop = end === -1 ? src.length : end + 2
-      blank(i, stop)
+      erase(i, stop)
       i = stop
       continue
     }
@@ -66,7 +86,7 @@ export function blankNonCode(src: string): string {
         if (src[j] === '\\') j += 1
         j += 1
       }
-      blank(i + 1, j)
+      if (eraseStrings) erase(i + 1, j)
       i = j + 1
       continue
     }
@@ -103,6 +123,45 @@ export function openingTags(source: string, tag: string): string[] {
       }
     }
   }
+  return out
+}
+
+/**
+ * Every stylesheet under `renderer/`, discovered rather than listed.
+ *
+ * Three tests had their own hardcoded copy of this list — the type floor, the
+ * literal-border ban, and the control layer's className fence. All three are
+ * rules of the form "nothing anywhere may do X", and all three were one new file
+ * away from being quietly true only of the files somebody remembered.
+ *
+ * That is already the same failure twice over: `#7a3f3f` evaded the contrast
+ * audit by not being a token, and `opacity` evaded it by not being a colour
+ * declaration. A stylesheet evading it by not being on a list would be the third
+ * spelling of one mistake — and `segmented.css` was about to be the fourth file
+ * that had to be remembered in three places.
+ *
+ * The non-empty assertion is not padding: a directory move that made this return
+ * `[]` would turn every rule that reads it into a vacuous pass, which is exactly
+ * the fail-open shape being removed.
+ */
+export function stylesheets(rendererDir: string): string[] {
+  const out: string[] = []
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (entry.name.endsWith('.css')) out.push(relative(rendererDir, full))
+    }
+  }
+  walk(rendererDir)
+  out.sort()
+
+  assert.ok(out.length > 0, `no stylesheets found under ${rendererDir} — the scan is broken, not the CSS`)
+  assert.ok(
+    out.includes('styles.css'),
+    `the stylesheet scan did not find styles.css; it found ${out.join(", ")}. Something moved, and every ` +
+      `rule that reads this list has just gone vacuous.`,
+  )
   return out
 }
 

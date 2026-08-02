@@ -4,7 +4,7 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
 
-import { blankNonCode, decomment } from './sourceScan'
+import { blankNonCode, decomment, stylesheets } from './sourceScan'
 
 /* ==================================================================
  * The theme's contrast floor, as an executable assertion.
@@ -135,14 +135,8 @@ describe('non-text contrast', () => {
     // The lookbehind keeps `--border: #333941` in :root from matching: a custom
     // property *definition* is the thing being audited, not an evasion of it.
     const LITERAL_BORDER = /(?<![-\w])(border[a-z-]*|outline[a-z-]*)\s*:[^;]*?(#[0-9a-f]{3,8})/i
-    const sheets = [
-      'styles.css',
-      'keyboard-nav.css',
-      join('ui', 'controls.css'),
-      join('components', 'chat', 'chat.css'),
-      join('components', 'context-actions', 'context-actions.css'),
-    ]
     const RENDERER = join(dirname(fileURLToPath(import.meta.url)), '..')
+    const sheets = stylesheets(RENDERER)
     const literals: string[] = []
     for (const sheet of sheets) {
       readFileSync(join(RENDERER, sheet), 'utf8')
@@ -275,6 +269,14 @@ const ALPHA_SITES: readonly AlphaSite[] = [
     exempt: 'Same rule, same reason as `button:disabled` — this is the control layer restating it.',
   },
   {
+    where: 'ui/segmented.css:.seg-item:disabled',
+    alpha: 0.45,
+    behind: '--bg-1',
+    surface: '--bg-2',
+    text: ['--fg'],
+    exempt: 'Same clause as `button:disabled` — WCAG 2.1 SC 1.4.3 excludes an inactive component.',
+  },
+  {
     where: 'styles.css:.panel.drag-source',
     alpha: 0.75,
     behind: '--bg',
@@ -331,13 +333,7 @@ describe('alpha never quietly lowers the floor', () => {
 
   test('every opacity in the renderer is accounted for', () => {
     const RENDERER = join(dirname(fileURLToPath(import.meta.url)), '..')
-    const sheets = [
-      'styles.css',
-      'keyboard-nav.css',
-      join('ui', 'controls.css'),
-      join('components', 'chat', 'chat.css'),
-      join('components', 'context-actions', 'context-actions.css'),
-    ]
+    const sheets = stylesheets(RENDERER)
 
     const found: string[] = []
     for (const sheet of sheets) {

@@ -1,3 +1,5 @@
+import { wrapIndex } from '../util/roving'
+
 /**
  * Which dialog owns the Escape key, and where Tab goes at the edge of one.
  *
@@ -63,8 +65,9 @@ export function resetModalStack(): void {
  * reason to allow it.
  */
 export function nextFocusIndex(count: number, current: number, shift: boolean): number | null {
-  if (count <= 0) return null
-  if (current < 0) return shift ? count - 1 : 0
-  if (shift) return current === 0 ? count - 1 : current - 1
-  return current === count - 1 ? 0 : current + 1
+  // The ring arithmetic is shared with the segmented control's arrow keys; only
+  // the empty-list contract differs, and that difference is the whole reason
+  // this wrapper exists. See util/roving.ts.
+  const next = wrapIndex(count, current, shift ? -1 : 1)
+  return next < 0 ? null : next
 }

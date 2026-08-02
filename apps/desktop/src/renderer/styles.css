@@ -162,6 +162,25 @@ button:disabled {
   cursor: default;
 }
 
+/*
+ * The focus ring, on the element selector rather than only on `.btn`.
+ *
+ * `ui/controls.css` gives migrated controls an accent ring; a bare `<button>`
+ * had none at all, so it fell through to Chromium's default — which on macOS
+ * follows the *system* accent colour. The settings dialog was showing an amber
+ * ring on its ✕ and a blue one on everything the control layer owns, in the same
+ * dialog, because one file is on the migration ledger and the other is not.
+ *
+ * Sits here for the same reason `min-height: var(--hit-min)` does a few lines up:
+ * these are floors, and a floor that only applies to the files somebody got
+ * round to is not a floor. Found by looking at a screenshot, which is the only
+ * way it could have been found.
+ */
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 button.primary {
   background: var(--accent-dim);
   border-color: var(--accent);
@@ -1534,34 +1553,6 @@ body.view-dragging.view-drag-nodrop * {
   margin-right: auto;
 }
 
-/* Two mutually exclusive spellings of one connection (URL vs. fields). */
-.segmented {
-  display: flex;
-  flex: 1;
-  gap: 0;
-}
-
-.segmented .seg {
-  flex: 1;
-  border-radius: 0;
-}
-
-.segmented .seg:first-child {
-  border-top-left-radius: 4px;
-  border-bottom-left-radius: 4px;
-}
-
-.segmented .seg:last-child {
-  border-top-right-radius: 4px;
-  border-bottom-right-radius: 4px;
-}
-
-.segmented .seg.active {
-  background: var(--accent-dim);
-  color: var(--fg);
-  border-color: var(--accent);
-}
-
 .form-hint {
   color: var(--fg-faint);
   margin: 0 0 10px 96px;
@@ -1658,7 +1649,7 @@ body.view-dragging.view-drag-nodrop * {
 /* A two-option picker stretched across a 760px dialog reads as two unrelated
    buttons with a gap, not as one control. It only needs to be as wide as its
    widest option. */
-.settings-pane .segmented {
+.settings-pane .seg-group {
   flex: 0 0 auto;
   min-width: 200px;
 }
@@ -1781,13 +1772,12 @@ body.view-dragging.view-drag-nodrop * {
 
 
 /* The status bar's cells: the connection dot, the view description, the row
-   count, the cache watermark. Not to be confused with `.segmented .seg`, the
-   connect dialog's segmented control — two unrelated classes that happen to
-   share a name, which matters because the control layer's className fence is
-   name-based and has to take the stricter of the two meanings for both.
-   The two buttons in this bar used to carry it as well; they are `<Button>`
-   now, and `.btn` already sets exactly these three declarations. */
-.statusbar .seg {
+   count, the cache watermark. Called `.cell` since `<Segmented>` landed: it used
+   to be `.seg`, which was also the connect dialog's segmented-control class —
+   two unrelated rules wearing one name, and a name-based fence has to take the
+   stricter of the two meanings for both. That collision is what made the control
+   layer block this file for a reason belonging to another one. */
+.statusbar .cell {
   display: flex;
   align-items: center;
   gap: 5px;

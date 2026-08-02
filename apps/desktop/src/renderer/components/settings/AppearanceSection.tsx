@@ -4,6 +4,7 @@ import { UI_ZOOM_STEPS } from '@peek/core'
 import { isMacPlatform } from '../../hooks'
 import { LOCALES, setLocale, useLocale, useT } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
+import { Segmented } from '../../ui/Segmented'
 
 /**
  * The language picker, and how large the window is drawn.
@@ -34,21 +35,12 @@ export function AppearanceSection(): ReactElement {
     <>
       <div className="form-row">
         <label>{t('settings.language')}</label>
-        <div className="segmented">
-          {LOCALES.map((l) => (
-            <button
-              key={l.id}
-              type="button"
-              className={l.id === locale ? 'seg active' : 'seg'}
-              aria-pressed={l.id === locale}
-              onClick={() => {
-                setLocale(l.id)
-              }}
-            >
-              {l.label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label={t('settings.language')}
+          value={locale}
+          options={LOCALES.map((l) => ({ value: l.id, label: l.label }))}
+          onChange={setLocale}
+        />
       </div>
       <div className="form-hint">{t('settings.languageHint')}</div>
 
@@ -93,21 +85,22 @@ function ZoomRow(): ReactElement {
     <>
       <div className="form-row">
         <label>{t('settings.zoom')}</label>
-        <div className="segmented">
-          {UI_ZOOM_STEPS.map((step) => (
-            <button
-              key={step}
-              type="button"
-              className={zoom !== null && Math.abs(zoom - step) < 0.001 ? 'seg active' : 'seg'}
-              aria-pressed={zoom !== null && Math.abs(zoom - step) < 0.001}
-              onClick={() => {
-                choose(step)
-              }}
-            >
-              {`${String(Math.round(step * 100))}%`}
-            </button>
-          ))}
-        </div>
+        {/*
+         * `value` is the step this zoom *is*, resolved by proximity rather than by
+         * identity: the factor round-trips through a settings file and a
+         * `setZoomFactor` call, so 1.25 can come back as 1.2500000000000002 and an
+         * exact match would leave the group with nothing selected — which, with a
+         * roving tabindex, is a control the keyboard cannot enter.
+         */}
+        <Segmented
+          label={t('settings.zoom')}
+          value={UI_ZOOM_STEPS.find((step) => zoom !== null && Math.abs(zoom - step) < 0.001) ?? -1}
+          options={UI_ZOOM_STEPS.map((step) => ({
+            value: step,
+            label: `${String(Math.round(step * 100))}%`,
+          }))}
+          onChange={choose}
+        />
       </div>
       {/* Modifier symbols are never translated: they are what is printed on the
           keys in front of the reader. Same rule as `shortcutHints`. */}

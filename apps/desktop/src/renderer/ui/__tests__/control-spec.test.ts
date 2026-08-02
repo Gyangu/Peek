@@ -4,10 +4,10 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
 
-import { decomment, openingTags } from '../../__tests__/sourceScan'
+import { decomment, openingTags, stylesheets } from '../../__tests__/sourceScan'
 import {
   ACTION_ID_PATTERN,
-  BUTTON_SIZE_NAMES,
+  CONTROL_SIZE_NAMES,
   BUTTON_VARIANTS,
   BUTTON_VARIANT_NAMES,
   CONTROL_STATE_NAMES,
@@ -37,13 +37,7 @@ import {
 const UI = join(dirname(fileURLToPath(import.meta.url)), '..')
 const RENDERER = join(UI, '..')
 
-const STYLESHEETS = [
-  join('ui', 'controls.css'),
-  'styles.css',
-  'keyboard-nav.css',
-  join('components', 'chat', 'chat.css'),
-  join('components', 'context-actions', 'context-actions.css'),
-]
+const STYLESHEETS = stylesheets(RENDERER)
 
 const DOC = 'docs/design/2026-08-02-control-spec.md'
 const GUIDE = 'apps/desktop/src/renderer/ui/CLAUDE.md'
@@ -198,7 +192,7 @@ describe('controls.css covers the whole matrix', () => {
   }
 
   test('both sizes exist', () => {
-    for (const size of BUTTON_SIZE_NAMES) {
+    for (const size of CONTROL_SIZE_NAMES) {
       assert.ok(
         selectors.has(`.${sizeClass(size)}`),
         `Size "${size}" is declared in spec.ts but .${sizeClass(size)} has no rule in ui/controls.css.`,
@@ -211,7 +205,7 @@ describe('controls.css covers the whole matrix', () => {
       'btn',
       'btn-icon',
       ...BUTTON_VARIANT_NAMES.map((v) => `btn-${v}`),
-      ...BUTTON_SIZE_NAMES.map((s) => `btn-${s}`),
+      ...CONTROL_SIZE_NAMES.map((s) => `btn-${s}`),
     ])
     const stray = new Set<string>()
     for (const sheet of STYLESHEETS) {
@@ -483,7 +477,6 @@ describe('an agent cannot be handed its own permission prompt', () => {
  * it.
  */
 const BARE_BUTTON_ALLOWLIST: readonly string[] = [
-  'components/ConnectDialog.tsx',
   'components/ErrorBoundary.tsx',
   'components/Panel.tsx',
   'components/PanelTabs.tsx',
@@ -498,7 +491,6 @@ const BARE_BUTTON_ALLOWLIST: readonly string[] = [
   'components/context-actions/ConsentDialog.tsx',
   'components/context-actions/ContextMenu.tsx',
   'components/error-center/ErrorCenter.tsx',
-  'components/settings/AppearanceSection.tsx',
   'components/settings/McpSection.tsx',
   'components/settings/SettingsDialog.tsx',
   'components/settings/TimeoutsSection.tsx',
@@ -510,15 +502,18 @@ const BARE_BUTTON_ALLOWLIST: readonly string[] = [
   'components/views/VectorView.tsx',
 ]
 
-/** Not on the ledger — it is the primitive, and it has to render the real thing. */
-const PRIMITIVE = 'ui/Button.tsx'
+/**
+ * The primitives themselves. Not on the ledger and never will be: they are what
+ * the ledger points *at*, and they have to render the real element.
+ */
+const PRIMITIVES: readonly string[] = ['ui/Button.tsx', 'ui/Segmented.tsx']
 
 describe('bare <button> is confined to the migration ledger', () => {
   test('no file outside the allowlist renders one', () => {
     const offenders: string[] = []
     for (const path of tsxFiles()) {
       const rel = relative(RENDERER, path)
-      if (rel === PRIMITIVE || BARE_BUTTON_ALLOWLIST.includes(rel)) continue
+      if (PRIMITIVES.includes(rel) || BARE_BUTTON_ALLOWLIST.includes(rel)) continue
       if (openingTags(readFileSync(path, 'utf8'), 'button').length > 0) offenders.push(rel)
     }
     assert.deepEqual(

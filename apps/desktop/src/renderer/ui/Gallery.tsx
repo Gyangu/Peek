@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { ReactElement } from 'react'
 
 import { Button } from './Button'
-import { BUTTON_SIZE_NAMES, BUTTON_VARIANTS, BUTTON_VARIANT_NAMES } from './spec'
+import { CONTROL_SIZE_NAMES, BUTTON_VARIANTS, BUTTON_VARIANT_NAMES } from './spec'
 
 /**
  * Every control the spec defines, on one screen.
@@ -52,7 +52,7 @@ export function Gallery(): ReactElement {
           </header>
 
           <div className="gal-cells">
-            {BUTTON_SIZE_NAMES.map((size) => (
+            {CONTROL_SIZE_NAMES.map((size) => (
               <div className="gal-cell" key={size}>
                 <Button variant={variant} size={size} onClick={() => setPressed(`${variant} / ${size}`)}>
                   {size === 'md' ? 'Action' : 'Inline'}

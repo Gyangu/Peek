@@ -4,6 +4,8 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
 
+import { stylesheets } from './sourceScan'
+
 /* ==================================================================
  * The type floor, as an executable assertion.
  *
@@ -31,13 +33,7 @@ import { describe, test } from 'node:test'
 
 const RENDERER = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-const STYLESHEETS = [
-  'styles.css',
-  'keyboard-nav.css',
-  join('ui', 'controls.css'),
-  join('components', 'chat', 'chat.css'),
-  join('components', 'context-actions', 'context-actions.css'),
-]
+const STYLESHEETS = stylesheets(RENDERER)
 
 /** Text floor, in px. */
 const TEXT_MIN = 11

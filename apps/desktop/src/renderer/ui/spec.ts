@@ -71,13 +71,21 @@ export const BUTTON_VARIANT_NAMES = Object.keys(BUTTON_VARIANTS) as readonly But
  * ------------------------------------------------------------------ */
 
 /**
+ * The control layer's size rungs — shared by every primitive, not just buttons.
+ *
+ * Named for controls rather than for buttons because `<Segmented>` uses the same
+ * two, and calling them "button sizes" would force the next primitive either to
+ * restate them or to alias them. Two names for one thing is the failure this
+ * whole spec exists to prevent; the class names differ per primitive
+ * (`btn-md`, `seg-md`) but the rungs are one set.
+ *
  * Two rungs, not three. A third rung would be one more choice for a caller to
  * get wrong, and choosing is exactly what an agent does badly. These two are
  * the rungs the codebase already had — `--hit-min` from the legibility baseline,
  * and the 20px that four separate rules had each reinvented with their own
  * `min-height: 0` exemption.
  */
-export const BUTTON_SIZES = {
+export const CONTROL_SIZES = {
   md: {
     px: 24,
     intent: 'The default. Every standalone button.',
@@ -88,9 +96,9 @@ export const BUTTON_SIZES = {
   },
 } as const
 
-export type ButtonSize = keyof typeof BUTTON_SIZES
+export type ControlSize = keyof typeof CONTROL_SIZES
 
-export const BUTTON_SIZE_NAMES = Object.keys(BUTTON_SIZES) as readonly ButtonSize[]
+export const CONTROL_SIZE_NAMES = Object.keys(CONTROL_SIZES) as readonly ControlSize[]
 
 /* ------------------------------------------------------------------
  * States
@@ -195,7 +203,7 @@ export function variantClass(variant: ButtonVariant): string {
   return `${BASE_CLASS}-${variant}`
 }
 
-export function sizeClass(size: ButtonSize): string {
+export function sizeClass(size: ControlSize): string {
   return `${BASE_CLASS}-${size}`
 }
 

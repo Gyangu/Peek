@@ -3,6 +3,8 @@ import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 import type { DriverId, SavedConnection } from '@peek/core'
 import { DRIVER_CAPABILITIES, DRIVER_IDS } from '@peek/core'
 import { useModalDialog } from '../hooks'
+import { Button } from '../ui/Button'
+import { Segmented } from '../ui/Segmented'
 import { useT, type TFunction } from '../i18n'
 import { dispatch } from '../state/dispatch'
 import {
@@ -134,13 +136,9 @@ export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactEl
         <div className="modal-head">
           <span className="t">{initial ? t('connect.editTitle') : t('connect.title')}</span>
           <span style={{ flex: 1 }} />
-          {/* Still a bare <button> — this file is on the migration ledger — but the
-              name is not optional. To a screen reader this control was called "✕".
-              `<Button icon>` makes the label a type requirement; until this file
-              gets there, the rule is applied by hand. */}
-          <button className="ghost" aria-label={t('app.errors.close')} title={t('app.errors.close')} onClick={onClose}>
+          <Button variant="ghost" icon label={t('app.errors.close')} onClick={onClose}>
             ✕
-          </button>
+          </Button>
         </div>
         <div className="modal-body">
           <div className="form-row">
@@ -169,21 +167,17 @@ export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactEl
           {spec.modes.length > 1 ? (
             <div className="form-row">
               <label>{t('connect.mode')}</label>
-              <div className="segmented">
-                {spec.modes.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    className={m === mode ? 'seg active' : 'seg'}
-                    aria-pressed={m === mode}
-                    onClick={() => {
-                      switchTo(driverId, m)
-                    }}
-                  >
-                    {t(m === 'url' ? 'connect.mode.url' : 'connect.mode.fields')}
-                  </button>
-                ))}
-              </div>
+              <Segmented
+                label={t('connect.mode')}
+                value={mode}
+                options={spec.modes.map((m) => ({
+                  value: m,
+                  label: t(m === 'url' ? 'connect.mode.url' : 'connect.mode.fields'),
+                }))}
+                onChange={(next) => {
+                  switchTo(driverId, next)
+                }}
+              />
             </div>
           ) : null}
 
@@ -234,10 +228,10 @@ export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactEl
           <div className="form-hint">{t('connect.privacyNote')}</div>
         </div>
         <div className="modal-foot">
-          <button onClick={onClose}>{t('connect.cancel')}</button>
-          <button className="primary" disabled={busy || missing.length > 0} onClick={submit}>
+          <Button onClick={onClose}>{t('connect.cancel')}</Button>
+          <Button variant="primary" action="conn.open" disabled={busy || missing.length > 0} onClick={submit}>
             {busy ? t('connect.connecting') : t('connect.submit')}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

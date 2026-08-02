@@ -7,7 +7,7 @@ import {
   ICON_CLASS,
   sizeClass,
   variantClass,
-  type ButtonSize,
+  type ControlSize,
   type ButtonVariant,
   type Exposure,
 } from './spec'
@@ -47,7 +47,7 @@ interface ButtonBase extends NativeButtonProps {
   /** What the action *means*, never what it looks like. Defaults to `default`. */
   variant?: ButtonVariant
   /** `md` (24px) unless the control is inline in a compact strip. */
-  size?: ButtonSize
+  size?: ControlSize
   /**
    * Layout only — position, margin, flex. Anything that repaints the control
    * belongs in `spec.ts`, and `control-spec.test.ts` will say so.

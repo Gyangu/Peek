@@ -45,7 +45,7 @@ export function StatusBar(): ReactElement {
 
   return (
     <div className="statusbar">
-      <span className="seg">
+      <span className="cell">
         <span className={`dot ${readyCount > 0 ? 'ready' : ''}`} />
         {t('status.connected', { ready: readyCount, total: conns.length })}
       </span>
@@ -56,7 +56,7 @@ export function StatusBar(): ReactElement {
       {view ? (
         <>
           <span className="sep" />
-          <span className="seg" title={describeView(view)}>
+          <span className="cell" title={describeView(view)}>
             {describeViewLocalized(t, view)}
           </span>
         </>
@@ -65,7 +65,7 @@ export function StatusBar(): ReactElement {
       {resultId ? (
         <>
           <span className="sep" />
-          <span className="seg mono">
+          <span className="cell mono">
             {t('status.rows', { count: snap.rowCount, rows: formatCount(snap.rowCount) })}
             {meta?.elapsedMs !== undefined ? ` · ${formatMs(meta.elapsedMs)}` : ''}
             {snap.status === 'running' ? ` · ${t('status.receiving')}` : ''}
@@ -80,25 +80,25 @@ export function StatusBar(): ReactElement {
           state a user stops having about a minute after they start working. */}
       <ChatEntry />
 
-      {inflight > 0 ? <span className="seg">{t('status.inflight', { count: inflight })}</span> : null}
+      {inflight > 0 ? <span className="cell">{t('status.inflight', { count: inflight })}</span> : null}
 
-      <span className={cachePct > 85 ? 'seg warn' : 'seg'} title={t('status.cacheTitle')}>
+      <span className={cachePct > 85 ? 'cell warn' : 'cell'} title={t('status.cacheTitle')}>
         {t('status.cache', { size: formatBytes(stats.bytes), pct: cachePct })}
       </span>
 
       {resyncCount > 0 ? (
-        <span className="seg warn" title={t('status.resyncTitle')}>
+        <span className="cell warn" title={t('status.resyncTitle')}>
           {t('status.resync', { count: resyncCount })}
         </span>
       ) : null}
 
-      {bridgeMissing ? <span className="seg err">{t('status.preloadMissing')}</span> : null}
+      {bridgeMissing ? <span className="cell err">{t('status.preloadMissing')}</span> : null}
 
       {/* The one place in the window that remembers a failure past the toast that
           announced it. Silent until something has actually gone wrong. */}
       <ErrorCenterButton />
 
-      <span className="seg mono" title={t('status.revTitle')}>
+      <span className="cell mono" title={t('status.revTitle')}>
         rev {ws?.rev ?? '—'}
       </span>
     </div>
@@ -132,7 +132,7 @@ function PanelPosition(): ReactElement | null {
     <>
       <span className="sep" />
       <span
-        className="seg"
+        className="cell"
         title={t('keyboard.panelPositionTitle', {
           focusKeys: hints.focus,
           panelDigitKeys: hints.panelDigit,
@@ -171,7 +171,7 @@ function TabPosition(): ReactElement | null {
     <>
       <span className="sep" />
       <span
-        className="seg"
+        className="cell"
         title={t('keyboard.tabPositionTitle', {
           tabDigitKeys: hints.tabDigit,
           lastTabKey: hints.lastTab,
@@ -275,7 +275,7 @@ function ChatEntry(): ReactElement {
        * resolved to `.statusbar .seg` — `display: flex; align-items: center; gap:
        * 5px` — which is exactly what `.btn` already sets, so the class simply had
        * nothing left to say here. The rule itself stays: the eight `<span
-       * className="seg">` cells in this bar are its real subject.
+       * className="cell">` cells in this bar are its real subject.
        *
        * `md`, not `sm`, even though 20px would fit a 26px bar more comfortably.
        * The bar is 26px *because* the legibility baseline (§2.3) raised it from 22
