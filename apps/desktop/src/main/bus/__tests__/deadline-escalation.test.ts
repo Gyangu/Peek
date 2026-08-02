@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { registerHooks } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
@@ -39,14 +38,13 @@ import {
  * to someone by surprise. A silent default timeout doing it unprompted is more
  * of a surprise, not less.
  *
- * ## Why the module hooks below
+ * ## Why the stubs
  *
  * `stopExpiredResult` lives in `connections/manager.ts`, which reaches Electron
  * through `host-process` (`utilityProcess`) and `port-broker`
- * (`MessageChannelMain`). Neither module is reachable from the function under
- * test, so both are replaced with stubs to make the real `manager.ts` loadable.
- * Nothing else about it is faked: the assertions below run against the shipping
- * implementation.
+ * (`MessageChannelMain`). Neither is reachable from the function under test, so
+ * both are redirected to the stubs in `connections/__tests__/`. Nothing else is
+ * faked: the assertions below run against the shipping implementation.
  *
  * `manager.ts` itself imports Electron for types only, so the stubs are the only
  * thing standing between it and the test runner. There used to be a second
@@ -58,66 +56,9 @@ import {
  * syntax error pointing at a file it never asked for.
  * ================================================================== */
 
-/**
- * A driver host that never leaves the test process.
- *
- * `forceKill` is counted rather than performed, and that counter is the whole
- * point of the second suite below: it is the difference between a deadline that
- * ends one request and a deadline that ends the connection.
- */
-const HOST_STUB = `
-export class DriverHostProcess {
-  constructor(connId, hooks) {
-    this.connId = connId
-    this.hooks = hooks
-    this.alive = true
-    this.pid = 4242
-    this.forceKills = 0
-    this.cancelCalls = []
-  }
-  async spawn() {}
-  async call(method, params) {
-    if (method === 'connect') {
-      return { capabilities: [...(globalThis.__peekStubCaps ?? [])], serverInfo: { version: 'stub' } }
-    }
-    if (method === 'collection.scan') return { resultId: params.resultId }
-    if (method === 'cancel') { this.cancelCalls.push(params.resultId); return { cancelled: true } }
-    return {}
-  }
-  forceKill() { this.forceKills += 1; this.alive = false }
-  async waitExit() {}
-  async shutdown() { this.alive = false }
-}
-`
-
-const PORT_STUB = `
-export class DataPlaneLink {
-  constructor(connId, host) { this.connId = connId; this.host = host }
-  open() {}
-  close() {}
-  deliver() { return false }
-}
-`
-
-const STUBS: Readonly<Record<string, string>> = {
-  'connections/host-process': HOST_STUB,
-  'connections/port-broker': PORT_STUB,
-}
-
-function stubFor(url: string): string | undefined {
-  for (const [suffix, source] of Object.entries(STUBS)) {
-    if (url.endsWith(`${suffix}.ts`)) return source
-  }
-  return undefined
-}
-
-registerHooks({
-  load(url, context, nextLoad) {
-    const source = stubFor(url)
-    if (source === undefined) return nextLoad(url, context)
-    return { format: 'module', shortCircuit: true, source }
-  },
-})
+// Must run before manager.ts is resolved; see the module's own note.
+import '../../connections/__tests__/install-stubs'
+import { stubHost } from '../../connections/__tests__/stub-host-process'
 
 const { ConnectionManager, stopExpiredResult } = await import('../../connections/manager')
 type StopOutcome = Awaited<ReturnType<typeof stopExpiredResult>>
@@ -284,7 +225,7 @@ interface ManagerHarness {
 async function managerOn(capabilities: readonly Capability[]): Promise<ManagerHarness> {
   const hostDir = makeHostDir()
   HOST_DIRS.push(hostDir)
-  ;(globalThis as Record<string, unknown>)['__peekStubCaps'] = [...capabilities]
+  stubHost.configure({ capabilities })
 
   let armed: (() => void) | null = null
   const manager = new ConnectionManager({
@@ -307,9 +248,9 @@ async function managerOn(capabilities: readonly Capability[]): Promise<ManagerHa
   const out = await manager.connect({ driverId: 'qdrant', url: 'http://localhost:6333' })
   // Reading the private table is the only way to ask "is the connection still
   // there?" — killForCancel deletes the entry, which is precisely the damage.
-  const conns = (manager as unknown as {
-    conns: Map<ConnId, { host: { forceKills: number; cancelCalls: ResultId[] } }>
-  }).conns
+  // What the *stub* recorded comes from the stub module instead, which the
+  // manager and this file resolve to the same instance of.
+  const conns = (manager as unknown as { conns: Map<ConnId, unknown> }).conns
 
   return {
     manager,
@@ -320,8 +261,8 @@ async function managerOn(capabilities: readonly Capability[]): Promise<ManagerHa
       armed = null
       return fire
     },
-    forceKills: () => conns.get(out.connId)?.host.forceKills ?? -1,
-    cancelCalls: () => conns.get(out.connId)?.host.cancelCalls ?? [],
+    forceKills: () => stubHost.recordOf(out.connId)?.forceKills ?? -1,
+    cancelCalls: () => stubHost.recordOf(out.connId)?.cancelCalls ?? [],
     connectionGone: () => !conns.has(out.connId),
     errors,
     statuses,
