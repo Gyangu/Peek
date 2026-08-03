@@ -193,6 +193,19 @@ export type ChatEffect =
 export interface ChatRuntime {
   run(effect: ChatEffect): void | Promise<void>
   listSessions(): Promise<ChatSessionsListResult>
+  /**
+   * Re-deliver one conversation to the window, for a mirror that started empty.
+   *
+   * Not a `ChatEffect`, and deliberately not: effects are planned by a reducer
+   * as part of a Command that changed something. This changes nothing — it asks
+   * for a repeat of what was already sent — and it answers, which effects never
+   * do. It is the transcript's `STATE_SNAPSHOT`, not a command.
+   *
+   * `false` means main has nothing for that conversation, which is an answer and
+   * not a failure: the window then shows an empty conversation because that is
+   * what it is.
+   */
+  restore(chatId: ChatId): Promise<boolean>
 }
 
 /**
@@ -214,6 +227,8 @@ export function createUnavailableChatRuntime(): ChatRuntime {
     // with no agent there is no catalogue, which is the same thing the dialog
     // says for an agent that keeps no history. Both render one sentence.
     listSessions: () => Promise.resolve({ sessions: [], supported: false, cwd: null }),
+    // Nothing was ever sent, so there is nothing to re-send.
+    restore: () => Promise.resolve(false),
   }
 }
 

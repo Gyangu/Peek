@@ -50,6 +50,14 @@ export const redisManifest = defineManifest({
   capabilities: ['introspect', 'collectionScan', 'keyValue', 'valuePeek', 'cancel'],
   connectForm: CONNECT_FORM,
   mcpConnectExample: '{"driverId":"redis","url":"redis://localhost:6379/0"}',
+  skill:
+    'There is no query language here. run_query is not supported on a Redis connection and ' +
+    'answers UNSUPPORTED_CAPABILITY rather than an empty result — browse instead. introspect ' +
+    'walks the keyspace as key patterns, and opening one scans it with SCAN rather than KEYS, ' +
+    'so it is safe against a live server. A key is read through the key/value surface, which ' +
+    'treats the Redis types as six different shapes rather than six renderings of one: what a ' +
+    'hash, a list and a stream each support differs. The database number is part of the ' +
+    'connection URL (redis://host:6379/0) and is not something to switch mid-session.',
 
   assembleConfig(mode, values, label) {
     const { text, num, bool } = formReaders(CONNECT_FORM.fields[mode], values)

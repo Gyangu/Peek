@@ -14,6 +14,7 @@
 
 import {
   collectPanels,
+  displayViewKind,
   hasUsableRows,
   type CollectionBrowseStyle,
   type ConnectionSummary,
@@ -67,7 +68,12 @@ export interface ResultBrief {
 
 export interface ViewBrief {
   viewId: string
-  kind: ViewSummary['kind']
+  /**
+   * `string`, not `ViewSummary['kind']`: a plugin view reports the kind it
+   * contributed (`graph`), which is by construction not a member of the closed
+   * seven-literal union. Narrowing it here would be narrowing to the wrong set.
+   */
+  kind: string
   title: string
   /** One line: what this view is currently looking at. */
   describe: string
@@ -92,6 +98,17 @@ export interface ViewBrief {
    * do it, because that equivalence held for every earlier version of this brief.
    */
   visible: boolean
+  /**
+   * The auto-refresh interval in force, in ms; absent means off.
+   *
+   * Reported for the same reason `visible` is. Both answer "what is this window
+   * actually doing right now", and both are things a reader would otherwise get
+   * wrong in a specific, confident way: a view that refetches every five seconds
+   * described as a still picture is the same class of mistake as a hidden tab
+   * described as being on screen. It also tells a model that a table it is about
+   * to reason over may have moved by the time it answers.
+   */
+  autoRefreshMs?: number
   result?: ResultBrief
   /**
    * How this collection can be browsed, present exactly on a `table` view.
@@ -260,7 +277,11 @@ function briefView(
   const result = v.resultId === undefined ? undefined : resultById.get(String(v.resultId))
   return {
     viewId: String(v.id),
-    kind: v.kind,
+    // A plugin view reports its own kind, not the word `plugin` — see
+    // `displayViewKind`. This is the reader that makes `expand_node` usable at
+    // all: a model cannot pick the graph view out of a list where every plugin
+    // view looks identical.
+    kind: displayViewKind(v),
     title: v.title,
     describe: v.describe,
     status: v.status,
@@ -269,6 +290,7 @@ function briefView(
       : { connId: String(v.connId), connLabel: conn?.label ?? '(unknown connection)' }),
     panelId: v.panelId === null ? null : String(v.panelId),
     visible: v.visible,
+    ...(v.autoRefreshMs === undefined ? {} : { autoRefreshMs: v.autoRefreshMs }),
     ...(result === undefined ? {} : { result: briefResult(result) }),
     ...(v.browse === undefined ? {} : { browse: browseAffordances(v.browse) }),
     ...(v.error === undefined ? {} : { error: `${v.error.code}: ${v.error.message}` }),

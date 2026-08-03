@@ -142,3 +142,62 @@ test('the file holds routes and nothing that could be mistaken for a transcript'
     ])
   })
 })
+
+/* ------------------------------------------------------------------ */
+/* The two mutable fields (endpoint backend only)                      */
+/* ------------------------------------------------------------------ */
+
+test('touch names an endpoint conversation once and moves its timestamp always', () => {
+  withDir((dir) => {
+    const index = SessionIndex.at(dir)
+    index.record({ sessionId: 'sess_e', backend: 'endpoint', agentId: 'gpt-x', createdAt: 100 })
+
+    index.touch('sess_e', { title: 'Count the tables', updatedAt: 200 })
+    assert.equal(index.lookup('sess_e')?.title, 'Count the tables')
+    assert.equal(index.lookup('sess_e')?.updatedAt, 200)
+
+    // A conversation that renamed itself every turn would be harder to find
+    // than one that never did, so the first message names it and later ones
+    // only move it up the list.
+    index.touch('sess_e', { title: 'And now something else', updatedAt: 300 })
+    assert.equal(index.lookup('sess_e')?.title, 'Count the tables')
+    assert.equal(index.lookup('sess_e')?.updatedAt, 300)
+    // Identity is never restamped: the row must not jump around under the user.
+    assert.equal(index.lookup('sess_e')?.createdAt, 100)
+  })
+})
+
+test('touch refuses an ACP route, whose title the agent owns', () => {
+  withDir((dir) => {
+    const index = SessionIndex.at(dir)
+    index.record({ sessionId: 'sess_a', backend: 'acp', agentId: 'claude-code' })
+
+    // `session/list` answers both fields for this backend. A copy here could
+    // only ever be a second, staler answer — the reason the route is minimal.
+    assert.equal(index.touch('sess_a', { title: 'nope', updatedAt: 1 }), null)
+    assert.equal(index.lookup('sess_a')?.title, undefined)
+    assert.equal(index.lookup('sess_a')?.updatedAt, undefined)
+  })
+})
+
+test('touch survives a restart and orders the list by last activity', () => {
+  withDir((dir) => {
+    const index = SessionIndex.at(dir)
+    index.record({ sessionId: 'old', backend: 'endpoint', agentId: 'm', createdAt: 100 })
+    index.record({ sessionId: 'new', backend: 'endpoint', agentId: 'm', createdAt: 200 })
+    // The older conversation was spoken to most recently, so it sorts first.
+    index.touch('old', { updatedAt: 300 })
+
+    const reopened = SessionIndex.at(dir)
+    assert.deepEqual(reopened.list().map((r) => r.sessionId), ['old', 'new'])
+    assert.equal(reopened.lookup('old')?.updatedAt, 300)
+  })
+})
+
+test('touching a session nobody recorded is a no-op, not a new row', () => {
+  withDir((dir) => {
+    const index = SessionIndex.at(dir)
+    assert.equal(index.touch('ghost', { title: 'x', updatedAt: 1 }), null)
+    assert.deepEqual(index.list(), [])
+  })
+})

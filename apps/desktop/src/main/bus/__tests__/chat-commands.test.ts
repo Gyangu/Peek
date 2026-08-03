@@ -52,6 +52,7 @@ function recordingRuntime(into: ChatEffect[]): ChatRuntime {
   return {
     run: (effect) => void into.push(effect),
     listSessions: () => Promise.resolve({ sessions: [], supported: false, cwd: null }),
+    restore: () => Promise.resolve(false),
   }
 }
 

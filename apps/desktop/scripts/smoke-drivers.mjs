@@ -106,7 +106,16 @@ function buildTargets() {
         password: neo4jPassword,
         label: 'smoke-neo4j',
       },
-      pluginView: { pluginKind: 'graph' },
+      pluginView: {
+        pluginKind: 'graph',
+        // The package's own MCP tool, and the only end-to-end proof that one
+        // reaches the wire at all: `verify-chat-security.mjs` shows the name is
+        // offered, this shows the call works against the *packaged* build.
+        // `probe` fetches an argument the tool cannot be given from a fixture —
+        // an elementId is assigned by the server.
+        tool: 'expand_node',
+        probe: 'MATCH (n:PeekSmoke) RETURN elementId(n) AS id LIMIT 1',
+      },
     })
   }
 
@@ -334,6 +343,7 @@ async function exerciseDriver(client, target) {
   // "Result …: done · N rows" line a table produces. Nothing about this is
   // neo4j-specific; the row declares it.
   let pluginRows = null
+  let pluginTool = null
   if (target.pluginView) {
     const pluginResult = await withTimeout(
       client.callTool({
@@ -357,6 +367,52 @@ async function exerciseDriver(client, target) {
     }
     if (pluginLine[1] === 'error') throw new Error(`the ${target.pluginView.pluginKind} view failed:\n${pluginText}`)
     pluginRows = Number(pluginLine[2])
+
+    // --- and the tool that package contributed ---------------------------
+    //
+    // A kernel tool reaching a plugin view would prove nothing new. This is the
+    // other direction: a tool declared in `packages/driver-neo4j/src/mcp-tools.ts`,
+    // collected into the same registry as the kernel's thirteen, called over the
+    // same endpoint, landing on `view.update`. If the collection seam is wrong
+    // the call comes back as an unknown tool; if the mapping is wrong the view
+    // errors. Both are failures here.
+    if (target.pluginView.tool) {
+      const probe = await withTimeout(
+        client.callTool({
+          name: 'run_query',
+          arguments: { connId, text: target.pluginView.probe, previewRows: 1, waitMs: 15_000 },
+        }),
+        PER_DRIVER_TIMEOUT_MS,
+        `run_query(probe for ${target.pluginView.tool})`,
+      )
+      const probeText = textOf(probe)
+      // `elementId()` is opaque and its shape is the server's business, so this
+      // takes whatever came back rather than asserting a format.
+      const nodeId = /"([0-9]+:[^"]+:[0-9]+)"/.exec(probeText)?.[1]
+      if (!nodeId) throw new Error(`the probe returned no elementId to expand:\n${probeText}`)
+
+      // The uiEffects block is pretty-printed, so `"viewId": "view_…"` carries a
+      // space the obvious pattern would miss.
+      const viewId = /"viewId":\s*"(view_[^"]+)"/.exec(pluginText)?.[1]
+      if (!viewId) throw new Error(`open_view(plugin) reported no viewId to act on:\n${pluginText}`)
+
+      const expanded = await withTimeout(
+        client.callTool({ name: target.pluginView.tool, arguments: { viewId, nodeId, depth: 1 } }),
+        PER_DRIVER_TIMEOUT_MS,
+        `${target.pluginView.tool}(${viewId})`,
+      )
+      const expandedText = textOf(expanded)
+      if (expanded.isError === true) {
+        throw new Error(`${target.pluginView.tool} failed:\n${expandedText}`)
+      }
+      if (!expandedText.includes(nodeId)) {
+        throw new Error(
+          `${target.pluginView.tool} succeeded but its receipt does not mention the node it was `
+            + `asked to expand, so it is not clear what it did:\n${expandedText}`,
+        )
+      }
+      pluginTool = target.pluginView.tool
+    }
   }
 
   return {
@@ -367,6 +423,7 @@ async function exerciseDriver(client, target) {
     rows: Number(rowText),
     resultStatus,
     ...(pluginRows === null ? {} : { pluginKind: target.pluginView.pluginKind, pluginRows }),
+    ...(pluginTool === null ? {} : { pluginTool }),
   }
 }
 
@@ -414,6 +471,7 @@ async function main() {
           `  PASS ${target.name.padEnd(9)} ${info.nodes} node(s); ` +
             `scanned "${info.opened}" → ${info.rows} row(s) (${info.resultStatus})` +
             (info.pluginKind === undefined ? '' : `; ${info.pluginKind} view → ${info.pluginRows} row(s)`) +
+            (info.pluginTool === undefined ? '' : `; ${info.pluginTool} ok`) +
             `  [${info.capabilities}]`,
         )
       } catch (error) {

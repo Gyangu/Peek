@@ -131,3 +131,35 @@ export function sendChatDeltas(
     if (!wc.isDestroyed()) wc.send(IPC.CHAT_DELTA, message)
   }
 }
+
+/**
+ * The transcript's re-sync request, answered by whichever backend is running.
+ *
+ * Separate from `installBusIpc` because it is not the bus: nothing dispatched
+ * here reaches a Command, nothing changes the Workspace, and the answer is a
+ * bare boolean rather than a `CommandResult`. It is registered later too — the
+ * chat host is assembled after the bus — so folding it into that function would
+ * mean an option that is undefined for part of the process's life.
+ *
+ * Every failure answers `false`. A restore that throws would surface in the
+ * renderer as a rejected promise on a path whose whole purpose is recovering
+ * from a gap, and "nothing came back" is already a state the caller handles.
+ */
+export function installChatRestoreIpc(options: {
+  ipcMain: IpcMain
+  restore: (chatId: ChatId) => Promise<boolean>
+}): () => void {
+  const { ipcMain, restore } = options
+  ipcMain.handle(IPC.CHAT_RESTORE, async (_event, raw: unknown): Promise<boolean> => {
+    if (typeof raw !== 'string' || raw.length === 0) return false
+    try {
+      return await restore(raw as ChatId)
+    } catch (error) {
+      console.warn('[peek/chat] restore request failed', error)
+      return false
+    }
+  })
+  return () => {
+    ipcMain.removeHandler(IPC.CHAT_RESTORE)
+  }
+}

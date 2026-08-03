@@ -32,10 +32,13 @@
  */
 
 import {
+  displayViewKind,
   findParentSplit,
   type LayoutNode,
   type PanelId,
   type ResultMeta,
+  type UiEffect,
+  type UiEffectKind,
   type ViewSummary,
   type WorkspaceSnapshot,
 } from '@peek/core'
@@ -44,45 +47,16 @@ import {
 /* 1. The record                                                        */
 /* ================================================================== */
 
-export type UiEffectKind =
-  | 'view.opened'
-  | 'view.closed'
-  | 'view.moved'
-  | 'view.shown'
-  | 'view.hidden'
-  | 'view.retitled'
-  | 'result.started'
-  | 'connection.opened'
-  | 'connection.closed'
-  | 'focus.moved'
-
 /**
- * One visible consequence of a tool call.
+ * `UiEffect` and `UiEffectKind` are declared in `@peek/core` and re-exported
+ * here, because `ToolOutput` carries them and `ToolOutput` had to become
+ * reachable from a driver package (design §2.4bis(c)).
  *
- * `summary` is **always English and always complete on its own** — it is read by
- * the model and quoted to the user, and it is the only field a plain-text client
- * will see. The ids beside it are for a client that can do something with them.
+ * Only the record moved. Everything below — naming a panel in words, and the
+ * diff that derives the effects from two snapshots — is policy that reads the
+ * whole layout tree, and it stays in the app.
  */
-export interface UiEffect {
-  kind: UiEffectKind
-  summary: string
-  viewId?: string
-  panelId?: string
-  /** Where that panel sits, in words: "the right pane", "pane 2 of 3". */
-  panelPlacement?: string
-  connId?: string
-  resultId?: string
-  title?: string
-  /**
-   * A Command a client may dispatch to put this effect's subject on screen.
-   *
-   * Present only when there is somewhere to go: a view that was opened, moved or
-   * pushed behind another tab. Absent for a view that was closed, because there is
-   * nothing left to focus. Spelled as a Command rather than as a bare id so a
-   * renderer wires the button up without a lookup table of its own.
-   */
-  focus?: { command: 'view.activate'; viewId: string }
-}
+export type { UiEffect, UiEffectKind }
 
 /* ================================================================== */
 /* 2. Naming a panel in words                                           */
@@ -131,7 +105,9 @@ function placements(snap: WorkspaceSnapshot): Map<string, Placement> {
       panelId: v.panelId,
       visible: v.visible,
       title: v.title,
-      kind: v.kind,
+      // The kind a reader would name it by: "Opened graph view", not "Opened
+      // plugin view". Same call, same reason, as `briefView` in summary.ts.
+      kind: displayViewKind(v),
       describe: v.describe,
     })
   }

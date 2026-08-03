@@ -13,6 +13,17 @@ export const views: CatalogFor<ViewsMessages> = {
     '为了守住内存预算，这段数据被淘汰了。它们无法单独取回——当初的游标已经关闭——重跑一次请求才能重新看到。',
   'result.cacheGapRefetch': '重新执行',
 
+  /* ---- 自动刷新 ---- */
+  'autoRefresh.off': '关',
+  'autoRefresh.unitS': ' 秒',
+  'autoRefresh.unitMin': ' 分',
+  'autoRefresh.unitH': ' 小时',
+  'autoRefresh.menuLabel': '自动刷新间隔',
+  'autoRefresh.title': '自动刷新：按固定间隔重新取数',
+  'autoRefresh.onTitle': '每 {interval} 自动刷新一次。第一次要等满一个间隔——想立刻取一次请按「刷新」。',
+  'autoRefresh.stoppedPaged': '自动刷新已关闭：该集合按游标向前翻页，而刷新会从第一页重新扫描。',
+  'autoRefresh.stoppedError': '连续三次刷新失败，自动刷新已关闭。',
+
   'table.refresh': '刷新',
   'table.refreshTitle': '重新取数',
   'table.refreshCursorTitle': '从第一页重新取数',

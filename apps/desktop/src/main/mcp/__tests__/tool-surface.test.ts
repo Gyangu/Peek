@@ -1,34 +1,49 @@
 /**
  * What the embedded agent is *not* given.
  *
- * The MCP tool surface is derived from the files in `tools/` — one file, one
- * tool — which means the surface grows by somebody adding a file, and never by
- * a command being added to the bus. That is the property this file guards, from
- * the one direction that matters: some commands must stay unreachable from a
- * model, and the only reason they are is that nobody wrote the file.
+ * The MCP tool surface is derived from source — the kernel's files under
+ * `tools/`, and each driver package's `src/mcp-tools.ts` — which means the
+ * surface grows by somebody adding a declaration, and never by a command being
+ * added to the bus. That is the property this file guards, from the one
+ * direction that matters: some commands must stay unreachable from a model, and
+ * the only reason they are is that nobody declared the tool.
  *
- * A source-level check, deliberately. `collectBuiltinTools` uses
- * `import.meta.glob`, which is a Vite build-time construct and does not exist
- * under the plain node test runner, so the registry cannot be instantiated here.
- * Reading the directory asks the same question of the same source of truth.
+ * **Both sources, not just the kernel's.** A package tool is an ordinary
+ * `view.update`-shaped shell over the same bus, so a package could reach
+ * `chat.sessions.delete` exactly as easily as a kernel tool could — and until
+ * this file scanned `packages/*`, it would have done so with nothing looking.
+ * `registeredToolSources` is shared with `verify-chat-security.mjs` so the two
+ * cannot come to disagree about what a source is.
+ *
+ * A source-level check, deliberately. `collectTools` uses `import.meta.glob`,
+ * which is a Vite build-time construct and does not exist under the plain node
+ * test runner, so the registry cannot be instantiated here. Reading the sources
+ * asks the same question of the same source of truth.
  *
  * `verify-chat-security.mjs` covers the other direction against a running server
- * (every tool the endpoint offers corresponds to a file here). The two together
- * say: the set is exactly the files, and the files exclude these commands.
+ * (every tool the endpoint offers was declared in one of these). The two together
+ * say: the set is exactly what the sources declare, and the sources exclude these
+ * commands.
  */
 
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
+import { relative, resolve } from 'node:path'
 import { test } from 'node:test'
 
-const TOOLS_DIR = fileURLToPath(new URL('../tools', import.meta.url))
+// @ts-expect-error — a plain .mjs helper with no declarations, shared with the
+// verify script precisely so that "what counts as a tool source" is stated once.
+import { registeredToolSources } from '../../../../scripts/tool-sources.mjs'
+
+/** `…/apps/desktop/src/main/mcp/__tests__` → the workspace root. */
+const REPO_ROOT = resolve(import.meta.dirname, '../../../../../..')
 
 function toolSources(): { file: string; text: string }[] {
-  return readdirSync(TOOLS_DIR)
-    .filter((f) => f.endsWith('.ts'))
-    .map((file) => ({ file, text: readFileSync(join(TOOLS_DIR, file), 'utf8') }))
+  const paths: string[] = registeredToolSources(REPO_ROOT)
+  // Repo-relative, not the basename: every package's module is called
+  // `mcp-tools.ts`, and an offender reported by basename alone would not say
+  // which package to go and look at.
+  return paths.map((path) => ({ file: relative(REPO_ROOT, path), text: readFileSync(path, 'utf8') }))
 }
 
 /**
@@ -46,6 +61,31 @@ const FORBIDDEN: { command: string; why: string }[] = [
     why: 'an agent that can delete conversations can delete the record of what it did',
   },
 ]
+
+test('the scan covers both kinds of source, or the rules below are vacuous for one of them', () => {
+  // The failure this catches is a rule quietly matching nothing: a package tool
+  // module that moved, or a `packages/*` scan that stopped resolving, would
+  // leave every assertion here passing over the kernel's files alone while a
+  // package tool went unexamined.
+  const files = toolSources().map((s) => s.file)
+  assert.ok(
+    files.some((f) => f.startsWith('apps/desktop/')),
+    `no kernel tool file was scanned; found: ${files.join(', ')}`,
+  )
+  assert.ok(
+    files.some((f) => f.startsWith('packages/driver-')),
+    'no driver package tool module was scanned. Either every package stopped contributing tools — ' +
+      'in which case say so here, because this file has just gone half-vacuous — or the scan broke.',
+  )
+  // `@peek/core` has a `src/mcp-tools.ts` too: the contract a tool is *declared
+  // in*, which is not a tool source. It was being scanned as one until the glob
+  // was narrowed to `driver-*`, which meant a `name: 'x',` line anywhere in the
+  // frozen contract would have registered as a publishable tool name.
+  assert.ok(
+    !files.some((f) => f.startsWith('packages/core/')),
+    'packages/core is being scanned as a tool source. It declares the contract, not tools.',
+  )
+})
 
 test('no MCP tool exposes a command that destroys stored conversations', () => {
   const sources = toolSources()

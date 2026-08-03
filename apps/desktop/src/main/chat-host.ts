@@ -203,6 +203,52 @@ function agentDisplayName(route: SessionRoute): string {
 }
 
 /**
+ * Say why a conversation would not load, when the honest answer is "it is gone".
+ *
+ * peek keeps no copy of an ACP transcript — the agent owns it — and agents
+ * delete their own history on their own schedule. Claude Code's
+ * `cleanupPeriodDays` defaults to 30 days, so a conversation from last month is
+ * *expected* to be unloadable, and forwarding the agent's raw protocol error for
+ * it tells the user nothing they can act on.
+ *
+ * Asking the catalogue is what separates the two cases. A session id the agent
+ * still lists but cannot load is a real failure and the original error is the
+ * useful one; a session id it no longer lists has been cleaned up, and that is
+ * worth a sentence naming the mechanism rather than the symptom.
+ *
+ * The catalogue lookup can itself fail — the agent may be the thing that is
+ * broken — and then the original error stands. Never a *worse* message than the
+ * one that came in.
+ *
+ * The row does not need removing from the sessions rail: that list is read from
+ * `session/list`, so a conversation the agent has forgotten is already absent
+ * from the next read.
+ */
+async function explainLoadFailure(
+  manager: AcpManager,
+  sessionId: string,
+  raw: unknown,
+): Promise<PeekError> {
+  const original = toPeekError(raw)
+  try {
+    const catalogue = await manager.listSessions()
+    if (!catalogue.supported) return original
+    if (catalogue.sessions.some((s) => s.sessionId === sessionId)) return original
+  } catch {
+    return original
+  }
+  return {
+    code: 'NOT_FOUND',
+    message: 'This conversation’s history is gone.',
+    detail:
+      'The agent deleted it — Claude Code removes stored conversations after 30 days by default ' +
+      '(`cleanupPeriodDays` in ~/.claude/settings.json). peek does not keep its own copy of an ' +
+      'agent’s history, so there is nothing to restore. You can start a new conversation.',
+    retryable: false,
+  }
+}
+
+/**
  * Turn the `ChatEffect`s a reducer planned into calls on the ACP host.
  *
  * **Nothing here is awaited by the bus, and nothing here may reject.** The state
@@ -241,8 +287,12 @@ export function createAcpChatRuntime(deps: ChatRuntimeDeps): ChatRuntime {
           // for a prompt would leave the user looking at the empty state of a
           // chat they picked precisely because it has history in it.
           if (effect.resumeSessionId !== undefined) {
-            void manager.openChat(effect.chatId, effect.resumeSessionId).catch((raw: unknown) => {
-              fail(effect.chatId, raw, 'loading the conversation failed')
+            const sessionId = effect.resumeSessionId
+            void manager.openChat(effect.chatId, sessionId).catch((raw: unknown) => {
+              void explainLoadFailure(manager, sessionId, raw).then((error) => {
+                console.error('[peek/chat] loading the conversation failed', error.message)
+                onError(effect.chatId, error)
+              })
             })
           }
           return
@@ -329,6 +379,23 @@ export function createAcpChatRuntime(deps: ChatRuntimeDeps): ChatRuntime {
           })
           return
       }
+    },
+
+    /**
+     * Ask the agent to replay it. peek keeps no copy of an ACP transcript, so
+     * there is nothing here to hand back — the history belongs to the agent and
+     * the agent is where it is fetched from, exactly as when the conversation
+     * was first opened.
+     */
+    restore(chatId: ChatId): Promise<boolean> {
+      return manager.reloadChat(chatId).catch((raw: unknown) => {
+        // A replay that fails is not worth an error banner: the conversation is
+        // intact in the agent and on the next open it will load normally. What
+        // the window shows meanwhile is an empty transcript, which `false` is
+        // the caller's cue to explain.
+        console.warn('[peek/chat] restoring the conversation failed', toPeekError(raw).message)
+        return false
+      })
     },
 
     /**
@@ -429,9 +496,18 @@ export function createEndpointChatRuntime(deps: EndpointRuntimeDeps): ChatRuntim
     run(effect: ChatEffect): void {
       switch (effect.type) {
         case 'session.open':
-          // Nothing to bring up: there is no process, and history for this
-          // backend is peek's own file. A resumed conversation is loaded when the
-          // session is first touched.
+          // Same policy as the ACP backend, for the same reason: a new
+          // conversation costs nothing until somebody types, but one opened onto
+          // existing history has something to show before that and must not make
+          // the user speak first to see it. The difference is where the history
+          // comes from — a file peek wrote, not a protocol.
+          if (effect.resumeSessionId !== undefined) {
+            try {
+              manager.openChat(effect.chatId, effect.resumeSessionId)
+            } catch (raw) {
+              fail(effect.chatId, raw, 'loading the conversation failed')
+            }
+          }
           return
 
         case 'session.close':
@@ -442,7 +518,12 @@ export function createEndpointChatRuntime(deps: EndpointRuntimeDeps): ChatRuntim
           void (async () => {
             try {
               const resolved = await resolveAttachments(effect.attachments, { source })
-              manager.send({ chatId: effect.chatId, text: effect.text, attachments: resolved })
+              manager.send({
+                chatId: effect.chatId,
+                text: effect.text,
+                attachments: resolved,
+                ...(effect.attachments.length > 0 ? { descriptors: effect.attachments } : {}),
+              })
             } catch (raw) {
               fail(effect.chatId, raw, 'prompt failed')
             }
@@ -475,9 +556,9 @@ export function createEndpointChatRuntime(deps: EndpointRuntimeDeps): ChatRuntim
           return
 
         case 'sessions.delete':
-          // The route is peek's own record, and so is the transcript. Removing the
-          // route is what takes the conversation out of the catalogue.
-          if (sessionIndex?.remove(effect.sessionId) !== true) {
+          // The route is peek's own record, and so is the body. Both go, body
+          // first — the manager owns that ordering because it owns the store.
+          if (!manager.deleteSession(effect.sessionId)) {
             notify({
               level: 'info',
               message: 'That conversation was already gone.',
@@ -485,6 +566,15 @@ export function createEndpointChatRuntime(deps: EndpointRuntimeDeps): ChatRuntim
           }
           return
       }
+    },
+
+    /**
+     * Re-send from the live projection, which this backend has and the ACP one
+     * does not. No disk read: `restore` re-emits what main is already holding,
+     * and that is at least as current as the last save.
+     */
+    restore(chatId: ChatId): Promise<boolean> {
+      return Promise.resolve(manager.restore(chatId))
     },
 
     /**
@@ -504,6 +594,14 @@ export function createEndpointChatRuntime(deps: EndpointRuntimeDeps): ChatRuntim
             sessionId: route.sessionId,
             cwd: '',
             agent: route.agentId || modelId,
+            // Both come from peek's own index rather than from an agent, which
+            // is the whole reason `SessionRoute` carries them. `updatedAt` is
+            // ISO on the wire because that is what the ACP rows deliver and the
+            // rail formats one shape, not two.
+            ...(route.title === undefined ? {} : { title: route.title }),
+            ...(route.updatedAt === undefined
+              ? {}
+              : { updatedAt: new Date(route.updatedAt).toISOString() }),
           })),
         supported: true,
         cwd: null,

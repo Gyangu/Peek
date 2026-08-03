@@ -81,7 +81,6 @@ import {
 } from '@agentclientprotocol/sdk'
 import {
   peekError,
-  type ChatAttachmentReceipt,
   type ChatDelta,
   type ChatId,
   type ChatMessage,
@@ -103,6 +102,7 @@ import {
   sanitizeLine,
 } from './errors'
 import { PermissionBroker, type PermissionDecision } from '../agent/permissions'
+import { buildAttachmentReceipts } from '../agent/context'
 import { buildPeekMcpServer, ensureChatWorkdir } from './session-config'
 import { TranscriptTranslator, type ChatStateDelta, type TranslationOutput } from './translate'
 import {
@@ -113,7 +113,6 @@ import {
   type AcpHostConfig,
   type AcpHostDeps,
   type AcpPromptInput,
-  type AcpResolvedAttachment,
 } from './types'
 
 /* ================================================================== */
@@ -305,7 +304,7 @@ export class AcpManager {
     const user = session.translator.appendUserMessage(
       input.text,
       input.descriptors && input.descriptors.length > 0 ? [...input.descriptors] : undefined,
-      buildReceipts(input.attachments),
+      buildAttachmentReceipts(input.attachments),
     )
     const messageId = firstMessageId(user.deltas)
     this.#emit(session, user.deltas, user.state, { flush: true })
@@ -433,6 +432,61 @@ export class AcpManager {
     if (session.agentSessionId === resumeSessionId) return
     session.resumeSessionId = resumeSessionId
     await this.#ensureSession(chatId)
+  }
+
+  /**
+   * Replay a conversation that is **already open**, for a window that lost it.
+   *
+   * The renderer reloaded: main still holds the session, so nothing here is
+   * broken and nothing re-opens. What is gone is the transcript mirror on the
+   * other side of the IPC boundary, and this backend keeps no copy of its own to
+   * hand back — the history belongs to the agent, so the agent is asked again.
+   *
+   * `openChat` cannot serve. Its "already up on the right session" short-circuit
+   * returns immediately in exactly this case, and that guard is right: it is
+   * what stops a tab opened twice from stacking a conversation on itself. This
+   * is the deliberate other door, not a hole in that one.
+   *
+   * Two things have to happen before the request that do not happen on bringup:
+   *
+   *  - `reset()` on the translator, because it is stateful (the open message,
+   *    the tool-call table, the message count). Replaying onto a used translator
+   *    continues the old numbering and mis-addresses every delta;
+   *  - the `reset` delta reaching the window, so a mirror that is *not* empty —
+   *    a second restore, a renderer that reconnected with something already in
+   *    it — is cleared rather than doubled.
+   *
+   * `false` when there is nothing to replay: no session, no agent session id, or
+   * an agent with no history to give. Not an error — the caller falls back to
+   * showing the conversation as empty, which is what it is.
+   */
+  async reloadChat(chatId: ChatId): Promise<boolean> {
+    if (this.#disposed) return false
+    const session = this.#sessions.get(chatId)
+    const resumeId = session?.agentSessionId ?? null
+    if (!session || resumeId === null) return false
+    // Mid-turn, the live stream and the replay would interleave into one
+    // transcript. The turn is still running and will still land; the window just
+    // does not get its history back until it finishes.
+    if (session.streaming) return false
+    if (this.#agentCaps?.loadSession !== true) return false
+
+    await this.#ensureAgent()
+    const connection = this.#connection
+    if (!connection) return false
+
+    const out = session.translator.reset()
+    this.#emit(session, out.deltas, out.state, { flush: true })
+
+    const endpoint = this.#deps.resolveMcpEndpoint()
+    const peekMcp = buildPeekMcpServer(endpoint)
+    if (peekMcp) this.#rememberSecret(endpoint?.token)
+    // The sandbox, from the profile, exactly as bringup gets it. A replay runs
+    // the same tools with the same permissions as the load that first opened the
+    // conversation, so it is precisely as much of a sandbox question.
+    const _meta = this.#config.profile.buildSessionMeta(this.#config.agentConfig)
+    await this.#replay(session, resumeId, connection, this.#config.resolveCwd(), peekMcp ? [peekMcp] : [], _meta)
+    return true
   }
 
   /**
@@ -888,44 +942,7 @@ export class AcpManager {
 
     const resumeId = session.resumeSessionId
     if (resumeId !== null) {
-      if (this.#agentCaps?.loadSession !== true) throw loadUnsupportedError()
-
-      // Registered **before** the request, not after, and this ordering is load
-      // -bearing. `session/load` replays the whole transcript as ordinary
-      // `session/update` notifications *while the request is still open*, so a
-      // reverse index populated from the response would be empty for every one
-      // of them and the history would arrive addressed to nobody. The id is
-      // known here because the caller supplied it, which is what makes the early
-      // registration possible at all — `session/new` has no such luxury and does
-      // not need one, having nothing to replay.
-      session.agentSessionId = resumeId
-      this.#byAgentSession.set(resumeId, session)
-      // Bracketing the request, for the same reason the registration precedes it:
-      // every replayed update arrives while it is open. Inside the bracket the
-      // translator keeps the user's own turns, which it drops during a live turn
-      // because peek recorded those itself. Without this a reopened conversation
-      // shows Claude answering questions nobody appears to have asked.
-      session.translator.beginReplay()
-      try {
-        await withTimeout(
-          connection.loadSession({ sessionId: resumeId, cwd, mcpServers, _meta }),
-          this.#config.timeouts.loadSessionMs,
-          'Loading the conversation',
-        )
-      } catch (raw) {
-        // Undo the optimistic registration: leaving it in place would route a
-        // later notification for that session id into a chat that never loaded.
-        session.agentSessionId = null
-        this.#byAgentSession.delete(resumeId)
-        throw raw
-      } finally {
-        session.translator.endReplay()
-      }
-      // The replay left the last message open, because a replay has no
-      // `stopReason` to close it with. Closing it here is what makes the restored
-      // transcript look finished rather than perpetually mid-answer.
-      const tail = session.translator.finishTurn('end_turn')
-      this.#emit(session, tail.deltas, tail.state, { flush: true })
+      await this.#replay(session, resumeId, connection, cwd, mcpServers, _meta)
       await this.#applyPermissionMode(connection, resumeId, session.chatId)
       return
     }
@@ -948,6 +965,70 @@ export class AcpManager {
     })
 
     await this.#applyPermissionMode(connection, created.sessionId, session.chatId)
+  }
+
+  /**
+   * Ask the agent to replay one conversation, and translate what comes back.
+   *
+   * Extracted from `#openAgentSession` so bringup and `reloadChat` cannot drift:
+   * all three orderings below are load-bearing, and a second copy of them would
+   * eventually only have two.
+   */
+  async #replay(
+    session: ChatSession,
+    resumeId: string,
+    connection: ClientSideConnection,
+    cwd: string,
+    mcpServers: McpServer[],
+    // Spelled out at the call site below rather than spread from an options
+    // object: `session-config.test.ts` reads this source to prove the sandbox
+    // reaches `session/load`, and a check that can be satisfied by an opaque
+    // `...params` is not the check that test is making.
+    _meta: Record<string, unknown>,
+  ): Promise<void> {
+    if (this.#agentCaps?.loadSession !== true) throw loadUnsupportedError()
+
+    // Registered **before** the request, not after, and this ordering is load
+    // -bearing. `session/load` replays the whole transcript as ordinary
+    // `session/update` notifications *while the request is still open*, so a
+    // reverse index populated from the response would be empty for every one
+    // of them and the history would arrive addressed to nobody. The id is
+    // known here because the caller supplied it, which is what makes the early
+    // registration possible at all — `session/new` has no such luxury and does
+    // not need one, having nothing to replay.
+    const wasRegistered = session.agentSessionId === resumeId
+    session.agentSessionId = resumeId
+    this.#byAgentSession.set(resumeId, session)
+    // Bracketing the request, for the same reason the registration precedes it:
+    // every replayed update arrives while it is open. Inside the bracket the
+    // translator keeps the user's own turns, which it drops during a live turn
+    // because peek recorded those itself. Without this a reopened conversation
+    // shows Claude answering questions nobody appears to have asked.
+    session.translator.beginReplay()
+    try {
+      await withTimeout(
+        connection.loadSession({ sessionId: resumeId, cwd, mcpServers, _meta }),
+        this.#config.timeouts.loadSessionMs,
+        'Loading the conversation',
+      )
+    } catch (raw) {
+      // Undo the optimistic registration: leaving it in place would route a
+      // later notification for that session id into a chat that never loaded.
+      // Only when this call is what made it — a reload of a session that was
+      // already up must not unregister a conversation that is still fine.
+      if (!wasRegistered) {
+        session.agentSessionId = null
+        this.#byAgentSession.delete(resumeId)
+      }
+      throw raw
+    } finally {
+      session.translator.endReplay()
+    }
+    // The replay left the last message open, because a replay has no
+    // `stopReason` to close it with. Closing it here is what makes the restored
+    // transcript look finished rather than perpetually mid-answer.
+    const tail = session.translator.finishTurn('end_turn')
+    this.#emit(session, tail.deltas, tail.state, { flush: true })
   }
 
   /**
@@ -1459,20 +1540,6 @@ function withAuthHelp(error: PeekError): PeekError {
  * an entry for it would be one more object on every turn, in every transcript,
  * saying nothing. The renderer treats a missing receipt as "it all went".
  */
-function buildReceipts(resolved: readonly AcpResolvedAttachment[]): ChatAttachmentReceipt[] {
-  const out: ChatAttachmentReceipt[] = []
-  for (const a of resolved) {
-    const failed = a.error !== undefined
-    if (!failed && (a.notice === undefined || a.notice === null)) continue
-    out.push({
-      attachmentId: a.attachmentId,
-      ...(a.notice ? { notice: a.notice } : {}),
-      ...(failed ? { failed: true } : {}),
-    })
-  }
-  return out
-}
-
 function firstMessageId(deltas: readonly ChatDelta[]): ChatMessageId {
   for (const delta of deltas) {
     if (delta.type === 'message.start') return delta.message.id

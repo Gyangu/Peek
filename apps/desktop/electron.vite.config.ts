@@ -48,6 +48,9 @@ const peekAlias = {
   // module that answers it. Reaching it through `index.ts` would put a Bolt
   // client in the main-process chunk.
   '@peek/driver-neo4j/view': resolve(repoRoot, 'packages/driver-neo4j/src/view.ts'),
+  // A third one, same rule: the package's MCP tools are registered on the server
+  // that runs in main, so they must be reachable without `index.ts`.
+  '@peek/driver-neo4j/mcp-tools': resolve(repoRoot, 'packages/driver-neo4j/src/mcp-tools.ts'),
   '@peek/core': resolve(repoRoot, 'packages/core/src/index.ts'),
   '@peek/driver-postgres': resolve(repoRoot, 'packages/driver-postgres/src/index.ts'),
   '@peek/driver-redis': resolve(repoRoot, 'packages/driver-redis/src/index.ts'),

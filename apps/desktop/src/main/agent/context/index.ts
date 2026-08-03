@@ -47,10 +47,12 @@ export {
 } from './serialize'
 
 export {
+  buildAttachmentReceipts,
   defaultAttachmentLabel,
   resolveAttachment,
   resolveAttachments,
   summarizeIndexes,
+  type AttachmentOutcome,
   type ResolveOptions,
   type ResolvedAttachment,
 } from './resolve'

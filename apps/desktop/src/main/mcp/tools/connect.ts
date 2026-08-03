@@ -7,10 +7,26 @@
 
 import { z } from 'zod'
 import { commandSchemas } from '@peek/core'
+import { DRIVER_MANIFESTS } from '../../../drivers/manifests'
 import { defineCommandTool, outcomeData } from '../executor'
 import { briefConnection, renderPanelBrief, toJson } from '../summary'
 
 const InputSchema = commandSchemas['conn.open']
+
+/**
+ * One `connect` argument per driver, from the packages themselves.
+ *
+ * This description used to spell the shapes out by hand — "postgres/mysql accept
+ * a url on its own; sqlite takes `file`; redis takes `url`, or host/port/db" —
+ * and by the time neo4j arrived it was a list of five databases out of six, with
+ * nothing to catch that. A model reading it would conclude neo4j was not
+ * connectable.
+ *
+ * `instructions.ts` already fixed this exact bug for the MCP preamble in
+ * 2026-08-02 and this call site was missed. Same source, same reason: a database
+ * arrives here documented, or it does not arrive here at all.
+ */
+const CONNECT_EXAMPLES = DRIVER_MANIFESTS.map((m) => `${m.displayName} ${m.mcpConnectExample}`).join('; ')
 
 /** Only these fields of the conn.open result are read; a loose schema narrows it without `any`. */
 const ConnOpenResultShape = z.object({
@@ -23,9 +39,8 @@ export default defineCommandTool({
   name: 'connect',
   title: 'Connect to a database',
   description:
-    'Open a database connection and register it in peek. The shape of `config` depends on driverId: ' +
-    'postgres/mysql accept a url on its own (postgresql://user@host:5432/db); ' +
-    'sqlite takes `file`; redis takes `url`, or host/port/db; qdrant takes `url` (plus optional apiKey). ' +
+    'Open a database connection and register it in peek. The shape of `config` depends on driverId — ' +
+    `a minimal example for each: ${CONNECT_EXAMPLES}. ` +
     'Passing openTree=true also opens a namespace tree view in the UI. ' +
     'Returns the connId and the capabilities the connection actually has.',
   inputSchema: InputSchema,

@@ -1,14 +1,14 @@
 import { useCallback } from 'react'
 import type { ReactElement } from 'react'
 import type { SortSpec, TableViewState } from '@peek/core'
-import { collectionRefLabel } from '@peek/core'
+import { collectionRefLabel, refreshPatch } from '@peek/core'
 import { useT } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
 import { useConnection, useResultMeta } from '../../state/workspaceStore'
 import { DataGrid } from '../DataGrid'
 import { ViewError } from '../ViewError'
-import { CacheGapNotice, CancelButton } from './ResultControls'
-import { refreshPatch, tableControls } from './browseControls'
+import { AutoRefreshControl, CacheGapNotice, CancelButton } from './ResultControls'
+import { tableControls } from './browseControls'
 import { Button } from '../../ui/Button'
 
 const PAGE_SIZES = [100, 200, 500, 1000, 5000]
@@ -128,6 +128,14 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
             table walks for minutes — and this view was the one with no way to stop
             it. It has one now, on the same control the other two result views use. */}
         <CancelButton viewId={viewId} conn={conn} running={running} />
+        {/* On a cursor-paged collection a refresh restarts the scan, so walking
+            forward switches the timer off — see `isCursorPageForward` in main. */}
+        <AutoRefreshControl
+          viewId={viewId}
+          kind="table"
+          {...(view.autoRefreshMs !== undefined ? { autoRefreshMs: view.autoRefreshMs } : {})}
+          {...(view.autoRefreshStoppedBy !== undefined ? { stoppedBy: view.autoRefreshStoppedBy } : {})}
+        />
         <span className="sep" />
         {controls.offsetPager ? (
           <>

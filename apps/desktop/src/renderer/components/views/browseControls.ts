@@ -1,4 +1,4 @@
-import { collectionBrowseStyle, type CollectionRef, type ViewPatch } from '@peek/core'
+import { collectionBrowseStyle, type CollectionRef } from '@peek/core'
 
 /**
  * Which controls the collection browser is allowed to draw, per collection kind.
@@ -77,17 +77,8 @@ export function tableControls(ref: CollectionRef): TableControls {
 }
 
 /**
- * The patch a Refresh sends.
- *
- * On a cursor-paged collection it carries `offset: 0`, and that is load-bearing
- * rather than cosmetic: `offset` is what makes main drop the stored continuation
- * token (`handlers/view.ts`, `invalidatesCursor`), so sending it is precisely
- * "forget where we were". A patch that changed nothing would re-run the scan with
- * the token the last page handed back — that is, refresh would silently page
- * forward.
+ * `refreshPatch` used to live here. It moved to `@peek/core` when main grew an
+ * auto-refresh timer that has to send the very same patch: "a refresh restarts a
+ * cursor scan rather than paging it forward" is a rule that may not have two
+ * implementations, one per process. Import it from `@peek/core`.
  */
-export function refreshPatch(ref: CollectionRef): ViewPatch {
-  return collectionBrowseStyle(ref).offsetPaging
-    ? { kind: 'table' }
-    : { kind: 'table', offset: 0 }
-}

@@ -72,6 +72,13 @@ export const mysqlManifest = defineManifest({
   connectForm: MYSQL_FORM,
   sqlDialect: 'mysql',
   mcpConnectExample: '{"driverId":"mysql","url":"mysql://user@host:3306/db"}',
+  skill:
+    'MySQL has no schema level between the database and the table, so the namespace tree is one ' +
+    'shallower than PostgreSQL and a ref names the database and the table. Statements run inside ' +
+    'a READ ONLY transaction: writes, SET and temporary tables all come back as CONFLICT, and no ' +
+    'rephrasing gets them through. Do not add a LIMIT for safety — peek streams the result and ' +
+    'the window pages it, so an unbounded SELECT costs the user nothing while a truncated one ' +
+    'hides the rows they were looking for.',
 
   assembleConfig(mode, values, label) {
     const { text, num, bool } = formReaders(MYSQL_FORM.fields[mode], values)
@@ -129,6 +136,12 @@ export const sqliteManifest = defineManifest({
   connectForm: SQLITE_FORM,
   sqlDialect: 'sqlite',
   mcpConnectExample: '{"driverId":"sqlite","file":"/absolute/path/to/db.sqlite"}',
+  skill:
+    'Connect with file, an absolute path on this machine, not a URL. The database is opened ' +
+    'read-only and with PRAGMA query_only, so SQLite itself refuses every write, including ' +
+    'ATTACH and the PRAGMA statements that would change it. The namespace tree is the main ' +
+    'database plus whatever was attached when it was opened. Do not add a LIMIT for safety: ' +
+    'peek streams the result and pages it in the window.',
 
   assembleConfig(_mode, values, label) {
     return {

@@ -13,6 +13,7 @@
  *   manifest.ts       DriverManifest: what a database *is* (name, capabilities, connect form),
  *                     declared by each driver package in a client-free subpath entry
  *   view-kinds.ts     the contract half of a plugin-contributed view kind
+ *   mcp-tools.ts      the shape an MCP tool is declared in, so a package can contribute one
  *   plugin-channel.ts the one MessagePort protocol a self-drawn (Tier C) plugin view speaks
  *   driver-host.ts    driver-agnostic driver-host runtime (the ipc.ts protocol, implemented once)
  *   workspace.ts      Workspace state model (tiled layout / views / connection state machine)
@@ -33,6 +34,7 @@ export * from './values'
 export * from './capability'
 export * from './manifest'
 export * from './view-kinds'
+export * from './mcp-tools'
 export * from './plugin-channel'
 export * from './cursor'
 export * from './chat'

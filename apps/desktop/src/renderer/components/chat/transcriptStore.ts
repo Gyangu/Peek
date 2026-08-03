@@ -299,20 +299,24 @@ export function coalesce(deltas: readonly ChatDelta[]): ChatDelta[] {
 /* ------------------------------------------------------------------ */
 
 /**
- * ⚠️ Contract gap. `PeekBridge` has no chat channel: nothing in `core/ipc.ts`
- * carries a `ChatDelta` from main to the renderer, and no IPC channel name is
- * reserved for one.
+ * The two halves of the transcript channel, probed at runtime in the same style
+ * as `bridgeExtras` in `bridge.ts` — if preload implements them the panel is
+ * live, and if it does not the panel renders a plain statement that it is not
+ * connected rather than an empty conversation that looks working.
  *
- * These two optional members are the shape this panel expects, probed at
- * runtime in the same style as `bridgeExtras` in `bridge.ts` — if preload
- * implements them the panel is live, and if it does not the panel renders a
- * plain statement that it is not connected rather than an empty conversation
- * that looks working. The handler takes an **array** so main can batch, which is
- * what `chat.ts` asks it to do.
+ * `onChatDelta` takes an **array** so main can batch, which is what `chat.ts`
+ * asks it to do.
+ *
+ * `restoreChat` is the way back from a reload. The delta stream is append-only
+ * and nobody repeats it, so a mirror that starts empty stays empty while main
+ * sits on a perfectly good conversation — the tab, title and message count come
+ * back through `STATE_SNAPSHOT` and the messages do not. This asks for one
+ * re-send; the messages arrive over `onChatDelta` like any others, so there is
+ * no second format and no second code path applying it.
  */
 export interface ChatBridgeChannel {
   onChatDelta(handler: (deltas: ChatDelta | ChatDelta[]) => void): () => void
-  getChatTranscript(chatId: ChatId): Promise<ChatTranscript>
+  restoreChat(chatId: ChatId): Promise<boolean>
 }
 
 function channel(): Partial<ChatBridgeChannel> | null {
@@ -339,14 +343,37 @@ export function startChatSync(): void {
   setState({ channelReady: true })
 }
 
-/** Pull a whole transcript, when the channel offers one (re-sync after a gap). */
-export async function loadChatTranscript(chatId: ChatId): Promise<boolean> {
+/**
+ * Conversations already asked for, so a remount does not ask twice.
+ *
+ * Keyed by `ChatId`, which dies with the view, so this cannot grow without
+ * bound in a session. It is deliberately **not** cleared when a request answers
+ * `false`: "main has nothing" is a settled answer, and re-asking on every
+ * render would turn an empty conversation into a request loop.
+ */
+const requested = new Set<ChatId>()
+
+/**
+ * Ask main to re-send one conversation, once.
+ *
+ * Called when a chat view mounts with an empty mirror — the reload case. A
+ * conversation that is empty because nobody has spoken yet also lands here,
+ * costs one round trip, and gets `false`; that is cheaper than any way of
+ * telling the two apart from this side.
+ */
+export async function restoreChat(chatId: ChatId): Promise<boolean> {
+  if (requested.has(chatId)) return false
   const ch = channel()
-  const get = ch?.getChatTranscript
-  if (typeof get !== 'function') return false
-  const transcript = await get.call(ch, chatId)
-  setChatTranscript(transcript)
-  return true
+  const ask = ch?.restoreChat
+  if (typeof ask !== 'function') return false
+  requested.add(chatId)
+  try {
+    return await ask.call(ch, chatId)
+  } catch {
+    // Main answers `false` on every failure it can see; this is the transport
+    // itself failing. Either way the panel shows what it has.
+    return false
+  }
 }
 
 /* ------------------------------------------------------------------ */

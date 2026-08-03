@@ -194,6 +194,119 @@ export type ChatDelta =
   /** Everything before this point is gone (a cleared conversation). */
   | { type: 'reset'; chatId: ChatId }
 
+/* ------------------------------------------------------------------ */
+/* 2b. The projection, as a flat list                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Fold one delta into a `ChatMessage[]`.
+ *
+ * ## Why this exists when the renderer already has one
+ *
+ * The renderer's transcript store applies the same rules to a `{ order, byId }`
+ * pair, and that shape is load-bearing there: it is what stops a streamed token
+ * from re-rendering every row in the list. Main has no such problem and a very
+ * different need — it persists the endpoint backend's transcript, and a file
+ * wants a list, not an index.
+ *
+ * So the two projections are kept in the shapes their jobs call for, and the
+ * risk that comes with that — two implementations of one rule, drifting — is
+ * closed by a test that runs both over the same delta sequence and asserts they
+ * agree (`renderer/components/chat/__tests__/chat.test.ts`). Sharing one
+ * implementation would have meant giving one of the two callers the wrong data
+ * structure, which is a worse trade than a locked-down duplicate.
+ *
+ * Pure and non-mutating: returns `messages` itself when nothing changed, so a
+ * caller can use reference equality to decide whether to write to disk.
+ */
+export function applyChatDeltaToMessages(
+  messages: readonly ChatMessage[],
+  delta: ChatDelta,
+): ChatMessage[] {
+  switch (delta.type) {
+    case 'reset':
+      return messages.length === 0 ? (messages as ChatMessage[]) : []
+
+    case 'message.start': {
+      // Idempotent by id, exactly as the renderer's mirror is: a replay that
+      // re-announces a message must replace it, never double it.
+      const at = messages.findIndex((m) => m.id === delta.message.id)
+      if (at === -1) return [...messages, delta.message]
+      const next = [...messages]
+      next[at] = delta.message
+      return next
+    }
+
+    case 'text.append':
+      return patch(messages, delta.messageId, (m) => appendBlock(m, 'text', delta.text))
+
+    case 'thought.append':
+      return patch(messages, delta.messageId, (m) => appendBlock(m, 'thought', delta.text))
+
+    case 'tool.upsert':
+      return patch(messages, delta.messageId, (m) => {
+        const at = m.blocks.findIndex(
+          (b) => b.type === 'tool' && b.call.toolCallId === delta.call.toolCallId,
+        )
+        const blocks = [...m.blocks]
+        if (at === -1) blocks.push({ type: 'tool', call: delta.call })
+        else blocks[at] = { type: 'tool', call: delta.call }
+        return { ...m, blocks }
+      })
+
+    case 'message.end':
+      return patch(messages, delta.messageId, (m) => ({
+        ...m,
+        complete: true,
+        stopReason: delta.stopReason,
+        ...(delta.error ? { error: delta.error } : {}),
+      }))
+  }
+}
+
+/**
+ * Replace one message. A delta naming a message that is not here is dropped
+ * rather than invented — the same rule the renderer's mirror follows, and for
+ * the same reason: a placeholder would put text on screen nobody sent.
+ */
+function patch(
+  messages: readonly ChatMessage[],
+  id: ChatMessageId,
+  fn: (m: ChatMessage) => ChatMessage,
+): ChatMessage[] {
+  const at = messages.findIndex((m) => m.id === id)
+  if (at === -1) return messages as ChatMessage[]
+  const current = messages[at] as ChatMessage
+  const next = fn(current)
+  if (next === current) return messages as ChatMessage[]
+  const out = [...messages]
+  out[at] = next
+  return out
+}
+
+/** Append to the trailing block of `kind`, opening one when the last is something else. */
+function appendBlock(m: ChatMessage, kind: 'text' | 'thought', text: string): ChatMessage {
+  if (text === '') return m
+  const blocks = [...m.blocks]
+  const last = blocks[blocks.length - 1]
+  if (last && last.type === kind) blocks[blocks.length - 1] = { type: kind, text: last.text + text }
+  else blocks.push({ type: kind, text })
+  return { ...m, blocks }
+}
+
+/**
+ * A stored transcript, back on the wire.
+ *
+ * One `message.start` per message and nothing else: that delta carries a whole
+ * `ChatMessage`, so a finished conversation needs no appends to rebuild — the
+ * blocks are already in it. This is what lets a restored conversation and a live
+ * one arrive through the same channel, and it is why the restore path adds no
+ * second format to `ChatDelta`.
+ */
+export function transcriptToDeltas(chatId: ChatId, messages: readonly ChatMessage[]): ChatDelta[] {
+  return messages.map((message) => ({ type: 'message.start' as const, chatId, message }))
+}
+
 /* ================================================================== */
 /* 3. Context attachments — "add what I am looking at"                 */
 /* ================================================================== */

@@ -1,10 +1,20 @@
+import { useState } from 'react'
 import type { ReactElement } from 'react'
-import type { ConnectionState, ResultId, ViewId } from '@peek/core'
+import type {
+  AutoRefreshStopReason,
+  ConnectionState,
+  RefreshableView,
+  ResultId,
+  ViewId,
+} from '@peek/core'
 import { useT } from '../../i18n'
 import { connHas } from '../../state/capabilities'
 import { dispatch } from '../../state/dispatch'
 import { useResult } from '../../state/useResult'
 import { Button } from '../../ui/Button'
+import { Menu } from '../../ui/Menu'
+import type { Point } from '../../ui/menuModel'
+import { autoRefreshMenuNodes, formatInterval } from './autoRefreshMenu'
 
 /**
  * The controls every result view shares: stop the request, and say something when
@@ -127,6 +137,89 @@ export function CacheGapNotice({ resultId, onRefetch, disabled }: CacheGapNotice
         ⟳ {t('result.cacheGapRefetch')}
       </Button>
     </div>
+  )
+}
+
+/* ================================================================== */
+/* Auto-refresh                                                        */
+/* ================================================================== */
+
+export interface AutoRefreshControlProps {
+  viewId: ViewId
+  /** The view's kind, which is also the patch kind `view.update` needs. */
+  kind: RefreshableView['kind']
+  /** The interval in force; absent means off. */
+  autoRefreshMs?: number
+  /** Set when auto-refresh stopped itself — the menu explains it. */
+  stoppedBy?: AutoRefreshStopReason
+}
+
+/**
+ * "Fetch this view again every N seconds."
+ *
+ * The button reports the interval instead of only being lit, because the two
+ * questions a reader has about a view that is redrawing itself are *is it on* and
+ * *how fast* — and the second one is the one they cannot recover by looking.
+ *
+ * It sits with Cancel and the cache-gap notice because it belongs to the same
+ * promise those two make: you can see what the data plane is doing to you, and
+ * you can do something about it. What it does *not* do is fetch: turning the
+ * timer on schedules the first tick one interval away, and the Refresh button an
+ * inch to its left is how you say "now".
+ *
+ * Design record: docs/design/2026-08-03-auto-refresh.md
+ */
+export function AutoRefreshControl(props: AutoRefreshControlProps): ReactElement {
+  const { viewId, kind, autoRefreshMs, stoppedBy } = props
+  const t = useT()
+  const [at, setAt] = useState<Point | null>(null)
+
+  const units = { s: t('autoRefresh.unitS'), min: t('autoRefresh.unitMin'), h: t('autoRefresh.unitH') }
+  const current = autoRefreshMs ?? null
+  const label = current === null ? t('autoRefresh.off') : formatInterval(current, units)
+
+  const nodes = autoRefreshMenuNodes({
+    currentMs: current,
+    ...(stoppedBy !== undefined ? { stoppedBy } : {}),
+    labels: {
+      off: t('autoRefresh.off'),
+      interval: (ms) => formatInterval(ms, units),
+      stoppedNote: (reason) =>
+        reason === 'paged' ? t('autoRefresh.stoppedPaged') : t('autoRefresh.stoppedError'),
+    },
+    onSelect: (ms) => {
+      setAt(null)
+      // `patch.kind` has to match the view's kind — main answers BAD_REQUEST
+      // otherwise — so the caller passes it down rather than this control
+      // guessing.
+      void dispatch('view.update', { viewId, patch: { kind, autoRefreshMs: ms } })
+    },
+  })
+
+  return (
+    <>
+      <Button
+        variant={current === null ? 'ghost' : 'primary'}
+        action="view.autoRefresh"
+        title={current === null ? t('autoRefresh.title') : t('autoRefresh.onTitle', { interval: label })}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect()
+          setAt({ x: r.left, y: r.bottom })
+        }}
+      >
+        ⏱ {label} ▾
+      </Button>
+      {at ? (
+        <Menu
+          label={t('autoRefresh.menuLabel')}
+          at={at}
+          nodes={nodes}
+          onClose={() => {
+            setAt(null)
+          }}
+        />
+      ) : null}
+    </>
   )
 }
 

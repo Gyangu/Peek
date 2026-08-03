@@ -27,12 +27,17 @@
  * what makes `source: 'agent'` structural here rather than credential-based.
  */
 
-import { Agent, type AgentTool } from '@earendil-works/pi-agent-core'
+import { randomUUID } from 'node:crypto'
+import { Agent, type AgentMessage, type AgentTool } from '@earendil-works/pi-agent-core'
 import {
+  applyChatDeltaToMessages,
   peekError,
   toPeekError,
+  transcriptToDeltas,
+  type ChatAttachmentReceipt,
   type ChatDelta,
   type ChatId,
+  type ChatMessage,
   type ChatMessageId,
   type ChatPermissionMode,
   type CommandSource,
@@ -45,7 +50,10 @@ import { DeltaBatcher } from '../batcher'
 import { PermissionBroker } from '../permissions'
 import { requestToolPermission } from './gate'
 import { redact, sanitizeLine } from '../redact'
-import { EndpointTranslator, type EndpointEvent } from './events'
+import { classifyAgentEvent, EndpointTranslator, type EndpointEvent } from './events'
+import type { EndpointThreadStore } from './thread-store'
+import type { SessionIndex } from '../session-index'
+import { buildAttachmentReceipts, type ResolvedAttachment } from '../context'
 import { buildEndpointModel } from './provider'
 import { buildEndpointTools, runEndpointTool, type EndpointTool } from './tools'
 import type { PeekTool, ToolContext } from '../../mcp/types'
@@ -89,6 +97,18 @@ export interface EndpointHostDeps {
   /** peek's own tools, and the context they run against. */
   tools: readonly PeekTool[]
   toolContext: ToolContext
+  /**
+   * Where this backend's conversations are kept.
+   *
+   * Not optional, unlike `sessionIndex` on the ACP side. There the index is a
+   * convenience over history the agent already owns; here it is the history —
+   * without it, closing a tab destroys the conversation. A backend that cannot
+   * store is a backend that silently loses the user's work, so the dependency
+   * is required and assembly has to supply it.
+   */
+  threads: EndpointThreadStore
+  /** Records the route so the conversation appears in the catalogue at all. */
+  sessionIndex?: SessionIndex
 }
 
 export interface EndpointHostConfig {
@@ -103,9 +123,27 @@ export interface EndpointHostConfig {
 
 interface Session {
   chatId: ChatId
+  /**
+   * The conversation's identity on disk, and its key in the route index.
+   *
+   * `chatId` cannot serve: it is the id of *this mounting* of the conversation
+   * and dies with the view (`core/chat.ts`), which is precisely the distinction
+   * `2026-08-02-chat-session-management.md` §2.2 drew for the ACP backend. This
+   * backend had no equivalent at all until now — no id, no route, no file — so
+   * its catalogue was permanently empty and closing a tab was a delete.
+   */
+  sessionId: string
   agent: Agent
   translator: EndpointTranslator
   batcher: DeltaBatcher
+  /**
+   * The transcript, projected from the deltas this session emitted.
+   *
+   * Kept here rather than rebuilt at save time because the deltas are the only
+   * complete record — the translator holds the *open* message, not the finished
+   * ones, and `Agent.state.messages` is the model's view, not the window's.
+   */
+  transcript: ChatMessage[]
   streaming: boolean
   permissionMode: ChatPermissionMode
   /** Tool calls the user refused, so the executor knows to skip rather than run. */
@@ -154,13 +192,34 @@ export class EndpointManager {
   send(input: {
     chatId: ChatId
     text: string
-    attachments: readonly { text: string }[]
+    attachments: readonly ResolvedAttachment[]
+    /** What the user pinned, for re-display on their own message. */
+    descriptors?: ChatMessage['attachments']
   }): { messageId: ChatMessageId } {
     if (this.#disposed) throw peekError('CONFLICT', 'The chat host is shutting down.')
     const session = this.#ensure(input.chatId)
     if (session.streaming) throw peekError('CONFLICT', 'This conversation is already answering.')
 
-    session.translator.countUserMessage()
+    // The user's turn goes into the transcript before anything is sent, exactly
+    // as the ACP backend does it. It used to only be counted, which left the
+    // conversation showing answers to questions nobody could see — see
+    // `EndpointTranslator.appendUserMessage`.
+    const receipts: readonly ChatAttachmentReceipt[] = buildAttachmentReceipts(input.attachments)
+    const user = session.translator.appendUserMessage(
+      input.text,
+      Date.now(),
+      input.descriptors && input.descriptors.length > 0 ? input.descriptors : undefined,
+      receipts,
+    )
+    this.#emit(session, user.deltas, user.state, { flush: true })
+    // Names the conversation from its first message. Only the first: `touch`
+    // refuses to overwrite a title, because a row that renamed itself every turn
+    // would be harder to find than one that never did.
+    this.#deps.sessionIndex?.touch(session.sessionId, {
+      title: titleFrom(input.text),
+      updatedAt: Date.now(),
+    })
+
     session.streaming = true
     this.#patch(input.chatId, { status: 'streaming' })
 
@@ -178,9 +237,7 @@ export class EndpointManager {
         this.#fail(session, toPeekError(raw))
       })
 
-    // The user's own message is recorded by the caller, which is also what owns
-    // its id; the loop only produces the answer.
-    return { messageId: '' as ChatMessageId }
+    return { messageId: firstMessageId(user.deltas) }
   }
 
   cancel(chatId: ChatId): boolean {
@@ -209,15 +266,49 @@ export class EndpointManager {
     session.agent.reset()
     const out = session.translator.reset()
     this.#emit(session, out.deltas, out.state, { flush: true })
+    // Written, not deleted. The conversation still exists — the user emptied it,
+    // they did not remove it from the catalogue — and leaving the old file on
+    // disk would resurrect the whole thing on the next open.
+    this.#save(session)
   }
 
+  /**
+   * Release a conversation because its view closed. **Detach, not destroy.**
+   *
+   * The same contract `AcpManager.closeChat` carries, and it is new here: this
+   * used to drop the `Agent` and with it the entire conversation, so closing a
+   * chat tab was an unannounced permanent delete. Saving first is what makes the
+   * word "detach" true.
+   */
   closeChat(chatId: ChatId): void {
     const session = this.#sessions.get(chatId)
     if (!session) return
     if (session.streaming) this.cancel(chatId)
+    this.#save(session)
     session.unsubscribe()
     session.batcher.dispose()
     this.#sessions.delete(chatId)
+  }
+
+  /**
+   * Delete one stored conversation: the body first, then the route.
+   *
+   * That order matters and it is the same one `AcpManager.deleteSession` uses.
+   * Dropping the route first and then failing to unlink would leave a file no
+   * catalogue mentions — unreachable, undeletable, and invisible in exactly the
+   * way that makes disk usage mysterious.
+   */
+  deleteSession(sessionId: string): boolean {
+    for (const session of this.#sessions.values()) {
+      if (session.sessionId !== sessionId) continue
+      // Deleting a conversation that is open in a window is a CONFLICT the
+      // command layer already refuses; reaching here means the check moved or
+      // was bypassed, and destroying what somebody is reading is the one outcome
+      // worth being defensive about.
+      return false
+    }
+    if (!this.#deps.threads.remove(sessionId)) return false
+    return this.#deps.sessionIndex?.remove(sessionId) ?? true
   }
 
   dispose(): void {
@@ -228,10 +319,92 @@ export class EndpointManager {
 
   /* ---------------- Session bringup ---------------- */
 
+  /**
+   * Open a view onto an **existing** conversation.
+   *
+   * The counterpart of `AcpManager.openChat`, and the same deliberate exception
+   * to lazy bringup: a panel opened to *read* a conversation has to fetch it,
+   * because waiting for a prompt would leave the user staring at the empty state
+   * of a chat they opened precisely because it has history in it.
+   *
+   * Unlike the ACP one this cannot fail on a protocol — the history is peek's
+   * own file. A conversation whose file is unreadable comes up **empty rather
+   * than broken**: the route is still valid, the model just has nothing to
+   * remember, and the next turn works. Throwing here would take the panel down
+   * over a file the user cannot do anything about.
+   */
+  openChat(chatId: ChatId, resumeSessionId: string): void {
+    if (this.#disposed) throw peekError('CONFLICT', 'The chat host is shutting down.')
+    const existing = this.#sessions.get(chatId)
+    // Reopening the same conversation in the same view must not replay it on top
+    // of itself. Same guard, same reason, as the ACP side.
+    if (existing?.sessionId === resumeSessionId) return
+    if (existing) this.closeChat(chatId)
+
+    const stored = this.#deps.threads.read(resumeSessionId)
+    const session = this.#create(chatId, resumeSessionId, stored?.messages ?? [])
+    if (stored && stored.transcript.length > 0) {
+      session.transcript = [...stored.transcript]
+      session.translator.adoptMessageCount(stored.transcript.length)
+      // One `message.start` per stored message and nothing else — that delta
+      // carries a whole `ChatMessage`, so a finished conversation rebuilds
+      // without a single append. The window cannot tell this from a live turn,
+      // which is the point: one channel, one projection, no restore-only format.
+      this.#emit(
+        session,
+        transcriptToDeltas(chatId, stored.transcript),
+        {
+          messageCount: stored.transcript.length,
+          lastMessagePreview: lastPreview(stored.transcript),
+          streamingMessageId: null,
+        },
+        { flush: true },
+      )
+    }
+    this.#patch(chatId, { status: 'idle' })
+  }
+
+  /**
+   * Re-deliver a conversation the window already had.
+   *
+   * For a renderer that reloaded: main is still holding the session, but the
+   * mirror on the other side of the IPC boundary started over empty. Nothing is
+   * read from disk — `session.transcript` is the live projection and is at least
+   * as current as any file — and nothing about the session changes.
+   *
+   * `false` when there is no session for that chat, so the caller can fall back
+   * to the stored copy instead of showing an empty conversation.
+   */
+  restore(chatId: ChatId): boolean {
+    const session = this.#sessions.get(chatId)
+    if (!session) return false
+    this.#deps.emitDeltas(chatId, [
+      // The mirror may or may not be empty — a second restore must not stack a
+      // conversation on top of itself. `message.start` is idempotent by id, but
+      // only against messages that are *there*, so the reset is what makes this
+      // safe to call twice.
+      { type: 'reset', chatId },
+      ...transcriptToDeltas(chatId, session.transcript),
+    ])
+    return true
+  }
+
+  /**
+   * Read a conversation straight off disk, for a chat that is not mounted.
+   *
+   * `null` when there is nothing readable stored under that id.
+   */
+  readStored(sessionId: string): ChatMessage[] | null {
+    return this.#deps.threads.read(sessionId)?.transcript ?? null
+  }
+
   #ensure(chatId: ChatId): Session {
     const existing = this.#sessions.get(chatId)
     if (existing) return existing
+    return this.#create(chatId, randomUUID(), [])
+  }
 
+  #create(chatId: ChatId, sessionId: string, messages: AgentMessage[]): Session {
     const { models, model } = buildEndpointModel(this.#config.settings, this.#config.apiKey)
     const translator = new EndpointTranslator(chatId)
     const batcher = new DeltaBatcher(chatId, this.#config.batch, (id, deltas) => {
@@ -240,9 +413,11 @@ export class EndpointManager {
 
     const session: Session = {
       chatId,
+      sessionId,
       agent: null as unknown as Agent,
       translator,
       batcher,
+      transcript: [],
       streaming: false,
       permissionMode: this.#config.permissionMode,
       blocked: new Set(),
@@ -254,7 +429,11 @@ export class EndpointManager {
         systemPrompt: ENDPOINT_SYSTEM_PROMPT,
         model,
         tools: this.#tools.map((tool) => this.#asAgentTool(session, tool)),
-        messages: [],
+        // The model's own memory, restored. Without this a resumed conversation
+        // would show its history and then answer the next question as if none of
+        // it had happened — the failure the manual check in
+        // `docs/design/2026-08-03-chat-history-ownership.md` §4.3 exists to catch.
+        messages,
       },
       streamFn: models.streamSimple.bind(models),
       // The gate. See the note at the top of this file: this is the one part of
@@ -267,8 +446,39 @@ export class EndpointManager {
     })
 
     this.#sessions.set(chatId, session)
+    // Recorded at bringup, not at first message: a conversation the user opens
+    // and abandons is still one the catalogue has to be able to name. Idempotent,
+    // so resuming an existing conversation does not restamp its `createdAt`.
+    this.#deps.sessionIndex?.record({
+      sessionId,
+      backend: 'endpoint',
+      agentId: this.#config.settings.model,
+    })
     this.#patch(chatId, { status: 'idle', permissionMode: session.permissionMode })
     return session
+  }
+
+  /**
+   * Persist one conversation.
+   *
+   * Called when a turn settles and when a session is released — not per delta.
+   * A write per streamed token is the same cost that kept the transcript out of
+   * Workspace in the first place, and the only thing it would buy is surviving a
+   * crash mid-sentence.
+   */
+  #save(session: Session): void {
+    const now = Date.now()
+    const stored = this.#deps.threads.write({
+      sessionId: session.sessionId,
+      transcript: session.transcript,
+      messages: session.agent.state.messages,
+      modelId: this.#config.settings.model,
+      updatedAt: now,
+    })
+    // Only advertise what is actually on disk. A route whose file failed to
+    // write is the ghost row this design exists to avoid — better an absent row
+    // than one that opens onto nothing.
+    if (stored) this.#deps.sessionIndex?.touch(session.sessionId, { updatedAt: now })
   }
 
   /* ---------------- The permission gate ---------------- */
@@ -330,53 +540,64 @@ export class EndpointManager {
   /* ---------------- Events ---------------- */
 
   /**
-   * The library's event union, narrowed to what the transcript needs.
+   * Act on one `pi-agent-core` event.
    *
-   * Defensive about shape on purpose: this is the one seam where a dependency's
-   * internal event vocabulary meets peek's, and an unrecognised event should cost
-   * a missing delta rather than a thrown exception inside a subscriber.
+   * The narrowing itself lives in `events.ts` (`classifyAgentEvent`), where it is
+   * pure and can be pinned against literals. What stays here is what the seam
+   * cannot decide on its own: which tool calls this session refused, and what it
+   * means for a turn to be over.
+   *
+   * `failed` is the branch that did not exist. An endpoint failure never rejects
+   * `prompt()` — it comes back as a finished assistant message whose
+   * `stopReason` is `error` — so before this branch the turn settled normally as
+   * an empty bubble. See
+   * `docs/design/2026-08-04-endpoint-keyless-and-stream-errors.md`.
    */
   #onAgentEvent(session: Session, raw: unknown): void {
-    const event = raw as { type?: string; assistantMessageEvent?: { type?: string; delta?: string } }
-    switch (event.type) {
-      case 'message_start':
-        this.#feed(session, { type: 'assistant_start' })
-        return
-      case 'message_update': {
-        const inner = event.assistantMessageEvent
-        if (!inner?.delta) return
-        if (inner.type === 'text_delta') this.#feed(session, { type: 'text', text: inner.delta })
-        else if (inner.type === 'thinking_delta') this.#feed(session, { type: 'thinking', text: inner.delta })
-        return
-      }
-      case 'tool_execution_start': {
-        const e = raw as { toolCallId?: string; toolName?: string; args?: unknown }
-        if (!e.toolCallId) return
-        this.#feed(session, {
-          type: 'tool_start',
-          id: e.toolCallId,
-          name: e.toolName ?? 'tool',
-          args: e.args ?? {},
-        })
-        return
-      }
-      case 'tool_execution_end': {
-        const e = raw as { toolCallId?: string; result?: unknown; isError?: boolean }
-        if (!e.toolCallId) return
+    const outcome = classifyAgentEvent(raw)
+    switch (outcome.kind) {
+      case 'event': {
+        const event = outcome.event
         // A blocked call was already settled by the gate; settling it again would
         // overwrite "you declined this" with a generic failure.
-        if (session.blocked.delete(e.toolCallId)) return
-        this.#feed(session, {
-          type: 'tool_end',
-          id: e.toolCallId,
-          output: e.result ?? null,
-          isError: e.isError === true,
-        })
+        if (event.type === 'tool_end' && session.blocked.delete(event.id)) return
+        this.#feed(session, event)
         return
       }
-      default:
+      case 'failed':
+        // A turn already settled — by `cancel()`, or by an earlier failure in the
+        // same run — must not be failed on top of.
+        if (!session.streaming) return
+        this.#fail(session, this.#endpointError(outcome.message))
+        return
+      case 'aborted':
+        // `cancel()` normally got here first; `#settle` no-ops when it did.
+        this.#settle(session, 'cancelled')
+        return
+      case 'ignored':
         return
     }
+  }
+
+  /**
+   * The endpoint's own words, as an error peek can show.
+   *
+   * The message is deliberately peek's and the detail is deliberately theirs:
+   * "the endpoint could not answer" is the part the user can act on, and the
+   * provider's body is the part that says why. `#fail` redacts and truncates
+   * both, so the raw text is handed over as-is.
+   */
+  #endpointError(raw: string): PeekError {
+    const message = raw.trim() || 'The chat endpoint returned an error.'
+    // A keyless endpoint always sends a sentinel `authorization` header (see
+    // `provider.ts`), so an endpoint that really does want credentials answers
+    // 401 rather than failing before the request is built. That is a worse
+    // diagnosis than the one it replaced unless somebody says this out loud.
+    const keyless = this.#config.apiKey === null || this.#config.apiKey === ''
+    const detail = keyless && LOOKS_LIKE_AUTH_FAILURE.test(message)
+      ? `${message}\n\nThis endpoint is configured without an API key.`
+      : message
+    return { code: 'CONNECTION_FAILED', message: 'The chat endpoint could not answer.', detail }
   }
 
   #feed(session: Session, event: EndpointEvent): void {
@@ -391,6 +612,7 @@ export class EndpointManager {
     session.streaming = false
     const out = session.translator.finishTurn(stopReason)
     this.#emit(session, out.deltas, { ...out.state, status: 'idle' }, { flush: true })
+    this.#save(session)
   }
 
   #fail(session: Session, error: PeekError): void {
@@ -405,18 +627,34 @@ export class EndpointManager {
       ...(error.detail === undefined ? {} : { detail: sanitizeLine(redact(error.detail, secrets), 1_000) }),
     }
     this.#emit(session, out.deltas, { ...out.state, status: 'error' }, { flush: true })
+    // A failed turn is still a turn that happened. The user's message and
+    // whatever streamed before the failure are part of the conversation, and
+    // losing them because the model timed out would be its own bug.
+    this.#save(session)
     this.#deps.notify({ level: 'error', message: safe.message, ...(safe.detail ? { detail: safe.detail } : {}) })
   }
 
   /* ---------------- Plumbing ---------------- */
 
+  /**
+   * Push deltas to the window and fold them into the stored transcript.
+   *
+   * The projection happens **here**, on the way out, rather than in the
+   * translator: this is the one place every delta for this conversation passes
+   * through, including the user's own message, which the translator emits but
+   * the model never produces. Anything that skips this function is by definition
+   * something the window will not see either.
+   */
   #emit(
     session: Session,
     deltas: readonly ChatDelta[],
     state: ChatStateDelta,
     opts: { flush: boolean },
   ): void {
-    for (const delta of deltas) session.batcher.push(delta)
+    for (const delta of deltas) {
+      session.batcher.push(delta)
+      session.transcript = applyChatDeltaToMessages(session.transcript, delta)
+    }
     if (opts.flush) session.batcher.flush()
     if (Object.keys(state).length > 0) this.#patch(session.chatId, state)
   }
@@ -439,6 +677,52 @@ export class EndpointManager {
  * the same reason: escaping stops a value from breaking out of its block, but
  * only prose can say what the enclosed text *is*.
  */
+/**
+ * A conversation's name, from the first thing the user said.
+ *
+ * The ACP backends get a model-written summary out of `session/list`. There is
+ * no equivalent here — asking the endpoint for a title would spend a request on
+ * something the first sentence already answers — so this takes the plain
+ * opening, trimmed. It is not a summary and does not pretend to be one.
+ */
+function titleFrom(text: string): string {
+  const line = sanitizeLine(text, TITLE_CHARS).trim()
+  return line.length > 0 ? line : 'Untitled conversation'
+}
+
+/** How much of the opening message names the conversation in the sessions rail. */
+const TITLE_CHARS = 80
+
+/**
+ * Whether an endpoint's error is about credentials.
+ *
+ * Only ever used to decide whether to add one explanatory sentence for an
+ * endpoint the user configured without a key — never to select a code path — so
+ * a false positive costs a redundant line and a false negative costs nothing.
+ * Matching the provider's free text is acceptable at that price and would not be
+ * at any higher one.
+ */
+const LOOKS_LIKE_AUTH_FAILURE = /\b(401|403|unauthor|forbidden|authentication|api[ _-]?key|credential|token)/i
+
+function lastPreview(messages: readonly ChatMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (!message) continue
+    for (let j = message.blocks.length - 1; j >= 0; j -= 1) {
+      const block = message.blocks[j]
+      if (block?.type === 'text' && block.text) return sanitizeLine(block.text, 200)
+    }
+  }
+  return ''
+}
+
+function firstMessageId(deltas: readonly ChatDelta[]): ChatMessageId {
+  for (const delta of deltas) {
+    if (delta.type === 'message.start') return delta.message.id
+  }
+  throw peekError('INTERNAL', 'The user message produced no message.start delta.')
+}
+
 function buildPrompt(text: string, attachments: readonly { text: string }[]): string {
   if (attachments.length === 0) return text
   return [

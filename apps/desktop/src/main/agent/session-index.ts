@@ -45,6 +45,19 @@ export type AgentBackendKind = 'acp' | 'endpoint'
  * would be worse than no copy: the list would confidently show the wrong thing.
  * The one exception is `createdAt`, which peek is the only party that knows (it
  * is when the user opened the panel, not when the agent first wrote a file).
+ *
+ * ## The two optional fields, and why they do not break that rule
+ *
+ * `title` and `updatedAt` are written **for the endpoint backend only**. That
+ * rule above turns on a premise — that some backend has the authoritative copy
+ * and can be asked. For `acp` it holds: `session/list` answers both, so storing
+ * them here could only produce a stale second answer, and nothing does.
+ *
+ * The endpoint backend has no agent to ask. peek *is* that backend, so peek is
+ * where the authoritative answer lives; leaving these out would not keep the
+ * catalogue honest, it would leave every endpoint row without a name. Same
+ * principle, opposite conclusion, because the premise is different. See
+ * `docs/design/2026-08-03-chat-history-ownership.md` §2.1.
  */
 export interface SessionRoute {
   /** The backend's own session id. Identity of the conversation, as before. */
@@ -58,6 +71,10 @@ export interface SessionRoute {
   agentId: string
   /** Epoch millis, set once when the route is first recorded. */
   createdAt: number
+  /** Endpoint backend only. Absent means the conversation has no name yet. */
+  title?: string
+  /** Endpoint backend only. Epoch millis of the last turn. */
+  updatedAt?: number
 }
 
 interface IndexFile {
@@ -101,7 +118,11 @@ export class SessionIndex {
    * conversations agrees on the order without repeating the rule.
    */
   list(): SessionRoute[] {
-    return [...this.#load().values()].sort((a, b) => b.createdAt - a.createdAt)
+    // Last activity, falling back to creation. `updatedAt` is only ever set on
+    // endpoint routes, so ACP rows sort exactly as they did — and those are
+    // re-sorted by the agent's own `session/list` anyway.
+    const when = (r: SessionRoute): number => r.updatedAt ?? r.createdAt
+    return [...this.#load().values()].sort((a, b) => when(b) - when(a))
   }
 
   lookup(sessionId: string): SessionRoute | null {
@@ -127,6 +148,34 @@ export class SessionIndex {
     routes.set(created.sessionId, created)
     this.#save()
     return created
+  }
+
+  /**
+   * Update the two mutable fields, leaving identity and `createdAt` alone.
+   *
+   * Separate from `record` because `record` is deliberately write-once: a
+   * session coming back up must not be restamped and reshuffled. This is the
+   * other half — the fields that are *supposed* to change as a conversation
+   * grows. A `title` that is already set is not overwritten by a later call
+   * with a different one; the first user message names the conversation, and a
+   * name that moved under the user on every turn would be worse than none.
+   *
+   * A no-op for an unknown session, and for a route that is not `endpoint`:
+   * see the note on {@link SessionRoute}.
+   */
+  touch(sessionId: string, patch: { title?: string; updatedAt?: number }): SessionRoute | null {
+    const routes = this.#load()
+    const existing = routes.get(sessionId)
+    if (!existing || existing.backend !== 'endpoint') return null
+    const next: SessionRoute = {
+      ...existing,
+      ...(patch.title !== undefined && existing.title === undefined ? { title: patch.title } : {}),
+      ...(patch.updatedAt === undefined ? {} : { updatedAt: patch.updatedAt }),
+    }
+    if (next.title === existing.title && next.updatedAt === existing.updatedAt) return existing
+    routes.set(sessionId, next)
+    this.#save()
+    return next
   }
 
   remove(sessionId: string): boolean {
@@ -199,10 +248,14 @@ function asRoute(id: string, value: unknown): SessionRoute | null {
   const sessionId = typeof record['sessionId'] === 'string' ? (record['sessionId'] as string) : id
   if (sessionId.length === 0) return null
   const createdAt = record['createdAt']
+  const title = record['title']
+  const updatedAt = record['updatedAt']
   return {
     sessionId,
     backend,
     agentId,
     createdAt: typeof createdAt === 'number' && Number.isFinite(createdAt) ? createdAt : 0,
+    ...(typeof title === 'string' && title.length > 0 ? { title } : {}),
+    ...(typeof updatedAt === 'number' && Number.isFinite(updatedAt) ? { updatedAt } : {}),
   }
 }

@@ -18,7 +18,7 @@
  *    code that built the loop. There is no token to steal and no header to forge:
  *    see `design/2026-08-02-agent-source-and-permission-scope.md` §2.2, whose
  *    guarantee this backend satisfies by construction rather than by sandbox.
- *  - **The tool list is exactly `collectBuiltinTools()`.** Not a subset peek
+ *  - **The tool list is exactly `collectTools()`.** Not a subset peek
  *    hopes an agent will respect — the ones that exist are the ones that were
  *    handed over, and there is no mechanism by which a model could ask for
  *    another.

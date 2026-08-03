@@ -9,7 +9,7 @@ import { useConnection, useResultMeta } from '../../state/workspaceStore'
 import { formatCount, formatMs } from '../../util/format'
 import { DataGrid } from '../DataGrid'
 import { ViewError } from '../ViewError'
-import { CacheGapNotice, CancelButton } from './ResultControls'
+import { AutoRefreshControl, CacheGapNotice, CancelButton } from './ResultControls'
 import { Button } from '../../ui/Button'
 import {
   findCollectionNodeId,
@@ -97,6 +97,12 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
             watching a qdrant scroll with no way to learn why nothing could stop it;
             see CancelButton. */}
         <CancelButton viewId={viewId} conn={conn} running={running} />
+        <AutoRefreshControl
+          viewId={viewId}
+          kind="vector"
+          {...(view.autoRefreshMs !== undefined ? { autoRefreshMs: view.autoRefreshMs } : {})}
+          {...(view.autoRefreshStoppedBy !== undefined ? { stoppedBy: view.autoRefreshStoppedBy } : {})}
+        />
         <span className="sep" />
         {/* The collection name is an identifier: never translated. */}
         <span className="mono" title={collection}>

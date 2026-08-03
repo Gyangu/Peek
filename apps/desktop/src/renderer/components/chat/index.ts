@@ -73,7 +73,7 @@ export {
   enqueueChatDeltas,
   flushChatDeltas,
   setChatTranscript,
-  loadChatTranscript,
+  restoreChat,
   forgetChat,
   readChatMessages,
   type ChatBridgeChannel,

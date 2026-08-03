@@ -12,7 +12,7 @@ import { Composer } from './Composer'
 import { MessageList } from './MessageList'
 import { isPermissiveMode, needsModeConfirmation } from './permissionOptions'
 import { PermissionPrompt } from './PermissionPrompt'
-import { useChatChannelReady, useChatMessageCount } from './transcriptStore'
+import { restoreChat, useChatChannelReady, useChatMessageCount } from './transcriptStore'
 
 import './chat.css'
 
@@ -63,6 +63,26 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
     // button over a conversation that is only being read off disk.
     view.agentStatus === 'loading'
   const failed = view.agentStatus === 'error'
+
+  /**
+   * The way back from a reload.
+   *
+   * Main keeps the conversation, the mirror does not survive a renderer restart,
+   * and the delta stream is append-only so nothing repeats itself. The panel
+   * therefore asks — once per conversation, and only when it has nothing, so a
+   * live conversation is never interrupted to re-fetch what it can already see.
+   *
+   * The count that gates this is the **mirror's**, not `view.messageCount` from
+   * the Workspace. Comparing the two would make the request more precise ("main
+   * says nine, I have none") and would also mean never asking when that number
+   * is wrong — which, after a reload, is exactly the situation. A round trip
+   * that answers `false` is the cheaper mistake, and `restoreChat` is idempotent
+   * per conversation regardless.
+   */
+  useEffect(() => {
+    if (!channelReady || messageCount > 0) return
+    void restoreChat(view.chatId)
+  }, [channelReady, messageCount, view.chatId])
 
   const onSend = useCallback(
     (text: string) => {

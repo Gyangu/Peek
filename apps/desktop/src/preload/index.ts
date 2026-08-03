@@ -70,6 +70,8 @@ interface InternalBridge {
   replyResultRows(msg: ResultRowsReplyMessage): void
   /** Chat transcript data plane; the envelope is unwrapped to plain deltas here. */
   onChatDelta(handler: (deltas: ChatDelta[]) => void): Unsubscribe
+  /** Ask main to re-send one conversation; it arrives over onChatDelta. */
+  restoreChat(chatId: string): Promise<boolean>
 }
 
 const internal: InternalBridge = {
@@ -120,6 +122,9 @@ const internal: InternalBridge = {
     return () => {
       ipcRenderer.off(IPC.CHAT_DELTA, listener)
     }
+  },
+  restoreChat(chatId) {
+    return ipcRenderer.invoke(IPC.CHAT_RESTORE, chatId) as Promise<boolean>
   },
 }
 
@@ -234,6 +239,9 @@ function bootstrapMainWorld(internalKey: string, relayKey: string, bridgeKey: st
     onChatDelta(handler) {
       return bridge.onChatDelta(handler)
     },
+    restoreChat(chatId) {
+      return bridge.restoreChat(chatId)
+    },
   }
 
   Object.defineProperty(window, bridgeKey, {
@@ -317,6 +325,7 @@ if (!bootstrapped) {
       internal.replyResultRows(msg)
     },
     onChatDelta: (handler) => internal.onChatDelta(handler),
+    restoreChat: (chatId) => internal.restoreChat(chatId),
   }
 
   contextBridge.exposeInMainWorld(PEEK_BRIDGE_KEY, fallback)

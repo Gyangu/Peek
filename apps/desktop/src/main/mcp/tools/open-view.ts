@@ -33,11 +33,18 @@ export default defineCommandTool({
     'table (browse a table/keyspace/collection; get the ref from introspect), ' +
     'query (SQL editor, optionally with text plus run=true to execute immediately), ' +
     'inspector (examine one large value), tree (namespace tree), vector (vector search). ' +
-    'Without panelId the view opens in the currently focused panel. ' +
+    'Without panelId the view opens in the currently focused panel — except when that panel is ' +
+    'holding a conversation, in which case it goes to the nearest panel that is not, opening a ' +
+    'column to the right if there is no such panel, and focus stays with the conversation. ' +
+    'You are not opening things on top of the person you are talking to; the receipt names the ' +
+    'pane it really landed in. ' +
     'By default it is added there as a new tab and shown, closing nothing — pass replace=true to ' +
     'close that panel\'s visible view and take its place in the tab bar, or index to choose where in ' +
     'the tab bar it lands (0 is leftmost; omitted appends). ' +
-    'To put it in a pane of its own instead, open it and then move_view it onto a panel edge.',
+    'To put it in a pane of its own instead, open it and then move_view it onto a panel edge. ' +
+    'Name it with spec.title when you are about to open several views of the same kind in one panel: ' +
+    'derived titles collide there (three query views all read "Query"), and you are the only one who ' +
+    'knows what each was for. update_view retitles one later.',
   inputSchema: InputSchema,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   toCommands(input) {

@@ -4,12 +4,14 @@ import { app, BrowserWindow, ipcMain, safeStorage, shell, type WebContents } fro
 import type { ConnId, NamespaceNode, NotifyMessage, WorkspaceSnapshot } from '@peek/core'
 import { stepUiZoom, toPeekError, UI_ZOOM_DEFAULT } from '@peek/core'
 import { installAppMenu } from './menu'
+import { createAutoRefreshScheduler } from './auto-refresh'
 import { createCommandBus, type CommandBus, type CommandDeps } from './bus'
 import { createChatEventSink, createChatHandlers, watchChatViews, type ChatRuntime } from './bus/handlers'
-import { installBusIpc, sendChatDeltas, sendNotify } from './bus/ipc-main'
+import { installBusIpc, installChatRestoreIpc, sendChatDeltas, sendNotify } from './bus/ipc-main'
 import { AcpManager, chatRootDir, defaultAcpConfig, type McpEndpointInfo } from './acp'
 import { DEFAULT_DELTA_BUDGET } from './agent'
 import { EndpointManager } from './agent/endpoint/loop'
+import { ENDPOINT_THREAD_DIR, EndpointThreadStore } from './agent/endpoint/thread-store'
 import { SessionIndex } from './agent/session-index'
 import {
   createConfigHandlers,
@@ -30,7 +32,7 @@ import {
   createEndpointChatRuntime,
 } from './chat-host'
 import { ConnectionManager, setTimeoutSettings } from './connections'
-import { collectBuiltinTools, createMcpServer, generateToken } from './mcp'
+import { collectTools, createMcpServer, generateToken } from './mcp'
 import { installPluginProtocol, registerPluginScheme } from './plugins/protocol'
 import { WorkspaceStore, createResultEventSink } from './store'
 import { installDriverRpc, type DriverRpcOptions } from './driver-rpc'
@@ -592,11 +594,30 @@ function bootstrap(): void {
   // enters neither the Workspace state nor the Command log.
   disposers.push(installDriverRpc({ ipcMain, ...driverRpc }))
 
+  // "Fetch this view again every N seconds." The interval is ordinary view state;
+  // this is only the timer that honours it. See main/auto-refresh.ts.
+  const autoRefresh = createAutoRefreshScheduler({ store, bus: commandBus })
+  disposers.push(() => {
+    autoRefresh.dispose()
+  })
+
   // MCP's run_query owes the AI a few sample rows, and row data lives only in the renderer cache
   const rows = createResultRowsBroker({ ipcMain, renderers })
   disposers.push(() => {
     rows.dispose()
   })
+
+  // One store, shared. Two `createSettingsStore` calls over the same path would
+  // each cache the file, and the second write would silently drop the first.
+  //
+  // **Before `wireChatHost`, and that ordering is load-bearing.** It reads
+  // `settingsStore?.read().agent` to decide which backend answers, and this line
+  // used to come after it — so `chosen` was always `undefined` and the endpoint
+  // backend could never be selected no matter what `settings.json` said. Silent,
+  // because falling back to the ACP agent is also what an unconfigured install
+  // does: the panel worked, just never with the endpoint the user had chosen.
+  const settings = createSettingsStore(configDir)
+  settingsStore = settings
 
   // The chat panel is optional; the rest of peek is not. Anything that goes
   // wrong assembling it — most plausibly a `~/.peek` that cannot be written —
@@ -614,11 +635,6 @@ function bootstrap(): void {
       detail: failure.detail ?? failure.message,
     })
   }
-
-  // One store, shared. Two `createSettingsStore` calls over the same path would
-  // each cache the file, and the second write would silently drop the first.
-  const settings = createSettingsStore(configDir)
-  settingsStore = settings
   // Adopt the remembered zoom before the window exists, so the first frame is
   // already the right size rather than snapping a moment after it appears.
   uiZoom = settings.read().uiZoom ?? UI_ZOOM_DEFAULT
@@ -734,7 +750,7 @@ function wireEndpointBackend(
       // The same tools an external MCP client sees, called in-process rather than
       // over the loopback: no second credential, and `source: 'agent'` is passed
       // by this line rather than inferred from a bearer token.
-      tools: collectBuiltinTools(),
+      tools: collectTools(),
       toolContext: {
         dispatch: (name, input, callSource) => commandBus.dispatch(name, input, callSource) as never,
         getSnapshot: (): WorkspaceSnapshot => store.getSnapshot(),
@@ -749,6 +765,13 @@ function wireEndpointBackend(
         now: () => Date.now(),
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       },
+      // This backend's history. Under the chat root beside each ACP agent's
+      // workdir, for the same reason those are separated: one directory per
+      // backend, so nobody enumerates anybody else's files.
+      threads: new EndpointThreadStore(
+        join(chatRootDir(process.env['PEEK_CONFIG_DIR']), ENDPOINT_THREAD_DIR),
+      ),
+      sessionIndex,
     },
     {
       settings: config,
@@ -793,6 +816,7 @@ function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
     if (runtime) {
       commandBus.registerAll(createChatHandlers(runtime))
       disposers.push(watchChatViews(store, runtime))
+      disposers.push(installChatRestoreIpc({ ipcMain, restore: (id) => runtime.restore(id) }))
       return
     }
     // Configured for an endpoint that is not usable — no URL, no model, or a key
@@ -851,6 +875,11 @@ function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
   // and accepts a message that is never answered — which is the honest degraded
   // state, not a crash.
   commandBus.registerAll(createChatHandlers(runtime))
+
+  // The renderer's way back from a reload. Registered here rather than with the
+  // bus because it is not a command: it asks main to repeat what it already
+  // sent, and changes nothing. See `docs/design/2026-08-03-chat-history-ownership.md` §2.4.
+  disposers.push(installChatRestoreIpc({ ipcMain, restore: (id) => runtime.restore(id) }))
 
   // Conversations appear and disappear through at least four routes (view.close,
   // layout.close, setLayout with unplaced:'close', conn.close). Watching the state

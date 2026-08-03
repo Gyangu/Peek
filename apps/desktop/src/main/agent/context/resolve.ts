@@ -33,6 +33,7 @@ import {
   toPeekError,
   type AttachmentId,
   type ChatAttachment,
+  type ChatAttachmentReceipt,
   type AttachmentPayload,
   type PeekError,
   type WorkspaceSnapshot,
@@ -76,6 +77,44 @@ export interface ResolveOptions {
   source: ContextSource
   budget?: ContextBudget
   timeoutMs?: number
+}
+
+/** The part of a resolved attachment a receipt is made from. */
+export interface AttachmentOutcome {
+  attachmentId: AttachmentId
+  notice?: TruncationNotice | null
+  error?: PeekError
+}
+
+/**
+ * What the transcript records about attachments that did **not** arrive whole.
+ *
+ * Only the shortfalls: an attachment that delivered everything it promised needs
+ * no receipt, and one per attachment would put a row on screen saying nothing.
+ * What this exists for is the opposite case — the transcript can say "first 100
+ * of 12,345 rows" instead of leaving the user to assume the model saw all of it.
+ *
+ * Lives here rather than in either backend because both need it and the rule is
+ * about attachments, not about agents.
+ *
+ * The parameter is the three fields this reads and nothing else, so the two
+ * backends' slightly different payload types both satisfy it without either
+ * being widened to match the other.
+ */
+export function buildAttachmentReceipts(
+  resolved: readonly AttachmentOutcome[],
+): ChatAttachmentReceipt[] {
+  const out: ChatAttachmentReceipt[] = []
+  for (const a of resolved) {
+    const failed = a.error !== undefined
+    if (!failed && (a.notice === undefined || a.notice === null)) continue
+    out.push({
+      attachmentId: a.attachmentId,
+      ...(a.notice ? { notice: a.notice } : {}),
+      ...(failed ? { failed: true } : {}),
+    })
+  }
+  return out
 }
 
 /**

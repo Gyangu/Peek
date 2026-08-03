@@ -5,7 +5,9 @@ import {
   FilterSpecSchema,
   SortSpecSchema,
   ValueRefSchema,
+  collectionBrowseStyle,
   type Capability,
+  type CollectionRef,
   type ConnectionConfig,
   type DriverId,
   type ServerInfo,
@@ -110,7 +112,12 @@ export function isCommandName(value: unknown): value is CommandName {
  *            This comment described the wiring for a long time before anything
  *            performed it, and every request in the process arrived as `mcp`.
  *            See design/2026-08-02-agent-source-and-permission-scope.md.
- * - `system` main's own write-back (driver host events, agent stream events).
+ * - `system` main acting on its own: the write-back from driver host events and
+ *            agent stream events, and — since auto-refresh — the timers that
+ *            carry out a standing instruction the user already gave. The label
+ *            still means "nobody asked for this *right now*", which is exactly
+ *            what makes a command log filtered to `ui` / `mcp` / `agent` a
+ *            recording of intent rather than of machinery.
  */
 export const CommandSourceSchema = z.enum(['ui', 'mcp', 'agent', 'system'])
 export type CommandSource = z.infer<typeof CommandSourceSchema>
@@ -122,6 +129,33 @@ export type CommandSource = z.infer<typeof CommandSourceSchema>
 const pageLimit = z.number().int().positive().max(MAX_PAGE_LIMIT)
 const pageOffset = z.number().int().nonnegative()
 
+/**
+ * What a view is called, on every spec that opens one and every patch that
+ * changes one.
+ *
+ * A module-level constant rather than fourteen copies of the same line, for the
+ * same reason as `autoRefreshMs` below: the description is the interesting part,
+ * and a description that exists in fourteen places is one that will disagree with
+ * itself. It reaches an MCP client through `commandSchemas['view.open']`, which is
+ * what `open_view` extends, so the field explains itself wherever it is offered
+ * and `open_view` / `update_view` never restate it.
+ *
+ * The wording carries three things, and dropping any one of them produces a
+ * predictable misuse: without "derived when omitted" a model titles everything,
+ * including the table browser that already reads `public.orders`; without "a few
+ * words" it writes a sentence into a tab strip.
+ */
+const viewTitle = z
+  .string()
+  .optional()
+  .describe(
+    'What this view is called in the tab strip — a few words saying what it is or why it was ' +
+      'opened ("Orders after the migration", "Slow queries"), not a sentence. ' +
+      'Omitting it is not an error and is usually right: the title is then derived from the ' +
+      'content (a collection browser reads `public.orders`, a SQL editor reads `Query`), which ' +
+      'already names any view whose content names itself.',
+  )
+
 export const TableViewSpecSchema = z.object({
   kind: z.literal('table'),
   connId: ConnIdSchema,
@@ -130,7 +164,7 @@ export const TableViewSpecSchema = z.object({
   sort: z.array(SortSpecSchema).optional(),
   offset: pageOffset.optional(),
   limit: pageLimit.optional(),
-  title: z.string().optional(),
+  title: viewTitle,
 })
 
 export const QueryViewSpecSchema = z.object({
@@ -140,21 +174,21 @@ export const QueryViewSpecSchema = z.object({
   text: z.string().optional(),
   /** Run it as soon as the view opens */
   run: z.boolean().optional(),
-  title: z.string().optional(),
+  title: viewTitle,
 })
 
 export const InspectorViewSpecSchema = z.object({
   kind: z.literal('inspector'),
   connId: ConnIdSchema,
   ref: ValueRefSchema,
-  title: z.string().optional(),
+  title: viewTitle,
 })
 
 export const TreeViewSpecSchema = z.object({
   kind: z.literal('tree'),
   connId: ConnIdSchema,
   expanded: z.array(z.string()).optional(),
-  title: z.string().optional(),
+  title: viewTitle,
 })
 
 export const VectorViewSpecSchema = z.object({
@@ -174,7 +208,7 @@ export const VectorViewSpecSchema = z.object({
   /** Drop matches scoring below this */
   scoreThreshold: z.number().optional(),
   filter: z.array(FilterSpecSchema).optional(),
-  title: z.string().optional(),
+  title: viewTitle,
 })
 
 /* ---- Chat ---------------------------------------------------------- */
@@ -263,7 +297,7 @@ export const ChatViewSpecSchema = z.object({
   permissionMode: ChatPermissionModeSchema.optional(),
   /** Stage context on the new conversation before its first prompt. */
   attachments: z.array(ChatAttachmentSpecSchema).max(MAX_CHAT_ATTACHMENTS).optional(),
-  title: z.string().optional(),
+  title: viewTitle,
   /**
    * Open this view onto an **existing** agent session instead of a new one — the
    * id comes from `chat.sessions.list`.
@@ -315,7 +349,7 @@ export const PluginViewSpecSchema = z.object({
   pluginKind: z.string().min(1),
   connId: ConnIdSchema,
   state: z.record(z.string(), z.unknown()).optional(),
-  title: z.string().optional(),
+  title: viewTitle,
 })
 
 /** Input spec for view.open: no id, because main generates it */
@@ -330,6 +364,53 @@ export const ViewOpenSpecSchema = z.discriminatedUnion('kind', [
 ])
 export type ViewOpenSpec = z.infer<typeof ViewOpenSpecSchema>
 
+/* ---- Auto-refresh -------------------------------------------------- */
+
+/**
+ * Floor on an auto-refresh interval.
+ *
+ * A second is already short for something that crosses a socket and walks a
+ * cursor; below it the tick can only ever land on a fetch that is still running,
+ * so the interval would stop describing anything. Design record:
+ * docs/design/2026-08-03-auto-refresh.md.
+ */
+export const MIN_AUTO_REFRESH_MS = 1_000
+/** One hour. Past this the timer is indistinguishable from "off, and I'll press it myself". */
+export const MAX_AUTO_REFRESH_MS = 3_600_000
+
+/** What the interval menu offers: 1s 5s 10s 30s 1m 5m 10m 30m 1h. */
+export const AUTO_REFRESH_PRESETS_MS = [
+  1_000,
+  5_000,
+  10_000,
+  30_000,
+  60_000,
+  300_000,
+  600_000,
+  1_800_000,
+  3_600_000,
+] as const
+
+/**
+ * `null` turns it off, an absent field leaves it alone — the same convention the
+ * vector patch's `vectorName` and `scoreThreshold` use.
+ *
+ * It appears on exactly the four branches whose views can fetch. A TypeScript
+ * caller asking a chat or a namespace tree to refresh itself is stopped by the
+ * type; a JSON caller has the field **stripped** by the parse, because zod
+ * objects drop unknown keys here as everywhere else in this file. Either way it
+ * cannot reach a view with nowhere to put it — which is also why
+ * `setAutoRefreshOn` in main ignores those kinds rather than trusting the schema
+ * to have made them impossible.
+ */
+const autoRefreshMs = z
+  .number()
+  .int()
+  .min(MIN_AUTO_REFRESH_MS)
+  .max(MAX_AUTO_REFRESH_MS)
+  .nullable()
+  .optional()
+
 /**
  * Incremental patch for view.update. `kind` is mandatory: main checks it against
  * the target view's kind and answers BAD_REQUEST on a mismatch, which is what stops
@@ -343,23 +424,25 @@ export const ViewPatchSchema = z.discriminatedUnion('kind', [
     sort: z.array(SortSpecSchema).optional(),
     offset: pageOffset.optional(),
     limit: pageLimit.optional(),
-    title: z.string().optional(),
+    autoRefreshMs,
+    title: viewTitle,
   }),
   z.object({
     kind: z.literal('query'),
     text: z.string().optional(),
-    title: z.string().optional(),
+    autoRefreshMs,
+    title: viewTitle,
   }),
   z.object({
     kind: z.literal('inspector'),
     ref: ValueRefSchema.optional(),
-    title: z.string().optional(),
+    title: viewTitle,
   }),
   z.object({
     kind: z.literal('tree'),
     expanded: z.array(z.string()).optional(),
     selected: z.string().nullable().optional(),
-    title: z.string().optional(),
+    title: viewTitle,
   }),
   z.object({
     kind: z.literal('vector'),
@@ -374,7 +457,8 @@ export const ViewPatchSchema = z.discriminatedUnion('kind', [
     /** null clears the threshold, so every match is returned again */
     scoreThreshold: z.number().nullable().optional(),
     filter: z.array(FilterSpecSchema).optional(),
-    title: z.string().optional(),
+    autoRefreshMs,
+    title: viewTitle,
   }),
   /**
    * A chat has exactly one patchable field, and that is on purpose. Everything
@@ -386,7 +470,7 @@ export const ViewPatchSchema = z.discriminatedUnion('kind', [
    */
   z.object({
     kind: z.literal('chat'),
-    title: z.string().optional(),
+    title: viewTitle,
   }),
   /**
    * A plugin view's patch: a shallow merge into its `state`, plus the title.
@@ -404,10 +488,31 @@ export const ViewPatchSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('plugin'),
     state: z.record(z.string(), z.unknown()).optional(),
-    title: z.string().optional(),
+    autoRefreshMs,
+    title: viewTitle,
   }),
 ])
 export type ViewPatch = z.infer<typeof ViewPatchSchema>
+
+/**
+ * The patch a Refresh sends to a collection browser.
+ *
+ * On a cursor-paged collection it carries `offset: 0`, and that is load-bearing
+ * rather than cosmetic: `offset` is what makes main drop the stored continuation
+ * token (`handlers/view.ts`, `invalidatesCursor`), so sending it is precisely
+ * "forget where we were". A patch that changed nothing would re-run the scan with
+ * the token the last page handed back — that is, refresh would silently page
+ * forward.
+ *
+ * It lives in core rather than in the renderer because main's auto-refresh timer
+ * has to send the very same patch, and "a refresh restarts a cursor scan" is a
+ * rule that must not have two implementations.
+ */
+export function refreshPatch(ref: CollectionRef): ViewPatch {
+  return collectionBrowseStyle(ref).offsetPaging
+    ? { kind: 'table' }
+    : { kind: 'table', offset: 0 }
+}
 
 /* ================================================================== */
 /* 2. Per-command input schemas — every type is z.infer'd from these,   */

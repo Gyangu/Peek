@@ -3,15 +3,21 @@ import { describe, it } from 'node:test'
 import {
   BUILTIN_VIEW_KINDS,
   VIEW_KINDS,
+  createEmptyWorkspace,
   describeView,
   displayViewKind,
   isBuiltinViewKind,
+  snapshotWorkspace,
   validateViewKindRegistration,
   viewTitle,
   type ConnId,
+  type PanelId,
   type PluginViewState,
   type TableViewState,
   type ViewId,
+  type ViewState,
+  type ViewSummary,
+  type Workspace,
   type ViewKind,
   type ViewKindLookup,
   type ViewKindRegistration,
@@ -142,6 +148,61 @@ describe('displayViewKind reports what a reader needs, not the discriminant', ()
       page: { offset: 0, limit: 10 },
     }
     assert.equal(displayViewKind(table), 'table')
+  })
+
+  it('also answers for a ViewSummary, which is the side that was silently getting it wrong', () => {
+    // The function shipped taking `ViewState` only, so `snapshotWorkspace` — on
+    // the other side of the boundary, holding `ViewSummary` — could not call it
+    // and wrote `kind: v.kind` instead. The result was that every plugin view on
+    // the MCP wire said `plugin`, which is the exact failure this function's own
+    // comment exists to prevent, live, with the fix sitting unused next to it.
+    // Structural typing is what lets one implementation serve both.
+    const summary: ViewSummary = {
+      id: 'view_s' as ViewId,
+      kind: 'plugin',
+      pluginKind: 'graph',
+      connId: CONN,
+      panelId: null,
+      tabIndex: -1,
+      visible: false,
+      title: 'Graph',
+      status: 'ready',
+      describe: 'Neo4j graph',
+    }
+    assert.equal(displayViewKind(summary), 'graph')
+    assert.equal(displayViewKind({ ...summary, kind: 'table', pluginKind: undefined }), 'table')
+  })
+})
+
+describe('a plugin view carries its own kind through the snapshot', () => {
+  function workspaceWith(view: ViewState): Workspace {
+    const ws = createEmptyWorkspace('panel_1' as PanelId)
+    return { ...ws, views: { [view.id]: view } }
+  }
+
+  it('reports pluginKind beside kind, so a tool can name the view it wants', () => {
+    const snap = snapshotWorkspace(workspaceWith(pluginView({ pluginKind: 'graph' })))
+    const [summary] = snap.views
+    assert.equal(summary?.kind, 'plugin', 'the discriminant is still the literal — every switch depends on it')
+    assert.equal(summary?.pluginKind, 'graph')
+  })
+
+  it('omits it entirely for a built-in, rather than sending undefined', () => {
+    // Same shape as `browse` and `chat`: present exactly when the kind says so.
+    // A key holding `undefined` survives JSON.stringify as an absent key here but
+    // not everywhere, and a reader that does `'pluginKind' in view` would be
+    // answered wrongly.
+    const table: TableViewState = {
+      id: 'view_t' as ViewId,
+      kind: 'table',
+      connId: CONN,
+      status: 'ready',
+      ref: { kind: 'relation', schema: '', name: 't' },
+      page: { offset: 0, limit: 10 },
+    }
+    const [summary] = snapshotWorkspace(workspaceWith(table)).views
+    assert.ok(summary !== undefined)
+    assert.equal('pluginKind' in summary, false)
   })
 })
 

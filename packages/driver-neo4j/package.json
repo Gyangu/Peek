@@ -18,6 +18,10 @@
     "./view": {
       "types": "./src/view.ts",
       "default": "./src/view.ts"
+    },
+    "./mcp-tools": {
+      "types": "./src/mcp-tools.ts",
+      "default": "./src/mcp-tools.ts"
     }
   },
   "files": [
@@ -29,7 +33,8 @@
   },
   "dependencies": {
     "@peek/core": "workspace:*",
-    "neo4j-driver": "^5.28.0"
+    "neo4j-driver": "^5.28.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

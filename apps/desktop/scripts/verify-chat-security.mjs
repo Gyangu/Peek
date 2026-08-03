@@ -436,26 +436,38 @@ async function main() {
      * else", which says nothing about how many there are — the count changes
      * whenever a tool lands, and a script asserting a number would go red for a
      * feature rather than for a breach. What must hold is that every name the
-     * running server offers corresponds to a file in `src/main/mcp/tools/`: a
-     * tool appearing on that surface without a source file in the repository is
-     * the finding worth failing on.
+     * running server offers was **declared in a registered source**: a tool
+     * appearing on that surface that nothing in the repository declares is the
+     * finding worth failing on.
+     *
+     * "A registered source" used to read "a file in `src/main/mcp/tools/`". A
+     * driver package contributes tools now, so there are two kinds of source;
+     * `tool-sources.mjs` owns the list and states plainly what that widening
+     * costs — nothing in Phase B, a great deal in Phase C.
      */
-    const { readdirSync } = await import('node:fs')
-    const toolsDir = join(DESKTOP_DIR, 'src', 'main', 'mcp', 'tools')
-    // Read the declared `name` out of each file rather than trusting the
-    // filename: `cancel.ts` declares `cancel_query`, and the registry keys off
-    // the declaration, not the path.
-    const declared = readdirSync(toolsDir)
-      .filter((f) => f.endsWith('.ts'))
-      .flatMap((f) => {
-        const match = /^\s*name: '([a-z_]+)',$/m.exec(readFileSync(join(toolsDir, f), 'utf8'))
-        return match ? [match[1]] : []
-      })
+    const { declaredToolNames, registeredToolSources } = await import('./tool-sources.mjs')
+    const repoRoot = join(DESKTOP_DIR, '..', '..')
+    const declared = declaredToolNames(repoRoot)
     const undeclared = listed.filter((name) => !declared.includes(name))
     check(
-      'every tool on the wire comes from a tool file in this repository',
+      'every tool on the wire was declared in a registered source',
       listed.length > 0 && undeclared.length === 0,
       listed.length === 0 ? 'the server offered no tools at all' : undeclared.join(', '),
+    )
+    /*
+     * The reverse test, because a check that cannot fail is not a check.
+     *
+     * The assertion above compares a live list against a scan, and both halves
+     * can go wrong quietly: a scan that matches nothing makes every name
+     * "declared" and passes forever. So run the same comparison against a name
+     * that is in no source by construction, and require it to be caught.
+     */
+    const smuggled = 'not_a_declared_tool_name'
+    check(
+      'and that assertion bites: a tool name from nowhere is reported',
+      !declared.includes(smuggled) &&
+        [...listed, smuggled].filter((name) => !declared.includes(name)).length === 1,
+      `${String(declared.length)} name(s) were parsed out of ${String(registeredToolSources(repoRoot).length)} source file(s)`,
     )
     note(`${String(listed.length)} tool(s) exposed: ${listed.join(', ')}`)
     const expectedTools = listed

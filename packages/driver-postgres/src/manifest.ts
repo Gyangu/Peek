@@ -52,6 +52,14 @@ export const postgresManifest = defineManifest({
   connectForm: CONNECT_FORM,
   sqlDialect: 'postgres',
   mcpConnectExample: '{"driverId":"postgres","url":"postgresql://user@host:5432/db"}',
+  skill:
+    'The namespace tree is database, then schema, then table or view, so a ref always names ' +
+    'the schema as well as the table; a bare table name in a statement resolves by search_path ' +
+    'and may not be the one you introspected. Statements run inside a READ ONLY transaction, ' +
+    'which refuses writes but also refuses SET, temporary tables and CREATE EXTENSION — those ' +
+    'come back as CONFLICT and no rephrasing gets them through. Do not add a LIMIT for safety: ' +
+    'peek streams the result and the window pages it, so an unbounded SELECT costs the user ' +
+    'nothing while a truncated one hides the rows they were looking for.',
 
   assembleConfig(mode, values, label) {
     const { text, num, bool } = formReaders(CONNECT_FORM.fields[mode], values)

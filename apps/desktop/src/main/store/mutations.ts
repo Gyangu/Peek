@@ -1,5 +1,6 @@
 import type { Draft } from 'immer'
 import type {
+  AutoRefreshStopReason,
   Capability,
   ColumnDef,
   ConnId,
@@ -108,6 +109,51 @@ export function removeView(draft: Draft<Workspace>, viewId: ViewId): PanelId | n
   if (detached.panelId !== null) draft.layout = detached.layout as Draft<Workspace>['layout']
   delete draft.views[viewId]
   return detached.panelId
+}
+
+/**
+ * Turn auto-refresh on, off, or off-with-a-reason.
+ *
+ * Two callers, which is why it is here rather than inline in the handler: the
+ * `view.update` path (a person or a model saying "every 5 seconds"), and the
+ * timer itself in `main/auto-refresh.ts` when it gives up. Both write the same
+ * two fields in the same order, and `stoppedBy` only ever survives on a view
+ * whose interval is gone — a live interval with a stale reason attached would
+ * make the toolbar explain a state it is not in.
+ *
+ * A view kind that cannot fetch is a silent no-op, and that branch is load-bearing
+ * rather than defensive: `ViewPatchSchema` omits the field from those three
+ * branches, but zod *strips* unknown keys instead of rejecting them, so the schema
+ * guarantees the value never arrives — not that a caller never sent one.
+ */
+export function setAutoRefresh(
+  draft: Draft<Workspace>,
+  viewId: ViewId,
+  ms: number | null,
+  stoppedBy?: AutoRefreshStopReason,
+): void {
+  const view = draft.views[viewId]
+  if (view) setAutoRefreshOn(view, ms, stoppedBy)
+}
+
+/** The same write, addressed by the view draft a patch handler already holds. */
+export function setAutoRefreshOn(
+  view: Draft<ViewState>,
+  ms: number | null,
+  stoppedBy?: AutoRefreshStopReason,
+): void {
+  // Narrowed by exclusion rather than by a `RefreshableView` guard: immer's
+  // drafts keep the discriminated union, and a type predicate written against
+  // `ViewState` does not narrow a `Draft<ViewState>`.
+  if (view.kind === 'inspector' || view.kind === 'tree' || view.kind === 'chat') return
+  if (ms === null) {
+    delete view.autoRefreshMs
+    if (stoppedBy === undefined) delete view.autoRefreshStoppedBy
+    else view.autoRefreshStoppedBy = stoppedBy
+    return
+  }
+  view.autoRefreshMs = ms
+  delete view.autoRefreshStoppedBy
 }
 
 /** The still-running result set a view currently holds (cancel it when the view closes or is replaced). */

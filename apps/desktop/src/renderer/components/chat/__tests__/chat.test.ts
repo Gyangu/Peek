@@ -2,7 +2,13 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { CHAT_PERMISSION_MODES, makePanel, placeholdersOf } from '@peek/core'
+import {
+  CHAT_PERMISSION_MODES,
+  applyChatDeltaToMessages,
+  makePanel,
+  placeholdersOf,
+  transcriptToDeltas,
+} from '@peek/core'
 import type {
   AttachmentId,
   ChatAttachment,
@@ -39,8 +45,10 @@ import {
   toolResultText,
 } from '../toolCalls'
 import {
+  applyChatDelta,
   applyChatDeltas,
   coalesce,
+  forgetChat,
   readChatMessages,
   setChatTranscript,
   useTranscriptStore,
@@ -792,4 +800,111 @@ test('restoring an approval gate never asks for confirmation', () => {
 test('exactly the two documented modes are treated as permissive', () => {
   const permissive = CHAT_PERMISSION_MODES.filter(isPermissiveMode)
   assert.deepEqual(permissive, ['dontAsk', 'bypassPermissions'])
+})
+
+/* ------------------------------------------------------------------ */
+/* The two projections of one delta stream                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The renderer folds deltas into `{ order, byId }`; main folds the same deltas
+ * into a flat `ChatMessage[]` (`applyChatDeltaToMessages`, in core). Two shapes
+ * because they have two jobs — the index is what stops a streamed token from
+ * re-rendering the whole list, and a file wants a list, not an index — but one
+ * set of rules, and nothing enforces that except this.
+ *
+ * See the note on `applyChatDeltaToMessages` for why the duplicate was chosen
+ * over giving one of the two callers the wrong data structure.
+ */
+const PROJECTION_FIXTURE: ChatDelta[] = (() => {
+  const chatId = 'chat_p' as ChatId
+  const user = 'm_user' as ChatMessageId
+  const agent = 'm_agent' as ChatMessageId
+  const call: ToolCallRecord = {
+    toolCallId: 'call_1',
+    title: 'mcp__peek__read_workspace',
+    kind: 'other',
+    status: 'pending',
+    rawInput: {},
+    content: [],
+    startedAt: 1,
+  }
+  return [
+    {
+      type: 'message.start',
+      chatId,
+      message: { id: user, role: 'user', blocks: [{ type: 'text', text: 'how many?' }], createdAt: 1, complete: true },
+    },
+    { type: 'message.end', chatId, messageId: user, stopReason: 'end_turn' },
+    {
+      type: 'message.start',
+      chatId,
+      message: { id: agent, role: 'agent', blocks: [], createdAt: 2, complete: false },
+    },
+    { type: 'thought.append', chatId, messageId: agent, text: 'counting' },
+    { type: 'thought.append', chatId, messageId: agent, text: '…' },
+    { type: 'text.append', chatId, messageId: agent, text: 'Four' },
+    { type: 'text.append', chatId, messageId: agent, text: ' tables.' },
+    { type: 'tool.upsert', chatId, messageId: agent, call },
+    { type: 'tool.upsert', chatId, messageId: agent, call: { ...call, status: 'completed', endedAt: 3 } },
+    // A delta naming a message nobody started: both sides must drop it rather
+    // than invent a placeholder.
+    { type: 'text.append', chatId, messageId: 'm_ghost' as ChatMessageId, text: 'nobody sent this' },
+    // Re-announcing a message replaces it; it must not appear twice.
+    {
+      type: 'message.start',
+      chatId,
+      message: { id: user, role: 'user', blocks: [{ type: 'text', text: 'how many?' }], createdAt: 1, complete: true },
+    },
+    { type: 'message.end', chatId, messageId: agent, stopReason: 'end_turn' },
+  ]
+})()
+
+test('main’s transcript projection and the renderer’s mirror agree, delta for delta', () => {
+  const chatId = 'chat_p' as ChatId
+  let mine: ChatMessage[] = []
+  for (const delta of PROJECTION_FIXTURE) {
+    applyChatDelta(delta)
+    mine = applyChatDeltaToMessages(mine, delta)
+
+    const slice = useTranscriptStore.getState().chats[chatId]
+    const theirs = (slice?.order ?? []).map((id) => slice?.byId[id])
+    // Checked after *every* delta, not just at the end: a difference that
+    // appears mid-stream and heals would be invisible to a final comparison,
+    // and mid-stream is exactly when main decides whether to write to disk.
+    assert.deepEqual(mine, theirs)
+  }
+  assert.equal(mine.length, 2)
+  forgetChat(chatId)
+})
+
+test('a stored transcript replays into the same thing it was', () => {
+  const chatId = 'chat_r' as ChatId
+  let built: ChatMessage[] = []
+  for (const delta of PROJECTION_FIXTURE) {
+    built = applyChatDeltaToMessages(built, { ...delta, chatId } as ChatDelta)
+  }
+
+  // This is the whole restore path: `transcriptToDeltas` is what a reloaded
+  // window receives, and it has to reconstruct the conversation exactly — a
+  // finished message carries its blocks, so no appends are needed and none are
+  // sent.
+  for (const delta of transcriptToDeltas(chatId, built)) applyChatDelta(delta)
+  const slice = useTranscriptStore.getState().chats[chatId]
+  assert.deepEqual((slice?.order ?? []).map((id) => slice?.byId[id]), built)
+
+  // And twice, because a mirror that is not empty must not double up.
+  for (const delta of transcriptToDeltas(chatId, built)) applyChatDelta(delta)
+  const again = useTranscriptStore.getState().chats[chatId]
+  assert.deepEqual((again?.order ?? []).map((id) => again?.byId[id]), built)
+  forgetChat(chatId)
+})
+
+test('reset clears the flat projection the same way it clears the mirror', () => {
+  const chatId = 'chat_z' as ChatId
+  let mine: ChatMessage[] = []
+  for (const delta of PROJECTION_FIXTURE) mine = applyChatDeltaToMessages(mine, delta)
+  assert.equal(mine.length, 2)
+  mine = applyChatDeltaToMessages(mine, { type: 'reset', chatId })
+  assert.deepEqual(mine, [])
 })

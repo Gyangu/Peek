@@ -39,6 +39,7 @@ import {
   type ColumnSizing,
   type GridColumn,
 } from './columnModel'
+import { fetchShapeKey } from './views/fetchShape'
 import { GridScrollbar } from './GridScrollbar'
 import { ValueModal } from './ValueModal'
 import { HEAD_H, ROW_H, VScrollDriver, rowTopIn } from './vscroll'
@@ -108,7 +109,61 @@ interface CellPos {
 export function DataGrid(props: DataGridProps): ReactElement {
   const { connId, view, resultId, sort, onSortColumn, onSetSort, emptyHint } = props
   const t = useT()
-  const snap = useResult(resultId)
+  /**
+   * The result the data plane is working on right now — always `props.resultId`.
+   *
+   * Kept apart from `shownResultId` below because the two answer different
+   * questions during a refresh, and both answers have to be right: viewport
+   * reporting, LRU protection and ack backpressure all belong to the stream that
+   * is actually arriving, while the cells on screen belong to whatever the reader
+   * can currently see.
+   */
+  const liveSnap = useResult(resultId)
+
+  /* ------------------------------------------------------------------
+   * The result swap, decided during render
+   *
+   * Two questions have to be answered before the first paint of a new result,
+   * which is why this is render-phase bookkeeping rather than an effect: by the
+   * time an effect runs, the blank frame it was meant to prevent has already
+   * been shown.
+   *
+   * 1. **Is this a new question?** `fetchShapeKey` says which fields decide what
+   *    comes back; everything else — the result id itself, the status, the
+   *    auto-refresh interval — is the same question asked again. A new question
+   *    clears the column widths and goes back to the top; the same one keeps the
+   *    arrangement the reader made.
+   * 2. **What do we show meanwhile?** A new result set starts at zero rows, so
+   *    binding to it immediately blanks the grid for the length of the fetch —
+   *    tolerable once, a strobe when a timer presses Refresh every five seconds.
+   *    The outgoing rows are still in the renderer cache (main keeps 200 result
+   *    metas, and `pruneResults` only collects what main has forgotten), so they
+   *    stay on screen until the new result has a schema, a row, or a verdict.
+   *
+   * Held across a same-shape swap only: after a new sort the old rows are an
+   * answer to a question nobody is asking, and leaving them up would be a lie.
+   * ------------------------------------------------------------------ */
+  const shapeKey = fetchShapeKey(view)
+  const heldRef = useRef<ResultId | undefined>(undefined)
+  const prevRef = useRef<{ shapeKey: string; resultId: ResultId | undefined }>({ shapeKey, resultId })
+  /** What the swap was, for the layout effect that has to act on it. */
+  const swapRef = useRef<'same' | 'new' | null>(null)
+
+  if (prevRef.current.shapeKey !== shapeKey || prevRef.current.resultId !== resultId) {
+    const sameShape = prevRef.current.shapeKey === shapeKey
+    swapRef.current = sameShape ? 'same' : 'new'
+    heldRef.current = sameShape ? prevRef.current.resultId : undefined
+    prevRef.current = { shapeKey, resultId }
+  }
+  if (
+    heldRef.current !== undefined
+    && (liveSnap.schema !== undefined || liveSnap.rowCount > 0 || liveSnap.status !== 'running')
+  ) {
+    heldRef.current = undefined
+  }
+
+  const shownResultId = heldRef.current ?? resultId
+  const snap = useResult(shownResultId)
   /** The horizontal scroll container (.grid). Vertical is hidden, so it only scrolls scrollLeft. */
   const scrollRef = useRef<HTMLDivElement | null>(null)
   /**
@@ -181,26 +236,58 @@ export function DataGrid(props: DataGridProps): ReactElement {
     [driver],
   )
 
-  // New result set: drop the widths the user dragged and the selection, scroll to top
-  useEffect(() => {
-    setSizing({})
-    setSelected(null)
-    setExpanded(null)
-    // Row indexes address positions in *this* result set. Carrying them into the
-    // next one would attach rows the user never looked at.
-    setRowSelection(EMPTY_SELECTION)
-    setMenu(null)
-    // The vertical position lives in the driver alone; never write el.scrollTop —
-    // that element has no vertical scrolling any more.
-    driver.reset()
-    const el = scrollRef.current
-    if (el) el.scrollLeft = 0
-    // Cleanup runs before the next resultId takes effect, so the captured resultId
-    // is still the **previous** result set — exactly the one to release.
+  /**
+   * Carry out the swap the render phase decided on.
+   *
+   * The **same-shape** branch saves the reader's position, because holding the
+   * old rows is not always enough to keep it: the moment the new result binds
+   * with fewer rows than the old — or with none at all, if the hold has already
+   * been released — the driver's `maxTop` shrinks, `commit` clamps `top` against
+   * it, and the position is gone. It is saved as a **row index** rather than a
+   * pixel offset (rows above may have come and gone) with "was at the bottom"
+   * kept separately, because someone parked at the end of an append-only table is
+   * following the tail rather than sitting at a row.
+   *
+   * Row selection is dropped either way. It means "send these rows to the agent",
+   * and after a refresh row 7 may be a different row entirely; carrying it over
+   * would attach rows nobody looked at.
+   *
+   * `useLayoutEffect`, and declared **above** the `setGeometry` one: layout
+   * effects run in declaration order, and `setGeometry` is what would flatten the
+   * position against the new row count before this ever read it. The replay sits
+   * on the other side of `setGeometry`, for the mirror-image reason.
+   */
+  const restoreRef = useRef<{ anchor: number; atBottom: boolean } | null>(null)
+  useLayoutEffect(() => {
+    const swap = swapRef.current
+    swapRef.current = null
+
+    if (swap !== null) {
+      setSelected(null)
+      setExpanded(null)
+      setRowSelection(EMPTY_SELECTION)
+      setMenu(null)
+    }
+
+    if (swap === 'same') {
+      const m = driver.metrics
+      restoreRef.current = { anchor: m.visibleFirst, atBottom: m.atBottom }
+    } else if (swap === 'new') {
+      restoreRef.current = null
+      setSizing({})
+      // The vertical position lives in the driver alone; never write el.scrollTop —
+      // that element has no vertical scrolling any more.
+      driver.reset()
+      const el = scrollRef.current
+      if (el) el.scrollLeft = 0
+    }
+
+    // Cleanup runs before the next resultId takes effect, so the captured
+    // resultId is still the **previous** result set — exactly the one to release.
     return () => {
       releaseViewport(resultId)
     }
-  }, [resultId, driver, releaseViewport])
+  }, [resultId, shapeKey, driver, releaseViewport])
 
   const { headers, widths } = useColumnModel(columns, sizing, setSizing)
   const widthKey = widths.join(',')
@@ -260,6 +347,23 @@ export function DataGrid(props: DataGridProps): ReactElement {
     driver.setGeometry(viewportH, rowCount, window.devicePixelRatio || 1)
   }, [driver, viewportH, rowCount])
 
+  /**
+   * Replay the position captured above, once the refreshed result has rows to
+   * land on.
+   *
+   * Declared **after** `setGeometry` on purpose: layout effects run in
+   * declaration order, and until the driver has been told the new row count its
+   * `maxTop` is still 0 — a restore run before it would clamp straight back to
+   * the top, which is the very thing being avoided.
+   */
+  useLayoutEffect(() => {
+    const pending = restoreRef.current
+    if (!pending || rowCount === 0) return
+    restoreRef.current = null
+    if (pending.atBottom) driver.scrollTo(driver.maxTop)
+    else if (pending.anchor > 0) driver.scrollToRow(Math.min(pending.anchor, rowCount - 1))
+  }, [rowCount, driver])
+
   /* --- wheel must be attached by hand: React registers wheel as passive, so
    * preventDefault inside onWheel is a no-op. It goes on the wrap rather than on
    * .grid because the scrollbar and the overlay are .grid's siblings — with the
@@ -308,8 +412,8 @@ export function DataGrid(props: DataGridProps): ReactElement {
    * selection gesture — but it means the copy path has to be built rather than
    * inherited, and until now it simply was not there. See gridCopy.ts. */
   const copySource = useMemo<GridCopySource>(
-    () => ({ columns: schema ?? [], read: (row, col) => getCell(resultId, row, col) }),
-    [schema, resultId],
+    () => ({ columns: schema ?? [], read: (row, col) => getCell(shownResultId, row, col) }),
+    [schema, shownResultId],
   )
 
   const runCopy = useCallback((plan: CopyPlan, done: string): void => {
@@ -467,11 +571,11 @@ export function DataGrid(props: DataGridProps): ReactElement {
 
   /* --- Overlay hint --- */
   let overlay: string | null = null
-  if (!resultId) overlay = emptyHint ?? t('grid.notRun')
+  if (!shownResultId) overlay = emptyHint ?? t('grid.notRun')
   else if (!schema && snap.status === 'running') overlay = t('grid.running')
   else if (rowCount === 0 && snap.status === 'done') overlay = t('grid.noRows')
 
-  const expandedValue = expanded ? getCell(resultId, expanded.row, expanded.col) : null
+  const expandedValue = expanded ? getCell(shownResultId, expanded.row, expanded.col) : null
   const expandedColumn = expanded && schema ? (schema[expanded.col] ?? null) : null
 
   const rows: ReactElement[] = []
@@ -479,7 +583,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
     rows.push(
       <GridRow
         key={i}
-        resultId={resultId}
+        resultId={shownResultId}
         schema={schema}
         rowIndex={i}
         // Only changes when the origin does, i.e. every 4096 rows, so memo keeps
@@ -487,7 +591,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
         top={rowTopIn(i, geom.origin)}
         width={totalWidth}
         cols={stableCols}
-        dataVersion={isRowLoaded(resultId, i) ? 0 : snap.version}
+        dataVersion={isRowLoaded(shownResultId, i) ? 0 : snap.version}
         selectedCol={selected && selected.row === i ? selected.col : -1}
         // A boolean, not the Set: `GridRow` is memoized on its props, and
         // handing every row the same Set identity would defeat that for the
@@ -529,7 +633,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
 
   const contextTarget: ContextTarget = {
     view,
-    ...(resultId === undefined ? {} : { resultId }),
+    ...(shownResultId === undefined ? {} : { resultId: shownResultId }),
     ...(selectionSize(rowSelection) > 0 ? { selectedRows: selectedIndexes(rowSelection) } : {}),
     ...(menu?.cell && schema?.[menu.cell.col]
       ? { cell: { rowIndex: menu.cell.row, column: schema[menu.cell.col].name } }
@@ -594,7 +698,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
 
         <SelectionActionBar
           viewId={view.id}
-          resultId={resultId}
+          resultId={shownResultId}
           selection={rowSelection}
           onClear={clearRowSelection}
         />
@@ -638,19 +742,23 @@ export function DataGrid(props: DataGridProps): ReactElement {
         />
       ) : null}
 
+      {/* The footer follows the **live** stream while the held rows are still on
+          screen: "running" is the true answer to "what is happening", and saying
+          "done" because the rows you can see finished a moment ago would make a
+          refresh invisible. */}
       <GridFooter
         rowCount={rowCount}
-        status={snap.status}
-        elapsedMs={snap.done?.elapsedMs}
-        truncated={snap.done?.truncated === true}
-        pausedReason={snap.paused?.message ?? null}
+        status={liveSnap.status}
+        elapsedMs={liveSnap.done?.elapsedMs}
+        truncated={liveSnap.done?.truncated === true}
+        pausedReason={liveSnap.paused?.message ?? null}
         evicted={snap.evictedChunks}
       />
 
       {expanded && expandedColumn ? (
         <ValueModal
           connId={connId}
-          resultId={resultId}
+          resultId={shownResultId}
           row={expanded.row}
           col={expanded.col}
           column={expandedColumn}

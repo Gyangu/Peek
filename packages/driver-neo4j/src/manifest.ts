@@ -87,6 +87,16 @@ export const neo4jManifest = defineManifest({
   capabilities: ['introspect', 'tabularQuery', 'collectionScan', 'valuePeek', 'cancel'],
   connectForm: CONNECT_FORM,
   mcpConnectExample: '{"driverId":"neo4j","url":"neo4j://localhost:7687","user":"neo4j"}',
+  skill:
+    'The query language is Cypher, not SQL, and run_query takes it directly. Every session is ' +
+    'opened with READ access at the server, so a write is refused by Neo4j itself and arrives ' +
+    'as CONFLICT — nothing inspects the statement text, so there is no phrasing that gets one ' +
+    'through. The namespace tree has two groups rather than one: node labels and relationship ' +
+    'types. Neo4j also contributes a graph view: open_view with ' +
+    '{"kind":"plugin","pluginKind":"graph","connId":"..."} draws a node-link diagram, ' +
+    'read_workspace reports it as kind "graph", and expand_node re-centres it on one node by ' +
+    'elementId(). It holds at most 500 nodes, because a force-directed layout stops being ' +
+    'readable well before that.',
 
   assembleConfig(mode, values, label) {
     const { text, num } = formReaders(CONNECT_FORM.fields[mode], values)

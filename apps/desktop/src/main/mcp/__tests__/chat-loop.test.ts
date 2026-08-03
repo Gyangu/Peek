@@ -80,6 +80,7 @@ function harness(): Harness {
       // No agent in this harness, so no catalogue — the same answer peek gives
       // before the ACP host is assembled.
       listSessions: () => Promise.resolve({ sessions: [], supported: false, cwd: null }),
+      restore: () => Promise.resolve(false),
     }),
   )
 

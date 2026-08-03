@@ -17,14 +17,32 @@
  * app.on('will-quit', () => void mcp.close())
  * ```
  *
- * To add an MCP tool: create a file under `mcp/tools/` that default-exports
- * `defineCommandTool({...})` or `defineReadTool({...})`. The registry picks it up
- * automatically — the core needs no changes.
+ * To add a **kernel** MCP tool: create a file under `mcp/tools/` that
+ * default-exports `defineCommandTool({...})` or `defineReadTool({...})`. The
+ * registry picks it up automatically — the core needs no changes.
+ *
+ * To add a tool that belongs to **one database**: declare it in that driver
+ * package's `src/mcp-tools.ts` with `defineToolSpec` from `@peek/core`, and it
+ * arrives through `drivers/mcpTools.ts`. The two lists meet in `collectTools()`,
+ * and a package may not shadow a kernel name.
+ *
+ * Which of the two a tool is, is not a judgement call: all 32 Command names are
+ * kernel-generic, so the question is whether the *mapping* encodes something
+ * only one database knows. `set_layout` does not and never will; neo4j's
+ * `expand_node` — which writes an `elementId()` into a graph view's `focus` —
+ * does. See design/2026-08-03-plugin-architecture.md §2.4bis.
  */
 
 export { createMcpServer, type CreateMcpServerOptions, type McpServerHandle } from './server'
-export { collectBuiltinTools, registerTools, toCallToolResult } from './registry'
-export { defineCommandTool, defineReadTool, dispatchCommand, errorOutput, outcomeData } from './executor'
+export { collectBuiltinTools, collectTools, registerTools, toCallToolResult } from './registry'
+export {
+  defineCommandTool,
+  defineReadTool,
+  dispatchCommand,
+  errorOutput,
+  outcomeData,
+  toPeekTool,
+} from './executor'
 export {
   buildWorkspaceBrief,
   briefViews,

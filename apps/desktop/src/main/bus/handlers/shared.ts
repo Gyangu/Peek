@@ -4,6 +4,7 @@ import {
   MAX_LAYOUT_DEPTH,
   MAX_LAYOUT_PANELS,
   MAX_PANEL_TABS,
+  collectPanels,
   collectionRefLabel,
   countPanels,
   findPanel,
@@ -32,7 +33,7 @@ import { lookupViewKindContract } from '../../../drivers/viewKinds'
 import { plain } from '../../store/workspace-store'
 import { putView, removeView, runningResultOf, startResult } from '../../store/mutations'
 import { failMsg } from '../failure'
-import { firstEmptyPanel, firstPanel, mountViewInPanel } from '../layout-ops'
+import { firstEmptyPanel, firstPanel, mountViewInPanel, splitPanel } from '../layout-ops'
 import type { ReduceCtx } from '../types'
 import { buildChatViewState, stageChatAttachments } from './chat'
 
@@ -76,6 +77,18 @@ export function assertWithinLimits(layout: LayoutNode): void {
   if (layoutDepth(layout) > MAX_LAYOUT_DEPTH) {
     failMsg('CONFLICT', 'error.layout.tooDeep', { max: MAX_LAYOUT_DEPTH })
   }
+}
+
+/**
+ * The same two caps, asked rather than enforced.
+ *
+ * Only one caller wants this shape: the split `openView` performs to keep a model
+ * from covering the conversation (see `resolveOpenTarget`). There the split is a
+ * *means*, not the request — a window too full to divide should still open the
+ * view, as a tab, rather than fail the command.
+ */
+function withinLimits(layout: LayoutNode): boolean {
+  return countPanels(layout) <= MAX_LAYOUT_PANELS && layoutDepth(layout) <= MAX_LAYOUT_DEPTH
 }
 
 /**
@@ -189,6 +202,89 @@ export function resolvePanel(draft: Draft<Workspace>, panelId?: PanelId): PanelN
   return firstEmptyPanel(layout) ?? firstPanel(layout) ?? failMsg('INTERNAL', 'error.layout.noPanels')
 }
 
+/* ------------------------------------------------------------------ */
+/* Keeping a model from opening things on top of the conversation      */
+/* ------------------------------------------------------------------ */
+
+/** Does this panel hold a chat tab? */
+function panelHoldsChat(draft: Draft<Workspace>, panel: PanelNode): boolean {
+  return panel.viewIds.some((viewId) => draft.views[viewId]?.kind === 'chat')
+}
+
+/**
+ * The nearest panel that is not showing a conversation, in visual order (left to
+ * right, top to bottom). An empty one wins: "the right-hand pane is free" is a
+ * better answer than squeezing another tab in beside a table.
+ */
+function firstPanelWithoutChat(draft: Draft<Workspace>, exclude: PanelId): PanelNode | null {
+  const candidates = collectPanels(plain(draft.layout)).filter(
+    (panel) => panel.id !== exclude && !panelHoldsChat(draft, panel),
+  )
+  return candidates.find((panel) => panel.viewIds.length === 0) ?? candidates[0] ?? null
+}
+
+/**
+ * Open a column to the right of `target` and hand it back — or null when the tree
+ * caps say no, in which case the caller falls back to a tab.
+ *
+ * `row` is written in rather than chosen: peek's window is wide and a chat pane is
+ * already the narrow one; splitting it horizontally squashes both halves. A model
+ * that wants the result underneath says so with `move_view` / `set_layout`.
+ */
+function splitBeside(draft: Draft<Workspace>, target: PanelNode, ctx: ReduceCtx): PanelNode | null {
+  const outcome = splitPanel(plain(draft.layout), {
+    panelId: target.id,
+    dir: 'row',
+    insert: 'after',
+    newPanelId: ctx.ids.panel(),
+    newSplitId: ctx.ids.split(),
+  })
+  if (!outcome || !withinLimits(outcome.layout)) return null
+  writeLayout(draft, outcome.layout)
+  return findPanel(plain(draft.layout), outcome.panelId)
+}
+
+/**
+ * Where a view opened *by a model* lands.
+ *
+ * The plain rule — focused panel, append as a tab — is right for a hand and wrong
+ * for an assistant. When the user asks the conversation to open a table, the
+ * focused panel is the conversation's own, so the table arrives as a tab in front
+ * of it and hides the very message that asked for it. The next thing the model
+ * says is hidden too.
+ *
+ * So a command from `mcp` / `agent` that named no panel, and that would land where
+ * a chat is, goes to the next panel without one — splitting a column off to the
+ * right if there is no such panel. `ui` (a hand) and `system` (recovery) are
+ * untouched, and so is any caller that named a panel: saying where is a decision,
+ * and this rule only fills in a blank.
+ *
+ * `redirected` is what suppresses the focus move in `openView`: the view appears
+ * elsewhere, the conversation keeps the cursor. Because the answer is a function
+ * of the tree alone, a run of opens lands in the same column each time rather than
+ * walking rightwards.
+ *
+ * The judgement is "this panel has a chat in it", not "this command came from that
+ * chat" — `ReduceCtx` carries no originating view, and threading one through from
+ * the MCP session would not even be more correct: with two conversations stacked
+ * in one column, avoiding only the caller still covers the other one.
+ */
+function resolveOpenTarget(
+  draft: Draft<Workspace>,
+  opts: OpenViewOptions,
+  ctx: ReduceCtx,
+): { panel: PanelNode; redirectedFrom: PanelNode | null } {
+  const target = resolvePanel(draft, opts.panelId)
+  const byModel = ctx.source === 'mcp' || ctx.source === 'agent'
+  if (opts.panelId !== undefined || !byModel || !panelHoldsChat(draft, target)) {
+    return { panel: target, redirectedFrom: null }
+  }
+  const elsewhere = firstPanelWithoutChat(draft, target.id) ?? splitBeside(draft, target, ctx)
+  // No room to divide: a tab in front of the conversation is still better than
+  // refusing to open what was asked for.
+  return elsewhere ? { panel: elsewhere, redirectedFrom: target } : { panel: target, redirectedFrom: null }
+}
+
 /* ================================================================== */
 /* Opening views                                                       */
 /* ================================================================== */
@@ -288,7 +384,10 @@ export function openView(
   // skimming does not accumulate tabs.
   const slot = opts.provisional === true ? takeProvisionalSlot(draft, ctx) : null
 
-  const target = slot ? resolvePanel(draft, slot.panelId) : resolvePanel(draft, opts.panelId)
+  const placement = slot
+    ? { panel: resolvePanel(draft, slot.panelId), redirectedFrom: null }
+    : resolveOpenTarget(draft, opts, ctx)
+  const target = placement.panel
   const panelId: PanelId = target.id
 
   // `replace` takes the departing view's tab position rather than appending, so
@@ -317,12 +416,27 @@ export function openView(
     activate: opts.activate !== false,
   })
   if (layout) {
-    // Opening no longer creates panels, so the panel-count cap cannot be reached
-    // from here — but the tab cap now can, from every `view.open` a model makes.
+    // `resolveOpenTarget` is the one thing here that can create a panel, and it
+    // checks the tree caps itself (it falls back to a tab rather than failing).
+    // The tab cap is reachable from every `view.open` a model makes.
     assertPanelTabsWithinLimit(layout)
     writeLayout(draft, layout)
   }
-  if (opts.focus !== false) draft.focusedPanel = panelId
+  // A redirected open deliberately leaves focus where it was: the view was moved
+  // out of the conversation's way, so taking the conversation's focus with it
+  // would undo half the point.
+  //
+  // "Where it was" has to be somewhere, though. An open used to repair a focus
+  // that pointed at a panel which no longer exists (it always assigned), so a
+  // redirect falls back to the panel it was aimed at — the conversation's own —
+  // rather than leaving a dangling id behind.
+  if (opts.focus !== false) {
+    const from = placement.redirectedFrom
+    if (from === null) draft.focusedPanel = panelId
+    else if (draft.focusedPanel === null || !findPanel(plain(draft.layout), draft.focusedPanel)) {
+      draft.focusedPanel = from.id
+    }
+  }
 
   const resultId = autoFetch(draft, view.id, ctx, opts.run === true)
   const result: ViewOpenResult = { viewId: view.id, panelId, kind: view.kind }

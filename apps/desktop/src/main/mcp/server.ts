@@ -28,7 +28,7 @@ import {
   type WorkspaceSnapshot,
 } from '@peek/core'
 import { MCP_INSTRUCTIONS } from './instructions'
-import { collectBuiltinTools, registerTools } from './registry'
+import { collectTools, registerTools } from './registry'
 import {
   defaultConfigDir,
   generateToken,
@@ -159,7 +159,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
   const serverInfo = options.serverInfo ?? { name: 'peek', version: '0.0.1' }
   const token = options.token ?? readExistingToken(configDir) ?? generateToken()
 
-  const tools = options.tools ?? collectBuiltinTools()
+  const tools = options.tools ?? collectTools()
 
   const agentToken = options.agentToken ?? null
   const externalSource: CommandSource = options.source ?? 'mcp'

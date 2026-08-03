@@ -105,7 +105,50 @@ export interface DriverManifest<
    * Must contain no credentials — it is read by every connected client.
    */
   mcpConnectExample: string
+  /**
+   * The package's Agent Skill: what a model must know about driving **peek**
+   * against this database, in prose, folded into `MCP_INSTRUCTIONS`.
+   *
+   * Not the SDK's `skills` option. That one is a directory of files read through
+   * a `Skill` tool, and peek's embedded agent runs with `tools: []`, which may or
+   * may not turn the `Skill` tool off with it — undecidable from the docs, so it
+   * needs a live probe and that is Phase C's job. Widening the instructions
+   * string has none of that uncertainty and no new plumbing: `mcpConnectExample`
+   * already travels this exact path.
+   *
+   * Three rules, each with a test in `driver-skills.test.ts`:
+   *
+   * - **English**, always. Model-facing text, same bucket as `describeView` and
+   *   `ResultMeta.summary` (`docs/PLAN.md`).
+   * - **No credentials**, same as `mcpConnectExample` and checked by the same
+   *   assertion — every connected client reads it.
+   * - **Under `MAX_SKILL_CHARS`.** This is the rule that shapes what gets
+   *   written. `MCP_INSTRUCTIONS` is fixed at `initialize` and read by every
+   *   model on every session, so an unbounded paragraph here is a tax a user who
+   *   only opens PostgreSQL pays for five databases they never touch. What
+   *   survives a budget that tight is only ever the thing a model gets *wrong*
+   *   without it — not a tour of the database.
+   *
+   * Absent is a fine answer, and means "nothing here would surprise a model that
+   * read the general instructions".
+   *
+   * Known cost, recorded rather than solved: a package that is installed but
+   * never connected still contributes its skill, because the text is built
+   * before any connection exists. Phase B accepts that — the set of packages is
+   * compiled in — and Phase C has to revisit it once packages can be installed
+   * at runtime.
+   */
+  skill?: string
 }
+
+/**
+ * The ceiling on one package's `skill`, in characters.
+ *
+ * ~1200 is four or five sentences: enough for the handful of facts that change
+ * what a model *does*, not enough for background. The number is a judgement
+ * call, but having one at all is not — see `DriverManifest.skill`.
+ */
+export const MAX_SKILL_CHARS = 1200
 
 export type SqlDialectId = 'postgres' | 'mysql' | 'sqlite' | 'standard'
 

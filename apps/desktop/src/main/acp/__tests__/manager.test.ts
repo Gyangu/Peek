@@ -12,7 +12,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -682,6 +682,59 @@ test('reopening the same conversation on a chat that already has it does not rep
     await h.manager.openChat(h.chatId, 'stub-session-old')
     const loads = (await methodsIn(log)).filter((m) => m === 'session/load')
     assert.equal(loads.length, 1, 'a second open of the same session is a no-op, not a second transcript')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('reloadChat replays a conversation the window lost, where openChat would not', async () => {
+  const log = logPath('reload')
+  const h = harness({ STUB_LOG: log })
+  try {
+    await h.manager.openChat(h.chatId, 'stub-session-old')
+    await sleep(300)
+    h.deltas.length = 0
+
+    // The renderer reloaded: main still holds the session, so `openChat`'s
+    // "already up on the right session" short-circuit returns immediately and
+    // nothing is replayed. That guard is right — it stops a tab opened twice
+    // from stacking a conversation on itself — so this is a separate door.
+    assert.equal(await h.manager.reloadChat(h.chatId), true)
+    await sleep(300)
+
+    const loads = (await methodsIn(log)).filter((m) => m === 'session/load')
+    assert.equal(loads.length, 2, 'a reload has to actually ask the agent again')
+
+    // The reset comes first, so a mirror that is *not* empty is cleared rather
+    // than doubled. Without it a second restore stacks the conversation.
+    assert.equal(h.deltas[0]?.type, 'reset')
+
+    // And the replay is not doubled onto the old translator state. This is the
+    // half that regresses silently: the translator is stateful (open message,
+    // tool-call table, message count), and replaying onto a used one continues
+    // the old numbering and mis-addresses every delta.
+    const text = h.deltas
+      .filter((d): d is Extract<ChatDelta, { type: 'text.append' }> => d.type === 'text.append')
+      .map((d) => d.text)
+      .join('')
+    assert.equal(text, 'what did I ask?replayed history')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('reloading a chat that has no session answers false and sends nothing', async () => {
+  const log = logPath('reload-empty')
+  const h = harness({ STUB_LOG: log })
+  try {
+    // Not an error: the window then shows an empty conversation, which is what
+    // it is. Bringing a session up here would spawn an agent for a panel nobody
+    // has typed into, which is exactly what lazy bringup exists to avoid.
+    assert.equal(await h.manager.reloadChat(h.chatId), false)
+    assert.deepEqual(h.deltas, [])
+    // The stub writes its call log on startup, so an absent file is the proof:
+    // no agent process was spawned at all.
+    assert.ok(!existsSync(log), 'a reload with nothing to reload must not start an agent')
   } finally {
     await h.manager.dispose()
   }

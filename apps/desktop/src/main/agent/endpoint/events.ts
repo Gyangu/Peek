@@ -37,8 +37,10 @@
 
 import {
   newChatMessageId,
+  type ChatAttachmentReceipt,
   type ChatDelta,
   type ChatId,
+  type ChatMessage,
   type ChatMessageId,
   type ToolCallRecord,
   type ToolCallStatus,
@@ -75,6 +77,141 @@ export type EndpointEvent =
 
 type ChatMessageStop = 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' | 'cancelled' | 'error'
 
+/* ================================================================== */
+/* The library's event vocabulary → peek's                             */
+/* ================================================================== */
+
+/**
+ * What one `pi-agent-core` event means to this backend.
+ *
+ * Separate from `EndpointTranslator` because the two answer different questions.
+ * The translator turns a peek event into deltas; this turns a *library* event
+ * into one of four outcomes, only one of which is a peek event at all. A turn
+ * that died upstream is not a delta — it is a turn ending — and the host is what
+ * ends turns.
+ */
+export type AgentEventOutcome =
+  /** Feed this to the translator. */
+  | { kind: 'event'; event: EndpointEvent }
+  /**
+   * The endpoint judged this turn dead. `message` is `pi-ai`'s own `errorMessage`,
+   * verbatim and unsanitised — the host redacts before it goes anywhere.
+   */
+  | { kind: 'failed'; message: string }
+  /** The stream was aborted. Normally already settled by `cancel()`. */
+  | { kind: 'aborted' }
+  /** An event peek knowingly does not render. Diagnostics only; never thrown. */
+  | { kind: 'ignored'; reason: string }
+
+const ignored = (reason: string): AgentEventOutcome => ({ kind: 'ignored', reason })
+const feed = (event: EndpointEvent): AgentEventOutcome => ({ kind: 'event', event })
+
+/**
+ * Narrow one `AgentEvent` to what the transcript needs.
+ *
+ * ## Why every member is named
+ *
+ * `AgentEvent` is a closed ten-member union, and this used to be a four-case
+ * switch with `default: return`. That default is where both halves of
+ * `docs/design/2026-08-04-endpoint-keyless-and-stream-errors.md` met: an endpoint
+ * failure arrives as a `message_end` carrying `stopReason: 'error'`, the default
+ * dropped it, `prompt()` resolved anyway, and the turn was settled as an **empty
+ * assistant bubble** with nothing in the log. Naming all ten means the compiler
+ * complains when the library grows an eleventh, instead of it landing silently in
+ * the same hole.
+ *
+ * ## Why `message_start` is not enough to open a message
+ *
+ * `agent-loop` emits `message_start`/`message_end` for the user's prompt, for
+ * steering messages and for every tool result, not only for assistant messages.
+ * Opening on all of them happened to be harmless — the translator ignores a
+ * second open — but reading `stopReason` off a tool result's `message_end` would
+ * not be. Hence the role check on both.
+ *
+ * Never throws. This runs inside a subscriber callback, so whether an exception
+ * is caught at all is `pi-agent-core`'s business rather than peek's; an
+ * unrecognised shape is reported, exactly as `acp/translate.ts` reports one.
+ */
+export function classifyAgentEvent(raw: unknown): AgentEventOutcome {
+  if (typeof raw !== 'object' || raw === null) return ignored('non-object event')
+  const event = raw as {
+    type?: string
+    message?: { role?: string; stopReason?: string; errorMessage?: string }
+    assistantMessageEvent?: { type?: string; delta?: string }
+    toolCallId?: string
+    toolName?: string
+    args?: unknown
+    result?: unknown
+    isError?: boolean
+  }
+
+  switch (event.type) {
+    case 'message_start':
+      // A user prompt, a steering message and every tool result come through
+      // here too; only the assistant's opens a bubble.
+      if (event.message?.role !== 'assistant') return ignored(`message_start:${event.message?.role ?? 'unknown'}`)
+      return feed({ type: 'assistant_start' })
+
+    case 'message_end': {
+      if (event.message?.role !== 'assistant') return ignored(`message_end:${event.message?.role ?? 'unknown'}`)
+      // The one event that carries an upstream failure. `pi-ai` writes the
+      // exception into the assistant message itself rather than rejecting the
+      // stream, and `pi-agent-core` consumes its `error` event internally, so
+      // this is the *only* place the failure surfaces — there is no top-level
+      // `error` member on `AgentEvent` to catch instead.
+      if (event.message.stopReason === 'error') {
+        return { kind: 'failed', message: event.message.errorMessage ?? '' }
+      }
+      if (event.message.stopReason === 'aborted') return { kind: 'aborted' }
+      // Deliberately not a close: the assistant message stays open until the
+      // host settles the turn, because tool calls are streamed *after* their
+      // message ends. See §3.3 of the design note.
+      return ignored(`message_end:${event.message.stopReason ?? 'unknown'}`)
+    }
+
+    case 'message_update': {
+      const inner = event.assistantMessageEvent
+      if (!inner?.delta) return ignored(`message_update:${inner?.type ?? 'unknown'}`)
+      if (inner.type === 'text_delta') return feed({ type: 'text', text: inner.delta })
+      if (inner.type === 'thinking_delta') return feed({ type: 'thinking', text: inner.delta })
+      // toolcall_delta: arguments arrive whole on `tool_execution_start`, so the
+      // partial JSON is nothing peek has to reassemble.
+      return ignored(`message_update:${inner.type ?? 'unknown'}`)
+    }
+
+    case 'tool_execution_start':
+      if (!event.toolCallId) return ignored('tool_execution_start without an id')
+      return feed({
+        type: 'tool_start',
+        id: event.toolCallId,
+        name: event.toolName ?? 'tool',
+        args: event.args ?? {},
+      })
+
+    case 'tool_execution_end':
+      if (!event.toolCallId) return ignored('tool_execution_end without an id')
+      return feed({
+        type: 'tool_end',
+        id: event.toolCallId,
+        output: event.result ?? null,
+        isError: event.isError === true,
+      })
+
+    // Named, not defaulted. peek's transcript has no field for any of these, and
+    // `turn_end` in particular repeats the failed message `message_end` already
+    // reported — honouring both would report one failure twice.
+    case 'agent_start':
+    case 'agent_end':
+    case 'turn_start':
+    case 'turn_end':
+    case 'tool_execution_update':
+      return ignored(event.type)
+
+    default:
+      return ignored(`unknown:${event.type ?? 'untyped'}`)
+  }
+}
+
 /**
  * One conversation's streaming state.
  *
@@ -99,9 +236,53 @@ export class EndpointTranslator {
     this.#chatId = chatId
   }
 
-  /** A user turn peek recorded itself. Keeps `messageCount` honest. */
-  countUserMessage(): void {
+  /**
+   * Record the user's turn.
+   *
+   * ## This used to only count
+   *
+   * It was `countUserMessage()`, which bumped `messageCount` and emitted
+   * nothing, on the stated basis that "the user's own message is recorded by the
+   * caller". No caller did. The ACP backend has always emitted the user's
+   * message itself (`TranscriptTranslator.appendUserMessage`), and the endpoint
+   * backend inherited the sentence without the code — so an endpoint
+   * conversation showed the model answering questions that were never on screen,
+   * and the Workspace message count counted a message the transcript did not
+   * have. Found while giving this backend a transcript worth persisting: a
+   * stored conversation missing every user turn is not a conversation.
+   *
+   * The user message is complete the instant it is made, so it opens and closes
+   * in one output. Attachments are kept as descriptors for re-display; their
+   * materialised text went to the model and is deliberately not duplicated here.
+   */
+  appendUserMessage(
+    text: string,
+    now: number,
+    attachments?: ChatMessage['attachments'],
+    receipts?: readonly ChatAttachmentReceipt[],
+  ): EndpointTranslation {
+    const id = newChatMessageId()
+    const message: ChatMessage = {
+      id,
+      role: 'user',
+      blocks: text ? [{ type: 'text', text }] : [],
+      createdAt: now,
+      complete: true,
+      stopReason: 'end_turn',
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      ...(receipts && receipts.length > 0 ? { attachmentReceipts: [...receipts] } : {}),
+    }
     this.#messageCount += 1
+    return {
+      deltas: [
+        { type: 'message.start', chatId: this.#chatId, message },
+        { type: 'message.end', chatId: this.#chatId, messageId: id, stopReason: 'end_turn' },
+      ],
+      state: {
+        messageCount: this.#messageCount,
+        lastMessagePreview: sanitizeLine(text, PREVIEW_CHARS),
+      },
+    }
   }
 
   translate(event: EndpointEvent, now: number): EndpointTranslation {
@@ -134,6 +315,17 @@ export class EndpointTranslator {
    */
   finishTurn(stopReason: NonNullable<ChatMessageStop>): EndpointTranslation {
     return this.#finish(stopReason)
+  }
+
+  /**
+   * Take over the count of a conversation restored from disk.
+   *
+   * `messageCount` is what the Workspace row shows, and a resumed conversation
+   * that started counting from zero would report "1 message" the moment the user
+   * spoke again — under a transcript visibly holding twenty.
+   */
+  adoptMessageCount(count: number): void {
+    this.#messageCount = count
   }
 
   /** Forget everything. Mirrors `chat.clear`. */

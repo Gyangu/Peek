@@ -37,7 +37,7 @@ import type {
   ChatUsage,
   PendingPermission,
 } from './chat'
-import type { PluginViewStateShape, ViewKindLookup } from './view-kinds'
+import type { PluginViewKind, PluginViewStateShape, ViewKindLookup } from './view-kinds'
 
 // The branded types are re-exported here so they can be pulled straight from
 // workspace, the way PLAN §5 describes them.
@@ -128,8 +128,45 @@ export interface ConnectedViewBase extends ViewBase {
   connId: ConnId
 }
 
+/**
+ * Why auto-refresh switched *itself* off.
+ *
+ * Present only on a view whose `autoRefreshMs` is now absent, and only when
+ * something other than the user cleared it — so the toolbar can say which,
+ * instead of the control silently reading "Off" and the user wondering whether
+ * they imagined turning it on.
+ *
+ * - `paged`  the view was walked forward on a cursor-paged collection, where a
+ *            refresh means "start the scan over" (see `refreshPatch`). Ticking on
+ *            would drag the reader back to page one every interval.
+ * - `error`  three refreshes in a row failed. A statement that cannot succeed
+ *            should not keep asking the database every five seconds.
+ */
+export type AutoRefreshStopReason = 'paged' | 'error'
+
+/**
+ * A view that fetches for itself, and can therefore be told to fetch again on a
+ * timer — table, query, vector and plugin, which is exactly the set `autoFetch`
+ * knows how to re-run.
+ *
+ * It is a base of its own rather than two fields on `ViewBase` for the reason
+ * `ConnectedViewBase` was split out: a chat or an inspector carrying an interval
+ * that nothing will ever honour is a field the compiler stops policing. Here it
+ * keeps asking "can this kind actually refresh?" at every call site.
+ *
+ * The timer itself lives in main (`main/auto-refresh.ts`); this is only the
+ * standing instruction it reconciles against. Design record:
+ * docs/design/2026-08-03-auto-refresh.md.
+ */
+export interface RefreshableViewBase extends ConnectedViewBase {
+  /** Auto-refresh interval in ms. Absent means off. */
+  autoRefreshMs?: number
+  /** Set when auto-refresh stopped itself; cleared whenever an interval is set. */
+  autoRefreshStoppedBy?: AutoRefreshStopReason
+}
+
 /** Collection browsing: tables, keyspaces and collections all use this one */
-export interface TableViewState extends ConnectedViewBase {
+export interface TableViewState extends RefreshableViewBase {
   kind: 'table'
   ref: CollectionRef
   filter?: FilterSpec[]
@@ -142,7 +179,7 @@ export interface TableViewState extends ConnectedViewBase {
 }
 
 /** Free-form query (SQL and friends) */
-export interface QueryViewState extends ConnectedViewBase {
+export interface QueryViewState extends RefreshableViewBase {
   kind: 'query'
   text: string
   resultId?: ResultId
@@ -164,7 +201,7 @@ export interface TreeViewState extends ConnectedViewBase {
 }
 
 /** Vector search */
-export interface VectorViewState extends ConnectedViewBase {
+export interface VectorViewState extends RefreshableViewBase {
   kind: 'vector'
   collection: string
   queryVec?: number[]
@@ -278,7 +315,7 @@ export interface ChatViewState extends ViewBase {
  * fails to compile, so "what does this do with a plugin view" is a question the
  * compiler asks rather than one someone remembers.
  */
-export interface PluginViewState extends ConnectedViewBase, PluginViewStateShape {
+export interface PluginViewState extends RefreshableViewBase, PluginViewStateShape {
   /**
    * The result set currently streaming, when the kind's `autoFetch` asked for one.
    *
@@ -299,6 +336,23 @@ export type ViewState =
   | VectorViewState
   | ChatViewState
   | PluginViewState
+
+/**
+ * The members that extend `RefreshableViewBase`, spelled out.
+ *
+ * Hand-written rather than derived: `Extract<ViewState, RefreshableViewBase>`
+ * would also match anything that merely happens to be assignable, and the point
+ * of the list is that adding a fetching view kind is a decision someone makes
+ * here — the same reason `BUILTIN_VIEW_KINDS` is not derived either.
+ */
+export type RefreshableView = TableViewState | QueryViewState | VectorViewState | PluginViewState
+
+/** The kinds of `RefreshableView`, for a narrowing test that needs only the discriminant. */
+export const REFRESHABLE_VIEW_KINDS = ['table', 'query', 'vector', 'plugin'] as const
+
+export function isRefreshableViewKind(kind: ViewKind): kind is RefreshableView['kind'] {
+  return (REFRESHABLE_VIEW_KINDS as readonly string[]).includes(kind)
+}
 
 /**
  * The discriminant of `ViewState`: still a closed set of literals, now seven.
@@ -332,9 +386,20 @@ export function isBuiltinViewKind(kind: string): kind is BuiltinViewKind {
  * `ViewSummary.kind` goes out over MCP, and telling a model that six different
  * plugin views are all `kind: "plugin"` would make them indistinguishable in the
  * one place they most need telling apart.
+ *
+ * ## Why the parameter is structural rather than `ViewState`
+ *
+ * It has two callers on two sides of the snapshot boundary: main holds
+ * `ViewState`, and everything downstream of `snapshotWorkspace` — the MCP
+ * receipts above all — holds `ViewSummary`. Both carry a `kind` and both carry a
+ * `pluginKind` exactly when that kind is `'plugin'`, so one implementation
+ * serves both. Declaring it over `ViewState` alone is what left the summary side
+ * to write `v.pluginKind ?? v.kind` by hand — which is how this function spent
+ * its first version being dead code while the bug its own comment describes was
+ * live on the wire.
  */
-export function displayViewKind(view: ViewState): string {
-  return view.kind === 'plugin' ? view.pluginKind : view.kind
+export function displayViewKind(view: { kind: ViewKind; pluginKind?: string }): string {
+  return view.pluginKind ?? view.kind
 }
 
 /** Narrow ViewState down to one concrete kind */
@@ -861,6 +926,18 @@ export interface ViewSummary {
   id: ViewId
   kind: ViewKind
   /**
+   * Which plugin view this is, present exactly when `kind === 'plugin'` — the
+   * same shape as `browse` and `chat` below.
+   *
+   * Without it every plugin view on the wire is `kind: "plugin"` and they are
+   * indistinguishable to a model, which is the failure `displayViewKind` was
+   * written to prevent and then did not, because nothing called it. It matters
+   * as soon as a package contributes a tool that acts on its own view: neo4j's
+   * `expand_node` takes a `viewId`, and the only way a model can pick the right
+   * one out of `read_workspace` is if the graph views say `graph`.
+   */
+  pluginKind?: PluginViewKind
+  /**
    * Absent on a chat view that is not tied to a connection. Every other kind
    * always has one, so a reader narrowing on `kind` keeps the guarantee it had.
    */
@@ -902,6 +979,19 @@ export interface ViewSummary {
    * needs the exact orderable keys asks `introspect` for them.
    */
   browse?: CollectionBrowseStyle
+  /**
+   * The auto-refresh interval in force, in ms; absent means off.
+   *
+   * Reported for the same reason `visible` is: a model reading this window has to
+   * be able to tell a view that is redrawing itself every five seconds from one
+   * that is showing what it showed an hour ago. Without it, `read_workspace`
+   * would describe a moving picture as a still.
+   *
+   * `autoRefreshStoppedBy` is deliberately **not** here. It exists to word one
+   * sentence in the toolbar for the person who pressed the button; a model that
+   * did not press it has no use for it, and the snapshot is echoed on every read.
+   */
+  autoRefreshMs?: number
   /** Present exactly when `kind === 'chat'`. */
   chat?: ChatViewSummary
   error?: PeekError
@@ -1046,6 +1136,7 @@ export function snapshotWorkspace(ws: Workspace): WorkspaceSnapshot {
     return {
       id: v.id,
       kind: v.kind,
+      ...(v.kind === 'plugin' ? { pluginKind: v.pluginKind } : {}),
       ...(v.connId === undefined ? {} : { connId: v.connId }),
       panelId: at?.panelId ?? null,
       tabIndex: at?.tabIndex ?? -1,
@@ -1054,6 +1145,7 @@ export function snapshotWorkspace(ws: Workspace): WorkspaceSnapshot {
       status: v.status,
       describe: describeView(v),
       ...('resultId' in v && v.resultId !== undefined ? { resultId: v.resultId } : {}),
+      ...('autoRefreshMs' in v && v.autoRefreshMs !== undefined ? { autoRefreshMs: v.autoRefreshMs } : {}),
       ...(v.kind === 'table' ? { browse: collectionBrowseStyle(v.ref) } : {}),
       ...(v.kind === 'chat' ? { chat: summarizeChat(v) } : {}),
       ...(v.error === undefined ? {} : { error: v.error }),

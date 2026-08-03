@@ -97,6 +97,24 @@ export const IPC = {
    * transport differs — not who decides.
    */
   CHAT_DELTA: 'peek:chat:delta',
+
+  /**
+   * R→M: "I have nothing for this conversation — send it again."
+   *
+   * CHAT_DELTA is append-only and fire-and-forget, which is right for a stream
+   * and wrong for a listener that started late. A renderer that reloads keeps
+   * its Workspace (it re-aligns through STATE_SNAPSHOT) but its transcript
+   * mirror starts empty, and nothing re-sends: main is still holding the
+   * session, so no `session.open` fires and no delta is ever repeated. The tab,
+   * the title and the message count all come back; the conversation does not.
+   *
+   * This is the transcript's equivalent of STATE_SNAPSHOT, with one deliberate
+   * difference — it resolves to nothing. The conversation comes back over
+   * CHAT_DELTA like any other, so a restored transcript and a live one travel
+   * the same path and the renderer cannot tell them apart. See
+   * `docs/design/2026-08-03-chat-history-ownership.md` §2.4.
+   */
+  CHAT_RESTORE: 'peek:chat:restore',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
@@ -311,6 +329,18 @@ export interface PeekBridge {
    * rather than showing an empty conversation that looks like a working one.
    */
   onChatDelta?(handler: (deltas: ChatDelta[]) => void): () => void
+
+  /**
+   * Ask main to re-deliver one conversation, for a mirror that started empty.
+   *
+   * Resolves when main has *dispatched* the transcript, not when the renderer
+   * has applied it — the messages arrive over `onChatDelta` like everything
+   * else. `false` means main has nothing for that conversation, which is an
+   * answer ("this really is empty") and not a failure.
+   *
+   * Optional and feature-detected, like the members above.
+   */
+  restoreChat?(chatId: ChatId): Promise<boolean>
 }
 
 declare global {

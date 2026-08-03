@@ -40,6 +40,26 @@ export const ENDPOINT_PROVIDER_ID = 'peek-endpoint'
 const DEFAULT_CONTEXT_WINDOW = 32_000
 const DEFAULT_MAX_TOKENS = 4_096
 
+/**
+ * What a keyless endpoint sends instead of a credential.
+ *
+ * Both of `pi-ai`'s api implementations refuse to build a request with neither
+ * an api key nor an auth header — `getClientApiKey` in `openai-completions`,
+ * `assertRequestAuth` in `anthropic-messages`, both throwing
+ * `No API key for provider`. That refusal is deliberate on their side, and the
+ * header is the door they left open for auth that cannot be spelled as a key.
+ * `"unused"` is `pi-ai`'s own sentinel for exactly this case, so the value is a
+ * published constant rather than something peek invented.
+ *
+ * It is not a secret and it only ever travels to the URL the user typed. What it
+ * does cost is a line of diagnosis — an endpoint that *does* want credentials now
+ * answers 401 instead of failing before the socket opens — and `EndpointManager`
+ * pays that back by saying "this endpoint is configured without an API key" when
+ * an auth-shaped error comes back. See
+ * `docs/design/2026-08-04-endpoint-keyless-and-stream-errors.md` §3.2.
+ */
+const KEYLESS_AUTHORIZATION = 'Bearer unused'
+
 export interface EndpointModel {
   models: ReturnType<typeof createModels>
   model: Model<'openai-completions' | 'anthropic-messages'>
@@ -51,8 +71,9 @@ export interface EndpointModel {
  * `apiKey` is passed rather than read: this module never touches the settings
  * file or the keychain, which keeps the secret's whole path — keychain →
  * assembly → here → the HTTP request — short enough to read in one sitting.
- * A keyless endpoint (a local Ollama) resolves with no key at all rather than
- * with an empty one, because some servers reject `Authorization: Bearer `.
+ * A keyless endpoint (a local Ollama) resolves to a sentinel `authorization`
+ * header rather than to an empty key: an empty one is both rejected by `pi-ai`
+ * and rejected by some servers as `Authorization: Bearer `.
  */
 export function buildEndpointModel(settings: AgentEndpointSettings, apiKey: string | null): EndpointModel {
   const baseUrl = settings.baseUrl.trim().replace(/\/+$/, '')
@@ -87,7 +108,13 @@ export function buildEndpointModel(settings: AgentEndpointSettings, apiKey: stri
       apiKey: {
         name: 'Chat endpoint API key',
         resolve: () =>
-          Promise.resolve(apiKey === null || apiKey === '' ? { auth: {} } : { auth: { apiKey } }),
+          Promise.resolve(
+            apiKey === null || apiKey === ''
+              ? // Lower-case on purpose: `pi-ai` looks the header up case-insensitively
+                // but merges it into the client's default headers verbatim.
+                { auth: { headers: { authorization: KEYLESS_AUTHORIZATION } }, source: 'keyless endpoint' }
+              : { auth: { apiKey }, source: 'Chat endpoint API key' },
+          ),
       },
     },
     models: [model],

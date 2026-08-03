@@ -26,6 +26,7 @@ import type {
   ReadToolSpec,
   ToolContext,
   ToolOutput,
+  ToolSpec,
 } from './types'
 
 /* ================================================================== */
@@ -206,6 +207,27 @@ export function defineReadTool<S extends z.ZodType>(spec: ReadToolSpec<S>): Peek
       }
     },
   }
+}
+
+/**
+ * A declared spec → a runnable tool, dispatching on the spec's own `kind`.
+ *
+ * This is the door a **package's** tool comes through, and it is deliberately
+ * the same two functions above rather than a parallel path. Everything a tool
+ * gets for free lives in them: the second validation pass that stops a mapped
+ * input from reaching the Command Bus unchecked, the `uiEffects` block the
+ * executor attaches so a tool can neither forget nor misreport what it did to
+ * the window, and the catch that turns an escaped exception into a structured
+ * error instead of a dead server. A package that built its own `PeekTool` would
+ * have none of it, which is why `@peek/core` exports the *spec* type and not
+ * these constructors (see `core/mcp-tools.ts`).
+ *
+ * The kernel's thirteen tools call `defineCommandTool` / `defineReadTool`
+ * directly at their own module scope; this exists for the tools that arrive as
+ * data, from a list, with no module of their own to call from.
+ */
+export function toPeekTool(spec: ToolSpec): PeekTool {
+  return spec.kind === 'command' ? defineCommandTool(spec) : defineReadTool(spec)
 }
 
 /* ================================================================== */

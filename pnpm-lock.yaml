@@ -142,6 +142,9 @@ importers:
       neo4j-driver:
         specifier: ^5.28.0
         version: 5.28.3
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: ^26.1.2

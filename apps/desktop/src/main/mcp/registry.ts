@@ -5,12 +5,26 @@
  * with defineCommandTool / defineReadTool), and the registry collects them via
  * import.meta.glob, so **the core never needs to know which tools exist**.
  * Adding a tool means adding a file — this module stays untouched.
+ *
+ * ## Two sources, one surface
+ *
+ * A driver package contributes tools too (design §2.4bis). Those arrive as
+ * *specs* from `drivers/mcpTools.ts` rather than as modules under `tools/`, and
+ * `collectTools()` is where the two lists become one. They go through the same
+ * `defineCommandTool` on the way — see `toPeekTool` — so there is exactly one
+ * execution path however a tool was declared.
+ *
+ * The duplicate-name check spans both, and that is the interesting half: a
+ * package shadowing `run_query` would otherwise be a silent takeover of a kernel
+ * tool, and the MCP SDK's `registerTool` would happily accept the second
+ * registration.
  */
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { toPeekError } from '@peek/core'
-import { errorOutput } from './executor'
+import { DRIVER_TOOL_SPECS } from '../../drivers/mcpTools'
+import { errorOutput, toPeekTool } from './executor'
 import { toJson } from './summary'
 import type { PeekTool, ToolContext, ToolOutput } from './types'
 
@@ -31,14 +45,18 @@ function isPeekTool(value: unknown): value is PeekTool {
 }
 
 /**
- * Collect every tool under tools/ automatically.
+ * Collect every tool under tools/ automatically — the kernel's own thirteen.
+ *
  * eager: true — expanded statically at build time, so it still works once bundled
  * (no reliance on the filesystem at runtime).
+ *
+ * Still named "builtin" because that is now a meaningful distinction rather than
+ * a synonym for "all": these are the kernel's verbs, and a package's tools are
+ * `DRIVER_TOOL_SPECS`. `collectTools()` is what anyone serving MCP wants.
  */
 export function collectBuiltinTools(): PeekTool[] {
   const modules = import.meta.glob<ToolModule>('./tools/*.ts', { eager: true })
   const tools: PeekTool[] = []
-  const seen = new Set<string>()
 
   for (const path of Object.keys(modules).sort()) {
     const mod = modules[path]
@@ -46,11 +64,39 @@ export function collectBuiltinTools(): PeekTool[] {
     if (!isPeekTool(exported)) {
       throw new Error(`MCP tool file ${path} must default-export a PeekTool (see executor.defineCommandTool / defineReadTool)`)
     }
-    if (seen.has(exported.name)) {
-      throw new Error(`Duplicate MCP tool name: ${exported.name} (${path})`)
-    }
-    seen.add(exported.name)
     tools.push(exported)
+  }
+  return tools
+}
+
+/**
+ * The whole tool surface: the kernel's, plus every driver package's.
+ *
+ * Throws on a duplicate name rather than letting one win. The MCP SDK's
+ * `registerTool` would accept both and the last registration would take the
+ * name, so a package that declared `run_query` would replace the kernel's — a
+ * takeover that produces no error, no log line, and a tool that does something
+ * other than what its description says. Refusing to start is the only honest
+ * answer, and in Phase B it is a build-time mistake by definition: both lists
+ * are compiled in.
+ *
+ * Phase C makes the second list come off disk, and the same throw becomes a
+ * *runtime* refusal to load one plugin — at which point it must degrade to
+ * skipping that plugin and reporting it, the way a bad view-kind registration
+ * already does (`registerViewKind`). That change belongs with the loader, not
+ * here, because only the loader knows which plugin to blame.
+ */
+export function collectTools(): PeekTool[] {
+  const tools = [...collectBuiltinTools(), ...DRIVER_TOOL_SPECS.map(toPeekTool)]
+  const seen = new Set<string>()
+  for (const tool of tools) {
+    if (seen.has(tool.name)) {
+      throw new Error(
+        `Duplicate MCP tool name: ${tool.name}. A driver package may not shadow a kernel tool, ` +
+          `nor another package's — see apps/desktop/src/drivers/mcpTools.ts.`,
+      )
+    }
+    seen.add(tool.name)
   }
   return tools
 }

@@ -4,9 +4,19 @@
  */
 
 import { z } from 'zod'
-import { driverCapabilities } from '../../../drivers/manifests'
+import { DRIVER_MANIFESTS, driverCapabilities } from '../../../drivers/manifests'
 import { defineReadTool } from '../executor'
 import { briefConnection, toJson } from '../summary'
+
+/**
+ * The example in the empty state, taken from whichever driver is listed first
+ * rather than hard-coded as postgres.
+ *
+ * It used to be a literal, which made the answer to "there is nothing here yet"
+ * quietly assert that PostgreSQL is the database peek is for. Same fix, and same
+ * reason, as the `connect` tool's description — see the comment there.
+ */
+const FIRST_EXAMPLE = DRIVER_MANIFESTS[0]?.mcpConnectExample ?? ''
 
 const InputSchema = z.object({
   /** Only list connections in this status. */
@@ -32,7 +42,7 @@ export default defineReadTool({
 
     const head =
       conns.length === 0
-        ? 'There are no connections yet. Create one with the connect tool (for postgres: {"config":{"driverId":"postgres","url":"postgresql://user@host:5432/db"}}).'
+        ? `There are no connections yet. Create one with the connect tool, e.g. {"config":${FIRST_EXAMPLE}}. The connect tool's description carries an example for every driver.`
         : `${conns.length} connection(s) (workspace rev=${snap.rev}):`
 
     return {

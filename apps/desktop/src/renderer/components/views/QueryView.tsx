@@ -7,7 +7,7 @@ import { useConnection, useResultMeta } from '../../state/workspaceStore'
 import { formatCount, formatMs } from '../../util/format'
 import { DataGrid } from '../DataGrid'
 import { ViewError } from '../ViewError'
-import { CacheGapNotice, CancelButton } from './ResultControls'
+import { AutoRefreshControl, CacheGapNotice, CancelButton } from './ResultControls'
 import { Button } from '../../ui/Button'
 
 // CodeMirror is the heaviest thing in the bundle, so it gets its own lazily
@@ -80,6 +80,12 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
           ▶ {t('query.run')}
         </Button>
         <CancelButton viewId={viewId} conn={conn} running={running} />
+        <AutoRefreshControl
+          viewId={viewId}
+          kind="query"
+          {...(view.autoRefreshMs !== undefined ? { autoRefreshMs: view.autoRefreshMs } : {})}
+          {...(view.autoRefreshStoppedBy !== undefined ? { stoppedBy: view.autoRefreshStoppedBy } : {})}
+        />
         <span className="sep" />
         <span>{conn?.label ?? connId}</span>
         {meta ? (

@@ -1,4 +1,5 @@
 import type { Draft } from 'immer'
+import { collectionBrowseStyle } from '@peek/core'
 import type {
   ViewActivateResult,
   ViewCloseResult,
@@ -7,6 +8,7 @@ import type {
   ViewUpdateResult,
   ViewState,
 } from '@peek/core'
+import { setAutoRefresh, setAutoRefreshOn } from '../../store/mutations'
 import { plain } from '../../store/workspace-store'
 import { failMsg } from '../failure'
 import { activateViewInTree } from '../layout-ops'
@@ -43,7 +45,12 @@ export const viewHandlers = {
         })
       }
 
+      // Read before the patch is applied: "was this a page-forward?" is a
+      // question about the state the gesture arrived in.
+      const pagedForward = isCursorPageForward(view, input.patch)
+
       const affectsFetch = applyViewPatch(view, input.patch)
+      if (pagedForward) setAutoRefresh(draft, view.id, null, 'paged')
       // Changing fetch parameters on a table / vector view refetches by default;
       // a query view needs an explicit query.run.
       const refresh = input.refresh ?? (affectsFetch && view.kind !== 'query')
@@ -120,11 +127,56 @@ export const viewHandlers = {
 } satisfies CommandHandlerMap
 
 /**
+ * "This patch is the Next-page gesture on a cursor-paged collection."
+ *
+ * A cursor store only addresses forward, so the sole way to advance is to re-run
+ * the scan with the token the last page handed back — which is a `view.update`
+ * carrying *nothing but* its `kind`. That empty shape is what identifies the
+ * gesture, and it is also exactly what auto-refresh must not do: `refreshPatch`
+ * sends `offset: 0` on such a collection precisely so a refresh restarts the scan
+ * instead of paging.
+ *
+ * So the two cannot coexist. Once the reader has walked to page four, a timer
+ * that restarts the scan every five seconds would drag them back to page one, and
+ * a timer that advanced instead would be a page-turner rather than a refresher.
+ * Auto-refresh yields, with a reason the toolbar can show.
+ *
+ * It is decided here rather than in the button's click handler because PLAN §6's
+ * rule is that a human and a model reach the same rules through the same command
+ * — `move_view`-style tooling that pages a collection forward has to lose the
+ * timer too.
+ */
+function isCursorPageForward(view: Draft<ViewState>, patch: ViewPatch): boolean {
+  if (view.kind !== 'table' || patch.kind !== 'table') return false
+  if (view.autoRefreshMs === undefined) return false
+  if (view.cursorToken === undefined) return false
+  if (collectionBrowseStyle(view.ref).offsetPaging) return false
+  // Any field at all makes this something other than "give me the next page".
+  return (
+    patch.ref === undefined
+    && patch.filter === undefined
+    && patch.sort === undefined
+    && patch.offset === undefined
+    && patch.limit === undefined
+    && patch.autoRefreshMs === undefined
+    && patch.title === undefined
+  )
+}
+
+/**
  * Apply an incremental patch by kind (the caller has already checked that the
  * kind matches the view). Returns whether any field that affects fetching changed.
  */
 function applyViewPatch(view: Draft<ViewState>, patch: ViewPatch): boolean {
   if (patch.title !== undefined) view.title = patch.title
+  // Auto-refresh is a property *of* the view, like its title, rather than of what
+  // it shows — so it is written for every kind that can carry it, before the
+  // per-kind switch, and it deliberately does not count as affecting the fetch:
+  // switching the timer on does not mean "and fetch right now". The button next
+  // to it means that.
+  if ('autoRefreshMs' in patch && patch.autoRefreshMs !== undefined) {
+    setAutoRefreshOn(view, patch.autoRefreshMs)
+  }
 
   switch (patch.kind) {
     case 'table': {

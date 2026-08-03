@@ -58,6 +58,14 @@ export const qdrantManifest = defineManifest({
   capabilities: ['introspect', 'collectionScan', 'vectorSearch', 'valuePeek'],
   connectForm: CONNECT_FORM,
   mcpConnectExample: '{"driverId":"qdrant","url":"http://localhost:6333"}',
+  skill:
+    'Two ways in, both scoped to one collection: opening a collection scans its points in id ' +
+    'order, and a vector view searches it by similarity. There is no cross-collection query and ' +
+    'no query language. Cancelling does not work here — Qdrant is the one driver without the ' +
+    'cancel capability, so cancel_query stops peek reading while the server keeps computing. ' +
+    'Choose a smaller limit rather than starting something large and changing your mind. ' +
+    'Sorting a scan needs a payload index on that field; without one the server refuses instead ' +
+    'of sorting slowly, which is why a scan may report fewer affordances than a SQL table.',
 
   assembleConfig(mode, values, label) {
     const { text } = formReaders(CONNECT_FORM.fields[mode], values)

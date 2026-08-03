@@ -20,6 +20,22 @@ export const views = {
     'own — the cursor they came from is closed — so re-running the request is the way to see them again.',
   'result.cacheGapRefetch': 'Run again',
 
+  /* ---- Auto-refresh ------------------------------------------------
+   * The button shows the interval rather than only being lit: "is it on" and
+   * "how fast" are both live questions, and the second cannot be recovered by
+   * looking at the grid. The units are appended to a number by `formatInterval`,
+   * so they are suffixes, not words. */
+  'autoRefresh.off': 'Off',
+  'autoRefresh.unitS': 's',
+  'autoRefresh.unitMin': ' min',
+  'autoRefresh.unitH': ' h',
+  'autoRefresh.menuLabel': 'Auto-refresh interval',
+  'autoRefresh.title': 'Auto-refresh: fetch this view again on a timer',
+  'autoRefresh.onTitle': 'Auto-refreshing every {interval}. The first fetch is one interval away — press Refresh for one now.',
+  'autoRefresh.stoppedPaged':
+    'Auto-refresh switched off: this collection pages forward with a cursor, and a refresh restarts the scan from the first page.',
+  'autoRefresh.stoppedError': 'Auto-refresh switched off after three failed attempts in a row.',
+
   /* ---- Table view -------------------------------------------------- */
   'table.refresh': 'Refresh',
   'table.refreshTitle': 'Fetch again',

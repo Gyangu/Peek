@@ -4,11 +4,12 @@ import {
   VECTOR_RESULT_COLUMNS,
   assertBrowseSupported,
   isPeekError,
+  refreshPatch,
   resolveCollectionBrowseStyle,
   type CollectionBrowseStyle,
   type CollectionRef,
 } from '@peek/core'
-import { refreshPatch, tableControls } from '../browseControls'
+import { tableControls } from '../browseControls'
 
 /* ==================================================================
  * The collection browser must not draw a control the driver refuses.

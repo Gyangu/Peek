@@ -46,6 +46,35 @@ import { DRIVER_MANIFESTS } from '../../drivers/manifests'
  */
 const CONNECT_EXAMPLES = DRIVER_MANIFESTS.map((m) => `  - ${m.displayName}: ${m.mcpConnectExample}`).join('\n')
 
+/**
+ * Each package's Agent Skill, in one block, from the packages themselves.
+ *
+ * This is the whole of peek's skill mechanism, and it is deliberately the
+ * smallest thing that could work: the SDK's own `skills` option reads a
+ * directory through a `Skill` tool, and the embedded agent runs with
+ * `tools: []`, whose interaction with `skills` cannot be settled from the
+ * documentation — it needs a live probe, which is Phase C's. Widening this
+ * string has no such question hanging over it, and `mcpConnectExample` above
+ * already proves the path (design §1.3, §3.3).
+ *
+ * Two limits a reader should know rather than discover:
+ *
+ *  - **It is fixed at `initialize`** (`server.ts`, `capabilities.tools.listChanged
+ *    = false`). A package installed mid-session is not in the text a live client
+ *    is holding.
+ *  - **Every installed package contributes, connected or not.** The text is built
+ *    at module load, before any connection exists, so it cannot filter by what is
+ *    in use. That is what `MAX_SKILL_CHARS` is really bounding: not one
+ *    paragraph's length, but the tax a user who only opens PostgreSQL pays for
+ *    five databases they never touch.
+ *
+ * A manifest without a `skill` contributes nothing — no empty heading, no line
+ * saying it had nothing to say.
+ */
+const DRIVER_SKILLS = DRIVER_MANIFESTS.filter((m) => m.skill !== undefined)
+  .map((m) => `${m.displayName}:\n${m.skill ?? ''}`)
+  .join('\n\n')
+
 export const MCP_INSTRUCTIONS = `peek is a desktop database viewer, and these tools drive its user interface directly. Humans and AI share one command channel, so every step you take appears on the user's screen as you take it — there is no staging area and nothing to commit.
 
 Where you are:
@@ -69,6 +98,7 @@ Prefer changing the window over describing data:
 Panels and tabs:
 - A panel is one tiled pane holding a stack of views as tabs, of which exactly one is visible. Mounted is therefore not the same as on screen: read_workspace gives each panel its tabs in "views" plus the "activeViewId", and each view a "visible" flag. Before reporting on a view, check that the user can see it.
 - Panes are for views compared side by side; tabs are for views that share one place and are switched between. Opening a second table no longer costs the first one its pane, nor halves the window.
+- A view you open without naming a panel never lands on top of a conversation: peek sends it to the nearest pane that holds no chat, splitting a column off to the right when there is none, and leaves focus with the conversation. So a pane you did not ask for may appear in the effects — that is this rule, not a mistake, and the receipt names the pane the view actually went to. Naming a panelId overrides it, including the chat's own.
 
 Arranging the window:
 - set_layout describes the whole window as a tree and applies it atomically. Reach for it when several views should be visible together — a four-pane comparison is one call, not five. Each panel leaf lists its tabs in "viewIds" and may name which of them shows via "activeViewId".
@@ -80,6 +110,10 @@ Conversations:
 - A chat view is a conversation between the user and an assistant, and it is addressable like any other view: open_view with {"kind":"chat"}, send_chat to put a turn into it, control_chat to stop a turn, empty it, or answer a permission prompt the assistant is blocked on.
 - send_chat is refused with CONFLICT while that conversation is already running a turn. This is what stops the embedded assistant from prompting itself: inside a turn, its own conversation is busy by definition. If you meant to think out loud, write a message instead of sending one.
 - A conversation whose describe mentions "awaiting permission" has stopped and is waiting for a person. Say so rather than retrying; control_chat can answer it, but answering on the user's behalf a question that was asked *of* the user is rarely what they wanted.
+
+What each database expects, contributed by the package that implements it:
+
+${DRIVER_SKILLS}
 
 Notes:
 - No tool writes to a database. Statements are not inspected — peek opens every connection read-only at the server (PostgreSQL and MySQL run in a read-only transaction, SQLite is opened read-only with PRAGMA query_only), so a write you send is refused by the database itself and comes back as CONFLICT. Do not treat that as something to work around.
