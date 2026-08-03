@@ -217,12 +217,12 @@ describe('driver host protocol', () => {
   })
 
   it('collection.scan results travel only over the MessagePort, never the control plane', async () => {
-    const expected = await rowCountOf(`${SCHEMA}.harness`)
+    const expected = await rowCountOf(`${SCHEMA}.item`)
     const resultId = newResultId()
     const before = port.received.length
     const res = await call('collection.scan', {
       resultId,
-      ref: { kind: 'relation', schema: SCHEMA, name: 'harness' },
+      ref: { kind: 'relation', schema: SCHEMA, name: 'item' },
     })
     assert.ok(res.ok)
     const result = res.result as HostResult<'collection.scan'>

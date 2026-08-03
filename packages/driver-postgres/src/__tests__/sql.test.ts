@@ -8,7 +8,7 @@ import { nodeId, parseNodeId } from '../introspect'
 
 describe('identifier quoting', () => {
   it('doubles embedded quotes so an injection string cannot escape', () => {
-    assert.equal(quoteIdent('harness'), '"harness"')
+    assert.equal(quoteIdent('item'), '"item"')
     assert.equal(quoteIdent('a"b'), '"a""b"')
     // The classic injection attempt: the whole thing becomes one identifier,
     // which semantically just means "no such table"
@@ -64,7 +64,7 @@ describe('ordering and scan statements', () => {
 
   it('collectionScan passes limit/offset as parameters too', () => {
     const sql = buildScanSql({
-      ref: { kind: 'relation', schema: 'public', name: 'harness' },
+      ref: { kind: 'relation', schema: 'public', name: 'item' },
       filter: [{ column: 'name', op: 'like', value: 'a%' }],
       sort: [{ column: 'created_at', dir: 'desc' }],
       offset: 10,
@@ -72,7 +72,7 @@ describe('ordering and scan statements', () => {
     })
     assert.equal(
       sql.text,
-      'SELECT * FROM "public"."harness" WHERE "name"::text LIKE $1'
+      'SELECT * FROM "public"."item" WHERE "name"::text LIKE $1'
         + ' ORDER BY "created_at" DESC LIMIT $2 OFFSET $3',
     )
     assert.deepEqual(sql.params, ['a%', 20, 10])

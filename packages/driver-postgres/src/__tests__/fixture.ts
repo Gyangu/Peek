@@ -4,9 +4,9 @@ import pg from 'pg'
  * The tables the integration suites assert against, created and dropped by the
  * suites themselves.
  *
- * Before this module the assertions named three tables — account / harness /
- * document — that lived in the `public` schema of one business database
- * on one machine. Nothing in the repository created them, so `pnpm -r test`
+ * Before this module the assertions named three tables that lived in the
+ * `public` schema of one business database on one machine — tables belonging to
+ * a different project. Nothing in the repository created them, so `pnpm -r test`
  * failed here on every other machine, and because pnpm's recursive run stops at
  * the first non-zero exit, **no package after this one ran at all**.
  *
@@ -21,14 +21,19 @@ import pg from 'pg'
  *   clean up — and no sweeping logic that could delete a concurrent run's
  *   schema by mistake.
  *
- * Design record: docs/design/2026-08-02-postgres-test-fixture.md
+ * The three names are deliberately plain: what the assertions read is the
+ * *shape* of each table — a parent, a child with a `created_at`, and one with a
+ * jsonb column — so a name suggesting some domain model would only mislead.
+ *
+ * Design records: docs/design/2026-08-02-postgres-test-fixture.md
+ * and docs/design/2026-08-03-scrub-unrelated-identifiers.md (the rename).
  */
 
 /** Every table the fixture creates, sorted — the suites assert against this exact set. */
-export const FIXTURE_TABLES = ['account', 'harness', 'document'] as const
+export const FIXTURE_TABLES = ['account', 'document', 'item'] as const
 
-/** Rows in `harness`. Pagination takes two pages of two and compares them, so this must exceed 4. */
-export const HARNESS_ROWS = 5
+/** Rows in `item`. Pagination takes two pages of two and compares them, so this must exceed 4. */
+export const ITEM_ROWS = 5
 
 /**
  * Column order, nullability and types here are all read by assertions:
@@ -39,8 +44,8 @@ export const HARNESS_ROWS = 5
 function ddl(schema: string): string {
   const q = quoteIdent(schema)
   const rows = Array.from(
-    { length: HARNESS_ROWS },
-    (_, i) => `('h${String(i + 1)}', 'c1', 'name-${String(i + 1)}')`,
+    { length: ITEM_ROWS },
+    (_, i) => `('i${String(i + 1)}', 'a1', 'name-${String(i + 1)}')`,
   ).join(', ')
   return `
     CREATE SCHEMA ${q};
@@ -51,21 +56,21 @@ function ddl(schema: string): string {
     );
 
     CREATE TABLE ${q}.document (
-      id      text PRIMARY KEY,
+      id         text PRIMARY KEY,
       account_id text REFERENCES ${q}.account(id),
-      payload jsonb
+      payload    jsonb
     );
 
-    CREATE TABLE ${q}.harness (
+    CREATE TABLE ${q}.item (
       id         text        PRIMARY KEY,
-      account_id    text        REFERENCES ${q}.account(id),
+      account_id text        REFERENCES ${q}.account(id),
       created_at timestamptz NOT NULL DEFAULT now(),
       name       text
     );
 
-    INSERT INTO ${q}.account (id, name) VALUES ('c1', 'fixture');
-    INSERT INTO ${q}.harness (id, account_id, name) VALUES ${rows};
-    INSERT INTO ${q}.document (id, account_id, payload) VALUES ('m1', 'c1', '{"k":1}');
+    INSERT INTO ${q}.account (id, name) VALUES ('a1', 'fixture');
+    INSERT INTO ${q}.item (id, account_id, name) VALUES ${rows};
+    INSERT INTO ${q}.document (id, account_id, payload) VALUES ('d1', 'a1', '{"k":1}');
   `
 }
 
