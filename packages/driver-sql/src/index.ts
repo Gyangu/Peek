@@ -1,7 +1,7 @@
 /**
  * @peek/driver-sql — MySQL and SQLite, one package.
  *
- * Capabilities (identical for both, straight out of core's DRIVER_CAPABILITIES):
+ * Capabilities (identical for both, declared by this package in `./manifest`):
  * introspect + tabularQuery + collectionScan + valuePeek + cancel.
  *
  * ## What this package is for

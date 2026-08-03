@@ -1,0 +1,66 @@
+<!doctype html>
+<!--
+  The neo4j `graph` view's document, served from `peek-plugin://neo4j`.
+
+  Two things about this file are load-bearing and easy to get wrong:
+
+  - **No inline `<script>`.** The document CSP is `script-src 'self'` (design
+    record §2.6), so an inline block is not "slightly less tidy", it is silently
+    refused and the frame comes up blank with one console line nobody reads. All
+    logic lives in `./main.ts`; Vite turns it into a same-origin bundle.
+  - **No `<meta http-equiv="Content-Security-Policy">`.** The real policy is the
+    response header set by `protocol.handle` in main, which is the only copy that
+    can be audited alongside the protocol registration. A second copy here would
+    intersect with it, so a drift between the two would show up as a feature that
+    works in one build and not the other, with nothing pointing at the cause.
+
+  Everything below is inert markup: `main.ts` fills the controls, the banners and
+  the status line. It is written out rather than created in JS so that the frame
+  has a readable shape before any message arrives — a frame that has booted but
+  received no `init` still shows its chrome instead of a white rectangle.
+-->
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <title>peek · graph</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="frame">
+      <header class="bar">
+        <span class="scope" id="scope">Graph</span>
+        <span class="pill" id="pending" hidden>Refreshing…</span>
+        <span class="spacer"></span>
+        <label class="field-label" for="depth">Depth</label>
+        <select class="control" id="depth"></select>
+        <label class="field-label" for="limit">Nodes</label>
+        <select class="control" id="limit"></select>
+        <button class="control" id="unfocus" type="button" hidden>Clear focus</button>
+        <button class="control" id="unpin" type="button" hidden>Release pinned</button>
+      </header>
+
+      <!--
+        `role="status"` on the truncation banner and `role="alert"` on the error
+        one: the difference is whether it should interrupt. A partial graph is a
+        standing fact about what is on screen; a failed query is news.
+      -->
+      <div class="banners">
+        <div class="banner banner-warn" id="banner-truncated" role="status" aria-live="polite" hidden></div>
+        <div class="banner banner-err" id="banner-error" role="alert" hidden></div>
+      </div>
+
+      <div class="stage" id="stage">
+        <canvas id="canvas"></canvas>
+        <div class="overlay" id="overlay" hidden>
+          <p class="overlay-title" id="overlay-title"></p>
+          <p class="overlay-detail" id="overlay-detail"></p>
+        </div>
+        <div class="tip" id="tip" hidden></div>
+      </div>
+
+      <footer class="statusbar" id="statusbar"></footer>
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

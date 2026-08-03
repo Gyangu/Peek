@@ -404,4 +404,16 @@ export interface ChatSessionInfo {
   title?: string
   /** ISO 8601, from the agent. Used for ordering and for a relative timestamp. */
   updatedAt?: string
+  /**
+   * Which agent owns this conversation, as a name to show on the row.
+   *
+   * Absent when peek has no route recorded for the session — an older
+   * conversation, or a catalogue read with no index behind it. A row without it
+   * is still openable; it just cannot say who wrote it.
+   *
+   * peek's, not the agent's: a conversation is fixed to the backend it was
+   * created on (histories are not portable between them), so the list mixes
+   * agents and the row has to say which one it is.
+   */
+  agent?: string
 }

@@ -13,6 +13,16 @@ export const settings: CatalogFor<SettingsMessages> = {
   'settings.section.timeouts': '查询与超时',
   'settings.section.about': '关于',
 
+  'settings.section.packages': '数据库',
+
+  'settings.packages.hint': 'peek 能打开的每种数据库，以及这个版本里各自的连接器是哪一版。',
+  'settings.packages.name': '数据库',
+  'settings.packages.version': '连接器版本',
+  'settings.packages.capabilities': '能力',
+  'settings.packages.viewKinds': '由包提供的视图种类',
+  'settings.packages.noViewKinds': '没有 —— 上面这些数据库都用内置视图浏览。',
+  'settings.packages.builtinHint': '这些包是编译进这份 peek 的，暂时没有可安装或卸载的东西。',
+
   /* ---------------- MCP 端点 ---------------- */
   'mcp.title': 'MCP 端点',
   'mcp.intro': 'AI 客户端通过它连到这个窗口。',
@@ -61,6 +71,50 @@ export const settings: CatalogFor<SettingsMessages> = {
   'settings.timeouts.unchanged': '当前用的就是这些值。',
   'settings.timeouts.stageNote':
     'driver-host 协议自己还有一套内部超时。它们是 peek 防着 driver 进程卡死用的，不是偏好，所以不放在这里。',
+
+  /* ---------------- 聊天 agent ---------------- */
+  'settings.section.agent': '聊天 agent',
+  'settings.agent.intro':
+    '聊天面板由哪个 agent 来答。两种都通过 peek 自己的 MCP 端点回到这个窗口，每次工具调用仍然要先问你。',
+  'settings.agent.backend': 'Agent',
+  'settings.agent.backend.acp': '内置 agent',
+  'settings.agent.backend.endpoint': '你自己的端点',
+  'settings.agent.restartHint':
+    '下次启动 peek 时生效。已有的对话仍用它创建时的那个 agent —— 两者的历史存放位置不同，互相读不了。',
+  'settings.agent.permissionMode': '新对话从哪种权限开始',
+  'settings.agent.mode.default': '每次都问我',
+  'settings.agent.mode.auto': '自动判断',
+  'settings.agent.mode.acceptEdits': '自动接受修改',
+  'settings.agent.mode.plan': '仅制定计划',
+  'settings.agent.modeHint.default': '每次工具调用都等你回答。这是 peek 的默认。',
+  'settings.agent.modeHint.auto': '由 agent 自己的分类器代你批准。它能碰到的仍然只有 peek 的那些工具。',
+  'settings.agent.modeHint.acceptEdits': '修改类调用直接放行，其余的仍然等你。',
+  'settings.agent.modeHint.plan': 'agent 只做计划和解释，在你切走之前什么都不执行。',
+  'settings.agent.modeDangerNote':
+    '两个「跳过检查」的档留在面板自己的下拉里，按对话临时切 —— 不放在这里，因为放在这里会悄悄套用到以后每一个对话。',
+  'settings.agent.which': '用哪个',
+  'settings.agent.missing': '未安装',
+  'settings.agent.enforced':
+    'peek 会对真实 agent 跑一遍探针来检查它的沙箱：没有 shell、没有文件工具，也不带入你自己的 Claude Code 配置。',
+  'settings.agent.unverified':
+    '{agent} 会以只读模式启动，但 peek 没有探针验证这一点确实成立。工具调用仍然由你把关。',
+  'settings.agent.loginHint': '用该 agent 自己的 CLI 登录。peek 复用那份登录，从不经手凭据。',
+  'settings.agent.executable': '可执行文件',
+  'settings.agent.executablePlaceholder': '用内置的',
+  'settings.agent.executableHint': '可选。让 agent 用你已经装好的二进制，而不是 peek 附带的那个。',
+  'settings.agent.baseUrl': 'Base URL',
+  'settings.agent.model': '模型',
+  'settings.agent.modelHint': '端点怎么写就怎么填。它必须支持工具调用。',
+  'settings.agent.api': 'API',
+  'settings.agent.api.openai-completions': 'OpenAI 兼容',
+  'settings.agent.api.anthropic-messages': 'Anthropic messages',
+  'settings.agent.apiKey': 'API key',
+  'settings.agent.apiKeyStored': '已保存 —— 输入即替换',
+  'settings.agent.apiKeyNone': '未保存',
+  'settings.agent.apiKeyHint': '由操作系统钥匙串加封，不写进 settings.json，也不会再显示。',
+  'settings.agent.forgetKey': '忘掉 key',
+  'settings.agent.save': '保存',
+  'settings.agent.saved': '已保存。下次启动 peek 时生效。',
 
   /* ---------------- 关于 ---------------- */
   'settings.about.version': '版本',

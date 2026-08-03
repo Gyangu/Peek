@@ -18,7 +18,7 @@ import { create } from 'zustand'
  * `mcp.configure`; it has no use for the panel a human would have used. Same
  * reasoning as the locale, and the note atop `i18n/store.ts` spells it out.
  */
-export const SETTINGS_SECTIONS = ['mcp', 'appearance', 'timeouts', 'about'] as const
+export const SETTINGS_SECTIONS = ['mcp', 'agent', 'packages', 'appearance', 'timeouts', 'about'] as const
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 

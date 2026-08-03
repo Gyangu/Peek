@@ -84,6 +84,32 @@ function buildTargets() {
   const sqlite = env('PEEK_TEST_SQLITE_FILE')
   if (sqlite) rows.push({ name: 'sqlite', config: { driverId: 'sqlite', file: sqlite, label: 'smoke-sqlite' } })
 
+  // Neo4j needs a password as well as a URL, and has no default for it — see the
+  // note in `driver-neo4j`'s live suite about failed-auth rate limiting.
+  //
+  // `pluginView` is what makes this row worth more than the others: it is the
+  // only driver contributing a self-drawn (Tier C) view kind, so it is the only
+  // one whose `open_view` exercises the plugin path — the registration's
+  // `autoFetch` composing Cypher in main, planned through the same result
+  // machinery a table uses. A packaging mistake that leaves the plugin UI
+  // unbuilt does not fail here (the frame is the renderer's business), but a
+  // seam that stopped planning fetches would.
+  const neo4j = env('PEEK_TEST_NEO4J_URL')
+  const neo4jPassword = env('PEEK_TEST_NEO4J_PASSWORD')
+  if (neo4j && neo4jPassword) {
+    rows.push({
+      name: 'neo4j',
+      config: {
+        driverId: 'neo4j',
+        url: neo4j,
+        user: env('PEEK_TEST_NEO4J_USER') ?? 'neo4j',
+        password: neo4jPassword,
+        label: 'smoke-neo4j',
+      },
+      pluginView: { pluginKind: 'graph' },
+    })
+  }
+
   return rows
 }
 
@@ -299,6 +325,40 @@ async function exerciseDriver(client, target) {
   const [, resultStatus, rowText] = resultLine
   if (resultStatus === 'error') throw new Error(`the scan of ${openable.name} failed:\n${openText}`)
 
+  // --- the plugin path, for a driver that contributes a view kind -------
+  //
+  // A second `open_view`, with a spec the kernel has no schema for. What it
+  // proves is the whole Tier C seam short of the pixels: `view.open` accepts a
+  // `plugin` spec, main finds the registration, the registration composes a
+  // statement, and it comes back through the same result machinery — the same
+  // "Result …: done · N rows" line a table produces. Nothing about this is
+  // neo4j-specific; the row declares it.
+  let pluginRows = null
+  if (target.pluginView) {
+    const pluginResult = await withTimeout(
+      client.callTool({
+        name: 'open_view',
+        arguments: {
+          spec: { kind: 'plugin', pluginKind: target.pluginView.pluginKind, connId },
+          waitMs: 15_000,
+        },
+      }),
+      PER_DRIVER_TIMEOUT_MS,
+      `open_view(${target.name}, ${target.pluginView.pluginKind})`,
+    )
+    const pluginText = textOf(pluginResult)
+    if (pluginResult.isError === true) throw new Error(`open_view(plugin) failed:\n${pluginText}`)
+    const pluginLine = /Result\s+\S+:\s+(\w+)\s+·\s+(\d+)\s+rows/.exec(pluginText)
+    if (!pluginLine) {
+      throw new Error(
+        `a ${target.pluginView.pluginKind} view opened but never fetched — the registration's `
+          + `autoFetch is the thing to look at:\n${pluginText}`,
+      )
+    }
+    if (pluginLine[1] === 'error') throw new Error(`the ${target.pluginView.pluginKind} view failed:\n${pluginText}`)
+    pluginRows = Number(pluginLine[2])
+  }
+
   return {
     connId,
     nodes,
@@ -306,6 +366,7 @@ async function exerciseDriver(client, target) {
     opened: openable.name,
     rows: Number(rowText),
     resultStatus,
+    ...(pluginRows === null ? {} : { pluginKind: target.pluginView.pluginKind, pluginRows }),
   }
 }
 
@@ -351,7 +412,9 @@ async function main() {
         results.push({ name: target.name, ok: true, ...info })
         console.log(
           `  PASS ${target.name.padEnd(9)} ${info.nodes} node(s); ` +
-            `scanned "${info.opened}" → ${info.rows} row(s) (${info.resultStatus})  [${info.capabilities}]`,
+            `scanned "${info.opened}" → ${info.rows} row(s) (${info.resultStatus})` +
+            (info.pluginKind === undefined ? '' : `; ${info.pluginKind} view → ${info.pluginRows} row(s)`) +
+            `  [${info.capabilities}]`,
         )
       } catch (error) {
         failures += 1

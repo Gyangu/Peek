@@ -23,7 +23,7 @@ import { test } from 'node:test'
 import { asChatId } from '@peek/core'
 import type { PermissionOption as AcpPermissionOption } from '@agentclientprotocol/sdk'
 import { previewInput, redactToolInput } from '../errors'
-import { PermissionBroker } from '../permissions'
+import { PermissionBroker } from '../../agent/permissions'
 
 const PASSWORD = 'SuperSecret123'
 

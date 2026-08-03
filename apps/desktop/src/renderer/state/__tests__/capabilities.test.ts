@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import {
-  DRIVER_CAPABILITIES,
-  type Capability,
-  type ConnId,
-  type ConnStatus,
-  type ConnectionState,
-  type DriverId,
+import type {
+  Capability,
+  ConnId,
+  ConnStatus,
+  ConnectionState,
+  DriverId,
 } from '@peek/core'
+import { driverCapabilities, manifestDriverIds } from '../../../drivers/manifests'
 import { connCanUse, connCapabilities, connHas } from '../capabilities'
 
 /* ==================================================================
@@ -37,7 +37,7 @@ describe('the two-phase capability answer', () => {
     // A connection that is still handshaking has an empty array. Reading that as
     // "this driver can do nothing" is what makes the toolbar flicker.
     const connecting = conn({ driverId: 'postgres', status: 'connecting', capabilities: [] })
-    assert.deepEqual(connCapabilities(connecting), DRIVER_CAPABILITIES.postgres)
+    assert.deepEqual(connCapabilities(connecting), driverCapabilities().postgres)
     assert.equal(connHas(connecting, 'tabularQuery'), true)
   })
 
@@ -54,21 +54,21 @@ describe('the two-phase capability answer', () => {
     // answer. A driver that genuinely supports nothing could not be connected to
     // in the first place, since core asserts capabilities at connect time.
     const ready = conn({ driverId: 'redis', status: 'ready', capabilities: [] })
-    assert.deepEqual(connCapabilities(ready), DRIVER_CAPABILITIES.redis)
+    assert.deepEqual(connCapabilities(ready), driverCapabilities().redis)
   })
 })
 
 describe('connCanUse also requires the connection to be up', () => {
   test('a capability the driver has is still unusable until the connection is ready', () => {
     for (const status of ['connecting', 'error', 'closed'] as ConnStatus[]) {
-      const c = conn({ driverId: 'postgres', status, capabilities: [...DRIVER_CAPABILITIES.postgres] })
+      const c = conn({ driverId: 'postgres', status, capabilities: [...driverCapabilities().postgres] })
       assert.equal(connHas(c, 'tabularQuery'), true, `${status}: the driver still has the capability`)
       assert.equal(connCanUse(c, 'tabularQuery'), false, `${status}: but it must not be clickable`)
     }
   })
 
   test('ready plus present is the only combination that enables a control', () => {
-    const c = conn({ driverId: 'postgres', status: 'ready', capabilities: [...DRIVER_CAPABILITIES.postgres] })
+    const c = conn({ driverId: 'postgres', status: 'ready', capabilities: [...driverCapabilities().postgres] })
     assert.equal(connCanUse(c, 'tabularQuery'), true)
     assert.equal(connCanUse(c, 'vectorSearch'), false)
   })
@@ -113,7 +113,7 @@ describe('the per-driver UI shape this produces', () => {
   test('every driver can be browsed and scanned — the two the shell always assumes', () => {
     // Sidebar's tree button and the table view are drawn unconditionally, so a
     // driver lacking either would leave a control that can never work.
-    for (const driverId of Object.keys(DRIVER_CAPABILITIES) as DriverId[]) {
+    for (const driverId of manifestDriverIds()) {
       const c = conn({ driverId })
       assert.equal(connHas(c, 'introspect'), true, `${driverId} must support introspect`)
       assert.equal(connHas(c, 'collectionScan'), true, `${driverId} must support collectionScan`)
@@ -130,7 +130,7 @@ describe('the per-driver UI shape this produces', () => {
       'valuePeek',
       'cancel',
     ]
-    for (const [driverId, caps] of Object.entries(DRIVER_CAPABILITIES)) {
+    for (const [driverId, caps] of Object.entries(driverCapabilities())) {
       for (const cap of caps) {
         assert.ok(known.includes(cap), `${driverId} declares an unknown capability ${cap}`)
       }

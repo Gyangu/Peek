@@ -10,6 +10,7 @@ import {
   type Cursor,
   type PostgresConnectionConfig,
 } from '@peek/core'
+import pg from 'pg'
 import { PostgresSession } from '../session'
 import { nodeId } from '../introspect'
 import { createFixture, FIXTURE_TABLES, HARNESS_ROWS } from './fixture'
@@ -139,6 +140,69 @@ describe('driver-postgres against a real database', () => {
       assert.equal(t.kind, 'table')
       assert.equal(t.hasChildren, false, 'a table is a leaf; its columns come from describeCollection')
       assert.deepEqual(t.ref, { kind: 'relation', schema: SCHEMA, name: t.name })
+    }
+  })
+
+  /**
+   * `refresh` reaches the introspection cache — the round trip, end to end.
+   *
+   * Until 2026-08-03 it did not. The flag travelled the whole way from the
+   * renderer (`DriverRpcRequest` → `driver-rpc.ts` → `manager.ts` → the RPC
+   * params) and was then dropped by the host runtime, because
+   * `DriverSession.listChildren` had no parameter to receive it. Nothing in the
+   * repository called `invalidateIntrospectCache()` either, so a driver's cache
+   * only ever cleared when the session closed: pressing ⟳ in the tree emptied the
+   * renderer's cache, refetched, and got the driver's stale answer back.
+   *
+   * **What is cached here is the description, not the listing.** `PgIntrospector`
+   * holds one map, `describeCache`, keyed by `schema.name`
+   * (`introspect.ts:183`); `listChildren` queries `pg_catalog` every time. So the
+   * user-visible staleness on PostgreSQL is a *column* that does not appear, not a
+   * table — and this test is written to that shape rather than to the shape the
+   * fix was described in. (`driver-sql` is the one that also caches the levels
+   * themselves — `schemaCache` and `relationCache`, `introspect.ts:119-120`.)
+   *
+   * The sequence is the real gesture: look at a table, someone changes it, press
+   * ⟳, look again.
+   */
+  it('refresh clears the describe cache, so a column added behind the driver becomes visible', async () => {
+    const ref = { kind: 'relation', schema: SCHEMA, name: 'harness' } as const
+    const probe = 'peek_refresh_probe'
+
+    const before = await session.describeCollection(ref)
+    assert.ok(
+      !before.columns.some((c) => c.name === probe),
+      'the probe column must not exist yet',
+    )
+
+    const client = new pg.Client({ connectionString: TEST_URL })
+    await client.connect()
+    try {
+      // Past the driver on purpose: every transaction it opens is READ ONLY, so
+      // DDL cannot go through it. That it cannot is itself part of the read-only
+      // guarantee — see postgres-readonly.test.ts.
+      await client.query(`ALTER TABLE ${SCHEMA}.harness ADD COLUMN ${probe} text`)
+
+      const stale = await session.describeCollection(ref)
+      assert.ok(
+        !stale.columns.some((c) => c.name === probe),
+        'without a refresh the driver must still answer from its cache — if this ever fails there is ' +
+          'no cache left and the assertion below proves nothing',
+      )
+
+      await session.listChildren(nodeId.schema(SCHEMA), true)
+
+      const fresh = await session.describeCollection(ref)
+      assert.ok(
+        fresh.columns.some((c) => c.name === probe),
+        'after refresh: true the next describe must re-read pg_catalog',
+      )
+    } finally {
+      await client.query(`ALTER TABLE ${SCHEMA}.harness DROP COLUMN IF EXISTS ${probe}`).catch(() => {})
+      await client.end()
+      // Put the cache back in step with the database, so the column assertions
+      // later in this file do not read a schema that still has the probe in it.
+      await session.listChildren(nodeId.schema(SCHEMA), true)
     }
   })
 

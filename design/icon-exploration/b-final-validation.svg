@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 920" width="1500" height="920">
+  <title>peek Clear Slice final icon validation</title>
+  <desc>The selected icon shown large, on light and dark backgrounds, at actual raster sizes, and in a Dock context.</desc>
+  <style>
+    .title { font: 700 44px -apple-system, BlinkMacSystemFont, sans-serif; fill: #171A21; }
+    .sub { font: 400 21px -apple-system, BlinkMacSystemFont, sans-serif; fill: #59616C; }
+    .label { font: 650 16px -apple-system, BlinkMacSystemFont, sans-serif; fill: #737B86; letter-spacing: 1px; }
+    .meta { font: 500 18px -apple-system, BlinkMacSystemFont, sans-serif; fill: #59616C; }
+  </style>
+  <rect width="1500" height="920" fill="#F4F6F8"/>
+  <text x="72" y="80" class="title">peek — Clear Slice / 切片</text>
+  <text x="72" y="116" class="sub">Selected and refined · one editable SVG · PNG / ICNS / ICO from the same source</text>
+
+  <rect x="72" y="166" width="520" height="520" rx="34" fill="#FFFFFF" stroke="#D8DDE3"/>
+  <image href="candidates/b-clear-slice.svg" x="122" y="216" width="420" height="420"/>
+
+  <text x="642" y="196" class="label">LIGHT / DARK BACKGROUND</text>
+  <rect x="642" y="220" width="290" height="290" rx="28" fill="#E9EDF1"/>
+  <image href="candidates/b-clear-slice.svg" x="697" y="275" width="180" height="180"/>
+  <rect x="966" y="220" width="290" height="290" rx="28" fill="#0C0E12"/>
+  <image href="candidates/b-clear-slice.svg" x="1021" y="275" width="180" height="180"/>
+
+  <text x="642" y="566" class="label">ACTUAL RASTER SIZES</text>
+  <image href="previews/b-64.png" x="642" y="598" width="64" height="64"/>
+  <image href="previews/b-32.png" x="760" y="614" width="32" height="32"/>
+  <image href="previews/b-16.png" x="846" y="622" width="16" height="16"/>
+  <text x="642" y="696" class="meta">64</text><text x="760" y="696" class="meta">32</text><text x="846" y="696" class="meta">16px</text>
+
+  <text x="72" y="756" class="label">MACOS DOCK CONTEXT · 64PX</text>
+  <rect x="72" y="780" width="1356" height="108" rx="36" fill="#D7DCE2" stroke="#FFFFFF"/>
+  <g fill="#929AA5">
+    <rect x="126" y="802" width="64" height="64" rx="15"/><circle cx="256" cy="834" r="32"/>
+    <rect x="322" y="802" width="64" height="64" rx="15"/><rect x="906" y="802" width="64" height="64" rx="15"/>
+    <circle cx="1036" cy="834" r="32"/><rect x="1102" y="802" width="64" height="64" rx="15"/>
+  </g>
+  <line x1="444" y1="794" x2="444" y2="874" stroke="#FFFFFF"/>
+  <image href="previews/b-64.png" x="610" y="802" width="64" height="64"/>
+  <line x1="840" y1="794" x2="840" y2="874" stroke="#FFFFFF"/>
+</svg>
+

@@ -1,6 +1,11 @@
 /* ==================================================================
- * "Add to chat" surfaces: the right-click menu, the selection bar, the
- * attachment chips and the one-time disclosure.
+ * "Add to chat" surfaces: the selection bar, the attachment chips and
+ * the one-time disclosure.
+ *
+ * The right-click menu's rules used to be here too, as `.ctx-menu-*`.
+ * They were never specific to this feature — they were here because the
+ * only menu in the window happened to belong to it — and they now live
+ * in `ui/menu.css` beside the `<Menu>` primitive.
  *
  * A scoped stylesheet rather than more of styles.css, following the
  * precedent keyboard-nav.css already sets. It keeps this feature's rules
@@ -8,73 +13,6 @@
  * a single 1,400-line file. Every colour comes from the :root custom
  * properties in styles.css — nothing here introduces a new one.
  * ================================================================== */
-
-/* ---- Right-click menu -------------------------------------------- */
-
-.ctx-menu-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 600;
-}
-
-.ctx-menu {
-  position: absolute;
-  min-width: 232px;
-  max-width: 320px;
-  padding: 4px;
-  background: var(--bg-2);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  box-shadow: 0 12px 32px #000b;
-  font-family: var(--font-ui);
-  font-size: var(--fs-md);
-}
-
-.ctx-menu:focus {
-  outline: none;
-}
-
-.ctx-menu-head {
-  padding: 4px 8px 6px;
-  color: var(--fg-faint);
-  font-size: var(--fs-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.ctx-menu-item {
-  display: block;
-  width: 100%;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.ctx-menu-item:hover,
-.ctx-menu-item:focus-visible {
-  background: var(--bg-hover);
-  outline: none;
-}
-
-.ctx-menu-note {
-  padding: 5px 8px;
-  color: var(--warn);
-  font-size: var(--fs-sm);
-}
-
-/* Between the caller's own entries and the "add to chat" group. They answer
-   different questions — one puts data on the clipboard, the other sends it to
-   Anthropic — and that distinction is worth a line. */
-.ctx-menu-sep {
-  height: 1px;
-  margin: 4px 2px;
-  background: var(--border);
-}
 
 /* ---- Floating selection bar --------------------------------------
  * Anchored to the bottom of the panel it belongs to, so it never covers

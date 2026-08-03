@@ -1,13 +1,15 @@
-import { DRIVER_CAPABILITIES, type Capability, type ConnectionState } from '@peek/core'
+import type { Capability, ConnectionState } from '@peek/core'
+import { driverCapabilities } from '../../drivers/manifests'
 
 /* ==================================================================
  * What a connection can do, from the renderer's point of view.
  *
  * There are two answers to that question and they arrive at different times:
  *
- *   before connecting  DRIVER_CAPABILITIES, a static prediction from the driver
- *                      id — enough to draw the dialog and to grey out the query
- *                      button on a redis row that is still handshaking;
+ *   before connecting  what the driver package's manifest declares, a static
+ *                      prediction from the driver id — enough to draw the dialog
+ *                      and to grey out the query button on a redis row that is
+ *                      still handshaking;
  *   once connected     `ConnectionState.capabilities`, reported by the live
  *                      session, which is **authoritative** and may be narrower
  *                      (an older server, a driver that degraded).
@@ -29,7 +31,7 @@ import { DRIVER_CAPABILITIES, type Capability, type ConnectionState } from '@pee
  */
 export function connCapabilities(conn: ConnectionState): readonly Capability[] {
   if (conn.capabilities.length > 0) return conn.capabilities
-  return DRIVER_CAPABILITIES[conn.driverId]
+  return driverCapabilities()[conn.driverId] ?? []
 }
 
 export function connHas(conn: ConnectionState, cap: Capability): boolean {

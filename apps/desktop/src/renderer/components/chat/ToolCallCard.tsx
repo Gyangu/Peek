@@ -2,6 +2,9 @@ import { Fragment, memo, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { ToolCallRecord, ToolCallStatus } from '@peek/core'
 import { useT, type TFunction } from '../../i18n'
+import { copyText } from '../../util/clipboard'
+import { Menu } from '../../ui/Menu'
+import { useContextMenu } from '../../ui/useContextMenu'
 import { highlight } from './highlight'
 import { PlanCard } from './PlanCard'
 import {
@@ -46,6 +49,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   const parsed = useMemo(() => parseToolTitle(call.title), [call.title])
   const plan = useMemo(() => extractPlan(call), [call])
   const [open, setOpen] = useState(false)
+  const menu = useContextMenu<null>()
 
   if (plan) return <PlanCard entries={plan} />
 
@@ -66,6 +70,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   return (
     <div
       className={`chat-tool${parsed.isPeek ? ' peek' : ' outside'}${parsed.mutatesWorkspace ? ' mutating' : ''} ${call.status}`}
+      onContextMenu={menu.open(null)}
     >
       <button
         type="button"
@@ -105,6 +110,37 @@ export const ToolCallCard = memo(function ToolCallCard({
           {open ? '▾' : '▸'}
         </span>
       </button>
+
+      {/* Both halves are evidence — the arguments go into a bug report, the
+          result gets pasted back to a colleague — and until now the only way to
+          get either was to expand the card and select the text by hand. The card
+          need not even be open: the menu reads the call, not the DOM. */}
+      {menu.state ? (
+        <Menu
+          label={t('menu.tool.label')}
+          at={menu.state.at}
+          nodes={[
+            {
+              kind: 'item',
+              id: 'tool.copyInput',
+              label: t('menu.tool.copyInput'),
+              onSelect: () => {
+                copyText(formatToolInput(call.rawInput))
+              },
+            },
+            {
+              kind: 'item',
+              id: 'tool.copyOutput',
+              label: t('menu.tool.copyOutput'),
+              disabled: result === '',
+              onSelect: () => {
+                copyText(result)
+              },
+            },
+          ]}
+          onClose={menu.close}
+        />
+      ) : null}
 
       {open ? (
         <div className="chat-tool-body">

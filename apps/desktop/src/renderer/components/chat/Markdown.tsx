@@ -5,6 +5,8 @@ import { notify } from '../../state/notifyStore'
 import { highlight, normalizeLang } from './highlight'
 import { parseMarkdown, type MdAlign, type MdBlock, type MdInline } from './mdParser'
 import { Button } from '../../ui/Button'
+import { Menu } from '../../ui/Menu'
+import { useContextMenu } from '../../ui/useContextMenu'
 
 /**
  * Renders agent Markdown.
@@ -200,6 +202,7 @@ function CodeBlock({
 }): ReactElement {
   const t = useT()
   const [copied, setCopied] = useState(false)
+  const menu = useContextMenu<null>()
   const normalized = normalizeLang(lang)
   const tokens = useMemo(() => highlight(text, normalized), [text, normalized])
 
@@ -220,7 +223,17 @@ function CodeBlock({
   }, [text])
 
   return (
-    <div className={`md-pre${closed ? '' : ' streaming'}`}>
+    <div className={`md-pre${closed ? '' : ' streaming'}`} onContextMenu={menu.open(null)}>
+      {/* The bar's Copy button is the discoverable path and stays. This is the
+          one for someone who is already pointing at the code. */}
+      {menu.state ? (
+        <Menu
+          label={t('menu.code.label')}
+          at={menu.state.at}
+          nodes={[{ kind: 'item', id: 'code.copy', label: t('menu.code.copy'), onSelect: copy }]}
+          onClose={menu.close}
+        />
+      ) : null}
       <div className="md-pre-bar">
         <span className="md-pre-lang">{lang || normalized}</span>
         {/* `sm` carries the height and padding `.md-copy` used to spell out; the

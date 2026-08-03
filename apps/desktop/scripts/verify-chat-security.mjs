@@ -388,8 +388,13 @@ async function main() {
     console.log('1. The sandbox peek asks for')
     /* ---------------------------------------------------------------- */
 
-    const { buildAgentSessionMeta, AGENT_DISALLOWED_TOOLS } = await src('main/acp/session-config.ts')
-    const options = buildAgentSessionMeta()?.claudeCode?.options ?? {}
+    // The sandbox is per-agent now: Claude Code expresses it as `_meta`, Codex as
+    // an environment variable. This probe checks Claude Code — it is the profile
+    // peek marks `enforced`, and this script is what that claim rests on. A Codex
+    // equivalent is what would let its profile stop saying `unverified`.
+    const { claudeCodeProfile, CLAUDE_DISALLOWED_TOOLS: AGENT_DISALLOWED_TOOLS } =
+      await src('main/acp/profiles.ts')
+    const options = claudeCodeProfile.buildSessionMeta({})?.claudeCode?.options ?? {}
     check(
       'settingSources is empty — no user settings, no CLAUDE.md, no inherited allowlist',
       Array.isArray(options.settingSources) && options.settingSources.length === 0,

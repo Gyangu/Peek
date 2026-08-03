@@ -67,6 +67,53 @@ export type ButtonVariant = keyof typeof BUTTON_VARIANTS
 export const BUTTON_VARIANT_NAMES = Object.keys(BUTTON_VARIANTS) as readonly ButtonVariant[]
 
 /* ------------------------------------------------------------------
+ * Menu item tones
+ * ------------------------------------------------------------------ */
+
+/**
+ * What a *menu item* can mean. Two values, and deliberately not `ButtonVariant`.
+ *
+ * A menu item has no background and no border at rest — it is a full-width line
+ * of text in a popup. Three of the five button variants (`primary`, `ghost`,
+ * `default`) would therefore render as the same pixels, and an enum whose
+ * members are indistinguishable is an enum that lies. `caution` has no menu case
+ * either: the standing-consequence acts peek has all live behind the disclosure
+ * dialog, not behind a menu line.
+ *
+ * What survives the translation is the one distinction that still changes what
+ * the user sees and how careful they should be — destructive or not. It keeps
+ * its own namespace (`menu-item-*`) so the contract test checks it against
+ * `ui/menu.css` rather than against the button matrix.
+ *
+ * Design record: docs/design/2026-08-03-context-menu-primitive.md §2.2
+ */
+export const MENU_TONES = {
+  default: {
+    intent: 'An ordinary act. Everything that is not the one below.',
+  },
+  danger: {
+    intent: 'Destructive or irreversible — closing, deleting, forgetting.',
+    rule: 'Never the first item, and never the one the arrow keys land on first. When the act cannot be undone, give the item a `confirm` label so the second press lands on Cancel.',
+  },
+} as const
+
+export type MenuTone = keyof typeof MENU_TONES
+
+export const MENU_TONE_NAMES = Object.keys(MENU_TONES) as readonly MenuTone[]
+
+export const MENU_ITEM_CLASS = 'menu-item'
+
+export function menuToneClass(tone: MenuTone): string {
+  return `${MENU_ITEM_CLASS}-${tone}`
+}
+
+/** The selector `ui/menu.css` must contain for a given tone and state. */
+export function menuStateSelector(tone: MenuTone, state: ControlState): string {
+  const { suffix, perVariant } = CONTROL_STATES[state]
+  return `.${perVariant ? menuToneClass(tone) : MENU_ITEM_CLASS}${suffix}`
+}
+
+/* ------------------------------------------------------------------
  * Sizes
  * ------------------------------------------------------------------ */
 

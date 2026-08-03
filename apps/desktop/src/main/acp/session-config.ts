@@ -59,112 +59,20 @@ export function buildPeekMcpServer(endpoint: McpEndpointInfo | null): PeekMcpSer
   }
 }
 
-/* ================================================================== */
-/* The sandbox                                                         */
-/* ================================================================== */
+/* The session sandbox — which built-in tools the agent may use, and whether it
+ * inherits the user's own configuration — is per-agent, not per-protocol: see
+ * `profiles.ts`. Claude Code takes it through `_meta.claudeCode.options`, Codex
+ * through its environment. What stays here is what every ACP agent gets the
+ * same way: the working directory, and the descriptor pointing back at peek. */
 
-/**
- * Agent tools peek refuses outright.
- *
- * Belt to `AGENT_TOOL_PRESET`'s braces. `tools: []` already removes every
- * built-in, but the two options are merged by different rules in the agent
- * (`tools` replaces, `disallowedTools` accumulates), and a future build that
- * loosens the preset should still not be able to hand a database viewer a shell.
- * Listing them is also the readable statement of intent: these are the names a
- * reviewer greps for.
- */
-export const AGENT_DISALLOWED_TOOLS: readonly string[] = [
-  'Bash',
-  'BashOutput',
-  'KillShell',
-  'Write',
-  'Edit',
-  'MultiEdit',
-  'NotebookEdit',
-  'Read',
-  'Glob',
-  'Grep',
-  'Task',
-  'Agent',
-  'WebFetch',
-  'WebSearch',
-]
 
-/**
- * Built-in tools the session starts with: none.
- *
- * `[]` is the agent SDK's documented "disable all built-in tools". peek's chat
- * panel has exactly one job — talk about the database in front of it and drive
- * the window through peek's own MCP server — and every built-in is either
- * irrelevant to that or actively dangerous in it.
- */
-const AGENT_TOOL_PRESET: readonly string[] = []
-
-/**
- * What `session/new` must carry so the chat panel is actually a sandbox.
- *
- * ## The bug this exists to close
- *
- * Without it, `claude-agent-acp` applies its own default
- * `settingSources: ['user', 'project', 'local']`, and the session inherits the
- * **whole** of whatever Claude Code configuration the user happens to have:
- * their global `CLAUDE.md`, their MCP servers, and — the part that matters —
- * their permission allowlist. Measured on a developer machine, a chat panel
- * showing "Ask every time" in its own dropdown executed `echo peek-canary-check`
- * with no prompt at all, because the *user's* inherited allowlist had already
- * approved Bash; the same session could see `mcp__postgres__execute_sql`, which
- * is arbitrary un-gated SQL and defeats peek's read-only guarantee outright.
- *
- * With this `_meta` the same probe produces zero tool calls, and a session given
- * peek's MCP descriptor sees peek's own tools and nothing else — every one of
- * them `mcp__peek__*`, every one still going through `requestPermission`.
- *
- * Not "exactly twelve", which is what this said while there were twelve tool
- * files: the number moves whenever a tool lands, and pinning it here made a
- * security note read as stale the moment it did. `scripts/verify-chat-security.mjs`
- * re-runs the probe above against a live agent and derives the expected set from
- * the running server, so the claim stays checkable without being a count.
- *
- * ## Why each field is here
- *
- * - `settingSources: []` — the SDK's isolation mode. No `~/.claude/settings.json`,
- *   no project `.claude/`, no `CLAUDE.md`, no inherited MCP servers, no inherited
- *   permission rules. peek's panel behaves the same on every machine, which is
- *   also what makes the permission dialog mean what it says.
- * - `tools: []` — no built-in tools at all. See `AGENT_TOOL_PRESET`. This now
- *   carries a second job: the panel authenticates to peek's MCP endpoint with its
- *   own credential, and the *external* token sits in `~/.peek/mcp.json`. With no
- *   file-reading tool there is no path from the session to that file, which is
- *   what keeps `source: 'agent'` from being something the agent can take off.
- *   See design/2026-08-02-agent-source-and-permission-scope.md §2.2.
- * - `disallowedTools` — the explicit refusal, merged on top. See above.
- * - `mcpServers: {}` — the agent merges `{...options.mcpServers, ...params.mcpServers}`,
- *   so this empties the inherited side while leaving peek's own descriptor (passed
- *   as a `session/new` parameter) untouched.
- *
- * ## What it does not do
- *
- * It is not a substitute for the permission gate. The agent still asks before
- * every `mcp__peek__*` call in `default` mode; this only decides what it is able
- * to ask *for*. Both are needed: the gate without this was gating the wrong
- * surface, and this without the gate would let the agent rewrite the user's
- * layout unasked.
- */
-export function buildAgentSessionMeta(): Record<string, unknown> {
-  return {
-    claudeCode: {
-      options: {
-        settingSources: [],
-        tools: [...AGENT_TOOL_PRESET],
-        disallowedTools: [...AGENT_DISALLOWED_TOOLS],
-        mcpServers: {},
-      },
-    },
-  }
+/** `~/.peek/chat`. The parent of every backend's own directory, and where the route index lives. */
+export function chatRootDir(configDir?: string): string {
+  return join(configDir ?? join(homedir(), PEEK_CONFIG_DIR_NAME), CHAT_WORKDIR_NAME)
 }
 
 /**
- * Create and return the agent's working directory.
+ * Create and return an agent's working directory.
  *
  * `cwd` is not cosmetic. It is where the agent looks for project-level
  * `CLAUDE.md`, settings and permission rules, and it is the root its own file
@@ -173,10 +81,16 @@ export function buildAgentSessionMeta(): Record<string, unknown> {
  * filesystem reach off the user's home directory. The agent rejects a relative
  * path, an empty string and a path that does not exist, so this creates it
  * eagerly.
+ *
+ * **One directory per agent, not one for all of them.** Each agent writes its
+ * session history under its own cwd in its own format, and each reads that
+ * directory back through its own `session/list`. Sharing one would have every
+ * agent enumerating files written by the others — at best unreadable rows in the
+ * catalogue, at worst an agent trying to resume a transcript it cannot parse.
  */
-export function ensureChatWorkdir(configDir?: string): string {
-  const base = configDir ?? join(homedir(), PEEK_CONFIG_DIR_NAME)
-  const dir = join(base, CHAT_WORKDIR_NAME)
+export function ensureChatWorkdir(configDir?: string, agentId?: string): string {
+  const root = chatRootDir(configDir)
+  const dir = agentId ? join(root, agentId) : root
   let isDirectory: boolean
   try {
     mkdirSync(dir, { recursive: true, mode: 0o700 })

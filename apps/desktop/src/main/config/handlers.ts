@@ -20,6 +20,8 @@
 
 import { clampUiZoom, MCP_DEFAULT_HOST, MCP_DEFAULT_PORT, MCP_HTTP_PATH, UI_ZOOM_DEFAULT } from '@peek/core'
 import type {
+  AgentSettingsReadResult,
+  CommandInput,
   ConnBookForgetResult,
   ConnBookListResult,
   ExecutionBudgets,
@@ -35,15 +37,19 @@ import type { CommandHandlerMap } from '../bus/types'
 // here would make these handlers unloadable in a plain Node test. `timeouts.ts`
 // itself touches neither a file nor Electron, by its own contract.
 import { getTimeoutSettings, setTimeoutSettings } from '../connections/timeouts'
+import { ACP_PROFILES, profileById, type AcpAgentProfile } from '../acp/profiles'
 import type { ConnectionBook } from './connection-book'
 import type { McpController } from './mcp-controller'
 import { connectionsFilePath, settingsFilePath } from './paths'
-import type { SettingsStore } from './settings'
+import type { SecretVault } from './secrets'
+import type { PeekAgentSettings, SettingsStore } from './settings'
 
 export interface ConfigHandlerOptions {
   book: ConnectionBook
   mcp: McpController
   settings: SettingsStore
+  /** Seals the endpoint backend's API key. The plaintext never leaves this module. */
+  vault: SecretVault
   configDir: string
   /** `app.getVersion()`, injected so this module never imports Electron. */
   version: string
@@ -57,7 +63,7 @@ export interface ConfigHandlerOptions {
 }
 
 export function createConfigHandlers(options: ConfigHandlerOptions): CommandHandlerMap {
-  const { book, mcp, settings, configDir, version, applyZoom } = options
+  const { book, mcp, settings, vault, configDir, version, applyZoom } = options
 
   return {
     'conn.book.list': {
@@ -111,6 +117,7 @@ export function createConfigHandlers(options: ConfigHandlerOptions): CommandHand
         },
         version,
         uiZoom: settings.read().uiZoom ?? UI_ZOOM_DEFAULT,
+        agent: readAgentSettings(settings, vault),
       }),
     },
 
@@ -145,9 +152,89 @@ export function createConfigHandlers(options: ConfigHandlerOptions): CommandHand
           applyZoom?.(uiZoom)
           settings.update({ uiZoom })
         }
-        return { execution, uiZoom }
+
+        if (input.agent) writeAgentSettings(settings, vault, input.agent)
+
+        return { execution, uiZoom, agent: readAgentSettings(settings, vault) }
       },
     },
+  }
+}
+
+/* ================================================================== */
+/* The chat panel's agent                                              */
+/* ================================================================== */
+
+/**
+ * How the endpoint backend's API key is kept.
+ *
+ * Sealed by the OS keychain, stored as ciphertext — the same shape connection
+ * passwords use (`connection-book.ts`), and reused rather than reinvented so
+ * there is one answer in this codebase to "where do secrets go".
+ *
+ * The plaintext never reaches `settings.json`, which is a file users hand-edit,
+ * paste into issues and sync between machines. It never travels back to the
+ * renderer either: `endpointApiKeySet` reports *whether*, never *what*.
+ */
+function readAgentSettings(settings: SettingsStore, vault: SecretVault): AgentSettingsReadResult {
+  const stored = settings.read().agent ?? {}
+  const profile = profileById(stored.acpProfile)
+  return {
+    backend: stored.backend ?? 'acp',
+    // `default` — ask every time — unless the user chose otherwise. peek does not
+    // pick a looser one for anybody.
+    permissionMode: stored.permissionMode ?? 'default',
+    // Resolved, not echoed: a file naming an agent this build does not have gets
+    // the default, and the form should show what will actually run.
+    acpProfile: profile.id,
+    profiles: ACP_PROFILES.map((candidate) => ({
+      id: candidate.id,
+      displayName: candidate.displayName,
+      sandbox: candidate.sandbox,
+      available: isProfileAvailable(candidate),
+    })),
+    ...(stored.acpExecutablePath === undefined ? {} : { acpExecutablePath: stored.acpExecutablePath }),
+    ...(stored.endpoint === undefined ? {} : { endpoint: stored.endpoint }),
+    // Whether, never what. The value does not cross back even to the renderer.
+    endpointApiKeySet: stored.endpointApiKeySealed !== undefined,
+  }
+}
+
+function writeAgentSettings(
+  settings: SettingsStore,
+  vault: SecretVault,
+  input: NonNullable<CommandInput<'settings.write'>['agent']>,
+): void {
+  const patch: PeekAgentSettings = {}
+  if (input.backend !== undefined) patch.backend = input.backend
+  if (input.permissionMode !== undefined) patch.permissionMode = input.permissionMode
+  if (input.acpProfile !== undefined) patch.acpProfile = profileById(input.acpProfile).id
+  if (input.acpExecutablePath !== undefined) patch.acpExecutablePath = input.acpExecutablePath
+  if (input.endpoint !== undefined) patch.endpoint = input.endpoint
+  // An empty string is how a form says "forget it" — distinct from omitting the
+  // field, which means "leave whatever is stored alone".
+  if (input.endpointApiKey !== undefined) {
+    if (input.endpointApiKey === '') {
+      patch.endpointApiKeySealed = null
+    } else {
+      const sealed = vault.seal(input.endpointApiKey)
+      // A vault that cannot seal must not fall back to plaintext. The write is
+      // dropped and `endpointApiKeySet` stays false, so the form can say the key
+      // was not stored rather than leaving one readable in a text file.
+      if (sealed !== null) patch.endpointApiKeySealed = sealed
+    }
+  }
+
+  if (Object.keys(patch).length > 0) settings.update({ agent: patch })
+}
+
+/** Whether the agent's package is actually installed in this build. */
+function isProfileAvailable(profile: AcpAgentProfile): boolean {
+  try {
+    profile.resolveSpawn({})
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -215,6 +302,7 @@ export const unavailableConfigHandlers = {
       paths: { configDir: '', settingsFile: '', connectionsFile: '', mcpFile: '' },
       version: '',
       uiZoom: UI_ZOOM_DEFAULT,
+      agent: UNCONFIGURED_AGENT,
     }),
   },
   'settings.write': {
@@ -230,7 +318,28 @@ export const unavailableConfigHandlers = {
         // Nothing to draw and nothing to write, so the honest answer is the
         // value that would take effect, not a claim that one did.
         uiZoom: clampUiZoom(input.uiZoom ?? UI_ZOOM_DEFAULT),
+        agent: UNCONFIGURED_AGENT,
       }
     },
   },
 } satisfies CommandHandlerMap
+
+/**
+ * What the agent settings look like before a config dir exists.
+ *
+ * The profile list is still real — it is compiled in, not read from disk — so a
+ * degraded window can show which agents this build has even while it cannot say
+ * which one is selected. Everything the file would have supplied reads as unset.
+ */
+const UNCONFIGURED_AGENT: AgentSettingsReadResult = {
+  backend: 'acp',
+  permissionMode: 'default',
+  acpProfile: profileById(undefined).id,
+  profiles: ACP_PROFILES.map((candidate) => ({
+    id: candidate.id,
+    displayName: candidate.displayName,
+    sandbox: candidate.sandbox,
+    available: isProfileAvailable(candidate),
+  })),
+  endpointApiKeySet: false,
+}

@@ -76,7 +76,7 @@
 
 /* Same omission, smaller surface: the context menu takes focus on open (so that
    Escape and the arrow keys reach it) and then hides the ring. */
-.ctx-menu:focus-visible {
+.menu:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }

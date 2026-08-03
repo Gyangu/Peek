@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>peek icon concept A — Confluence</title>
+  <desc>Two broad routes merge into one vertical route on a dark rounded plate.</desc>
+  <!-- Layer 1: background plate -->
+  <rect x="100" y="100" width="824" height="824" rx="190" fill="#171A21"/>
+  <!-- Layer 2: one continuous command route -->
+  <path d="M 316 306 L 512 488 L 708 306 M 512 488 L 512 722"
+        fill="none" stroke="#4D9CFF" stroke-width="112"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+

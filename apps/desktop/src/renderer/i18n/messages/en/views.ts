@@ -43,6 +43,8 @@ export const views = {
 
   /* ---- Tree view --------------------------------------------------- */
   'tree.loading': 'Loading…',
+  'tree.connecting': 'Connecting…',
+  'tree.notReady': 'The connection is not ready',
   'tree.empty': 'Nothing here',
   'tree.refresh': 'Refresh',
   /* Neutral wording: the leaf may be a table, a collection or a single key. */

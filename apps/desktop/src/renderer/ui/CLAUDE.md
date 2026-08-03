@@ -4,7 +4,8 @@ Read this before adding or restyling any control. It is short on purpose.
 
 Design records:
 [control spec](../../../../../docs/design/2026-08-02-control-spec.md) ·
-[segmented](../../../../../docs/design/2026-08-02-segmented-control.md)
+[segmented](../../../../../docs/design/2026-08-02-segmented-control.md) ·
+[context menu](../../../../../docs/design/2026-08-03-context-menu-primitive.md)
 
 ## The one rule
 
@@ -27,6 +28,29 @@ import { Segmented } from '../../ui/Segmented'
   onChange={setLocale}
 />
 ```
+
+`<Menu>` is the popup menu, and `useContextMenu` is the gesture that opens one:
+
+```tsx
+import { Menu } from '../../ui/Menu'
+import { useContextMenu } from '../../ui/useContextMenu'
+
+const menu = useContextMenu<NamespaceNode>()
+
+<div onContextMenu={menu.open(node)}>…</div>
+{menu.state ? (
+  <Menu label={t('menu.tree.label')} at={menu.state.at}
+        nodes={treeMenuNodes(connId, menu.state.payload, caps, t, handlers)}
+        onClose={menu.close} />
+) : null}
+```
+
+Build the `nodes` in a **pure function next to the surface**, never inline in
+JSX — `treeMenuNodes`, `tabMenuNodes`, `connectionMenuNodes`,
+`contextActionsFor`. That is the half worth testing (what is offered, and to
+whom), and it needs no DOM. A menu line has two tones, not five variants: see
+`MENU_TONES`. An irreversible line gets `confirm`, which swaps the menu for
+Cancel + the act, so the second press lands somewhere harmless.
 
 `<Segmented>` is one choice out of several — a `radiogroup`, one tab stop, arrow
 keys inside. Not a row of buttons with `aria-pressed`; that describes N
@@ -125,6 +149,11 @@ disclosure, add it to `NOT_CONTROLS` with a reason — and note that the reason 
 checked for length, because "this is not a control" is a judgement, and a
 judgement nobody wrote down cannot be told apart from an oversight.
 
-The real primitives those five are waiting for (`<Menu>`, `<Disclosure>`) do not
-exist yet. Their use cases are now counted rather than guessed: three menu items,
-two disclosures.
+`<Menu>` exists now (2026-08-03) and took two of those five — the context menu's
+items. Its own lines are bare `<button>`s, which is why `ui/Menu.tsx` is on
+`PRIMITIVES` rather than on either list: a primitive has to render the real
+element. `AttachmentBar`'s item stays exempt because it anchors to a *button* and
+`<Menu>` anchors to a *point*; element anchoring is deferred, on purpose, rather
+than invented for one caller.
+
+`<Disclosure>` still does not exist. Two use cases, both counted.

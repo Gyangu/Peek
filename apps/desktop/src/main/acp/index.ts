@@ -72,8 +72,19 @@ export {
   type DeltaBatchBudget,
   type McpEndpointInfo,
 } from './types'
-export { AgentProcess, resolveAgentEntry, type AgentProcessHooks, type AgentSpawnOptions } from './agent-process'
-export { DeltaBatcher, type BatcherTimers } from './batcher'
+export { AgentProcess, type AgentProcessHooks, type AgentSpawnOptions } from './agent-process'
+export {
+  ACP_PROFILES,
+  DEFAULT_ACP_PROFILE_ID,
+  claudeCodeProfile,
+  codexProfile,
+  profileById,
+  type AcpAgentProfile,
+  type AcpAgentUserConfig,
+  type AcpSandbox,
+  type AcpSpawnCommand,
+} from './profiles'
+export { DeltaBatcher, type BatcherTimers } from '../agent/batcher'
 export { TranscriptTranslator, type ChatStateDelta, type TranslationOutput } from './translate'
 export {
   PermissionBroker,
@@ -82,9 +93,10 @@ export {
   type PermissionDecision,
   type PermissionRequestInput,
   type PermissionTicket,
-} from './permissions'
+} from '../agent/permissions'
 export {
   CHAT_WORKDIR_NAME,
+  chatRootDir,
   PEEK_MCP_SERVER_NAME,
   buildPeekMcpServer,
   ensureChatWorkdir,

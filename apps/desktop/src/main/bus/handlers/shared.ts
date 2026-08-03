@@ -7,6 +7,7 @@ import {
   collectionRefLabel,
   countPanels,
   findPanel,
+  findPanelOfView,
   layoutDepth,
   overflowingPanel,
   panelTabIndex,
@@ -16,6 +17,7 @@ import {
   type LayoutNode,
   type PanelId,
   type PanelNode,
+  type PluginViewState,
   type QueryViewState,
   type ResultId,
   type TableViewState,
@@ -26,6 +28,7 @@ import {
   type ViewState,
   type Workspace,
 } from '@peek/core'
+import { lookupViewKindContract } from '../../../drivers/viewKinds'
 import { plain } from '../../store/workspace-store'
 import { putView, removeView, runningResultOf, startResult } from '../../store/mutations'
 import { failMsg } from '../failure'
@@ -36,11 +39,19 @@ import { buildChatViewState, stageChatAttachments } from './chat'
 /**
  * The views that fetch data — everything except `inspector`, `tree` and `chat`.
  *
- * Named because `beginResult` and its callers only ever apply to these three, and
+ * Named because `beginResult` and its callers only ever apply to these four, and
  * saying so in the type is what keeps a chat view (which has no `connId` at all)
  * from having to be defended against at every line of the fetch path.
+ *
+ * `PluginViewState` is in here rather than beside it on a path of its own,
+ * because that is the entire claim being made about plugin views: they fetch
+ * through the *same* machinery — the same cancel-the-previous-result rule, the
+ * same `ResultMeta` with an `origin`, the same backpressure and deadline. A
+ * second fetch path for plugins would be a second place for all of that to be
+ * got wrong, and the first thing to drift would be the invisible one (the
+ * orphaned-cursor rule in `beginResult`).
  */
-type FetchingViewState = TableViewState | QueryViewState | VectorViewState
+type FetchingViewState = TableViewState | QueryViewState | VectorViewState | PluginViewState
 
 /** Default topK for a vector view */
 const DEFAULT_TOP_K = 10
@@ -215,6 +226,44 @@ export interface OpenViewOptions {
   focus?: boolean
   /** Run a query view as soon as it opens */
   run?: boolean
+  /** Open as the one provisional view — see `ViewBase.provisional` and `takeProvisionalSlot`. */
+  provisional?: boolean
+}
+
+/**
+ * Find the provisional view's slot, and vacate it.
+ *
+ * Returns the panel and tab index the new view should take, or null when there
+ * is nothing to reuse — which is the ordinary case and means the caller falls
+ * back to `panelId` / `replace` / append.
+ *
+ * **A streaming chat is promoted instead of replaced.** Closing a chat view
+ * cancels a turn in flight (`AcpManager.closeChat`), and resuming a conversation
+ * runs one, so "click a row, click the next one before the first has loaded"
+ * would silently kill the first load. Keeping it costs a tab; replacing it costs
+ * work the user cannot see was thrown away. It stops being provisional at the
+ * same moment, because a conversation that is talking is one the user is using.
+ */
+function takeProvisionalSlot(
+  draft: Draft<Workspace>,
+  ctx: ReduceCtx,
+): { panelId: PanelId; index: number } | null {
+  const previous = Object.values(draft.views).find((v) => v.provisional === true)
+  if (!previous) return null
+  if (previous.kind === 'chat' && previous.streamingMessageId !== null) {
+    delete previous.provisional
+    return null
+  }
+  const panel = findPanelOfView(plain(draft.layout), previous.id)
+  // A provisional view that sits in no panel cannot lend a slot; clear the flag
+  // so the Workspace is not left claiming a provisional view nobody can see.
+  if (!panel) {
+    delete previous.provisional
+    return null
+  }
+  const index = panelTabIndex(panel, previous.id)
+  closeView(draft, previous.id, ctx)
+  return { panelId: panel.id, index }
 }
 
 export function openView(
@@ -233,20 +282,27 @@ export function openView(
   // a worse answer than opening it unbound.
   if (spec.kind !== 'chat') requireConnection(draft, spec.connId)
 
-  const target = resolvePanel(draft, opts.panelId)
+  // A provisional open aims at the provisional view's slot wherever it is,
+  // ahead of `panelId` / `replace`: "the tab I was skimming in" is a better
+  // target than "whatever panel is focused", and it is the whole reason
+  // skimming does not accumulate tabs.
+  const slot = opts.provisional === true ? takeProvisionalSlot(draft, ctx) : null
+
+  const target = slot ? resolvePanel(draft, slot.panelId) : resolvePanel(draft, opts.panelId)
   const panelId: PanelId = target.id
 
   // `replace` takes the departing view's tab position rather than appending, so
   // the slot the user was looking at is the slot the new view appears in. The
   // index has to be read before the close, because closing shifts everything
   // after it left by one.
-  let index = opts.index
-  if (opts.replace === true && target.activeViewId !== null) {
+  let index = slot ? slot.index : opts.index
+  if (slot === null && opts.replace === true && target.activeViewId !== null) {
     index = panelTabIndex(target, target.activeViewId)
     closeView(draft, target.activeViewId, ctx)
   }
 
   const view = buildViewState(spec, ctx)
+  if (opts.provisional === true) view.provisional = true
   putView(draft, view)
   // Staging happens after the view is in `views` so a bad descriptor aborts the
   // whole command — immer discards the draft, and no half-built conversation is
@@ -357,6 +413,18 @@ function buildViewState(spec: ViewOpenSpec, ctx: ReduceCtx): ViewState {
         ...(spec.scoreThreshold === undefined ? {} : { scoreThreshold: spec.scoreThreshold }),
         ...(spec.filter ? { filter: spec.filter } : {}),
       }
+    // The kernel builds the envelope and nothing else: `state` is the plugin's
+    // shape, so main stores it as it arrived and lets the plugin's own schema be
+    // the thing that ever looked at it. Defaulting to `{}` rather than leaving it
+    // undefined keeps `applyViewPatch`'s merge from having to special-case a
+    // view that has never been patched.
+    case 'plugin':
+      return {
+        ...base,
+        kind: 'plugin',
+        pluginKind: spec.pluginKind,
+        state: spec.state ?? {},
+      }
   }
 }
 
@@ -391,8 +459,85 @@ export function autoFetch(
       return runQuery && view.text.trim() !== '' && canFetch(draft, view.connId, 'tabularQuery')
         ? startQuery(draft, view, ctx, {})
         : undefined
+    case 'plugin':
+      return startPluginFetch(draft, view, ctx)
     default:
       return undefined
+  }
+}
+
+/**
+ * What a plugin view fetches, decided by its own registration.
+ *
+ * ## Why the plugin is asked rather than inspected
+ *
+ * Every branch above reads fields the kernel declared and therefore understands
+ * (`view.ref`, `view.text`, `view.queryVec`). A plugin view's `state` is an
+ * opaque record the kernel stores verbatim and has no schema for, so the only
+ * honest way to turn it into a fetch is to ask the code that declared it. That
+ * code — `ViewKindRegistration.autoFetch`, living in the plugin package and
+ * running *here, in main* — is also the reason a self-drawn Tier C frame is not
+ * a statement-composition surface: the frame can patch `state`, and this is what
+ * decides what `state` becomes.
+ *
+ * ## The three ways this returns undefined, and why none of them is an error
+ *
+ * - **no registration**: an ordinary state, not a fault. A workspace persisted
+ *   while a plugin was installed restores after it was removed, and the view is
+ *   already rendering `view.pluginMissing` on screen. Failing the Command
+ *   instead would make restoring a workspace fail as a whole.
+ * - **`autoFetch` returned null**: the registration's own answer, and a
+ *   legitimate one — a view that only shows what is in its state. This is the
+ *   case the old `default: return undefined` could not tell apart from the first
+ *   one, which is why `null` is a declared value rather than a missing field.
+ * - **the connection cannot do it**: same rule every built-in gets from
+ *   `canFetch`. The view stays idle rather than planning a request the driver is
+ *   contractually obliged to reject.
+ */
+function startPluginFetch(
+  draft: Draft<Workspace>,
+  view: Draft<PluginViewState>,
+  ctx: ReduceCtx,
+): ResultId | undefined {
+  const contract = lookupViewKindContract(view.pluginKind)
+  if (contract === null) return undefined
+
+  // `plain` first: the registration is package code written against a plain
+  // `PluginViewStateShape`, and handing it an immer draft would leak drafts into
+  // whatever it returns — a `CollectionRef` that is a draft revokes the moment
+  // this reduction ends, and the plan would carry a proxy that throws when the
+  // effect runs, long after the stack that could explain it is gone.
+  const fetch = contract.autoFetch(plain(view))
+  if (fetch === null) return undefined
+  if (!canFetch(draft, view.connId, fetch.capability)) return undefined
+
+  switch (fetch.capability) {
+    case 'tabularQuery': {
+      const resultId = beginResult(draft, view, ctx, oneLine(fetch.text))
+      ctx.plan({
+        type: 'runQuery',
+        connId: view.connId,
+        viewId: view.id,
+        resultId,
+        text: fetch.text,
+        ...(fetch.params ? { params: [...fetch.params] } : {}),
+        ...(fetch.maxRows !== undefined ? { maxRows: fetch.maxRows } : {}),
+      })
+      return resultId
+    }
+    case 'collectionScan': {
+      const resultId = beginResult(draft, view, ctx, `Scan ${collectionRefLabel(fetch.ref)}`)
+      ctx.plan({
+        type: 'scan',
+        connId: view.connId,
+        viewId: view.id,
+        resultId,
+        ref: fetch.ref,
+        offset: fetch.offset ?? 0,
+        limit: fetch.limit ?? DEFAULT_PAGE_LIMIT,
+      })
+      return resultId
+    }
   }
 }
 

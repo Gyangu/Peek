@@ -82,6 +82,7 @@ function busWith(dir: string, applyZoom?: (factor: number) => void): CommandBus 
         configDir: dir,
         vault: { available: false, seal: () => null, open: () => null },
       }),
+      vault: { available: false, seal: () => null, open: () => null },
       mcp: createMcpController({
         configDir: dir,
         settings,

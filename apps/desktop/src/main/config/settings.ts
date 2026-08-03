@@ -12,8 +12,19 @@
  * or who ran a newer peek once, should not lose that by launching this one.
  */
 
-import type { ExecutionBudgets } from '@peek/core'
-import { UI_ZOOM_MAX, UI_ZOOM_MIN } from '@peek/core'
+import type {
+  AgentBackend,
+  AgentDefaultPermissionMode,
+  AgentEndpointSettings,
+  ExecutionBudgets,
+} from '@peek/core'
+import {
+  AGENT_BACKENDS,
+  AGENT_DEFAULT_PERMISSION_MODES,
+  AgentEndpointSettingsSchema,
+  UI_ZOOM_MAX,
+  UI_ZOOM_MIN,
+} from '@peek/core'
 import { readJsonFile, writeJsonFile } from './json-file'
 import { settingsFilePath } from './paths'
 
@@ -42,6 +53,31 @@ export interface PeekSettings {
    * while 1.5-because-you-typed-4 is a state they cannot explain.
    */
   uiZoom?: number
+  /**
+   * Which agent answers in the chat panel, and how to reach it.
+   *
+   * Absent means "the built-in default", as everywhere else here. The endpoint's
+   * API key is here only as **ciphertext** the OS keychain sealed — the same
+   * shape `connection-book.ts` stores passwords in. Plaintext never lands.
+   */
+  agent?: PeekAgentSettings
+}
+
+export interface PeekAgentSettings {
+  backend?: AgentBackend
+  /** The mode a new conversation starts in. Only the safe subset; see core. */
+  permissionMode?: AgentDefaultPermissionMode
+  /** Which ACP agent, by profile id. An id this build does not know falls back to the default. */
+  acpProfile?: string
+  acpExecutablePath?: string
+  endpoint?: AgentEndpointSettings
+  /**
+   * The endpoint's API key, sealed by the OS keychain.
+   *
+   * Ciphertext, never plaintext — same shape `connection-book.ts` stores
+   * passwords in. `null` in a patch means "forget it"; absent means "leave it".
+   */
+  endpointApiKeySealed?: string | null
 }
 
 const EXECUTION_KEYS = ['queryMs', 'scanMs', 'vectorSearchMs'] as const
@@ -81,6 +117,20 @@ export function createSettingsStore(configDir: string): SettingsStore {
         const existing = project(current).executionTimeouts ?? {}
         changes['executionTimeouts'] = { ...existing, ...patch.executionTimeouts }
       }
+      // Same rule, one level deeper: switching backend must not wipe the endpoint
+      // the user configured, and editing the endpoint must not reset the backend.
+      if (patch.agent !== undefined) {
+        const existing = project(current).agent ?? {}
+        const merged: PeekAgentSettings = { ...existing, ...patch.agent }
+        if (patch.agent.endpoint !== undefined) {
+          merged.endpoint = { ...existing.endpoint, ...patch.agent.endpoint }
+        }
+        // `null` is the erase signal and must not survive into the file as a key
+        // whose value happens to be null — `project` would drop it anyway, but a
+        // stored `null` reads as "there is a key here" to anything else looking.
+        if (merged.endpointApiKeySealed === null) delete merged.endpointApiKeySealed
+        changes['agent'] = merged
+      }
       const next = { ...current, version: 1, ...changes }
       writeJsonFile(path, next)
       cached = next
@@ -117,7 +167,38 @@ function project(record: Record<string, unknown>): PeekSettings {
     }
     if (Object.keys(kept).length > 0) settings.executionTimeouts = kept
   }
+
+  const agent = record['agent']
+  if (typeof agent === 'object' && agent !== null && !Array.isArray(agent)) {
+    const source = agent as Record<string, unknown>
+    const kept: PeekAgentSettings = {}
+    const backend = source['backend']
+    if (typeof backend === 'string' && (AGENT_BACKENDS as readonly string[]).includes(backend)) {
+      kept.backend = backend as AgentBackend
+    }
+    // Validated against the *default-able* subset, not against every mode: a
+    // hand-edited `"permissionMode": "bypassPermissions"` reads as unset rather
+    // than silently disarming the gate for every future conversation.
+    const mode = source['permissionMode']
+    if (typeof mode === 'string' && (AGENT_DEFAULT_PERMISSION_MODES as readonly string[]).includes(mode)) {
+      kept.permissionMode = mode as AgentDefaultPermissionMode
+    }
+    if (isNonEmptyString(source['acpProfile'])) kept.acpProfile = source['acpProfile']
+    if (isNonEmptyString(source['acpExecutablePath'])) kept.acpExecutablePath = source['acpExecutablePath']
+    if (isNonEmptyString(source['endpointApiKeySealed'])) kept.endpointApiKeySealed = source['endpointApiKeySealed']
+    // Validated as a whole: a half-configured endpoint (a URL and no model) is
+    // not something to half-apply — it would fail at the first token with an
+    // error pointing at the wrong thing. Dropping it reads as "not configured",
+    // which is what the form then says.
+    const endpoint = AgentEndpointSettingsSchema.safeParse(source['endpoint'])
+    if (endpoint.success) kept.endpoint = endpoint.data
+    if (Object.keys(kept).length > 0) settings.agent = kept
+  }
   return settings
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
 }
 
 /**

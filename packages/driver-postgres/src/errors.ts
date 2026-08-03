@@ -96,6 +96,23 @@ function codeFromSqlState(sqlState: string, message: string): PeekErrorCode | nu
       return 'CONNECTION_LOST'
     case '25P02': // in_failed_sql_transaction
       return 'QUERY_FAILED'
+    /**
+     * read_only_sql_transaction — peek causes this **on purpose**.
+     *
+     * Every cursor opens `BEGIN READ ONLY` (`cursor.ts:137`), so this SQLSTATE is
+     * the read-only guarantee working, not a fault. It is mapped for two reasons:
+     * class `25` has no prefix entry below, so it used to fall all the way through
+     * to the generic fallback and arrive as an unclassified failure; and the other
+     * two SQL drivers already agree on `CONFLICT` for exactly this event
+     * (`sqlite/dialect.ts:77` SQLITE_READONLY, `mysql/dialect.ts:147`
+     * ER_OPTION_PREVENTS_STATEMENT). Three engines refusing the same write for the
+     * same reason should not produce three different codes.
+     *
+     * `CONFLICT` is not retryable (`isRetryableErrorCode`), which is the right
+     * answer here: retrying a write against a read-only connection never succeeds.
+     */
+    case '25006':
+      return 'CONFLICT'
     default:
       break
   }

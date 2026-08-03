@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
-  DRIVER_CAPABILITIES,
   KEYSPACE_SCAN_SCHEMA,
   encodeScanCursor,
   isPeekError,
@@ -11,6 +10,7 @@ import {
 } from '@peek/core'
 import { redisDriver, requireRedisConfig } from '../driver'
 import { isRedisCommandRefusal, mapRedisError, redisErrorPrefix } from '../errors'
+import { redisManifest } from '../manifest'
 import { keyspaceNodeId, parseKeyspaceNodeId, splitKeyPrefix } from '../keyspace'
 import { isRedisResumeToken, parseRedisResumeToken, redisResumeToken } from '../scan'
 import { REDIS_TYPE_TO_SHAPE, redisTypeShape } from '../values'
@@ -23,8 +23,12 @@ import { REDIS_TYPE_TO_SHAPE, redisTypeShape } from '../values'
  */
 
 describe('driver-redis contract', () => {
-  it('advertises exactly the capability set core declares for redis', () => {
-    assert.deepEqual([...redisDriver.capabilities].sort(), [...DRIVER_CAPABILITIES.redis].sort())
+  it('advertises exactly the capability set this package declares for itself', () => {
+    // Against the package's own manifest, which is what the connect dialog and
+    // the MCP tools read before anything has connected. The two used to be
+    // pinned to a table in core that the driver imported back — self-consistent,
+    // and describing the package from outside it.
+    assert.deepEqual([...redisDriver.capabilities].sort(), [...redisManifest.capabilities].sort())
     assert.equal(redisDriver.meta.id, 'redis')
   })
 

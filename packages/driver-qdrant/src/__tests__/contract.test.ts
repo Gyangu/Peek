@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
-  DRIVER_CAPABILITIES,
   QDRANT_VECTOR_FIELD,
   buildVectorResultSchema,
   encodeScanCursor,
@@ -11,6 +10,7 @@ import {
   tryDecodeScanCursor,
 } from '@peek/core'
 import { collectionNodeId, parseCollectionNodeId } from '../collections'
+import { qdrantManifest } from '../manifest'
 import { qdrantDriver, requireQdrantConfig } from '../driver'
 import { buildRowShape, pointFieldRef, pointIdToCell } from '../points'
 import { decodeScrollOffset, encodeScrollOffset } from '../scroll'
@@ -23,8 +23,12 @@ import { decodeScrollOffset, encodeScrollOffset } from '../scroll'
  */
 
 describe('driver-qdrant contract', () => {
-  it('advertises exactly the capability set core declares for qdrant', () => {
-    assert.deepEqual([...qdrantDriver.capabilities].sort(), [...DRIVER_CAPABILITIES.qdrant].sort())
+  it('advertises exactly the capability set this package declares for itself', () => {
+    // Against the package's own manifest, which is what the connect dialog and
+    // the MCP tools read before anything has connected. The two used to be
+    // pinned to a table in core that the driver imported back — self-consistent,
+    // and describing the package from outside it.
+    assert.deepEqual([...qdrantDriver.capabilities].sort(), [...qdrantManifest.capabilities].sort())
     assert.equal(qdrantDriver.meta.id, 'qdrant')
     // No `cancel`: an HTTP request is aborted client-side, not interrupted
     // server-side, and a driver must not advertise what it cannot honour

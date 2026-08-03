@@ -904,3 +904,109 @@ test('the catalogue is a read: it spends no revision and mirrors nothing', async
   assert.deepEqual(res.data.sessions, [])
   assert.equal(h.store.rev, revBefore)
 })
+
+/* ------------------------------------------------------------------ */
+/* Provisional views                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The rule the session rail leans on: skimming costs one tab, not one per row.
+ *
+ * These live here rather than in `command-bus.test.ts` because the interesting
+ * half of the rule is about chats — a conversation with a turn in flight must
+ * not be closed to make room, since closing it cancels that turn.
+ */
+test('a provisional open takes the previous provisional view’s slot', async () => {
+  const h = harness()
+  const first = await h.bus.dispatch(
+    'view.open',
+    { spec: { kind: 'chat', resumeSessionId: 's1' }, provisional: true },
+    'ui',
+  )
+  const second = await h.bus.dispatch(
+    'view.open',
+    { spec: { kind: 'chat', resumeSessionId: 's2' }, provisional: true },
+    'ui',
+  )
+  assert.equal(first.ok && second.ok, true)
+  if (!first.ok || !second.ok) return
+
+  const state = h.store.getState()
+  assert.equal(state.views[first.data.viewId], undefined, 'the skimmed conversation was let go')
+  assert.equal(Object.keys(state.views).length, 1, 'skimming two rows leaves one tab')
+  assert.equal(state.views[second.data.viewId]?.provisional, true)
+})
+
+test('an ordinary open is kept, and two of them are two tabs', async () => {
+  const h = harness()
+  const a = await openChat(h)
+  const b = await openChat(h)
+
+  const state = h.store.getState()
+  assert.equal(Object.keys(state.views).length, 2, 'the old behaviour is untouched')
+  assert.equal(state.views[a]?.provisional, undefined)
+  assert.equal(state.views[b]?.provisional, undefined)
+})
+
+test('view.promote keeps a provisional view, and says whether it did anything', async () => {
+  const h = harness()
+  const opened = await h.bus.dispatch('view.open', { spec: { kind: 'chat' }, provisional: true }, 'ui')
+  assert.equal(opened.ok, true)
+  if (!opened.ok) return
+  const viewId = opened.data.viewId
+
+  const first = await h.bus.dispatch('view.promote', { viewId }, 'ui')
+  assert.equal(first.ok && first.data.promoted, true)
+  assert.equal(h.store.getState().views[viewId]?.provisional, undefined)
+
+  // Idempotent: promoting a kept view is not an error, it is already true.
+  const again = await h.bus.dispatch('view.promote', { viewId }, 'ui')
+  assert.equal(again.ok, true)
+  if (!again.ok) return
+  assert.equal(again.data.promoted, false)
+
+  // And a promoted view no longer lends its slot to the next skim.
+  const next = await h.bus.dispatch('view.open', { spec: { kind: 'chat' }, provisional: true }, 'ui')
+  assert.equal(next.ok, true)
+  assert.equal(Object.keys(h.store.getState().views).length, 2)
+})
+
+test('sending a message keeps the conversation without anyone asking', async () => {
+  const h = harness()
+  const opened = await h.bus.dispatch('view.open', { spec: { kind: 'chat' }, provisional: true }, 'ui')
+  assert.equal(opened.ok, true)
+  if (!opened.ok) return
+
+  const sent = await h.bus.dispatch('chat.send', { viewId: opened.data.viewId, text: 'hi' }, 'ui')
+  assert.equal(sent.ok, true)
+  assert.equal(chatOf(h, opened.data.viewId).provisional, undefined)
+})
+
+test('a streaming conversation is promoted instead of replaced, so no turn is cancelled', async () => {
+  const h = harness()
+  const opened = await h.bus.dispatch(
+    'view.open',
+    { spec: { kind: 'chat', resumeSessionId: 's1' }, provisional: true },
+    'ui',
+  )
+  assert.equal(opened.ok, true)
+  if (!opened.ok) return
+  const viewId = opened.data.viewId
+
+  // Put a turn in flight the way the agent would, then skim on to the next row.
+  h.store.apply((draft) => {
+    const view = draft.views[viewId]
+    if (view?.kind === 'chat') view.streamingMessageId = asChatMessageId('msg_live')
+  })
+  const next = await h.bus.dispatch(
+    'view.open',
+    { spec: { kind: 'chat', resumeSessionId: 's2' }, provisional: true },
+    'ui',
+  )
+  assert.equal(next.ok, true)
+
+  const state = h.store.getState()
+  assert.ok(state.views[viewId], 'the conversation that was talking is still open')
+  assert.equal(state.views[viewId]?.provisional, undefined, 'and it stopped being provisional')
+  assert.equal(Object.keys(state.views).length, 2)
+})

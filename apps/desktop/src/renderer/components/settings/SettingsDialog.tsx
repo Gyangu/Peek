@@ -8,8 +8,10 @@ import {
   type SettingsSection,
 } from '../../state/settingsDialogStore'
 import { AboutSection } from './AboutSection'
+import { AgentSection } from './AgentSection'
 import { AppearanceSection } from './AppearanceSection'
 import { McpSection } from './McpSection'
+import { PackagesSection } from './PackagesSection'
 import { TimeoutsSection } from './TimeoutsSection'
 import { Button } from '../../ui/Button'
 
@@ -106,6 +108,8 @@ function OpenSettings({ section }: { section: SettingsSection }): ReactElement {
 
 const SECTION_LABEL = {
   mcp: 'settings.section.mcp',
+  agent: 'settings.section.agent',
+  packages: 'settings.section.packages',
   appearance: 'settings.section.appearance',
   timeouts: 'settings.section.timeouts',
   about: 'settings.section.about',
@@ -115,6 +119,10 @@ function Section({ id }: { id: SettingsSection }): ReactElement {
   switch (id) {
     case 'mcp':
       return <McpSection />
+    case 'agent':
+      return <AgentSection />
+    case 'packages':
+      return <PackagesSection />
     case 'appearance':
       return <AppearanceSection />
     case 'timeouts':

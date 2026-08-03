@@ -1,6 +1,5 @@
 import {
   DEFAULT_PAGE_LIMIT,
-  DRIVER_CAPABILITIES,
   MAX_PAGE_LIMIT,
   decodeRowOffsetCursor,
   peekError,
@@ -26,6 +25,7 @@ import type { SqlBackendHandle, SqlRowStream } from './connection'
 import { SqlCursor } from './cursor'
 import type { SqlDialect, SqlFlavor } from './dialect'
 import { SqlIntrospector } from './introspect'
+import { mysqlManifest, sqliteManifest } from './manifest'
 import { SqlValuePeeker, type SqlResultSource } from './peek'
 import { buildScanSql } from './sql'
 
@@ -38,9 +38,9 @@ import { buildScanSql } from './sql'
  * interface is missing something and the fix belongs there, not here.
  *
  * Capabilities: introspect + tabularQuery + collectionScan + valuePeek + cancel,
- * for both, straight out of `DRIVER_CAPABILITIES` — so the advertised set and the
- * implemented methods cannot drift (core's host runtime asserts this at connect
- * time).
+ * for both, read off this package's own manifests (`./manifest`) — the same
+ * arrays the connect dialog and the MCP tools consult before a session exists,
+ * so what is advertised and what is implemented cannot drift.
  *
  * ## Cancellation, which is where the two databases stop resembling each other
  *
@@ -130,8 +130,11 @@ export class SqlSession implements DriverSession {
   /* introspect                                                        */
   /* ---------------------------------------------------------------- */
 
-  listChildren(parentId: string | null): Promise<NamespaceNode[]> {
+  listChildren(parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]> {
     this.assertOpen()
+    // See the note in driver-postgres: the whole cache goes, because a
+    // per-level clear leaves the children stale.
+    if (refresh === true) this.invalidateIntrospectCache()
     return this.introspector.listChildren(parentId)
   }
 
@@ -320,9 +323,13 @@ export class SqlSession implements DriverSession {
   }
 }
 
-/** The capability set for a flavor, read straight off core's table so there is one source of truth */
+/**
+ * The capability set for a flavor, read off this package's own manifests so
+ * there is one source of truth — the same array the connect dialog and the MCP
+ * tools consult before a session exists.
+ */
 export function capabilitiesFor(flavor: SqlFlavor): readonly Capability[] {
-  return DRIVER_CAPABILITIES[flavor]
+  return flavor === 'mysql' ? mysqlManifest.capabilities : sqliteManifest.capabilities
 }
 
 /** `{ key: value }` when the value exists, `{}` when it does not — keeps optional fields off the object entirely */

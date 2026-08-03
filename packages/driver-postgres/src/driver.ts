@@ -1,5 +1,4 @@
 import {
-  DRIVER_CAPABILITIES,
   peekError,
   type Capability,
   type ConnectionConfig,
@@ -8,16 +7,20 @@ import {
   type DriverSession,
   type PostgresConnectionConfig,
 } from '@peek/core'
+import { postgresManifest } from './manifest'
 import { PostgresSession } from './session'
 
 /**
  * PostgreSQL driver factory.
- * `capabilities` has a single source of truth in DRIVER_CAPABILITIES.postgres:
- * introspect + tabularQuery + collectionScan + valuePeek + cancel.
+ *
+ * `meta` and `capabilities` are read off this package's own manifest, which is
+ * also what the connect dialog and the MCP tools consult before anything has
+ * connected — so what is advertised and what is implemented are one array, not
+ * two that agree today.
  */
 export class PostgresDriver implements Driver<PostgresConnectionConfig> {
-  readonly meta: DriverMeta = { id: 'postgres', displayName: 'PostgreSQL' }
-  readonly capabilities: ReadonlySet<Capability> = new Set(DRIVER_CAPABILITIES.postgres)
+  readonly meta: DriverMeta = { id: 'postgres', displayName: postgresManifest.displayName }
+  readonly capabilities: ReadonlySet<Capability> = new Set(postgresManifest.capabilities)
 
   connect(cfg: PostgresConnectionConfig, signal?: AbortSignal): Promise<DriverSession> {
     return PostgresSession.connect(cfg, signal)

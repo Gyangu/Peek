@@ -277,6 +277,16 @@ const ALPHA_SITES: readonly AlphaSite[] = [
     exempt: 'Same clause as `button:disabled` — WCAG 2.1 SC 1.4.3 excludes an inactive component.',
   },
   {
+    where: 'ui/menu.css:.menu-item:disabled',
+    alpha: 0.45,
+    behind: '--bg-1',
+    surface: '--bg-2',
+    text: ['--fg'],
+    exempt:
+      'Same clause and same number as `button:disabled` — WCAG 2.1 SC 1.4.3 excludes text in an ' +
+      'inactive component. The surface is the menu\'s own --bg-2; a menu line has none of its own.',
+  },
+  {
     where: 'styles.css:.panel.drag-source',
     alpha: 0.75,
     behind: '--bg',

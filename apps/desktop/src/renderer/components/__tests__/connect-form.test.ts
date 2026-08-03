@@ -53,6 +53,11 @@ function sampleUrl(driverId: DriverId): string {
       return 'http://localhost:6333'
     case 'sqlite':
       return '/tmp/whatever.sqlite'
+    // `neo4j://`, not `bolt://`: the two are different requests rather than two
+    // spellings (routing vs. a pinned server, see the neo4j manifest), and the
+    // sample should be the one the form itself defaults to.
+    case 'neo4j':
+      return 'neo4j://localhost:7687'
   }
 }
 

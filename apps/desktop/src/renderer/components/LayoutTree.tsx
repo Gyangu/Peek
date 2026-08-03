@@ -1,10 +1,13 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 import type { LayoutNode, PanelId, SplitId, SplitNode } from '@peek/core'
 import { collectPanels, normalizeRatio } from '@peek/core'
+import { useT } from '../i18n'
 import { dispatch } from '../state/dispatch'
 import { useLayout } from '../state/workspaceStore'
 import { DragGhost, TabInsertCaret } from './DropZoneOverlay'
 import { PanelView } from './Panel'
+import { Menu } from '../ui/Menu'
+import { useContextMenu } from '../ui/useContextMenu'
 
 /** Smallest a child region may get while dragging a divider. */
 const MIN_CHILD_PX = 80
@@ -52,7 +55,15 @@ function SplitView({ node, order }: { node: SplitNode; order: ReadonlyMap<PanelI
   const children: ReactElement[] = []
   node.children.forEach((child, i) => {
     if (i > 0) {
-      children.push(<Divider key={`d${String(i)}`} splitId={node.id} index={i} dir={node.dir} />)
+      children.push(
+        <Divider
+          key={`d${String(i)}`}
+          splitId={node.id}
+          index={i}
+          dir={node.dir}
+          childCount={node.children.length}
+        />,
+      )
     }
     const style: CSSProperties = { flexGrow: ratio[i] * 100, flexBasis: 0 }
     children.push(
@@ -83,9 +94,13 @@ interface DividerProps {
   /** Index of the child immediately right of / below the divider. */
   index: number
   dir: 'row' | 'col'
+  /** How many panes this split holds; an even split needs the count. */
+  childCount: number
 }
 
-function Divider({ splitId, index, dir }: DividerProps): ReactElement {
+function Divider({ splitId, index, dir, childCount }: DividerProps): ReactElement {
+  const t = useT()
+  const menu = useContextMenu<null>()
   const onMouseDown = (e: ReactMouseEvent<HTMLDivElement>): void => {
     e.preventDefault()
     e.stopPropagation()
@@ -152,5 +167,35 @@ function Divider({ splitId, index, dir }: DividerProps): ReactElement {
     window.addEventListener('mouseup', onUp)
   }
 
-  return <div className="divider" onMouseDown={onMouseDown} />
+  /*
+   * Dragging is the only thing a divider could do, and a drag is not undoable —
+   * nudge it while reading and the ratio is simply wrong now, with no way back
+   * short of dragging until it looks even. `layout.setRatio` could always
+   * express it; nothing could reach it.
+   */
+  return (
+    <>
+      <div className="divider" onMouseDown={onMouseDown} onContextMenu={menu.open(null)} />
+      {menu.state ? (
+        <Menu
+          label={t('menu.divider.label')}
+          at={menu.state.at}
+          nodes={[
+            {
+              kind: 'item',
+              id: 'divider.even',
+              label: t('menu.divider.even'),
+              onSelect: () => {
+                void dispatch('layout.setRatio', {
+                  splitId,
+                  ratio: Array.from({ length: childCount }, () => 1 / childCount),
+                })
+              },
+            },
+          ]}
+          onClose={menu.close}
+        />
+      ) : null}
+    </>
+  )
 }

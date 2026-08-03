@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1400" width="1800" height="1400">
+  <title>peek icon concept comparison board</title>
+  <desc>Three icon directions compared in monochrome, at small sizes, on light and dark backgrounds, and in a Dock context.</desc>
+  <style>
+    .title { font: 700 44px -apple-system, BlinkMacSystemFont, sans-serif; fill: #171A21; }
+    .sub { font: 400 21px -apple-system, BlinkMacSystemFont, sans-serif; fill: #59616C; }
+    .name { font: 700 27px -apple-system, BlinkMacSystemFont, sans-serif; fill: #171A21; }
+    .meta { font: 500 18px -apple-system, BlinkMacSystemFont, sans-serif; fill: #59616C; }
+    .label { font: 600 16px -apple-system, BlinkMacSystemFont, sans-serif; fill: #737B86; letter-spacing: 1px; }
+  </style>
+
+  <rect width="1800" height="1400" fill="#F4F6F8"/>
+  <text x="90" y="92" class="title">peek — icon concept board</text>
+  <text x="90" y="130" class="sub">Concept-first comparison · flat SVG geometry · current icon remains untouched</text>
+
+  <!-- Column cards -->
+  <g transform="translate(70 180)">
+    <rect width="520" height="900" rx="32" fill="#FFFFFF" stroke="#D8DDE3"/>
+    <text x="32" y="56" class="name">A  同轨 / Confluence</text>
+    <text x="32" y="88" class="meta">two sources · one command route</text>
+
+    <text x="32" y="132" class="label">BLACK / WHITE SILHOUETTE</text>
+    <rect x="32" y="150" width="456" height="260" rx="24" fill="#171A21"/>
+    <path d="M 173 229 L 260 310 L 347 229 M 260 310 L 260 375"
+          fill="none" stroke="#FFFFFF" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <text x="32" y="456" class="label">LIGHT / DARK BACKGROUND</text>
+    <rect x="32" y="475" width="218" height="218" rx="22" fill="#EDF0F3"/>
+    <image href="candidates/a-confluence.svg" x="65" y="508" width="152" height="152"/>
+    <rect x="270" y="475" width="218" height="218" rx="22" fill="#0C0E12"/>
+    <image href="candidates/a-confluence.svg" x="303" y="508" width="152" height="152"/>
+
+    <text x="32" y="739" class="label">REAL RASTER SIZES</text>
+    <image href="previews/a-64.png" x="32" y="768" width="64" height="64" image-rendering="auto"/>
+    <image href="previews/a-32.png" x="130" y="784" width="32" height="32" image-rendering="auto"/>
+    <image href="previews/a-16.png" x="196" y="792" width="16" height="16" image-rendering="auto"/>
+    <text x="32" y="858" class="meta">64</text><text x="130" y="858" class="meta">32</text><text x="196" y="858" class="meta">16px</text>
+  </g>
+
+  <g transform="translate(640 180)">
+    <rect width="520" height="900" rx="32" fill="#FFFFFF" stroke="#D8DDE3"/>
+    <text x="32" y="56" class="name">B  切片 / Clear Slice</text>
+    <text x="32" y="88" class="meta">one surface · one revealed slice</text>
+
+    <text x="32" y="132" class="label">BLACK / WHITE SILHOUETTE</text>
+    <rect x="32" y="150" width="456" height="260" rx="24" fill="#171A21"/>
+    <rect x="152" y="184" width="216" height="192" rx="56" fill="#FFFFFF"/>
+    <path d="M 168 330 C 214 330 224 300 234 273 C 245 242 256 224 294 224 H 352"
+          fill="none" stroke="#171A21" stroke-width="38" stroke-linecap="round"/>
+
+    <text x="32" y="456" class="label">LIGHT / DARK BACKGROUND</text>
+    <rect x="32" y="475" width="218" height="218" rx="22" fill="#EDF0F3"/>
+    <image href="candidates/b-clear-slice.svg" x="65" y="508" width="152" height="152"/>
+    <rect x="270" y="475" width="218" height="218" rx="22" fill="#0C0E12"/>
+    <image href="candidates/b-clear-slice.svg" x="303" y="508" width="152" height="152"/>
+
+    <text x="32" y="739" class="label">REAL RASTER SIZES</text>
+    <image href="previews/b-64.png" x="32" y="768" width="64" height="64" image-rendering="auto"/>
+    <image href="previews/b-32.png" x="130" y="784" width="32" height="32" image-rendering="auto"/>
+    <image href="previews/b-16.png" x="196" y="792" width="16" height="16" image-rendering="auto"/>
+    <text x="32" y="858" class="meta">64</text><text x="130" y="858" class="meta">32</text><text x="196" y="858" class="meta">16px</text>
+  </g>
+
+  <g transform="translate(1210 180)">
+    <rect width="520" height="900" rx="32" fill="#FFFFFF" stroke="#D8DDE3"/>
+    <text x="32" y="56" class="name">C  共面 / Shared Surface</text>
+    <text x="32" y="88" class="meta">two actors · one joined workspace</text>
+
+    <text x="32" y="132" class="label">BLACK / WHITE SILHOUETTE</text>
+    <rect x="32" y="150" width="456" height="260" rx="24" fill="#171A21"/>
+    <path d="M 144 260 A 58 58 0 0 1 202 202 H 278 V 264 H 246 V 306 H 200 V 342 H 144 Z" fill="#FFFFFF"/>
+    <path d="M 376 300 A 58 58 0 0 1 318 358 H 242 V 296 H 274 V 254 H 320 V 218 H 376 Z" fill="#FFFFFF"/>
+
+    <text x="32" y="456" class="label">LIGHT / DARK BACKGROUND</text>
+    <rect x="32" y="475" width="218" height="218" rx="22" fill="#EDF0F3"/>
+    <image href="candidates/c-shared-surface.svg" x="65" y="508" width="152" height="152"/>
+    <rect x="270" y="475" width="218" height="218" rx="22" fill="#0C0E12"/>
+    <image href="candidates/c-shared-surface.svg" x="303" y="508" width="152" height="152"/>
+
+    <text x="32" y="739" class="label">REAL RASTER SIZES</text>
+    <image href="previews/c-64.png" x="32" y="768" width="64" height="64" image-rendering="auto"/>
+    <image href="previews/c-32.png" x="130" y="784" width="32" height="32" image-rendering="auto"/>
+    <image href="previews/c-16.png" x="196" y="792" width="16" height="16" image-rendering="auto"/>
+    <text x="32" y="858" class="meta">64</text><text x="130" y="858" class="meta">32</text><text x="196" y="858" class="meta">16px</text>
+  </g>
+
+  <!-- Dock context -->
+  <text x="90" y="1148" class="label">MACOS DOCK CONTEXT · 64PX</text>
+  <rect x="90" y="1172" width="1620" height="150" rx="44" fill="#D8DDE3" fill-opacity="0.82" stroke="#FFFFFF" stroke-opacity="0.8"/>
+  <g fill="#8A929D">
+    <rect x="150" y="1215" width="64" height="64" rx="15"/><circle cx="284" cy="1247" r="32"/>
+    <rect x="356" y="1215" width="64" height="64" rx="15"/><rect x="1276" y="1215" width="64" height="64" rx="15"/>
+    <circle cx="1410" cy="1247" r="32"/><rect x="1480" y="1215" width="64" height="64" rx="15"/>
+  </g>
+  <line x1="468" y1="1200" x2="468" y2="1294" stroke="#FFFFFF" stroke-opacity="0.9"/>
+  <image href="previews/a-64.png" x="560" y="1215" width="64" height="64"/>
+  <image href="previews/b-64.png" x="740" y="1215" width="64" height="64"/>
+  <image href="previews/c-64.png" x="920" y="1215" width="64" height="64"/>
+  <line x1="1100" y1="1200" x2="1100" y2="1294" stroke="#FFFFFF" stroke-opacity="0.9"/>
+  <text x="568" y="1304" class="meta">A</text><text x="748" y="1304" class="meta">B</text><text x="928" y="1304" class="meta">C</text>
+</svg>

@@ -1,14 +1,20 @@
-import { DRIVER_CAPABILITIES, type Capability, type DriverId } from '@peek/core'
+import type { Capability, DriverId } from '@peek/core'
+import { DRIVER_MANIFESTS } from '../../drivers/manifests'
 
 /**
  * The driver registry.
  *
- * Adding a driver (redis / qdrant / mysql / sqlite) is one line here. There is
- * only **one** driver-host bundle (the `driver-host` entry in
+ * What a database *is* — its name, what it can do, how it is addressed — is
+ * declared by the driver package itself (`@peek/driver-x/manifest`) and reaches
+ * every process through `src/drivers/manifests.ts`. What is left here is the one
+ * thing only the **main process** cares about: which build output to spawn when
+ * a connection opens.
+ *
+ * There is only **one** driver-host bundle (the `driver-host` entry in
  * electron.vite.config.ts), and that entry dispatches to a concrete Driver by
  * the `config.driverId` in its `connect` params, which is why every entryFile
- * currently points at the same bundle. If some future driver needs its own
- * process entry (a native extension, say), change that one row's entryFile.
+ * points at the same bundle. If some future driver needs a process entry of its
+ * own (a native extension, say), this is the file that grows a branch.
  */
 export interface DriverRegistration {
   driverId: DriverId
@@ -23,51 +29,40 @@ export interface DriverRegistration {
   capabilities: readonly Capability[]
 }
 
+/** Every driver ships in the one shared host bundle; see the note above. */
+const DRIVER_HOST_ENTRY = 'driver-host.js'
+
 /**
  * Every driver the app can open a connection to.
  *
- * `capabilities` is quoted from `DRIVER_CAPABILITIES` rather than restated: core
- * asserts the same table against the live driver object when `connect` runs, so a
- * hand-written list here could promise the UI a capability the driver does not
- * implement and only fail at connect time.
+ * Derived from the manifests rather than hand-written, which is what makes the
+ * rows uniform by construction instead of by review — this table used to be five
+ * near-identical literals, and the fifth was a copy of the fourth.
  *
- * The rows are deliberately uniform. All five share one `entryFile` because there
- * is a single driver-host bundle that dispatches on `config.driverId`; if some
- * future driver needs a process of its own (a native extension, say), only that
- * row's `entryFile` changes.
+ * `displayName` and `capabilities` are carried over **by identity**, not
+ * restated: a hand-written capability list here could promise the UI something
+ * the driver does not implement, and the divergence would surface as a missing
+ * button rather than as an error. `driver-registry.test.ts` asserts the identity
+ * rather than the contents, so a copy would fail even if it happened to be
+ * correct on the day it was written.
+ *
+ * Still a `Partial<Record>`: a package may exist before it is exposed to users,
+ * and TypeScript will therefore never point out a driver nobody registered —
+ * `driver-registry.test.ts` is what does. `PLAN.md` §10 records why that
+ * partiality is deliberate rather than an oversight.
  */
-export const DRIVER_REGISTRY: Readonly<Partial<Record<DriverId, DriverRegistration>>> = {
-  postgres: {
-    driverId: 'postgres',
-    displayName: 'PostgreSQL',
-    entryFile: 'driver-host.js',
-    capabilities: DRIVER_CAPABILITIES.postgres,
-  },
-  redis: {
-    driverId: 'redis',
-    displayName: 'Redis',
-    entryFile: 'driver-host.js',
-    capabilities: DRIVER_CAPABILITIES.redis,
-  },
-  qdrant: {
-    driverId: 'qdrant',
-    displayName: 'Qdrant',
-    entryFile: 'driver-host.js',
-    capabilities: DRIVER_CAPABILITIES.qdrant,
-  },
-  mysql: {
-    driverId: 'mysql',
-    displayName: 'MySQL',
-    entryFile: 'driver-host.js',
-    capabilities: DRIVER_CAPABILITIES.mysql,
-  },
-  sqlite: {
-    driverId: 'sqlite',
-    displayName: 'SQLite',
-    entryFile: 'driver-host.js',
-    capabilities: DRIVER_CAPABILITIES.sqlite,
-  },
-}
+export const DRIVER_REGISTRY: Readonly<Partial<Record<DriverId, DriverRegistration>>> =
+  Object.fromEntries(
+    DRIVER_MANIFESTS.map((m) => [
+      m.driverId,
+      {
+        driverId: m.driverId,
+        displayName: m.displayName,
+        entryFile: DRIVER_HOST_ENTRY,
+        capabilities: m.capabilities,
+      } satisfies DriverRegistration,
+    ]),
+  )
 
 export function lookupDriver(driverId: DriverId): DriverRegistration | null {
   return DRIVER_REGISTRY[driverId] ?? null

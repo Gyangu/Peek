@@ -3,6 +3,7 @@ import type {
   ViewActivateResult,
   ViewCloseResult,
   ViewPatch,
+  ViewPromoteResult,
   ViewUpdateResult,
   ViewState,
 } from '@peek/core'
@@ -23,6 +24,7 @@ export const viewHandlers = {
       return openView(draft, input.spec, ctx, {
         ...(input.panelId !== undefined ? { panelId: input.panelId } : {}),
         ...(input.replace !== undefined ? { replace: input.replace } : {}),
+        ...(input.provisional !== undefined ? { provisional: input.provisional } : {}),
         ...(input.index !== undefined ? { index: input.index } : {}),
         ...(input.focus !== undefined ? { focus: input.focus } : {}),
         run: input.spec.kind === 'query' && input.spec.run === true,
@@ -95,6 +97,23 @@ export const viewHandlers = {
         previousViewId: outcome.previousViewId,
         focusedPanel: draft.focusedPanel,
       }
+      return result
+    },
+  },
+
+  /**
+   * Keep a provisional view. See `ViewBase.provisional`.
+   *
+   * Not an error when the view was never provisional — every caller is a user
+   * saying "I am using this", and that is already true of a kept view. The
+   * result says which of the two happened so a caller that cares can tell.
+   */
+  'view.promote': {
+    reduce(draft, input) {
+      const view = requireView(draft, input.viewId)
+      const promoted = view.provisional === true
+      if (promoted) delete view.provisional
+      const result: ViewPromoteResult = { viewId: input.viewId, promoted }
       return result
     },
   },
@@ -223,5 +242,47 @@ function applyViewPatch(view: Draft<ViewState>, patch: ViewPatch): boolean {
      */
     case 'chat':
       return false
+
+    /**
+     * A plugin view's state is merged key by key, and every merge counts as
+     * affecting the fetch.
+     *
+     * **Merged, not replaced**, for the same reason every built-in patch above is
+     * a bag of per-field optionals: `{offset: 40}` has to move the page without
+     * clearing the filter, and a caller forced to resend the whole state to
+     * change one field would race with the user changing another.
+     *
+     * **`null` deletes.** A patch cannot express "remove this key" any other way,
+     * and the built-in patches already use `null` for exactly that (the vector
+     * view's `vectorName` and `scoreThreshold`).
+     *
+     * **`affects` is unconditionally true when anything changed**, unlike the
+     * built-ins which know which of their fields feed a fetch. The kernel does
+     * not know which of a plugin's keys matter, and the two possible mistakes are
+     * not symmetric: over-fetching costs a redundant scan, under-fetching leaves
+     * a view showing stale rows with nothing on screen to say so. The
+     * registration's `autoFetch` is what decides whether that turns into a real
+     * request — returning `null` there makes this free.
+     */
+    case 'plugin': {
+      if (view.kind !== 'plugin') return false
+      if (patch.state === undefined) return false
+      const next: Record<string, unknown> = { ...view.state }
+      let changed = false
+      for (const [key, value] of Object.entries(patch.state)) {
+        if (value === null) {
+          if (key in next) {
+            delete next[key]
+            changed = true
+          }
+          continue
+        }
+        if (next[key] !== value) changed = true
+        next[key] = value
+      }
+      if (!changed) return false
+      view.state = next
+      return true
+    }
   }
 }

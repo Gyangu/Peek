@@ -218,8 +218,11 @@ describe('drop → Command', () => {
 
 describe('no-ops and cancellation — none of these send a Command', () => {
   it('dropping on the panel the view came from is a no-op, not an error', () => {
-    // Centre is plainly identity; an edge drop on your own panel is too, because
-    // the split empties the source and collapses it straight back (invariant I6).
+    // Centre is plainly identity; an edge drop on your own panel is too *while
+    // the view is its only tab*, because the split empties the source and
+    // collapses it straight back (invariant I6). These panels are measured
+    // without a strip, which is exactly that case — see the tearing-out suite
+    // below for what a second tab changes.
     for (const [x, y] of [
       [200, 150],
       [4, 150],
@@ -494,15 +497,62 @@ describe('reordering inside the panel a tab already lives in', () => {
     assert.equal(isOverVoid(state), false)
   })
 
-  it('leaves the source panel’s body a no-op, exactly as before', () => {
+  it('leaves the centre of the source panel’s body a no-op', () => {
+    // The centre means "put it in this panel", and it is already in this panel.
+    const state = dragTab(200, 150, A, ACTIVE_FIRST)
+    assert.equal(dropCommandFor(state), null)
+    assert.equal(panelDropZone(state, A), null)
+    assert.equal(isOverVoid(state), false)
+  })
+})
+
+describe('tearing a tab out onto its own panel’s edge', () => {
+  /* The rule M2 stated unconditionally — "an edge drop on your own panel is a
+   * no-op" — holds only while the view is that panel's *only* tab. With a
+   * neighbour left behind the source is never emptied, so nothing collapses and
+   * the split stands. This is the same condition `splitPanelWithView` checks on
+   * the main side; the gesture was simply stricter than the tree. */
+
+  it('splits when the source panel has other tabs', () => {
+    // A holds three tabs, so pulling one out leaves two behind.
+    assert.deepEqual(dropCommandFor(dragTab(4, 150, A, ACTIVE_FIRST)), {
+      name: 'layout.splitWithView',
+      input: { viewId: V, panelId: A, dir: 'row', insert: 'before' },
+    })
+    assert.deepEqual(dropCommandFor(dragTab(200, 296, A, ACTIVE_FIRST)), {
+      name: 'layout.splitWithView',
+      input: { viewId: V, panelId: A, dir: 'col', insert: 'after' },
+    })
+  })
+
+  it('highlights exactly the edges it will act on', () => {
+    assert.equal(panelDropZone(dragTab(4, 150, A, ACTIVE_FIRST), A), 'left')
+    assert.equal(panelDropZone(dragTab(396, 150, A, ACTIVE_FIRST), A), 'right')
+    // …and nothing in the centre, which stays a no-op.
+    assert.equal(panelDropZone(dragTab(200, 150, A, ACTIVE_FIRST), A), null)
+  })
+
+  it('is still a no-op when the view is the panel’s only tab', () => {
+    // One tab in the strip: the split would create a panel, the move would empty
+    // this one, and the collapse would put the tree back (invariant I6).
+    const lone: PanelHit[] = [
+      {
+        panelId: A,
+        rect: { left: 0, top: 0, width: 400, height: 300 },
+        tabBarHeight: 30,
+        tabRects: [{ left: 0, width: 100 }],
+      },
+    ]
+    const armed = armDrag(V, A, { x: 0, y: 200 }, ACTIVE_FIRST)
     for (const [x, y] of [
-      [200, 150],
       [4, 150],
+      [396, 150],
       [200, 296],
     ] as const) {
-      const state = dragTab(x, y, A, ACTIVE_FIRST)
-      assert.equal(dropCommandFor(state), null)
+      const state = pointerMoved(armed, { x, y }, () => lone)
+      assert.equal(dropCommandFor(state), null, `(${String(x)},${String(y)}) should be a no-op`)
       assert.equal(panelDropZone(state, A), null)
+      assert.equal(isOverVoid(state), false)
     }
   })
 })
@@ -679,7 +729,10 @@ describe('structure — where the gesture lives', () => {
     const dispatched = [...PANEL_TABS_TSX.matchAll(/dispatch\('([^']+)'/g)].map((m) => m[1])
     assert.deepEqual(
       [...new Set(dispatched)].sort(),
-      ['layout.close', 'layout.split', 'view.activate', 'view.close'],
+      // `view.promote` joined the set when tabs learned to be provisional: a
+      // double-click on an italic tab keeps it. It is the strip's only other
+      // verb, and it still touches exactly one view.
+      ['layout.close', 'layout.split', 'view.activate', 'view.close', 'view.promote'],
     )
     assert.ok(!PANEL_TSX.includes("dispatch('view.close'"), 'the panel still closes a view')
   })

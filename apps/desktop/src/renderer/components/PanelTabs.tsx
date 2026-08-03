@@ -12,7 +12,10 @@ import { dispatch } from '../state/dispatch'
 import { useView } from '../state/workspaceStore'
 import { beginViewDrag, registerPanelHeadEl, usePanelTabCaret } from './dragStore'
 import { viewTitleOf } from './panelTitle'
+import { tabMenuNodes } from './tabMenu'
 import { Button } from '../ui/Button'
+import { Menu } from '../ui/Menu'
+import { useContextMenu } from '../ui/useContextMenu'
 
 /**
  * A panel's tab strip, and the panel's action buttons beside it.
@@ -72,6 +75,7 @@ export function PanelTabs({ panel, focus }: PanelTabsProps): ReactElement {
   // Only used to mark the strip while it is the drop target; the line itself is
   // drawn once, in viewport coordinates, by `TabInsertCaret`.
   const caret = usePanelTabCaret(panel.id)
+  const menu = useContextMenu<ViewId>()
 
   // The head is measured on every drag: its height is the band that separates a
   // strip drop from a body drop, and the tabs inside it resolve the caret.
@@ -130,6 +134,7 @@ export function PanelTabs({ panel, focus }: PanelTabsProps): ReactElement {
             active={viewId === panel.activeViewId}
             focus={focus}
             roving={roving}
+            onContextMenu={menu.open(viewId)}
           />
         ))}
       </div>
@@ -168,7 +173,55 @@ export function PanelTabs({ panel, focus }: PanelTabsProps): ReactElement {
           <span aria-hidden="true">✕</span>
         </Button>
       </div>
+      {menu.state ? (
+        <TabMenu panel={panel} viewId={menu.state.payload} at={menu.state.at} onClose={menu.close} />
+      ) : null}
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+interface TabMenuProps {
+  panel: PanelNode
+  viewId: ViewId
+  at: { x: number; y: number }
+  onClose: () => void
+}
+
+/** The tab's right-click menu; see `tabMenuNodes` for what is offered and why. */
+function TabMenu({ panel, viewId, at, onClose }: TabMenuProps): ReactElement {
+  const t = useT()
+  return (
+    <Menu
+      label={t('menu.tab.label')}
+      at={at}
+      nodes={tabMenuNodes(panel, viewId, t, {
+        close: () => {
+          void dispatch('view.close', { viewId })
+        },
+        closeOthers: () => {
+          /* A loop of `view.close` rather than a `view.closeOthers` command.
+             Main has no such command, and adding one would put a second
+             definition of "which views survive" into a system whose whole point
+             is that the buttons and an AI go through the same vocabulary. This
+             is exactly what the user could do by hand, at the speed of a click. */
+          for (const id of panel.viewIds) {
+            if (id !== viewId) void dispatch('view.close', { viewId: id })
+          }
+        },
+        splitRow: () => {
+          void dispatch('layout.split', { panelId: panel.id, dir: 'row' })
+        },
+        splitCol: () => {
+          void dispatch('layout.split', { panelId: panel.id, dir: 'col' })
+        },
+        closePanel: () => {
+          void dispatch('layout.close', { panelId: panel.id })
+        },
+      })}
+      onClose={onClose}
+    />
   )
 }
 
@@ -181,6 +234,7 @@ interface PanelTabProps {
   active: boolean
   focus: PanelFocusApi
   roving: TabRovingApi
+  onContextMenu: (e: ReactMouseEvent) => void
 }
 
 /**
@@ -191,7 +245,7 @@ interface PanelTabProps {
  * behaves unpredictably. The roving `tabIndex` comes from `useTabRoving`, so
  * only the focused panel's active tab is ever in the document's tab order.
  */
-function PanelTab({ panelId, viewId, index, active, focus, roving }: PanelTabProps): ReactElement {
+function PanelTab({ panelId, viewId, index, active, focus, roving, onContextMenu }: PanelTabProps): ReactElement {
   const t = useT()
   const view = useView(viewId)
   const title = view ? viewTitleOf(t, view) : String(viewId)
@@ -220,8 +274,22 @@ function PanelTab({ panelId, viewId, index, active, focus, roving }: PanelTabPro
     void dispatch('view.close', { viewId })
   }
 
+  /**
+   * A provisional tab keeps itself until the user says otherwise — and says so
+   * in italics, the same word editors have used for this for years.
+   *
+   * Double-click is the promotion gesture here as well as on the session row,
+   * and it is on `dblclick` rather than on any single press because the single
+   * press already means "show me this one".
+   */
+  const provisional = view?.provisional === true
+  const onDoubleClick = (): void => {
+    if (provisional) void dispatch('view.promote', { viewId })
+  }
+
   const classes = ['panel-tab']
   if (active) classes.push('active')
+  if (provisional) classes.push('provisional')
 
   return (
     <div
@@ -233,9 +301,11 @@ function PanelTab({ panelId, viewId, index, active, focus, roving }: PanelTabPro
       aria-controls={focus.tabpanelId}
       tabIndex={roving.tabIndexOf(viewId)}
       data-view-id={viewId}
-      title={title}
+      title={provisional ? t('panel.tab.provisional', { title }) : title}
       onPointerDown={onPointerDown}
+      onDoubleClick={onDoubleClick}
       onAuxClick={onAuxClick}
+      onContextMenu={onContextMenu}
     >
       {view?.status === 'loading' ? <span className="tab-busy" /> : null}
       <span className="tab-title">{title}</span>

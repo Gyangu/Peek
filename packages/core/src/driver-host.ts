@@ -513,7 +513,10 @@ export class DriverHostRuntime {
       case 'introspect.children': {
         const session = this.requireSession()
         if (!supportsIntrospect(session)) throw unsupported(session.driverId, 'introspect')
-        return { nodes: await session.listChildren(req.params.parentId) }
+        // `refresh` is forwarded, not ignored: it is the only way anything
+        // outside the driver process can clear an introspection cache, and it
+        // used to stop here (see the note on DriverSession.listChildren).
+        return { nodes: await session.listChildren(req.params.parentId, req.params.refresh) }
       }
 
       case 'introspect.describe': {

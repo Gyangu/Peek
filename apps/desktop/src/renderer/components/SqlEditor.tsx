@@ -4,7 +4,8 @@ import { EditorState, Prec } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { MySQL, PostgreSQL, SQLite, StandardSQL, sql } from '@codemirror/lang-sql'
 import { basicSetup } from 'codemirror'
-import type { DriverId } from '@peek/core'
+import type { DriverId, SqlDialectId } from '@peek/core'
+import { lookupManifest } from '../../drivers/manifests'
 
 export interface SqlEditorProps {
   /** The authoritative text, from the Workspace mirror. */
@@ -94,15 +95,29 @@ export function SqlEditor(props: SqlEditorProps): ReactElement {
   return <div className="editor-wrap" ref={hostRef} style={{ height }} />
 }
 
+/**
+ * Which grammar to highlight with.
+ *
+ * The driver names its own dialect (`DriverManifest.sqlDialect`); this table
+ * turns that name into a CodeMirror object. The split is the point: the grammar
+ * a database speaks is a fact about the database, but `@codemirror/lang-sql` is
+ * a fact about this editor, and importing it into a driver package would put a
+ * syntax highlighter in the driver host process.
+ *
+ * A driver with no `sqlDialect` has no SQL surface at all (redis, qdrant), which
+ * is not the same as wanting the standard one — but the editor is only ever
+ * mounted for a `query` view, and a query view can only exist on a driver with
+ * `tabularQuery`. `StandardSQL` is therefore the answer to a question that is
+ * not asked, kept because a total function has no failure mode to handle.
+ */
+const CODEMIRROR_DIALECT: Readonly<Record<SqlDialectId, typeof StandardSQL>> = {
+  postgres: PostgreSQL,
+  mysql: MySQL,
+  sqlite: SQLite,
+  standard: StandardSQL,
+}
+
 function dialectOf(driverId: DriverId): typeof StandardSQL {
-  switch (driverId) {
-    case 'postgres':
-      return PostgreSQL
-    case 'mysql':
-      return MySQL
-    case 'sqlite':
-      return SQLite
-    default:
-      return StandardSQL
-  }
+  const dialect = lookupManifest(driverId)?.sqlDialect
+  return dialect === undefined ? StandardSQL : CODEMIRROR_DIALECT[dialect]
 }

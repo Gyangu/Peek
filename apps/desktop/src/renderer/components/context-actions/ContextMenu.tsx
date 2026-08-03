@@ -1,7 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import type { ReactElement } from 'react'
-import { useModalDialog } from '../../hooks'
 import { useT } from '../../i18n'
+import { Menu } from '../../ui/Menu'
+import type { MenuNode } from '../../ui/menuModel'
 import { hasContextConsent } from './consent'
 import { ConsentDialog } from './ConsentDialog'
 import { contextActionsFor, type ContextTarget } from './descriptors'
@@ -9,29 +10,33 @@ import { useContextActions } from './useContextActions'
 import './context-actions.css'
 
 /**
- * The right-click menu: "add what I am pointing at to the chat".
+ * The grid's right-click menu: "add what I am pointing at to the chat".
  *
- * The menu's *contents* are decided by `contextActionsFor`, a pure function, so
- * the same set of offers backs the keyboard path and can be asserted in a test
- * without a DOM. This component is only the presentation and the dismissal rules.
+ * ## What this is now, and what it used to be
  *
- * ## Placement
+ * It used to *be* the menu — the popup, the placement, the dismissal rules and
+ * the disclosure gate, in one component, because the grid row was the only
+ * right-clickable surface in the window. `<Menu>` took the first three, and what
+ * is left here is the part that was always this feature's own: which offers
+ * exist for a given target, whether a chat panel is there to receive them, and
+ * the one-time disclosure in front of the first one.
  *
- * Positioned at the pointer and then pulled back inside the window. A menu that
- * opens half off-screen because the user right-clicked near the bottom edge is
- * the single most common way a custom context menu is worse than the native one.
+ * `extraItems` survives as a prop but stops being a bypass. It existed because
+ * every `ContextAction` had to produce a `ChatAttachment` and the grid's copy
+ * commands produce nothing of the sort; now both sides are just `MenuNode`s, and
+ * the prop is an ordinary "the caller has lines of its own" — which is what the
+ * grid meant all along.
  *
- * ## Dismissal
+ * ## Why the menu does not close on the choosing click
  *
- * Escape, a click anywhere else, and choosing an item all close it. The outside
- * click is captured on the backdrop rather than on `window`, so the menu cannot
- * dismiss itself on the very click that opened it.
+ * `useContextActions` holds the chosen attachment while `ConsentDialog` is up,
+ * and that hook instance belongs to *this* component. Closing on the click that
+ * chose would unmount the hook holding the attachment, destroying both the held
+ * gesture and the disclosure about to be shown — observed as a menu item that
+ * silently did nothing at all on first use. So until consent has been given this
+ * component stays mounted and swaps itself for the dialog.
  *
- * The one exception is the disclosure gate. `useContextActions` holds the chosen
- * attachment while `ConsentDialog` is up, and that hook instance belongs to *this*
- * component — so closing on the choosing click would throw the held attachment
- * away along with the dialog. Until consent has been given the menu therefore
- * stays mounted and renders the dialog in its own place.
+ * Design record: docs/design/2026-08-03-context-menu-primitive.md §2.6
  */
 export interface ContextMenuProps {
   /** Where the pointer was, in client coordinates. */
@@ -60,21 +65,18 @@ export interface ContextMenuExtraItem {
   onSelect: () => void
 }
 
-/** Roughly the menu's size, used to keep it inside the viewport before it has been measured. */
-const MENU_W = 260
-const MENU_H = 260
-const EDGE_GAP = 8
-
 export function ContextMenu(props: ContextMenuProps): ReactElement | null {
   const { x, y, target, onClose, extraItems = [] } = props
   const t = useT()
   const actions = useContextActions()
-  // Escape, focus containment and focus restoration, from the same place every
-  // dialog gets them. It matters here for a specific reason: this menu opens
-  // over the grid, whose own Escape clears the row selection — and the menu is
-  // frequently open *because* of that selection. Before the stack, dismissing
-  // the menu with Escape threw the selection away in the same keystroke.
-  const ref = useModalDialog({ label: 'context-menu', onClose })
+  /**
+   * Set for the length of one choice, when that choice opened the disclosure.
+   *
+   * A ref rather than state because it is read by the very next call in the same
+   * event — `<Menu>` calls `onSelect` and then `onClose` synchronously — and a
+   * state update would not have landed by then.
+   */
+  const keepOpen = useRef(false)
 
   const items = useMemo(() => contextActionsFor(target, t), [target, t])
 
@@ -95,91 +97,61 @@ export function ContextMenu(props: ContextMenuProps): ReactElement | null {
     )
   }
 
-  const vw = typeof window === 'undefined' ? MENU_W * 4 : window.innerWidth
-  const vh = typeof window === 'undefined' ? MENU_H * 4 : window.innerHeight
-  const left = Math.max(EDGE_GAP, Math.min(x, vw - MENU_W - EDGE_GAP))
-  const top = Math.max(EDGE_GAP, Math.min(y, vh - MENU_H - EDGE_GAP))
+  const nodes: MenuNode[] = []
+
+  /* Copy first: it is the commonest thing anyone wants from a cell, and it needs
+     neither a chat panel nor the disclosure gate. */
+  for (const item of extraItems) {
+    nodes.push({
+      kind: 'item',
+      id: item.id,
+      label: item.label,
+      ...(item.title === undefined ? {} : { title: item.title }),
+      onSelect: item.onSelect,
+    })
+  }
+  if (extraItems.length > 0) nodes.push({ kind: 'sep', id: 'sep.extra' })
+
+  nodes.push({ kind: 'head', id: 'head.chat', text: t('context.menu.title') })
+
+  if (!actions.hasChatTarget) {
+    nodes.push({ kind: 'note', id: 'note.noChat', text: t('context.menu.noChat'), tone: 'danger' })
+  }
+
+  if (items.length === 0) {
+    nodes.push({ kind: 'note', id: 'note.empty', text: t('context.menu.empty'), tone: 'danger' })
+  } else {
+    for (const item of items) {
+      nodes.push({
+        kind: 'item',
+        id: item.id,
+        label: item.label,
+        ...(item.title === undefined ? {} : { title: item.title }),
+        onSelect: () => {
+          // Read the gate *before* dispatching: `add()` resolves too late to
+          // decide whether this menu may go away.
+          keepOpen.current = !hasContextConsent()
+          // `build()` runs only now, so a descriptor is never minted for an
+          // offer the user did not take.
+          void actions.add(item.build())
+        },
+      })
+    }
+  }
 
   return (
-    <div className="ctx-menu-backdrop" onClick={onClose} onContextMenu={preventAndClose(onClose)}>
-      <div
-        className="ctx-menu"
-        role="menu"
-        tabIndex={-1}
-        ref={ref}
-        style={{ left, top }}
-        onClick={stop}
-      >
-        {/* Copy first: it is the commonest thing anyone wants from a cell, and
-            it needs neither a chat panel nor the disclosure gate. */}
-        {extraItems.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="menuitem"
-            className="ctx-menu-item"
-            {...(item.title === undefined ? {} : { title: item.title })}
-            onClick={() => {
-              item.onSelect()
-              onClose()
-            }}
-          >
-            {item.label}
-          </button>
-        ))}
-        {extraItems.length > 0 ? <div className="ctx-menu-sep" /> : null}
-
-        <div className="ctx-menu-head">{t('context.menu.title')}</div>
-
-        {!actions.hasChatTarget ? (
-          <div className="ctx-menu-note" title={t('context.menu.noChatTitle')}>
-            {t('context.menu.noChat')}
-          </div>
-        ) : null}
-
-        {items.length === 0 ? (
-          <div className="ctx-menu-note">{t('context.menu.empty')}</div>
-        ) : (
-          items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="menuitem"
-              className="ctx-menu-item"
-              {...(item.title === undefined ? {} : { title: item.title })}
-              onClick={() => {
-                // Read the gate *before* dispatching: `add()` resolves too late
-                // to decide whether this menu may go away.
-                const consented = hasContextConsent()
-                // `build()` runs only now, so a descriptor is never minted for an
-                // offer the user did not take.
-                void actions.add(item.build())
-                // Closing here when consent is still pending unmounts the hook
-                // that is *holding* the attachment, which destroys both the held
-                // gesture and the disclosure that was about to be shown — the
-                // observed symptom being a right-click menu item that silently
-                // did nothing at all on first use. When the gate has yet to be
-                // passed the menu stays mounted and swaps itself for the dialog
-                // (above); `onAccept`/`onCancel` are what close it then.
-                if (consented) onClose()
-              }}
-            >
-              {item.label}
-            </button>
-          ))
-        )}
-      </div>
-    </div>
+    <Menu
+      label="context-menu"
+      at={{ x, y }}
+      nodes={nodes}
+      // `<Menu>` closes on every choice, which is right for every other menu in
+      // the window and wrong for exactly one case here — see the header. The
+      // flag is set inside the `onSelect` that runs immediately before this.
+      onClose={() => {
+        const keep = keepOpen.current
+        keepOpen.current = false
+        if (!keep) onClose()
+      }}
+    />
   )
-}
-
-function stop(e: React.MouseEvent): void {
-  e.stopPropagation()
-}
-
-function preventAndClose(onClose: () => void) {
-  return (e: React.MouseEvent): void => {
-    e.preventDefault()
-    onClose()
-  }
 }

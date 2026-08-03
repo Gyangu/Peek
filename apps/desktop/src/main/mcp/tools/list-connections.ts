@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod'
-import { DRIVER_CAPABILITIES } from '@peek/core'
+import { driverCapabilities } from '../../../drivers/manifests'
 import { defineReadTool } from '../executor'
 import { briefConnection, toJson } from '../summary'
 
@@ -36,7 +36,7 @@ export default defineReadTool({
         : `${conns.length} connection(s) (workspace rev=${snap.rev}):`
 
     return {
-      text: `${head}\n\n${toJson({ connections: conns, driverCapabilities: DRIVER_CAPABILITIES })}`,
+      text: `${head}\n\n${toJson({ connections: conns, driverCapabilities: driverCapabilities() })}`,
       data: conns,
     }
   },

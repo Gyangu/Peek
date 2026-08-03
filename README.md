@@ -183,8 +183,8 @@ pnpm install          # pnpm 10 blocks install scripts by default; electron/esbu
 pnpm dev              # electron-vite dev: opens the window, renderer HMR, MCP server on 7332
 pnpm build            # production bundles into apps/desktop/out (main / preload / renderer)
 pnpm -r typecheck     # tsc --noEmit across every package; strict mode, no `any`
-pnpm -r test          # node:test, 1223 tests today (1020 desktop + 51 postgres + 37 redis
-                      #                             + 38 qdrant + 77 mysql/sqlite)
+pnpm -r test          # node:test, 1738 tests today (1378 desktop + 69 core + 60 postgres
+                      #                       + 37 redis + 38 qdrant + 83 mysql/sqlite + 73 neo4j)
 ```
 
 The desktop suite is pure logic — no Electron, no database. Each driver suite is an integration
@@ -195,7 +195,16 @@ PEEK_TEST_PG_URL="postgresql://user@localhost:5432/your_db" \
 PEEK_TEST_REDIS_URL="redis://localhost:6379" \
 PEEK_TEST_QDRANT_URL="http://localhost:6333" \
 PEEK_TEST_MYSQL_URL="mysql://root:pw@localhost:3306/peek_test" \
+PEEK_TEST_NEO4J_URL="bolt://localhost:7687" PEEK_TEST_NEO4J_PASSWORD="…" \
 pnpm -r test
+```
+
+Neo4j is the one that needs a password rather than a URL alone, and it has **no default**. That is
+deliberate: Neo4j rate-limits failed authentication, so a suite that guessed at a password would
+make the *next*, correct attempt fail too. A throwaway server is one line:
+
+```bash
+docker run -d --rm --name peek-test-neo4j -p 7687:7687 -e NEO4J_AUTH=neo4j/peektest123 neo4j:5
 ```
 
 The Redis, Qdrant and SQL suites provision and remove their own fixtures (all Redis keys under a
@@ -226,6 +235,20 @@ development database, so pointing `PEEK_TEST_PG_URL` at an arbitrary database wi
 assertions — and so does leaving it *unset*, because the fallback in the test file is a different
 database again. Making the fixture self-provisioning is open work; until then, PostgreSQL is the one
 suite that needs its variable set even to fail honestly.
+
+Neo4j has a smaller version of the same requirement: the smoke check walks the namespace tree and
+opens the first thing carrying a ref, so an **empty** database has nothing to open and the row
+fails. A throwaway server started with the `docker run` line above is empty, so seed it once:
+
+```bash
+docker exec peek-test-neo4j cypher-shell -u neo4j -p peektest123 \
+  "CREATE (a:PeekSmoke {name:'Ada'})-[:PEEK_SMOKE_KNOWS]->(b:PeekSmoke {name:'Bob'})"
+```
+
+Neo4j is also the only row that opens a **second** view — a `graph`, the one plugin-contributed view
+kind in the tree. That step is what exercises the Tier C seam end to end: `view.open` accepting a
+spec the kernel has no schema for, the registration composing Cypher inside the main process, and
+the result arriving through the same machinery a table's scan uses.
 
 The chat panel's security claims have their own runnable check, for the same reason: a sentence in a
 comment saying "the agent inherits none of your Claude Code configuration" is a sentence that

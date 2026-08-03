@@ -5,9 +5,12 @@ import type { ConnId, NamespaceNode, NotifyMessage, WorkspaceSnapshot } from '@p
 import { stepUiZoom, toPeekError, UI_ZOOM_DEFAULT } from '@peek/core'
 import { installAppMenu } from './menu'
 import { createCommandBus, type CommandBus, type CommandDeps } from './bus'
-import { createChatEventSink, createChatHandlers, watchChatViews } from './bus/handlers'
+import { createChatEventSink, createChatHandlers, watchChatViews, type ChatRuntime } from './bus/handlers'
 import { installBusIpc, sendChatDeltas, sendNotify } from './bus/ipc-main'
-import { AcpManager, defaultAcpConfig, type McpEndpointInfo } from './acp'
+import { AcpManager, chatRootDir, defaultAcpConfig, type McpEndpointInfo } from './acp'
+import { DEFAULT_DELTA_BUDGET } from './agent'
+import { EndpointManager } from './agent/endpoint/loop'
+import { SessionIndex } from './agent/session-index'
 import {
   createConfigHandlers,
   createConnectionBook,
@@ -24,9 +27,11 @@ import {
   createChatStateApplier,
   createContextSource,
   createDeltaEmitter,
+  createEndpointChatRuntime,
 } from './chat-host'
 import { ConnectionManager, setTimeoutSettings } from './connections'
-import { createMcpServer, generateToken } from './mcp'
+import { collectBuiltinTools, createMcpServer, generateToken } from './mcp'
+import { installPluginProtocol, registerPluginScheme } from './plugins/protocol'
 import { WorkspaceStore, createResultEventSink } from './store'
 import { installDriverRpc, type DriverRpcOptions } from './driver-rpc'
 import { createResultRowsBroker, type ResultRowsBroker } from './result-rows'
@@ -95,6 +100,19 @@ function hardenStdio(): void {
 }
 
 hardenStdio()
+
+/**
+ * At module scope, beside `hardenStdio`, and for the same kind of reason: it is
+ * only correct **before `app.whenReady()`**.
+ *
+ * `protocol.registerSchemesAsPrivileged` after ready is not an error — it is
+ * ignored, and `peek-plugin://` then loads with an opaque origin and no secure
+ * context. A plugin frame would still come up, so nothing would look broken; the
+ * isolation it exists to provide would simply not be there. Putting the call
+ * where it cannot be reordered after `whenReady` is the only defence, since
+ * there is no failure to test for.
+ */
+registerPluginScheme()
 
 const isDev = !app.isPackaged
 
@@ -170,6 +188,14 @@ let mcpEndpoint: McpEndpointInfo | null = null
  */
 const agentToken = generateToken()
 let acp: AcpManager | null = null
+/**
+ * The endpoint backend's teardown, when that is the backend in use.
+ *
+ * Separate from `acp` because only one of the two is ever built: the chat panel
+ * has one backend per launch, chosen from settings. Shutdown calls whichever
+ * exists.
+ */
+let endpoint: EndpointManager | null = null
 const disposers: (() => void)[] = []
 
 /** The renderers that should receive patches and notifications; the window may not exist yet or may be destroyed */
@@ -536,9 +562,14 @@ function bootstrap(): void {
   // key to the OS keychain; where that is unavailable the book saves the
   // connection **without** its password rather than writing it in the clear, and
   // `conn.book.list` reports which of the two happened.
+  //
+  // One vault for the process: connection passwords and the chat panel's endpoint
+  // API key are the same kind of secret and go through the same seal.
+  const vault = createSafeStorageVault(safeStorage)
+
   book = createConnectionBook({
     configDir,
-    vault: createSafeStorageVault(safeStorage),
+    vault,
     onError: (message, detail) => {
       notify({ level: 'warn', message, detail })
     },
@@ -610,6 +641,7 @@ function bootstrap(): void {
       book,
       mcp: controller,
       settings,
+      vault,
       configDir,
       version: app.getVersion(),
       applyZoom: applyUiZoom,
@@ -650,9 +682,129 @@ function bootstrap(): void {
  * `read_workspace`, so they go into the Workspace; the transcript is token-by-token
  * data plane and takes its own IPC channel, exactly as result chunks do.
  */
+/**
+ * The endpoint backend, when the user configured one.
+ *
+ * Returns null — and says why — rather than throwing, on any of the three ways
+ * this can be unusable: no endpoint configured, a key the keychain will not open,
+ * or a provider that cannot be built from what is stored. The caller then falls
+ * back to the bundled agent, which is a working chat panel rather than none, and
+ * the notification is what keeps that from being a silent substitution.
+ */
+function wireEndpointBackend(
+  chosen: NonNullable<ReturnType<SettingsStore['read']>['agent']>,
+  sessionIndex: SessionIndex,
+  source: ReturnType<typeof createContextSource>,
+  onError: (chatId: never, error: never) => void,
+  commandBus: CommandBus,
+  rows: ResultRowsBroker,
+): ChatRuntime | null {
+  const config = chosen.endpoint
+  if (!config) {
+    notify({
+      level: 'warn',
+      message: 'The chat panel is set to use your own endpoint, but none is configured.',
+      detail: 'Add a base URL and a model in Settings → Chat agent. Using the bundled agent for now.',
+    })
+    return null
+  }
+
+  // Unsealed here and nowhere else. It travels from this line into the provider
+  // and out as an HTTP header; nothing writes it to a file or a log, and
+  // `EndpointManager` redacts it from every error it reports.
+  let apiKey: string | null = null
+  if (chosen.endpointApiKeySealed) {
+    apiKey = createSafeStorageVault(safeStorage).open(chosen.endpointApiKeySealed)
+    if (apiKey === null) {
+      notify({
+        level: 'warn',
+        message: 'The chat endpoint’s API key could not be read.',
+        detail:
+          'It was sealed by a different machine or user account. Enter it again in Settings → Chat agent. ' +
+          'Continuing without a key.',
+      })
+    }
+  }
+
+  const manager = new EndpointManager(
+    {
+      applyState: createChatStateApplier(store),
+      emitDeltas: createDeltaEmitter(renderers, sendChatDeltas),
+      notify,
+      // The same tools an external MCP client sees, called in-process rather than
+      // over the loopback: no second credential, and `source: 'agent'` is passed
+      // by this line rather than inferred from a bearer token.
+      tools: collectBuiltinTools(),
+      toolContext: {
+        dispatch: (name, input, callSource) => commandBus.dispatch(name, input, callSource) as never,
+        getSnapshot: (): WorkspaceSnapshot => store.getSnapshot(),
+        readResultRows: (req) => rows.read(req),
+        logger: {
+          log: (level, message, detail) => {
+            if (level === 'error') console.error('[peek/agent]', message, detail ?? '')
+            else if (level === 'warn') console.warn('[peek/agent]', message, detail ?? '')
+            else console.log('[peek/agent]', message)
+          },
+        },
+        now: () => Date.now(),
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      },
+    },
+    {
+      settings: config,
+      apiKey,
+      permissionMode: chosen.permissionMode ?? 'default',
+      batch: DEFAULT_DELTA_BUDGET,
+      source: 'agent',
+    },
+  )
+  endpoint = manager
+
+  return createEndpointChatRuntime({
+    manager,
+    source,
+    notify,
+    onError: onError as never,
+    sessionIndex,
+    modelId: config.model,
+  })
+}
+
 function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
   const sink = createChatEventSink(store)
   const applyState = createChatStateApplier(store)
+  const source = createContextSource({ store, connections, rows })
+  const onError = (chatId: Parameters<typeof sink.onAgentError>[0], error: Parameters<typeof sink.onAgentError>[1]): void => {
+    sink.onAgentError(chatId, error)
+  }
+
+  // Which agent the user picked, read once at wire-up. Changing it in settings
+  // decides what the *next* peek launch runs: a backend holds live sessions, and
+  // swapping it under a conversation would hand a transcript to something that
+  // cannot read it. The settings panel says so.
+  const chosen = settingsStore?.read().agent
+  // One index for every backend, at the root of the chat directory — each agent
+  // owns a subdirectory under it, and the index is what says which. Built here
+  // because assembly is the only place that knows the config directory.
+  const sessionIndex = SessionIndex.at(chatRootDir(process.env['PEEK_CONFIG_DIR']))
+
+  if (chosen?.backend === 'endpoint') {
+    const runtime = wireEndpointBackend(chosen, sessionIndex, source, onError, commandBus, rows)
+    if (runtime) {
+      commandBus.registerAll(createChatHandlers(runtime))
+      disposers.push(watchChatViews(store, runtime))
+      return
+    }
+    // Configured for an endpoint that is not usable — no URL, no model, or a key
+    // the keychain will not open. The ACP backend below is not a silent
+    // substitution: the notify above says what happened and what to fix.
+  }
+
+  const acpConfig = defaultAcpConfig(chosen?.acpProfile)
+  if (chosen?.acpExecutablePath) acpConfig.agentConfig = { executablePath: chosen.acpExecutablePath }
+  // The mode a new conversation starts in. The panel's own dropdown still moves it
+  // per conversation — this only decides where it starts.
+  if (chosen?.permissionMode) acpConfig.permissionMode = chosen.permissionMode
 
   const manager = new AcpManager(
     {
@@ -660,8 +812,9 @@ function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
       emitDeltas: createDeltaEmitter(renderers, sendChatDeltas),
       notify,
       resolveMcpEndpoint: () => mcpEndpoint,
+      sessionIndex,
     },
-    { ...defaultAcpConfig(), clientVersion: app.getVersion() },
+    { ...acpConfig, clientVersion: app.getVersion() },
   )
   acp = manager
 
@@ -685,13 +838,12 @@ function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
 
   const runtime = createAcpChatRuntime({
     manager,
-    source: createContextSource({ store, connections, rows }),
+    source,
     notify,
     // Failures that escape the agent land on the conversation the user is looking
     // at, through the same sink the streaming path writes with.
-    onError: (chatId, error) => {
-      sink.onAgentError(chatId, error)
-    },
+    onError,
+    sessionIndex,
   })
 
   // Overwrites the `createUnavailableChatRuntime` stubs `createCommandBus`
@@ -732,6 +884,11 @@ async function shutdown(): Promise<void> {
     console.error('[peek/error] failed to shut the chat agent down', error)
   })
   acp = null
+  // The endpoint backend has no child process, but it does have pending
+  // permission prompts and in-flight turns; disposing settles both rather than
+  // leaving a promise nobody will ever answer.
+  endpoint?.dispose()
+  endpoint = null
   await connections.disposeAll().catch((error: unknown) => {
     console.error('[peek/error] failed to reclaim driver processes', error)
   })
@@ -755,6 +912,12 @@ if (!app.requestSingleInstanceLock()) {
     // build, and it stops the default Window menu from binding ⌘W, which is
     // peek's own "close tab". See menu.ts.
     installAppMenu({ isDev, onZoom: menuZoom })
+
+    // Before `bootstrap()`, which creates the window: the first thing a restored
+    // workspace can contain is a plugin view, and its iframe would then request
+    // a scheme with no handler. That failure is silent in the frame — a blank
+    // panel, no console entry in the host — so the ordering is the fix.
+    installPluginProtocol()
 
     bootstrap()
 

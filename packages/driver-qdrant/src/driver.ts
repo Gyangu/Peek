@@ -1,5 +1,4 @@
 import {
-  DRIVER_CAPABILITIES,
   peekError,
   type Capability,
   type ConnectionConfig,
@@ -8,16 +7,20 @@ import {
   type DriverSession,
   type QdrantConnectionConfig,
 } from '@peek/core'
+import { qdrantManifest } from './manifest'
 import { QdrantSession } from './session'
 
 /**
  * Qdrant driver factory.
- * `capabilities` has a single source of truth in DRIVER_CAPABILITIES.qdrant:
- * introspect + collectionScan + vectorSearch + valuePeek.
+ *
+ * `meta` and `capabilities` are read off this package's own manifest, which is
+ * also what the connect dialog and the MCP tools consult before anything has
+ * connected — so what is advertised and what is implemented are one array, not
+ * two that agree today.
  */
 export class QdrantDriver implements Driver<QdrantConnectionConfig> {
-  readonly meta: DriverMeta = { id: 'qdrant', displayName: 'Qdrant' }
-  readonly capabilities: ReadonlySet<Capability> = new Set(DRIVER_CAPABILITIES.qdrant)
+  readonly meta: DriverMeta = { id: 'qdrant', displayName: qdrantManifest.displayName }
+  readonly capabilities: ReadonlySet<Capability> = new Set(qdrantManifest.capabilities)
 
   connect(cfg: QdrantConnectionConfig, signal?: AbortSignal): Promise<DriverSession> {
     return QdrantSession.connect(cfg, signal)

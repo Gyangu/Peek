@@ -17,6 +17,9 @@ import { connHas } from '../../state/capabilities'
 import { notify } from '../../state/notifyStore'
 import { getCell, isPendingCell } from '../../state/resultCache'
 import { useConnection } from '../../state/workspaceStore'
+import { copyText } from '../../util/clipboard'
+import { Menu } from '../../ui/Menu'
+import { useContextMenu } from '../../ui/useContextMenu'
 import { formatBytes, fullValueText } from '../../util/format'
 import { ViewError } from '../ViewError'
 import { nextKeyWindow, windowSize } from './keyWindow'
@@ -294,13 +297,68 @@ function ElementTable({
         <div className="v">{head[1]}</div>
       </div>
       {rows.map(([label, element], i) => (
-        <div className="kv-list-row" key={`${label}:${String(i)}`}>
-          <div className="k mono">{label}</div>
-          <div className="v mono">
-            <ElementText connId={connId} element={element} />
-          </div>
-        </div>
+        <ElementRow key={`${label}:${String(i)}`} connId={connId} label={label} element={element} />
       ))}
+    </div>
+  )
+}
+
+/**
+ * One row of a structure: its key on the left, its element on the right.
+ *
+ * The row had no actions of its own, which in a key/value inspector is the
+ * omission that matters most — reading a field is what this panel is for, and
+ * taking the value somewhere else is what happens next. Both halves are offered
+ * because both get copied: the field name to write the next command with, the
+ * value to paste into whatever asked for it.
+ */
+function ElementRow({
+  connId,
+  label,
+  element,
+}: {
+  connId: ConnId
+  label: string
+  element: KeyValueElement
+}): ReactElement {
+  const t = useT()
+  const menu = useContextMenu<null>()
+
+  return (
+    <div className="kv-list-row" onContextMenu={menu.open(null)}>
+      <div className="k mono">{label}</div>
+      <div className="v mono">
+        <ElementText connId={connId} element={element} />
+      </div>
+      {menu.state ? (
+        <Menu
+          label={t('menu.kv.label')}
+          at={menu.state.at}
+          nodes={[
+            {
+              kind: 'item',
+              id: 'kv.copyKey',
+              label: t('menu.kv.copyKey'),
+              onSelect: () => {
+                copyText(label)
+              },
+            },
+            {
+              kind: 'item',
+              id: 'kv.copyValue',
+              label: t('menu.kv.copyValue'),
+              // A truncated element copies its *preview*, which is all the
+              // window ever received. Pulling the whole thing is a round trip
+              // and belongs to the button that already says so — silently
+              // copying 10MB behind a menu line would be the surprising one.
+              onSelect: () => {
+                copyText(typeof element === 'string' ? element : element.preview)
+              },
+            },
+          ]}
+          onClose={menu.close}
+        />
+      ) : null}
     </div>
   )
 }

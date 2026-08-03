@@ -626,6 +626,14 @@ textarea:focus {
 /* The focus ring for a tab lives in keyboard-nav.css, with every other real
    focus ring — one place to read them all. */
 
+/* A tab opened to be looked at, not yet kept — `ViewBase.provisional`. Italic
+   is the editors' word for this and costs no layout: the strip must not reflow
+   at the moment a tab is promoted. It is never the *only* signal — the tab's
+   `title` says it in words, for anyone the slant does not reach. */
+.panel-tab.provisional .tab-title {
+  font-style: italic;
+}
+
 .tab-title {
   flex: 1;
   min-width: 0;
@@ -702,6 +710,47 @@ textarea:focus {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  color: var(--fg-faint);
+}
+
+/* ------------------------------------------------------------------ */
+/* A self-drawn (Tier C) plugin view                                     */
+/* ------------------------------------------------------------------ */
+
+/* The frame fills the panel and draws its own everything. peek contributes no
+   chrome around it on purpose: a plugin that is given a header it does not
+   control ends up drawing a second one inside, and the two disagree about which
+   view is which. See docs/design/2026-08-03-plugin-architecture.md §2.6. */
+.plugin-frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.plugin-frame-doc {
+  flex: 1;
+  border: 0;
+  /* The frame's own document paints its background; without this the iframe's
+     default white flashes through for one frame on a dark window. */
+  background: var(--bg-1);
+  /* Cross-origin, so nothing here can style it — every visual decision inside is
+     the plugin's, and this element only decides how much room it gets. */
+  color-scheme: dark;
+}
+
+/* Shown only when the frame never answered `ready` — see READY_TIMEOUT_MS. It
+   covers the frame rather than replacing it, so a plugin that recovers late is
+   still visible underneath rather than having been unmounted. */
+.plugin-frame-stalled {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+  text-align: center;
+  background: var(--bg-1);
   color: var(--fg-faint);
 }
 
@@ -788,11 +837,20 @@ body.view-dragging.view-drag-nodrop * {
   box-shadow: 0 0 6px var(--accent);
 }
 
+/*
+ * `max-width: 100%` is right for the highlight's label — it is bounded by the
+ * half-panel it names. Here the containing block is the caret itself, which is
+ * 2px wide, so the same declaration shrinks the label to two pixels and
+ * `overflow: hidden` cuts the first glyph in half. The line is drawn in viewport
+ * coordinates precisely so nothing clips it; its label inherits that, and sizes
+ * to the words it carries.
+ */
 .tab-insert-caret .drop-label {
   position: absolute;
   top: 100%;
   left: 0;
   margin-top: 3px;
+  max-width: none;
   white-space: nowrap;
   border: 1px solid var(--accent-dim);
 }
@@ -1380,23 +1438,6 @@ body.view-dragging.view-drag-nodrop * {
   text-overflow: ellipsis;
 }
 
-/* Per-node action (vector search). Hidden until the row is hovered or selected,
-   so a long collection list stays a list rather than a wall of buttons. */
-.tree-action {
-  margin-left: auto;
-  flex: 0 0 auto;
-  height: 20px;
-  min-height: 0; /* inline in a 24px row; see the note on `button` */
-  padding: 0 7px;
-  font-size: var(--fs-sm);
-  visibility: hidden;
-}
-
-.tree-node:hover .tree-action,
-.tree-node.selected .tree-action {
-  visibility: visible;
-}
-
 /* ------------------------------------------------------------------ */
 /* Vector search query bar                                               */
 /* ------------------------------------------------------------------ */
@@ -1651,6 +1692,76 @@ body.view-dragging.view-drag-nodrop * {
   margin-bottom: 10px;
 }
 
+/* ---- Databases section ---- */
+
+/* A real table, not a list of `.form-row`s. What is being read here is three
+   values compared down a column ("which of these is at a different version"),
+   and the label-gutter form layout the rest of this pane uses cannot line up a
+   column at all. It gets the full pane width, hence no 124px gutter. */
+.pkg-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4px 0 14px;
+  font-size: 12px;
+}
+
+.pkg-table th,
+.pkg-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 6px 10px 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.pkg-table thead th {
+  color: var(--fg-faint);
+  font-weight: 500;
+}
+
+.pkg-table tbody th {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* The id sits under the proper name rather than beside it: the two are the same
+   fact at different levels of formality, and a second column for it would push
+   the numbers people are comparing further apart. */
+.pkg-id {
+  display: block;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+/* Capabilities are the longest cell and the least urgent, so they are the one
+   allowed to wrap. */
+.pkg-caps {
+  color: var(--fg-dim);
+  white-space: normal;
+}
+
+.pkg-kinds {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pkg-kind-label {
+  margin-left: 8px;
+  color: var(--fg-faint);
+}
+
+/* A label above its content rather than beside it, for the one block here whose
+   content is a list and would otherwise be indented into a narrow column. */
+.form-row-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
 /* A two-option picker stretched across a 760px dialog reads as two unrelated
    buttons with a gap, not as one control. It only needs to be as wide as its
    widest option. */
@@ -1729,6 +1840,15 @@ body.view-dragging.view-drag-nodrop * {
   padding: 5px 7px;
   margin-bottom: 2px;
   border-bottom: 1px solid var(--border);
+}
+
+.session-item[aria-selected='true'] {
+  background: var(--bg-2);
+}
+
+.session-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .session-item:hover {

@@ -32,6 +32,8 @@ export const views: CatalogFor<ViewsMessages> = {
   'query.empty': '写一条语句并执行',
 
   'tree.loading': '加载中…',
+  'tree.connecting': '连接中…',
+  'tree.notReady': '连接未就绪',
   'tree.empty': '空',
   'tree.refresh': '刷新',
   'tree.openHint': '双击打开',

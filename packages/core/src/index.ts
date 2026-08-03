@@ -10,6 +10,10 @@
  *   values.ts         canonical JS representation of a cell, per LogicalType
  *   cursor.ts         continuation-cursor semantics (page boundary + intra-page skip)
  *   capability.ts     driver capability model (Driver / DriverSession / Cursor / the Refs)
+ *   manifest.ts       DriverManifest: what a database *is* (name, capabilities, connect form),
+ *                     declared by each driver package in a client-free subpath entry
+ *   view-kinds.ts     the contract half of a plugin-contributed view kind
+ *   plugin-channel.ts the one MessagePort protocol a self-drawn (Tier C) plugin view speaks
  *   driver-host.ts    driver-agnostic driver-host runtime (the ipc.ts protocol, implemented once)
  *   workspace.ts      Workspace state model (tiled layout / views / connection state machine)
  *   layout-dnd.ts     drop-zone geometry for dragging a view between panels
@@ -27,6 +31,9 @@ export * from './ids'
 export * from './chunk'
 export * from './values'
 export * from './capability'
+export * from './manifest'
+export * from './view-kinds'
+export * from './plugin-channel'
 export * from './cursor'
 export * from './chat'
 export * from './workspace'

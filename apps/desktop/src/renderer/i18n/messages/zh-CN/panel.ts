@@ -14,6 +14,7 @@ export const panel: CatalogFor<PanelMessages> = {
 
   'panel.tabs.listLabel': '面板标签页',
   'panel.tab.close': '关闭 {title}',
+  'panel.tab.provisional': '{title} —— 临时标签页，双击固定',
 
   'panel.dragView': '拖拽以移动此视图',
   'panel.drop.move': '移动到此处',
@@ -28,6 +29,9 @@ export const panel: CatalogFor<PanelMessages> = {
   'a11y.panel.empty': '空面板 {index}',
 
   'view.gone': '视图 {viewId} 已不存在',
+  'view.pluginMissing': '没有插件提供「{kind}」这种视图',
+  'view.pluginUnbuilt': '「{kind}」视图的界面没有构建 —— 执行 pnpm build:plugin-ui',
+  'view.pluginError': '「{kind}」视图报告了一个问题',
 
   'view.kind.table': '表格',
   'view.kind.query': '查询',
@@ -35,6 +39,7 @@ export const panel: CatalogFor<PanelMessages> = {
   'view.kind.tree': '对象树',
   'view.kind.vector': '向量检索',
   'view.kind.chat': '对话',
+  'view.kind.graph': '关系图',
 
   'view.describe.table': '{kind} {ref} · 偏移 {offset} 限制 {limit}',
   'view.describe.query': '{kind} {text}',

@@ -75,11 +75,22 @@ export interface ScanCursor {
 }
 
 /**
- * `<driverId>:<skip>:<boundary>`. The driver id is lowercase letters (see
+ * `<driverId>:<skip>:<boundary>`. The driver id is lowercase alphanumerics (see
  * `DRIVER_IDS`) and the skip is digits, so neither can swallow a colon that
  * belongs to the boundary.
+ *
+ * **The id class must stay in step with `DRIVER_IDS`.** It was `[a-z]+` while
+ * every id happened to be pure letters, and `neo4j` — the first one with a digit
+ * in it — did not match: `encodeScanCursor` minted `neo4j:0:7` and
+ * `decodeScanCursor` refused its own output as malformed. The visible failure is
+ * a scan that silently cannot continue past its first page, on that driver only.
+ * `scan-cursor.test.ts` catches it because it loops over `DRIVER_IDS` rather than
+ * over a hand-written list.
+ *
+ * Digits are safe to admit here: the skip group is anchored between two colons
+ * and is matched greedily after the id, so a numeric id cannot swallow it.
  */
-const CURSOR_TOKEN_RE = /^([a-z]+):(\d+):([\s\S]*)$/
+const CURSOR_TOKEN_RE = /^([a-z][a-z0-9]*):(\d+):([\s\S]*)$/
 
 export function encodeScanCursor(cursor: ScanCursor): string {
   const skip = Number.isFinite(cursor.skip) ? Math.max(0, Math.trunc(cursor.skip)) : 0

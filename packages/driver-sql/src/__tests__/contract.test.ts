@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { DRIVER_CAPABILITIES, isPeekError, type RelationRef } from '@peek/core'
+import { isPeekError, type RelationRef } from '@peek/core'
 import { mysqlDriver, requireMysqlConfig, requireSqliteConfig, sqliteDriver } from '../driver'
+import { mysqlManifest, sqliteManifest } from '../manifest'
 import { MYSQL_DIALECT } from '../mysql/dialect'
 import { SQLITE_DEFAULT_SCHEMA, SQLITE_DIALECT, sqliteAffinity } from '../sqlite/dialect'
 import { parseSqlNodeId, sqlNodeId } from '../introspect'
@@ -18,9 +19,13 @@ import { buildScanSql } from '../sql'
 const users: RelationRef = { kind: 'relation', schema: 'peek_test', name: 'users' }
 
 describe('driver-sql contract', () => {
-  it('advertises exactly the capability sets core declares', () => {
-    assert.deepEqual([...mysqlDriver.capabilities].sort(), [...DRIVER_CAPABILITIES.mysql].sort())
-    assert.deepEqual([...sqliteDriver.capabilities].sort(), [...DRIVER_CAPABILITIES.sqlite].sort())
+  it('advertises exactly the capability sets this package declares for itself', () => {
+    // Against the package's own manifests, which are what the connect dialog and
+    // the MCP tools read before anything has connected. These used to be pinned
+    // to a table in core that the driver imported back — self-consistent, and
+    // describing the package from outside it.
+    assert.deepEqual([...mysqlDriver.capabilities].sort(), [...mysqlManifest.capabilities].sort())
+    assert.deepEqual([...sqliteDriver.capabilities].sort(), [...sqliteManifest.capabilities].sort())
     assert.equal(mysqlDriver.meta.id, 'mysql')
     assert.equal(sqliteDriver.meta.id, 'sqlite')
   })

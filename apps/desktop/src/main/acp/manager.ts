@@ -90,8 +90,9 @@ import {
   type PeekError,
 } from '@peek/core'
 import { TypedEmitter } from '../connections/emitter'
-import { AgentProcess, agentGoneError, resolveAgentEntry } from './agent-process'
-import { DeltaBatcher } from './batcher'
+import { AgentProcess, agentGoneError } from './agent-process'
+import { profileById, type AcpSpawnCommand } from './profiles'
+import { DeltaBatcher } from '../agent/batcher'
 import {
   AUTH_HELP,
   acpTimeout,
@@ -101,8 +102,8 @@ import {
   redact,
   sanitizeLine,
 } from './errors'
-import { PermissionBroker, type PermissionDecision } from './permissions'
-import { buildAgentSessionMeta, buildPeekMcpServer, ensureChatWorkdir } from './session-config'
+import { PermissionBroker, type PermissionDecision } from '../agent/permissions'
+import { buildPeekMcpServer, ensureChatWorkdir } from './session-config'
 import { TranscriptTranslator, type ChatStateDelta, type TranslationOutput } from './translate'
 import {
   DEFAULT_ACP_TIMEOUTS,
@@ -195,13 +196,19 @@ interface ChatSession {
   pendingCancel: boolean
 }
 
-export function defaultAcpConfig(): AcpHostConfig {
+export function defaultAcpConfig(profileId?: string): AcpHostConfig {
+  const profile = profileById(profileId ?? process.env['PEEK_ACP_PROFILE'])
   return {
+    profile,
+    agentConfig: {},
     // Deferred, not resolved here. `ensureChatWorkdir` throws when the directory
     // cannot be created, and this function is called during assembly — a
     // read-only home used to take the entire app down before a window existed,
     // for the sake of an optional panel. Now the cost is one failed conversation.
-    resolveCwd: () => ensureChatWorkdir(process.env['PEEK_CONFIG_DIR']),
+    //
+    // Per agent, so no agent enumerates history another one wrote. Claude Code's
+    // segment is deliberately absent — see `AcpAgentProfile.workdirSegment`.
+    resolveCwd: () => ensureChatWorkdir(process.env['PEEK_CONFIG_DIR'], profile.workdirSegment),
     // A restrictive mode on purpose. The agent's own default is `auto`, where a
     // model classifier approves tool calls without asking anyone — which would
     // make "the user gates tool calls" a claim peek does not actually keep.
@@ -210,9 +217,6 @@ export function defaultAcpConfig(): AcpHostConfig {
     batch: DEFAULT_DELTA_BUDGET,
     restart: DEFAULT_RESTART_POLICY,
     verbose: process.env['PEEK_ACP_VERBOSE'] === '1',
-    ...(process.env['PEEK_CLAUDE_CODE_EXECUTABLE']
-      ? { claudeCodeExecutable: process.env['PEEK_CLAUDE_CODE_EXECUTABLE'] }
-      : {}),
   }
 }
 
@@ -243,7 +247,13 @@ export class AcpManager {
   constructor(deps: AcpHostDeps, config: AcpHostConfig = defaultAcpConfig()) {
     this.#deps = deps
     this.#config = config
-    this.#permissions = new PermissionBroker()
+    // The broker owns which prompt is on screen, because with a queue that is not
+    // something any single caller can know — it depends on who else is waiting.
+    this.#permissions = new PermissionBroker({
+      onActive: (chatId, pending) => {
+        this.#patch(chatId, { pendingPermission: pending })
+      },
+    })
   }
 
   get running(): boolean {
@@ -446,7 +456,7 @@ export class AcpManager {
     await this.#ensureAgent()
     if (!this.#supportsSessionList()) return { sessions: [], supported: false, cwd }
     const connection = this.#connection
-    if (!connection) throw agentGoneError()
+    if (!connection) throw agentGoneError(this.#config.profile.displayName)
 
     const response = await withTimeout(
       connection.listSessions({ cwd }),
@@ -474,12 +484,16 @@ export class AcpManager {
       throw peekError('UNSUPPORTED_CAPABILITY', 'This agent cannot delete stored conversations.')
     }
     const connection = this.#connection
-    if (!connection) throw agentGoneError()
+    if (!connection) throw agentGoneError(this.#config.profile.displayName)
     await withTimeout(
       connection.deleteSession({ sessionId }),
       this.#config.timeouts.deleteSessionMs,
       'Deleting the conversation',
     )
+    // After the agent, never before. The transcript is the real thing; dropping
+    // the route first would leave an orphaned conversation nobody can attribute
+    // if the delete then failed.
+    this.#deps.sessionIndex?.remove(sessionId)
   }
 
   /** Both halves have to be there: a catalogue you cannot open is not a catalogue. */
@@ -587,7 +601,12 @@ export class AcpManager {
       this.#process = null
     }
 
-    const entryPath = this.#config.agentEntryPath ?? resolveAgentEntry()
+    const profile = this.#config.profile
+    // The override exists for the tests, which run a stub agent from the repo
+    // rather than a published package; everything else comes from the profile.
+    const command: AcpSpawnCommand = this.#config.agentEntryPath
+      ? { command: process.execPath, args: [this.#config.agentEntryPath], runAsNode: true }
+      : profile.resolveSpawn(this.#config.agentConfig)
     // Resolved here rather than during assembly: a directory that cannot be
     // created is one failed conversation, not a window that never opens.
     const cwd = this.#config.resolveCwd()
@@ -606,9 +625,10 @@ export class AcpManager {
     })
 
     const stdio = proc.start({
-      entryPath,
+      command,
       cwd,
-      ...(this.#config.claudeCodeExecutable ? { claudeCodeExecutable: this.#config.claudeCodeExecutable } : {}),
+      env: profile.env(this.#config.agentConfig),
+      displayName: profile.displayName,
       secrets: this.#secrets,
     })
     this.#process = proc
@@ -705,7 +725,7 @@ export class AcpManager {
     this.events.emit('exit', { code, signal, expected })
 
     this.#permissions.cancelAll(null, 'agent-gone')
-    const error = agentGoneError()
+    const error = agentGoneError(this.#config.profile.displayName)
     for (const session of this.#sessions.values()) {
       if (session.agentSessionId) this.#byAgentSession.delete(session.agentSessionId)
       session.agentSessionId = null
@@ -838,7 +858,7 @@ export class AcpManager {
 
   async #openAgentSession(session: ChatSession): Promise<void> {
     const connection = this.#connection
-    if (!connection) throw agentGoneError()
+    if (!connection) throw agentGoneError(this.#config.profile.displayName)
 
     // Check the endpoint before creating the session, not after. `session/new`
     // does not fail on an unreachable MCP server — it degrades quietly — so
@@ -864,7 +884,7 @@ export class AcpManager {
     // makes the dialog below decorative. See `buildAgentSessionMeta`. It is
     // passed to `session/load` as well as `session/new`: a resumed conversation
     // is exactly as much of a sandbox question as a fresh one.
-    const _meta = buildAgentSessionMeta()
+    const _meta = this.#config.profile.buildSessionMeta(this.#config.agentConfig)
 
     const resumeId = session.resumeSessionId
     if (resumeId !== null) {
@@ -918,6 +938,14 @@ export class AcpManager {
 
     session.agentSessionId = created.sessionId
     this.#byAgentSession.set(created.sessionId, session)
+    // Route recorded at creation, not at first message: a conversation the user
+    // abandons before typing is still one the catalogue has to attribute to the
+    // right agent, and this is the only moment peek knows both facts at once.
+    this.#deps.sessionIndex?.record({
+      sessionId: created.sessionId,
+      backend: 'acp',
+      agentId: this.#config.profile.id,
+    })
 
     await this.#applyPermissionMode(connection, created.sessionId, session.chatId)
   }
@@ -965,7 +993,7 @@ export class AcpManager {
     const connection = this.#connection
     const agentSessionId = session.agentSessionId
     if (!connection || !agentSessionId) {
-      this.#finishTurn(session, 'error', agentGoneError())
+      this.#finishTurn(session, 'error', agentGoneError(this.#config.profile.displayName))
       return
     }
 
@@ -1011,6 +1039,14 @@ export class AcpManager {
     session.streaming = false
     session.localStop = null
     session.pendingCancel = false
+    // The broker too, not just the local bookkeeping. A turn should not normally
+    // end with a prompt outstanding — the agent is blocked on the answer, so it
+    // has no reason to stop — but an error path can, and with a queue a leftover
+    // entry is not merely a leaked promise: it sits at the head of the chat's
+    // queue and every prompt of the *next* turn lines up behind something nobody
+    // will ever answer. Clearing `permissionIds` without this would leave the two
+    // records disagreeing about what is outstanding.
+    this.#permissions.cancelAll(session.chatId, 'turn-cancelled')
     session.permissionIds.clear()
     const out = session.translator.finishTurn(stopReason, error)
     this.#emit(session, out.deltas, out.state, { flush: true })
@@ -1239,7 +1275,11 @@ export class AcpManager {
     // Flush the transcript first: the tool row this prompt refers to must already
     // be on screen when the dialog appears.
     session.batcher.flush()
-    this.#patch(session.chatId, { status: 'awaiting-permission', pendingPermission: ticket.pending })
+    // `pendingPermission` is the broker's to set — this request may be queued
+    // behind another, in which case showing it now would overwrite a prompt the
+    // user is still reading. That overwrite is exactly the bug this queue fixed:
+    // see design/2026-08-03-concurrent-permission-prompts.md.
+    this.#patch(session.chatId, { status: 'awaiting-permission' })
 
     // Both clocks stop while a person is reading. `permissionMs` is the budget
     // that applies here, and it is enforced by the ticket itself.
@@ -1262,9 +1302,17 @@ export class AcpManager {
         this.#resumeMax(session)
       }
     }
+    // Only the status here. Whether a prompt is still on screen depends on the
+    // queue, and the broker has already announced the answer to that — clearing
+    // it unconditionally would dismiss the *next* prompt the moment this one was
+    // answered.
+    //
+    // The status has to follow the queue too: answering one of three parallel
+    // requests leaves the chat still waiting on a person, and reporting
+    // `streaming` there would describe a turn that is in fact blocked.
+    const stillAsking = this.#permissions.activeFor(session.chatId) !== null
     this.#patch(session.chatId, {
-      pendingPermission: null,
-      status: session.streaming ? 'streaming' : 'ready',
+      status: stillAsking ? 'awaiting-permission' : session.streaming ? 'streaming' : 'ready',
     })
 
     if (decision.kind === 'selected') {

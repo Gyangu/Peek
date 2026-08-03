@@ -21,6 +21,7 @@ import type { WebContents } from 'electron'
 import type {
   ChatDelta,
   ChatId,
+  ChatSessionsListResult,
   ChatViewState,
   NotifyMessage,
   PeekError,
@@ -32,8 +33,11 @@ import type {
 import { toPeekError } from '@peek/core'
 import type { Draft } from 'immer'
 import type { AcpManager } from './acp'
+import { profileById } from './acp'
+import type { SessionIndex, SessionRoute } from './agent/session-index'
+import type { EndpointManager } from './agent/endpoint/loop'
 import type { ChatAgentStatePatch } from './acp'
-import { resolveAttachments, type ContextSource, type TabularSlice } from './acp/context'
+import { resolveAttachments, type ContextSource, type TabularSlice } from './agent/context'
 import type { ChatEffect, ChatRuntime } from './bus/handlers'
 import { findChatView } from './bus/handlers'
 import type { ConnectionManager } from './connections'
@@ -182,6 +186,20 @@ export interface ChatRuntimeDeps {
   notify(message: NotifyMessage): void
   /** Report a failure back onto the conversation the user is looking at. */
   onError(chatId: ChatId, error: PeekError): void
+  /** Routes conversations to their backend, and names the agent on each row. Optional; see `AcpHostDeps.sessionIndex`. */
+  sessionIndex?: SessionIndex
+}
+
+/**
+ * How a route reads on a session row.
+ *
+ * ACP conversations are named by their profile; endpoint conversations by the
+ * model they were started with, which is the closest thing that backend has to
+ * an agent identity. `profileById` is asked rather than the raw id so the row
+ * says "Claude Code", not "claude-code".
+ */
+function agentDisplayName(route: SessionRoute): string {
+  return route.backend === 'acp' ? profileById(route.agentId).displayName : route.agentId
 }
 
 /**
@@ -201,7 +219,7 @@ export interface ChatRuntimeDeps {
  * blocking it during a turn is the one deadlock this design has to avoid.
  */
 export function createAcpChatRuntime(deps: ChatRuntimeDeps): ChatRuntime {
-  const { manager, source, notify, onError } = deps
+  const { manager, source, notify, onError, sessionIndex } = deps
 
   const fail = (chatId: ChatId, raw: unknown, what: string): void => {
     const error = toPeekError(raw)
@@ -313,17 +331,32 @@ export function createAcpChatRuntime(deps: ChatRuntimeDeps): ChatRuntime {
       }
     },
 
+    /**
+     * The conversation catalogue, with each row attributed to its agent.
+     *
+     * The rows still come from the backend that wrote them — peek keeps no
+     * transcripts. What the index adds is the label: which agent a conversation
+     * belongs to, which peek is the only party in a position to know once more
+     * than one backend can write history. See
+     * `docs/design/2026-08-03-pluggable-agent-backends.md` §3.5.
+     */
     listSessions() {
       return manager.listSessions().then((result) => ({
-        sessions: result.sessions.map((session) => ({
-          sessionId: session.sessionId,
-          cwd: session.cwd,
-          // `null` and absent mean the same thing here and only one of them is
-          // representable in `ChatSessionInfo`, so the optionals are normalised
-          // at the boundary rather than in every reader.
-          ...(session.title == null ? {} : { title: session.title }),
-          ...(session.updatedAt == null ? {} : { updatedAt: session.updatedAt }),
-        })),
+        sessions: result.sessions.map((session) => {
+          const route = sessionIndex?.lookup(session.sessionId) ?? null
+          return {
+            sessionId: session.sessionId,
+            cwd: session.cwd,
+            // `null` and absent mean the same thing here and only one of them is
+            // representable in `ChatSessionInfo`, so the optionals are normalised
+            // at the boundary rather than in every reader.
+            ...(session.title == null ? {} : { title: session.title }),
+            ...(session.updatedAt == null ? {} : { updatedAt: session.updatedAt }),
+            // Absent for conversations created before the index existed. A row
+            // that cannot name its agent is still a row the user can open.
+            ...(route ? { agent: agentDisplayName(route) } : {}),
+          }
+        }),
         supported: result.supported,
         cwd: result.cwd,
       }))
@@ -353,5 +386,128 @@ export function createDeltaEmitter(
       // handler that called us.
       console.warn('[peek/chat] delta fan-out failed', error)
     }
+  }
+}
+
+/* ================================================================== */
+/* 4. The endpoint backend's runtime                                   */
+/* ================================================================== */
+
+export interface EndpointRuntimeDeps {
+  manager: EndpointManager
+  source: ContextSource
+  notify(message: NotifyMessage): void
+  onError(chatId: ChatId, error: PeekError): void
+  sessionIndex?: SessionIndex
+  /** Names the model on each session row, since this backend has no agent to name. */
+  modelId: string
+}
+
+/**
+ * The same `ChatEffect`s, against the in-process loop.
+ *
+ * A sibling of `createAcpChatRuntime` rather than a branch inside it. The two
+ * differ in almost every line that touches the backend — this one has no agent
+ * process to bring up, nothing to resume from a protocol, and no `session/delete`
+ * to forward — and a single function with a backend-shaped hole in it would have
+ * been harder to read than two that each say what they do.
+ *
+ * What they share is upstream of both: the effects, the deltas, the permission
+ * prompts and the attachment resolution are identical, which is why the reducer,
+ * the renderer and the command handlers need to know nothing about this split.
+ */
+export function createEndpointChatRuntime(deps: EndpointRuntimeDeps): ChatRuntime {
+  const { manager, source, notify, onError, sessionIndex, modelId } = deps
+
+  const fail = (chatId: ChatId, raw: unknown, what: string): void => {
+    const error = toPeekError(raw)
+    console.error('[peek/chat]', what, error.message)
+    onError(chatId, error)
+  }
+
+  return {
+    run(effect: ChatEffect): void {
+      switch (effect.type) {
+        case 'session.open':
+          // Nothing to bring up: there is no process, and history for this
+          // backend is peek's own file. A resumed conversation is loaded when the
+          // session is first touched.
+          return
+
+        case 'session.close':
+          manager.closeChat(effect.chatId)
+          return
+
+        case 'prompt': {
+          void (async () => {
+            try {
+              const resolved = await resolveAttachments(effect.attachments, { source })
+              manager.send({ chatId: effect.chatId, text: effect.text, attachments: resolved })
+            } catch (raw) {
+              fail(effect.chatId, raw, 'prompt failed')
+            }
+          })()
+          return
+        }
+
+        case 'cancel':
+          manager.cancel(effect.chatId)
+          return
+
+        case 'permission': {
+          const delivered = manager.respondPermission(effect.requestId, effect.optionId)
+          if (!delivered) {
+            notify({
+              level: 'info',
+              message: 'That permission request had already expired.',
+              detail: 'The conversation moved on before the answer arrived; nothing was granted.',
+            })
+          }
+          return
+        }
+
+        case 'setMode':
+          manager.setPermissionMode(effect.chatId, effect.mode)
+          return
+
+        case 'clear':
+          manager.clear(effect.chatId)
+          return
+
+        case 'sessions.delete':
+          // The route is peek's own record, and so is the transcript. Removing the
+          // route is what takes the conversation out of the catalogue.
+          if (sessionIndex?.remove(effect.sessionId) !== true) {
+            notify({
+              level: 'info',
+              message: 'That conversation was already gone.',
+            })
+          }
+          return
+      }
+    },
+
+    /**
+     * The catalogue, entirely from peek's own index.
+     *
+     * `supported: true` unconditionally: unlike an ACP agent, this backend cannot
+     * fail to advertise history — peek keeps it, so it always exists. `cwd` is
+     * null because there is no working directory to report; nothing outside this
+     * process wrote these conversations.
+     */
+    listSessions(): Promise<ChatSessionsListResult> {
+      const routes = sessionIndex?.list() ?? []
+      return Promise.resolve({
+        sessions: routes
+          .filter((route) => route.backend === 'endpoint')
+          .map((route) => ({
+            sessionId: route.sessionId,
+            cwd: '',
+            agent: route.agentId || modelId,
+          })),
+        supported: true,
+        cwd: null,
+      })
+    },
   }
 }

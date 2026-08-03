@@ -13,8 +13,11 @@ import { connCapabilities } from '../../state/capabilities'
 import { dispatch } from '../../state/dispatch'
 import { invalidateConnection, loadChildren, useNodes } from '../../state/namespaceStore'
 import { useConnection } from '../../state/workspaceStore'
+import { Menu } from '../../ui/Menu'
+import { useContextMenu } from '../../ui/useContextMenu'
 import { ViewError } from '../ViewError'
-import { canVectorSearchNode, openSpecForNode } from './openTarget'
+import { openSpecForNode } from './openTarget'
+import { treeMenuNodes } from './treeMenu'
 
 /**
  * The namespace tree. **Lazily loaded**: a level is only fetched when it is
@@ -136,12 +139,26 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
   const { onToggle, onSelect, onOpen, onVectorSearch } = props
   const t = useT()
   const entry = useNodes(connId, parentId)
+  const connStatus = useConnection(connId)?.status
+  const menu = useContextMenu<NamespaceNode>()
 
   useEffect(() => {
     loadChildren(connId, parentId)
   }, [connId, parentId])
 
   if (!entry) return null
+  if (entry.status === 'waiting') {
+    // No request was ever sent, because the connection could not answer one.
+    // Which wording that deserves depends on why: a handshake in flight resolves
+    // itself (sync.ts starts this level the moment it reaches `ready`), while a
+    // failed or closed connection needs the user — and the sidebar is where the
+    // reason for the failure is reported.
+    return (
+      <div className="tree-node" style={{ paddingLeft: 8 + depth * 14, color: 'var(--fg-faint)' }}>
+        {connStatus === 'connecting' ? t('tree.connecting') : t('tree.notReady')}
+      </div>
+    )
+  }
   if (entry.status === 'error') {
     return (
       <div className="empty-hint" style={{ paddingLeft: 12 + depth * 14, textAlign: 'left' }}>
@@ -181,25 +198,19 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
               onDoubleClick={() => {
                 onOpen(node)
               }}
-              title={node.detail ?? node.name}
+              // Right-click selects first, the way every file manager does: the
+              // menu is about *this* node, so the highlight has to agree with it
+              // before the menu says a word.
+              onContextMenu={(e) => {
+                onSelect(node)
+                menu.open(node)(e)
+              }}
+              title={`${node.detail ?? node.name}\n${t('menu.hint')}`}
             >
               <span className="tree-caret">{node.hasChildren ? (open ? '▾' : '▸') : ''}</span>
               <span className="tree-icon">{iconOf(node.kind)}</span>
               <span className="tree-name">{node.name}</span>
               {node.detail ? <span className="tree-detail">{node.detail}</span> : null}
-              {canVectorSearchNode(node, capabilities) ? (
-                <button
-                  className="ghost tree-action"
-                  title={t('tree.vectorSearchTitle')}
-                  onClick={(e) => {
-                    // The row's own click toggles expansion; this one must not.
-                    e.stopPropagation()
-                    onVectorSearch(node)
-                  }}
-                >
-                  {t('tree.vectorSearch')}
-                </button>
-              ) : null}
             </div>
             {open ? (
               <TreeLevel
@@ -218,7 +229,67 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
           </div>
         )
       })}
+      {menu.state ? (
+        <TreeNodeMenu
+          connId={connId}
+          node={menu.state.payload}
+          at={menu.state.at}
+          capabilities={capabilities}
+          onOpen={onOpen}
+          onVectorSearch={onVectorSearch}
+          onClose={menu.close}
+        />
+      ) : null}
     </>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+interface TreeNodeMenuProps {
+  connId: ConnId
+  node: NamespaceNode
+  at: { x: number; y: number }
+  capabilities: readonly Capability[]
+  onOpen: (node: NamespaceNode) => void
+  onVectorSearch: (node: NamespaceNode) => void
+  onClose: () => void
+}
+
+/**
+ * The node's right-click menu.
+ *
+ * Its own component only so that the node is a prop rather than something read
+ * back out of the menu state inside four closures — which is where a stale
+ * capture or a non-null assertion would go, and neither belongs in the handler
+ * that decides what "Open" opens.
+ */
+function TreeNodeMenu(props: TreeNodeMenuProps): ReactElement {
+  const { connId, node, at, capabilities, onOpen, onVectorSearch, onClose } = props
+  const t = useT()
+  return (
+    <Menu
+      label={t('menu.tree.label')}
+      at={at}
+      nodes={treeMenuNodes(connId, node, capabilities, t, {
+        open: () => {
+          onOpen(node)
+        },
+        vectorSearch: () => {
+          onVectorSearch(node)
+        },
+        // Failure is silent on purpose: `navigator.clipboard` is unavailable in
+        // a non-secure context, and a toast about a copy nobody watched fail is
+        // noise. Same treatment the markdown link copy gets.
+        copyName: () => {
+          void navigator.clipboard?.writeText(node.name)
+        },
+        refresh: () => {
+          loadChildren(connId, node.id, true)
+        },
+      })}
+      onClose={onClose}
+    />
   )
 }
 

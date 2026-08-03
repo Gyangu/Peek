@@ -9,16 +9,51 @@ const rootDir = __dirname
 // Monorepo root, used to alias @peek/* straight at the sources (no build step first)
 const repoRoot = resolve(rootDir, '../..')
 
-// Every @peek/* package is aliased at its sources rather than at a built entry
-// point: the workspace has no build step, so a missing alias here fails at
-// runtime with an unresolved bare specifier rather than at build time. Adding a
-// driver package means one line here and one in `PEEK_BUNDLED` below.
+/**
+ * Every @peek/* package is aliased at its sources rather than at a built entry
+ * point: the workspace has no build step, so a missing alias here fails at
+ * runtime with an unresolved bare specifier rather than at build time. Adding a
+ * driver package means two lines here (the package and its manifest) and it is
+ * carried into `PEEK_BUNDLED` below automatically.
+ *
+ * **The `/manifest` entries must stay above the bare package names.** Vite's
+ * bundled `@rollup/plugin-alias` matches by prefix, not by equality:
+ *
+ *     // vite/dist/node/chunks/config.js
+ *     if (importee === pattern) return true;
+ *     return importee.startsWith(pattern + "/");
+ *
+ * so `'@peek/driver-postgres'` happily claims
+ * `@peek/driver-postgres/manifest` and rewrites it to
+ * `…/packages/driver-postgres/src/index.ts/manifest` — a path that does not
+ * exist, and whose failure mode is a top-level `throw` inside the chunk rather
+ * than a build error. The plugin takes the **first** matching entry and
+ * `getEntries` preserves this object's key order, so listing the specific
+ * patterns first is the whole fix. `assertNoUnresolvedImports` below is the net
+ * if anyone reorders them.
+ *
+ * Aliasing the manifest subpath is not merely a convenience: it is what keeps
+ * `pg` / `redis` / `mysql2` out of the renderer chunk, since the manifest entry
+ * point deliberately never reaches `index.ts`. See
+ * `src/drivers/manifests.ts`.
+ */
 const peekAlias = {
+  '@peek/driver-postgres/manifest': resolve(repoRoot, 'packages/driver-postgres/src/manifest.ts'),
+  '@peek/driver-redis/manifest': resolve(repoRoot, 'packages/driver-redis/src/manifest.ts'),
+  '@peek/driver-qdrant/manifest': resolve(repoRoot, 'packages/driver-qdrant/src/manifest.ts'),
+  '@peek/driver-sql/manifest': resolve(repoRoot, 'packages/driver-sql/src/manifest.ts'),
+  '@peek/driver-neo4j/manifest': resolve(repoRoot, 'packages/driver-neo4j/src/manifest.ts'),
+  // A second client-free subpath, for the same reason as `/manifest`: main plans
+  // a plugin view's `autoFetch` while a Command is reducing, and this is the
+  // module that answers it. Reaching it through `index.ts` would put a Bolt
+  // client in the main-process chunk.
+  '@peek/driver-neo4j/view': resolve(repoRoot, 'packages/driver-neo4j/src/view.ts'),
   '@peek/core': resolve(repoRoot, 'packages/core/src/index.ts'),
   '@peek/driver-postgres': resolve(repoRoot, 'packages/driver-postgres/src/index.ts'),
   '@peek/driver-redis': resolve(repoRoot, 'packages/driver-redis/src/index.ts'),
   '@peek/driver-qdrant': resolve(repoRoot, 'packages/driver-qdrant/src/index.ts'),
   '@peek/driver-sql': resolve(repoRoot, 'packages/driver-sql/src/index.ts'),
+  '@peek/driver-neo4j': resolve(repoRoot, 'packages/driver-neo4j/src/index.ts'),
 }
 
 /**
@@ -30,6 +65,56 @@ const peekAlias = {
  * runtime, only TypeScript sources reached through `peekAlias`.
  */
 const PEEK_BUNDLED = Object.keys(peekAlias)
+
+/**
+ * Optional dependencies of the bundled database clients.
+ *
+ * The drivers are reached through bundled workspace packages, so their npm
+ * dependencies are bundled too — including specifiers those packages only
+ * reference behind a feature flag and never ship installed: `pg-native` (pg's
+ * libpq backend), `@opentelemetry/api` (@redis/client's instrumentation),
+ * `@node-rs/xxhash` (@redis/client's `digest()`).
+ *
+ * Vite compiles an unresolved import into a **top-level** `throw` in the chunk,
+ * so an optional dependency nobody uses takes down driver-host the moment it
+ * loads — surfacing as `DRIVER_CRASHED` on the first connection, with a stack
+ * pointing at minified vendor code. Each stub loads cleanly and only complains
+ * if the feature is actually used. `assertNoUnresolvedImports` below turns the
+ * next one of these into a build failure instead of a runtime crash.
+ */
+const optionalDepAlias = {
+  'pg-native': resolve(rootDir, 'src/main/driver-host/pg-native-stub.ts'),
+  '@opentelemetry/api': resolve(rootDir, 'src/main/driver-host/opentelemetry-api-stub.ts'),
+  '@node-rs/xxhash': resolve(rootDir, 'src/main/driver-host/node-rs-xxhash-stub.ts'),
+}
+
+/**
+ * Fails the build when a chunk carries Vite's "Could not resolve" throw.
+ *
+ * That throw is emitted at chunk top level, so it is never a recoverable
+ * "optional dependency missing" — it is a process that dies on load. Catching
+ * it here names the specifier and points at `optionalDepAlias`, instead of
+ * leaving it to be discovered as a crashed driver process at connection time.
+ */
+function assertNoUnresolvedImports(): Plugin {
+  const UNRESOLVED_RE = /Could not resolve ["']([^"']+)["']/g
+  return {
+    name: 'peek:assert-no-unresolved-imports',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      for (const [fileName, output] of Object.entries(bundle)) {
+        if (output.type !== 'chunk') continue
+        const specifiers = [...output.code.matchAll(UNRESOLVED_RE)].map((m) => m[1])
+        if (specifiers.length === 0) continue
+        this.error(
+          `${fileName} contains a top-level throw for unresolved import(s): ${[...new Set(specifiers)].join(', ')}. ` +
+            'The chunk will crash on load, not degrade. Add a stub to `optionalDepAlias` in ' +
+            'electron.vite.config.ts (see pg-native-stub.ts), or install the dependency.',
+        )
+      }
+    },
+  }
+}
 
 /* ==================================================================== */
 /* Workaround: electron-vite's ESM shim lands inside a function body      */
@@ -218,8 +303,12 @@ export default defineConfig({
   // main: the Electron main process. Hosts the Command Bus, the Workspace source of
   // truth, and the MCP HTTP server.
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: PEEK_BUNDLED }), cjsShimAtTopPlugin()],
-    resolve: { alias: peekAlias },
+    plugins: [
+      externalizeDepsPlugin({ exclude: PEEK_BUNDLED }),
+      cjsShimAtTopPlugin(),
+      assertNoUnresolvedImports(),
+    ],
+    resolve: { alias: { ...peekAlias, ...optionalDepAlias } },
     esbuild: NODE_ESBUILD,
     build: {
       outDir: 'out/main',

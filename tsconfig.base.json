@@ -41,7 +41,9 @@
       "@peek/driver-qdrant": ["./packages/driver-qdrant/src/index.ts"],
       "@peek/driver-qdrant/*": ["./packages/driver-qdrant/src/*"],
       "@peek/driver-sql": ["./packages/driver-sql/src/index.ts"],
-      "@peek/driver-sql/*": ["./packages/driver-sql/src/*"]
+      "@peek/driver-sql/*": ["./packages/driver-sql/src/*"],
+      "@peek/driver-neo4j": ["./packages/driver-neo4j/src/index.ts"],
+      "@peek/driver-neo4j/*": ["./packages/driver-neo4j/src/*"]
     }
   }
 }

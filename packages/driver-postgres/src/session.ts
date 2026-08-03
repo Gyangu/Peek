@@ -1,6 +1,5 @@
 import {
   DEFAULT_PAGE_LIMIT,
-  DRIVER_CAPABILITIES,
   MAX_PAGE_LIMIT,
   decodeRowOffsetCursor,
   peekErrorMsg,
@@ -26,6 +25,7 @@ import { Client, Pool, type PoolConfig } from 'pg'
 import { PgCursor } from './cursor'
 import { mapPgError } from './errors'
 import { PgIntrospector } from './introspect'
+import { postgresManifest } from './manifest'
 import { PgValuePeeker, type ResultSource } from './peek'
 import { buildScanSql, quoteIdent } from './sql'
 import { PG_TYPE_QUERY, PgTypeCatalog } from './type-catalog'
@@ -163,7 +163,7 @@ export class PostgresSession implements DriverSession {
     this.pool = pool
     this.poolConfig = poolConfig
     this.catalog = catalog
-    this.capabilities = new Set(DRIVER_CAPABILITIES.postgres)
+    this.capabilities = new Set(postgresManifest.capabilities)
     this.serverInfo = probe.serverInfo
     this.introspector = new PgIntrospector({
       pool,
@@ -305,8 +305,13 @@ export class PostgresSession implements DriverSession {
   /* introspect                                                        */
   /* ---------------------------------------------------------------- */
 
-  async listChildren(parentId: string | null): Promise<NamespaceNode[]> {
+  async listChildren(parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]> {
     this.assertOpen()
+    // The whole cache, not just this level: the catalog queries are keyed by
+    // parent, so clearing one entry would leave a child's stale answer to be
+    // served the moment the user expands it — which is the same bug, one click
+    // later. Refresh is a deliberate gesture, and re-reading pg_catalog is cheap.
+    if (refresh === true) this.invalidateIntrospectCache()
     return this.introspector.listChildren(parentId)
   }
 

@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url'
 import { after, before, test } from 'node:test'
 import { asChatId, type ChatDelta, type NotifyMessage } from '@peek/core'
 import { AcpManager } from '../manager'
+import { claudeCodeProfile } from '../profiles'
 import {
   DEFAULT_ACP_TIMEOUTS,
   DEFAULT_DELTA_BUDGET,
@@ -98,6 +99,8 @@ async function runProbes(): Promise<ProbeRun> {
     },
     {
       resolveCwd: () => dir,
+      profile: claudeCodeProfile,
+      agentConfig: {},
       agentEntryPath: PROBE_AGENT,
       permissionMode: 'default',
       timeouts: DEFAULT_ACP_TIMEOUTS,

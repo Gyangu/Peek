@@ -361,7 +361,7 @@ function busWith(dir: string): { bus: CommandBus; book: ReturnType<typeof create
     log: () => {},
     onEndpoint: () => {},
   })
-  bus.registerAll(createConfigHandlers({ book, mcp, settings, configDir: dir, version: '0.0.0-test' }))
+  bus.registerAll(createConfigHandlers({ book, mcp, settings, vault: fakeVault(), configDir: dir, version: '0.0.0-test' }))
   return { bus, book }
 }
 

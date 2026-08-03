@@ -1,5 +1,6 @@
-import type { ColumnDef, ResultRowsRequestMessage } from '@peek/core'
+import type { ColumnDef, ConnId, ConnStatus, ResultRowsRequestMessage } from '@peek/core'
 import { tryBridge } from '../bridge'
+import { invalidateConnection, refetchConnection } from './namespaceStore'
 import { attachResultPort, getCell, getResultSnapshot, isPendingCell, pruneResults } from './resultCache'
 import { startWorkspaceSync, useWorkspaceStore } from './workspaceStore'
 
@@ -42,6 +43,59 @@ export function startRenderer(): void {
   }
   useWorkspaceStore.subscribe(prune)
   setInterval(prune, PRUNE_INTERVAL_MS)
+
+  useWorkspaceStore.subscribe(syncNamespaceCache)
+}
+
+/* ==================================================================== */
+/* Namespace cache ↔ connection lifecycle                                 */
+/* ==================================================================== */
+
+/**
+ * What each connection's status was last time we looked, so a subscription that
+ * fires on every patch can tell an actual transition from noise.
+ */
+const lastStatus = new Map<ConnId, ConnStatus>()
+
+/**
+ * Keep the namespace tree's cache in step with the connections behind it.
+ *
+ * The tree is opened by `conn.open` *while the handshake is still running*
+ * (handlers/conn.ts), so its first level parks in `waiting` and only this
+ * subscription can set it going. Two transitions matter:
+ *
+ * - **into `ready`** — the data source just became usable, as a first connect or
+ *   as a reconnect. Refetch every level cached under it: on a first connect that
+ *   is the parked root level, on a reconnect it is the previous session's stale
+ *   nodes.
+ * - **gone from the mirror** — `conn.close` dropped it, so its levels are dead
+ *   weight. This is `pruneResults`' counterpart for the tree.
+ *
+ * A connection that fails keeps its cached tree deliberately: dropping it leaves
+ * `TreeLevel` with nothing to render and no reason to re-run, so the tree would
+ * silently vanish. The sidebar already reports the failure, and a reconnect goes
+ * through the `ready` branch above.
+ *
+ * Exported for the regression net in `__tests__/namespace-cache.test.ts` —
+ * `startRenderer` is the only production caller, via the subscription above.
+ */
+export function syncNamespaceCache(): void {
+  const conns = useWorkspaceStore.getState().workspace?.connections
+  if (!conns) return
+
+  for (const connId of [...lastStatus.keys()]) {
+    if (conns[connId] !== undefined) continue
+    lastStatus.delete(connId)
+    invalidateConnection(connId)
+  }
+
+  for (const [id, conn] of Object.entries(conns)) {
+    const connId = id as ConnId
+    const prev = lastStatus.get(connId)
+    if (prev === conn.status) continue
+    lastStatus.set(connId, conn.status)
+    if (conn.status === 'ready') refetchConnection(connId)
+  }
 }
 
 /* ==================================================================== */

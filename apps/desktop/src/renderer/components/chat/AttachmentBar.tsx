@@ -7,7 +7,10 @@ import { useContextActions } from '../context-actions/useContextActions'
 import { viewTitleOf } from '../panelTitle'
 import { attachCandidates, attachmentKindKey, attachmentLabel, stageableAttachment } from './attachments'
 import { detachFromChat } from './chatCommands'
+import { copyText } from '../../util/clipboard'
 import { Button } from '../../ui/Button'
+import { Menu } from '../../ui/Menu'
+import { useContextMenu } from '../../ui/useContextMenu'
 
 /**
  * Staged context.
@@ -94,24 +97,7 @@ export function AttachmentBar({
         <span className="chat-attach-empty">{t('chat.attach.empty')}</span>
       ) : (
         attachments.map((a) => (
-          <span key={a.id} className="chat-chip" title={attachmentLabel(a)}>
-            <span className="chat-chip-kind">{t(attachmentKindKey(a.kind))}</span>
-            <span className="chat-chip-label">{attachmentLabel(a)}</span>
-            {/* 18px → 20px, the `sm` rung. The legibility baseline §2.4 planned
-                exactly this swap; the chip grows 2px and that was measured. */}
-            <Button
-              variant="ghost"
-              size="sm"
-              icon
-              label={t('chat.attach.remove')}
-              className="chat-chip-x"
-              onClick={() => {
-                remove(a)
-              }}
-            >
-              ×
-            </Button>
-          </span>
+          <AttachmentChip key={a.id} attachment={a} onRemove={remove} />
         ))
       )}
 
@@ -158,5 +144,77 @@ export function AttachmentBar({
         <ConsentDialog onAccept={actions.acceptConsent} onCancel={actions.cancelConsent} />
       ) : null}
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * One staged attachment.
+ *
+ * Its own component now, because it holds a menu and a menu needs state. The ×
+ * stays: this bar is where a person removes something they staged by mistake,
+ * and that is worth a visible target even at 20px. What the menu adds is the
+ * label — the chip truncates, so the only way to read a long table name in full
+ * was the `title` tooltip, and the only way to *use* it was to retype it.
+ */
+function AttachmentChip({
+  attachment,
+  onRemove,
+}: {
+  attachment: ChatAttachment
+  onRemove: (a: ChatAttachment) => void
+}): ReactElement {
+  const t = useT()
+  const menu = useContextMenu<null>()
+  const label = attachmentLabel(attachment)
+
+  return (
+    <span className="chat-chip" title={label} onContextMenu={menu.open(null)}>
+      <span className="chat-chip-kind">{t(attachmentKindKey(attachment.kind))}</span>
+      <span className="chat-chip-label">{label}</span>
+      {/* 18px → 20px, the `sm` rung. The legibility baseline §2.4 planned
+          exactly this swap; the chip grows 2px and that was measured. */}
+      <Button
+        variant="ghost"
+        size="sm"
+        icon
+        label={t('chat.attach.remove')}
+        className="chat-chip-x"
+        onClick={() => {
+          onRemove(attachment)
+        }}
+      >
+        ×
+      </Button>
+      {menu.state ? (
+        <Menu
+          label={t('menu.chip.label')}
+          at={menu.state.at}
+          nodes={[
+            {
+              kind: 'item',
+              id: 'chip.copyLabel',
+              label: t('menu.chip.copyLabel'),
+              onSelect: () => {
+                copyText(label)
+              },
+            },
+            {
+              kind: 'item',
+              id: 'chip.remove',
+              label: t('menu.chip.remove'),
+              // Nothing is lost that cannot be staged again in one gesture, so
+              // no `confirm` — the tone alone is the whole warning it deserves.
+              tone: 'danger',
+              onSelect: () => {
+                onRemove(attachment)
+              },
+            },
+          ]}
+          onClose={menu.close}
+        />
+      ) : null}
+    </span>
   )
 }

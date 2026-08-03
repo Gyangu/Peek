@@ -13,7 +13,11 @@ import { tStatic, useT, type TFunction } from '../i18n'
 import { notify } from '../state/notifyStore'
 import { getCell, isRowLoaded, setViewport } from '../state/resultCache'
 import { useResult } from '../state/useResult'
+import { copyText } from '../util/clipboard'
 import { cellClass, cellText, formatCount, formatMs, isExpandable } from '../util/format'
+import { columnMenuNodes } from './columnMenu'
+import { Menu } from '../ui/Menu'
+import { useContextMenu } from '../ui/useContextMenu'
 import {
   ContextMenu,
   EMPTY_SELECTION,
@@ -82,6 +86,16 @@ export interface DataGridProps {
   sort?: SortSpec[] | undefined
   /** Header click handler; headers are inert without it. Must be a stable reference. */
   onSortColumn?: ((column: string) => void) | undefined
+  /**
+   * Set a column's sort outright, rather than advancing the click's cycle.
+   *
+   * The header menu needs to name each state — in particular "unsorted", which
+   * a cycling click can only reach by passing through a sort nobody asked for.
+   * Optional for the same reason `onSortColumn` is: a view that cannot sort
+   * (a query result, a vector search) passes neither, and the menu then offers
+   * only what is always true of a column.
+   */
+  onSetSort?: ((column: string, dir: 'asc' | 'desc' | null) => void) | undefined
   /** Overlay text shown when there is no result set. Already localized by the caller. */
   emptyHint?: string
 }
@@ -92,7 +106,7 @@ interface CellPos {
 }
 
 export function DataGrid(props: DataGridProps): ReactElement {
-  const { connId, view, resultId, sort, onSortColumn, emptyHint } = props
+  const { connId, view, resultId, sort, onSortColumn, onSetSort, emptyHint } = props
   const t = useT()
   const snap = useResult(resultId)
   /** The horizontal scroll container (.grid). Vertical is hidden, so it only scrolls scrollLeft. */
@@ -435,6 +449,9 @@ export function DataGrid(props: DataGridProps): ReactElement {
     setRowSelection(EMPTY_SELECTION)
   }, [])
 
+  /** The column headers' own menu; the rows' is `menu`/`ContextMenu` below. */
+  const headerMenu = useContextMenu<string>()
+
   const handleRowContextMenu = useCallback((row: number, col: number, x: number, y: number): void => {
     setSelected({ row, col })
     setMenu({ x, y, cell: col < 0 ? null : { row, col } })
@@ -543,6 +560,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
                     className="grid-head-cell"
                     style={{ left: GUTTER_W + vc.start, width: vc.size }}
                     onClick={onSortColumn ? () => onSortColumn(col.name) : undefined}
+                    onContextMenu={headerMenu.open(col.name)}
                     title={
                       col.primaryKey
                         ? t('grid.columnTitlePk', { name: col.name, type: col.nativeType })
@@ -591,6 +609,32 @@ export function DataGrid(props: DataGridProps): ReactElement {
           target={contextTarget}
           onClose={closeMenu}
           extraItems={copyItems}
+        />
+      ) : null}
+
+      {/* The header's menu is a different menu on a different subject: the rows'
+          one is about *this data*, and offers to send it somewhere; this one is
+          about the column as a thing to order and name. Sharing one menu would
+          mean a target union whose two halves have nothing in common. */}
+      {headerMenu.state ? (
+        <Menu
+          label={t('menu.column.label')}
+          at={headerMenu.state.at}
+          nodes={columnMenuNodes(
+            headerMenu.state.payload,
+            sort,
+            t,
+            {
+              setSort: (dir) => {
+                onSetSort?.(headerMenu.state?.payload ?? '', dir)
+              },
+              copyName: () => {
+                copyText(headerMenu.state?.payload ?? '')
+              },
+            },
+            { sortable: onSetSort !== undefined },
+          )}
+          onClose={headerMenu.close}
         />
       ) : null}
 

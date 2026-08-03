@@ -37,6 +37,7 @@ import type {
   ChatUsage,
   PendingPermission,
 } from './chat'
+import type { PluginViewStateShape, ViewKindLookup } from './view-kinds'
 
 // The branded types are re-exported here so they can be pulled straight from
 // workspace, the way PLAN §5 describes them.
@@ -105,6 +106,21 @@ export interface ViewBase {
   title?: string
   status: ViewStatus
   error?: PeekError
+  /**
+   * A view opened to be *looked at*, not yet to be kept.
+   *
+   * At most one view in the whole Workspace carries it: opening another
+   * provisional view closes this one and takes its tab position, which is what
+   * stops a session rail (or a history list, or a model) from leaving a tab
+   * behind for every row that was glanced at. The tab strip renders it in
+   * italics, so the difference is on screen rather than in someone's memory.
+   *
+   * It is cleared — permanently — by any act that says *I am using this*:
+   * `view.promote` (which a double-click on the row or the tab sends), or the
+   * first message sent into a provisional chat. Absent is the normal state;
+   * every other way of opening a view produces a kept one.
+   */
+  provisional?: boolean
 }
 
 /** Base for the views that are a window onto one connection — i.e. all but chat. */
@@ -252,6 +268,29 @@ export interface ChatViewState extends ViewBase {
   connId?: ConnId
 }
 
+/**
+ * A view contributed by a plugin.
+ *
+ * The seventh member of the union, and the only open one — see
+ * `view-kinds.ts` for why the union grows a member rather than being replaced by
+ * a registry. Its presence is what keeps every `switch (view.kind)` in the repo
+ * an exhaustive one: a call site that handles the six built-ins and stops still
+ * fails to compile, so "what does this do with a plugin view" is a question the
+ * compiler asks rather than one someone remembers.
+ */
+export interface PluginViewState extends ConnectedViewBase, PluginViewStateShape {
+  /**
+   * The result set currently streaming, when the kind's `autoFetch` asked for one.
+   *
+   * Carried by the kernel, not by `state`: a plugin view fetches through the same
+   * `beginResult` / `runningResultOf` machinery as a table — same deadline, same
+   * backpressure, same cancel-the-previous-one-first rule — and all of that
+   * addresses a view by *this* field. A plugin that kept its own result id
+   * somewhere in `state` would be outside every one of those.
+   */
+  resultId?: ResultId
+}
+
 export type ViewState =
   | TableViewState
   | QueryViewState
@@ -259,10 +298,44 @@ export type ViewState =
   | TreeViewState
   | VectorViewState
   | ChatViewState
+  | PluginViewState
 
+/**
+ * The discriminant of `ViewState`: still a closed set of literals, now seven.
+ *
+ * `'plugin'` is one value however many plugins are loaded — which is what keeps
+ * every `switch` exhaustive and every `Extract<>` exact. Which plugin view a
+ * `'plugin'` state actually is lives in `PluginViewState.pluginKind`.
+ */
 export type ViewKind = ViewState['kind']
 
-export const VIEW_KINDS = ['table', 'query', 'inspector', 'tree', 'vector', 'chat'] as const
+export const VIEW_KINDS = ['table', 'query', 'inspector', 'tree', 'vector', 'chat', 'plugin'] as const
+
+/**
+ * The kinds the kernel implements itself — everything but `'plugin'`.
+ *
+ * Hand-written rather than derived, on purpose: a seventh *built-in* must stay a
+ * compile error in seven places.
+ */
+export const BUILTIN_VIEW_KINDS = ['table', 'query', 'inspector', 'tree', 'vector', 'chat'] as const
+
+export type BuiltinViewKind = (typeof BUILTIN_VIEW_KINDS)[number]
+
+export function isBuiltinViewKind(kind: string): kind is BuiltinViewKind {
+  return (BUILTIN_VIEW_KINDS as readonly string[]).includes(kind)
+}
+
+/**
+ * The name to *show* for a view: a plugin view reports its own kind, not the
+ * word `plugin`.
+ *
+ * `ViewSummary.kind` goes out over MCP, and telling a model that six different
+ * plugin views are all `kind: "plugin"` would make them indistinguishable in the
+ * one place they most need telling apart.
+ */
+export function displayViewKind(view: ViewState): string {
+  return view.kind === 'plugin' ? view.pluginKind : view.kind
+}
 
 /** Narrow ViewState down to one concrete kind */
 export type ViewStateOf<K extends ViewKind> = Extract<ViewState, { kind: K }>
@@ -850,7 +923,7 @@ export interface WorkspaceSnapshot {
  * stable and locale-independent; a window that wants the view kind spelled out in
  * the user's language uses the `view.kind.*` messages instead.
  */
-export function describeView(view: ViewState): string {
+export function describeView(view: ViewState, lookup?: ViewKindLookup): string {
   switch (view.kind) {
     case 'table':
       return `Table ${collectionRefLabel(view.ref)} · offset ${view.page.offset} limit ${view.page.limit}`
@@ -873,14 +946,32 @@ export function describeView(view: ViewState): string {
       if (view.attachments.length > 0) parts.push(`${view.attachments.length} attachment(s) staged`)
       return parts.join(' · ')
     }
+    case 'plugin':
+      return lookup?.(view.pluginKind)?.describe(view) ?? unregisteredPluginView(view)
   }
+}
+
+/**
+ * What a plugin view says about itself when nothing can speak for it.
+ *
+ * Reached when no lookup was supplied, or when the plugin that registered this
+ * kind is no longer loaded — a view outliving its plugin is an ordinary state
+ * (the workspace is restored, the plugin was uninstalled), not an error.
+ *
+ * It names the kind rather than pretending the view is empty, because the two
+ * readers of this string both need to tell those apart: a model reading
+ * `read_workspace` has to know a pane it cannot interpret is there, and a person
+ * has to be able to work out which plugin to reinstall.
+ */
+function unregisteredPluginView(view: PluginViewState): string {
+  return `Plugin view "${view.pluginKind}" (no plugin loaded for this kind)`
 }
 
 /**
  * Title of a view: an explicit `title` wins, otherwise one is derived from the
  * content. English only, for the same reason as `describeView`.
  */
-export function viewTitle(view: ViewState): string {
+export function viewTitle(view: ViewState, lookup?: ViewKindLookup): string {
   if (view.title) return view.title
   switch (view.kind) {
     case 'table':
@@ -895,6 +986,8 @@ export function viewTitle(view: ViewState): string {
       return `Vector · ${view.collection}`
     case 'chat':
       return 'Chat'
+    case 'plugin':
+      return lookup?.(view.pluginKind)?.title(view) ?? view.pluginKind
   }
 }
 

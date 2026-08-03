@@ -2,7 +2,8 @@
  * @peek/driver-postgres — the PostgreSQL driver.
  *
  * Capabilities: introspect + tabularQuery + collectionScan + valuePeek + cancel
- * (single source of truth: core's DRIVER_CAPABILITIES.postgres).
+ * (declared by this package in `./manifest`, which is also what the connect
+ * dialog and the MCP tools read before anything has connected).
  *
  * No electron dependency, so it runs and is tested standalone on node.
  * src/host.ts is the entry point when it runs as a utilityProcess.

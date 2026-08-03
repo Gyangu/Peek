@@ -2,7 +2,8 @@
  * @peek/driver-redis — the Redis driver.
  *
  * Capabilities: introspect + collectionScan + keyValue + valuePeek + cancel
- * (single source of truth: core's DRIVER_CAPABILITIES.redis).
+ * (declared by this package in `./manifest`, which is also what the connect
+ * dialog and the MCP tools read before anything has connected).
  *
  * This is the package that proves the capability model: it advertises neither
  * `tabularQuery` nor a relation anywhere, and nothing in core had to learn the

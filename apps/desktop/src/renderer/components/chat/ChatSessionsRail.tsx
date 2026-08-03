@@ -1,12 +1,20 @@
-import { useCallback, useEffect, useState } from 'react'
-import type { ReactElement } from 'react'
-import { metaText, type ChatSessionInfo, type ChatSessionsListResult } from '@peek/core'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react'
+import {
+  metaText,
+  type ChatSessionInfo,
+  type ChatSessionsListResult,
+  type ViewId,
+} from '@peek/core'
 import { useLocale, useT, type TFunction } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
 import { useViews } from '../../state/workspaceStore'
-import { ConfirmPair } from '../ConfirmPair'
 import { setChatRailCollapsed, useChatRailStore } from './railStore'
+import { sessionCursorKey } from './sessionKeys'
 import { Button } from '../../ui/Button'
+import { Menu } from '../../ui/Menu'
+import type { MenuNode } from '../../ui/menuModel'
+import { useContextMenu } from '../../ui/useContextMenu'
 
 /**
  * The conversation catalogue, as a rail down the right-hand side of the window.
@@ -43,12 +51,32 @@ export function ChatSessionsRail(): ReactElement {
   const locale = useLocale()
   const views = useViews()
   const collapsed = useChatRailStore((s) => s.collapsed)
+  /**
+   * Keyboard cursor, as a row index.
+   *
+   * The list is a `listbox`, so it is **one** tab stop and the arrows move
+   * inside it — twenty-seven conversations must not be twenty-seven stops on the
+   * way to the workspace. Selection here means "the row the keyboard is on", not
+   * "the conversation that is open": opening is an act, and this widget's act is
+   * Enter.
+   */
+  const [cursor, setCursor] = useState(0)
+  const listRef = useRef<HTMLDivElement | null>(null)
+  /**
+   * The view the last click opened, as a fallback target for the double-click
+   * that may follow it.
+   *
+   * A double-click fires `click` first, so by the time it arrives the row is
+   * already open provisionally and the right answer is to *keep* that view, not
+   * to open a second one. Normally the row itself knows the view id by then
+   * (the patch has landed and `open` below has it); this covers the case where
+   * it has not. Keyed by session so a double-click that lands on a *different*
+   * row than the last click cannot upgrade the wrong conversation.
+   */
+  const justOpened = useRef<{ sessionId: string; viewId: ViewId } | null>(null)
   const [state, setState] = useState<ChatSessionsListResult | null>(null)
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
-  /** The row whose delete button has been armed; two clicks, no modal. */
-  const [confirming, setConfirming] = useState<string | null>(null)
-
   const refresh = useCallback((): void => {
     setBusy(true)
     void dispatch('chat.sessions.list', {})
@@ -102,15 +130,49 @@ export function ChatSessionsRail(): ReactElement {
    * one alone would either mark a still-loading view as absent or miss every
    * conversation that was started rather than reopened.
    */
-  const open = new Map<string, string>()
+  const open = new Map<string, ViewId>()
   for (const view of views) {
     if (view.kind !== 'chat') continue
     if (view.resumeSessionId) open.set(view.resumeSessionId, view.id)
     if (view.agentSessionId) open.set(view.agentSessionId, view.id)
   }
 
+  /**
+   * The one act this list has, in its two strengths.
+   *
+   * - `keep: false` (a click, Enter) opens the conversation **provisionally**:
+   *   the next one takes its tab back. Skimming the rail costs one tab, not one
+   *   per row. Main owns that rule — see `ViewBase.provisional`.
+   * - `keep: true` (a double-click, ⌘Enter) says the conversation is one to work
+   *   in, so it gets a tab of its own.
+   *
+   * A row that is already open never opens twice: it is shown instead. The user
+   * asked to look at that conversation, and there is only one of it.
+   */
+  const openRow = (sessionId: string, openViewId: ViewId | null, keep: boolean): void => {
+    if (openViewId) {
+      void dispatch('view.activate', { viewId: openViewId, focusPanel: true })
+      if (keep) void dispatch('view.promote', { viewId: openViewId })
+      return
+    }
+    // The double-click that follows a click must not open a second copy — it
+    // upgrades what the click already opened.
+    const just = justOpened.current
+    if (keep && just && just.sessionId === sessionId) {
+      void dispatch('view.promote', { viewId: just.viewId })
+      return
+    }
+    void dispatch('view.open', {
+      spec: { kind: 'chat', resumeSessionId: sessionId },
+      provisional: !keep,
+    }).then((result) => {
+      justOpened.current = result ? { sessionId, viewId: result.viewId } : null
+    })
+  }
+
+  const rows = state?.supported ? state.sessions : []
+
   const remove = (sessionId: string): void => {
-    setConfirming(null)
     void dispatch('chat.sessions.delete', { sessionId }).then((result) => {
       if (!result) return
       // Drop the row locally rather than re-listing: the delete runs as an effect
@@ -159,7 +221,24 @@ export function ChatSessionsRail(): ReactElement {
         </Button>
       </div>
 
-      <div className="session-list">
+      {/* `listbox` and not a list of buttons: a row has two acts of different
+          strength (open, keep) plus a menu, which no single button expresses,
+          and twenty-seven buttons would be twenty-seven tab stops in front of
+          the workspace. One stop, arrows inside — see `sessionListKeys`. */}
+      <div
+        ref={listRef}
+        className="session-list"
+        role={rows.length > 0 ? 'listbox' : undefined}
+        aria-label={rows.length > 0 ? t('chat.sessions.title') : undefined}
+        onKeyDown={(e) => {
+          const next = sessionCursorKey(e.key, cursor, rows.length)
+          if (next === null) return
+          e.preventDefault()
+          setCursor(next)
+          const el = listRef.current?.querySelector(`[data-row="${next}"]`)
+          if (el instanceof HTMLElement) el.focus()
+        }}
+      >
         {failed ? (
           <div className="empty-hint">{t('chat.sessions.failed')}</div>
         ) : state === null ? (
@@ -175,24 +254,20 @@ export function ChatSessionsRail(): ReactElement {
             <div className="empty-hint">{t('chat.sessions.emptyHint')}</div>
           </>
         ) : (
-          state.sessions.map((session) => (
+          rows.map((session, index) => (
             <SessionRow
               key={session.sessionId}
               session={session}
               t={t}
               locale={locale}
+              index={index}
+              cursor={cursor}
+              onCursor={setCursor}
               openViewId={open.get(session.sessionId) ?? null}
-              confirming={confirming === session.sessionId}
-              onOpen={() => {
+              onOpen={(keep) => {
                 // The rail stays put: reopening a conversation is exactly the
                 // moment a user is most likely to reach for a second one.
-                void dispatch('view.open', { spec: { kind: 'chat', resumeSessionId: session.sessionId } })
-              }}
-              onArmDelete={() => {
-                setConfirming(session.sessionId)
-              }}
-              onDisarmDelete={() => {
-                setConfirming(null)
+                openRow(session.sessionId, open.get(session.sessionId) ?? null, keep)
               }}
               onDelete={() => {
                 remove(session.sessionId)
@@ -212,20 +287,103 @@ interface RowProps {
   t: TFunction
   locale: string
   /** Non-null when this conversation is already open somewhere in the window. */
-  openViewId: string | null
-  confirming: boolean
-  onOpen: () => void
-  onArmDelete: () => void
-  onDisarmDelete: () => void
+  openViewId: ViewId | null
+  /** Row position, and where the list's single keyboard cursor is. */
+  index: number
+  cursor: number
+  onCursor: (index: number) => void
+  /** `keep` distinguishes the two strengths of the one act — see `openRow`. */
+  onOpen: (keep: boolean) => void
   onDelete: () => void
 }
 
 function SessionRow(props: RowProps): ReactElement {
-  const { session, t, locale, openViewId, confirming } = props
+  const { session, t, locale, openViewId, index, cursor } = props
   const busy = openViewId !== null
+  const menu = useContextMenu<null>()
+  const el = useRef<HTMLDivElement | null>(null)
+
+  /**
+   * The same two acts as the strip below, reachable without aiming.
+   *
+   * The strip stays. Unlike the sidebar's — which this change removed — it is
+   * two lines in a rail that has room for them, and "Already open" is a status
+   * this list is expected to show at a glance rather than on demand.
+   *
+   * Delete carries `confirm` instead of arming the strip's `ConfirmPair`: two
+   * confirmation mechanisms for one act would be two places to get it wrong, and
+   * the menu can honour the rule that matters — the second press lands on Cancel
+   * — inside itself.
+   */
+  const nodes: MenuNode[] = [
+    {
+      kind: 'item',
+      id: 'session.open',
+      label: busy ? t('chat.sessions.reveal') : t('chat.sessions.open'),
+      title: busy ? t('chat.sessions.revealTitle') : t('chat.sessions.openTitle'),
+      onSelect: () => {
+        // From the menu, always the strong form: choosing an item off a menu is
+        // a deliberate act, and nothing about it says "I am only glancing".
+        props.onOpen(true)
+      },
+    },
+    {
+      kind: 'item',
+      id: 'session.delete',
+      label: t('chat.sessions.delete'),
+      title: busy ? t('chat.sessions.inUseTitle') : t('chat.sessions.deleteTitle'),
+      disabled: busy,
+      tone: 'danger',
+      confirm: t('chat.sessions.deleteConfirm'),
+      onSelect: props.onDelete,
+    },
+  ]
+
+  /**
+   * Click opens provisionally, double-click keeps — and the double-click does
+   * **not** open a second time: `openRow` upgrades what the click just opened.
+   * That is what makes the two gestures feel like one act with two strengths
+   * rather than two competing acts, and it is why there is no click delay: the
+   * cheap thing happens immediately, always.
+   */
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      props.onOpen(e.metaKey || e.ctrlKey || e.shiftKey)
+      return
+    }
+    // Delete opens this row's menu rather than deleting: the confirmation lives
+    // inside the menu, and a keyboard that could destroy a conversation without
+    // passing through it would be a second, weaker rule for the same act.
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault()
+      const rect = el.current?.getBoundingClientRect()
+      if (rect) menu.openAt(null, { x: rect.left + 8, y: rect.bottom })
+    }
+  }
 
   return (
-    <div className="session-item">
+    <div
+      ref={el}
+      className="session-item"
+      role="option"
+      data-row={index}
+      aria-selected={index === cursor}
+      tabIndex={index === cursor ? 0 : -1}
+      aria-describedby={busy ? `${session.sessionId}-state` : undefined}
+      onFocus={() => {
+        props.onCursor(index)
+      }}
+      onClick={() => {
+        props.onOpen(false)
+      }}
+      onDoubleClick={() => {
+        props.onOpen(true)
+      }}
+      onKeyDown={onKeyDown}
+      onContextMenu={menu.open(null)}
+      title={busy ? t('chat.sessions.revealTitle') : t('chat.sessions.rowHint')}
+    >
       <div className="session-row">
         {/* The title is the agent's summary of a conversation, which may have
             quoted a database cell verbatim — so it is untrusted text and gets the
@@ -240,32 +398,19 @@ function SessionRow(props: RowProps): ReactElement {
       </div>
       <div className="session-row">
         <span className="session-when">{formatWhen(session.updatedAt, locale)}</span>
+        {/* "Already open" survives the strip's removal as a *reading* rather
+            than a disabled button. It was never an action — it was the reason
+            the action was unavailable — and this list is scanned, so it has to
+            be visible without a gesture. */}
+        {busy ? (
+          <span className="session-when" id={`${session.sessionId}-state`}>
+            {t('chat.sessions.inUse')}
+          </span>
+        ) : null}
       </div>
-      <div className="conn-actions">
-        <Button
-          variant="ghost"
-          disabled={busy}
-          title={busy ? t('chat.sessions.inUseTitle') : t('chat.sessions.openTitle')}
-          onClick={props.onOpen}
-        >
-          {busy ? t('chat.sessions.inUse') : t('chat.sessions.open')}
-        </Button>
-        {/* Two clicks rather than a modal, exactly as forgetting a saved
-            connection works: it cannot be undone, but a dialog in front of it
-            would be heavier than the act deserves. Cancel takes the position
-            the Delete button had — see ConfirmPair. */}
-        <ConfirmPair
-          armed={confirming}
-          disabled={busy}
-          title={busy ? t('chat.sessions.inUseTitle') : t('chat.sessions.deleteTitle')}
-          label={t('chat.sessions.delete')}
-          confirmLabel={t('chat.sessions.deleteConfirm')}
-          cancelLabel={t('chat.sessions.deleteCancel')}
-          onArm={props.onArmDelete}
-          onDisarm={props.onDisarmDelete}
-          onConfirm={props.onDelete}
-        />
-      </div>
+      {menu.state ? (
+        <Menu label={t('menu.session.label')} at={menu.state.at} nodes={nodes} onClose={menu.close} />
+      ) : null}
     </div>
   )
 }

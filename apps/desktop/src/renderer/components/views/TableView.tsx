@@ -56,6 +56,25 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
     [viewId, sortKey],
   )
 
+  /**
+   * The header menu's setter: name a state instead of advancing the cycle.
+   *
+   * Separate from `onSortColumn` rather than replacing it, because the two
+   * gestures genuinely differ — a click means "next", a menu line means "this".
+   * Both end in the same `view.update`, so there is still one definition of what
+   * a sort *is*; only the way of choosing it differs.
+   */
+  const onSetSort = useCallback(
+    (column: string, dir: 'asc' | 'desc' | null) => {
+      void dispatch('view.update', {
+        viewId,
+        patch: { kind: 'table', sort: dir === null ? [] : [{ column, dir }] },
+        refresh: true,
+      })
+    },
+    [viewId],
+  )
+
   const setOffset = (offset: number): void => {
     void dispatch('view.update', {
       viewId,
@@ -188,7 +207,7 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
         view={view}
         resultId={resultId}
         sort={sort}
-        {...(controls.sortable ? { onSortColumn } : {})}
+        {...(controls.sortable ? { onSortColumn, onSetSort } : {})}
         emptyHint={t('table.waitingForScan')}
       />
     </>

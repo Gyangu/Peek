@@ -21,12 +21,10 @@
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { createRequire } from 'node:module'
 import { Readable, Writable } from 'node:stream'
 import { peekError, type PeekError } from '@peek/core'
 import { redact, sanitizeLine } from './errors'
-
-const AGENT_PACKAGE_ENTRY = '@agentclientprotocol/claude-agent-acp/dist/index.js'
+import type { AcpSpawnCommand } from './profiles'
 
 /**
  * Agent stderr chatter that is normal and must not be shown as an error.
@@ -45,12 +43,19 @@ export interface AgentProcessHooks {
 }
 
 export interface AgentSpawnOptions {
-  /** Absolute path to the agent's entry module. */
-  entryPath: string
+  /**
+   * What to run. Comes from the agent's profile, because the two agents peek
+   * ships with do not have the same process shape: `claude-agent-acp` is a Node
+   * entry module that must be run by the Electron binary as Node, while
+   * `codex-acp` ships its own executable.
+   */
+  command: AcpSpawnCommand
   /** Absolute, existing directory. The agent rejects anything else. */
   cwd: string
-  /** Sets `CLAUDE_CODE_EXECUTABLE` when the bundled native binary is absent. */
-  claudeCodeExecutable?: string
+  /** Profile-supplied environment: the agent's sandbox switches live here. */
+  env?: Record<string, string>
+  /** Substituted into failure messages, e.g. "Claude Code". */
+  displayName: string
   /** Redacted from every stderr line before it leaves this class. */
   secrets?: readonly string[]
 }
@@ -60,30 +65,8 @@ export interface AgentStdio {
   fromAgent: ReadableStream<Uint8Array>
 }
 
-/**
- * Locate the agent's entry module.
- *
- * `require.resolve` rather than a hard-coded path, so the answer stays right
- * across pnpm's nested layout and a packaged build. When the resolved file sits
- * inside an asar archive the path is rewritten to `app.asar.unpacked`: a child
- * process cannot execute a file that only exists inside the archive, and the
- * packaging config has to unpack this dependency for the same reason.
- */
-export function resolveAgentEntry(): string {
-  const require = createRequire(import.meta.url)
-  let resolved: string
-  try {
-    resolved = require.resolve(AGENT_PACKAGE_ENTRY)
-  } catch (raw) {
-    throw peekError('INTERNAL', 'The Claude agent package is not installed.', {
-      detail:
-        `Could not resolve ${AGENT_PACKAGE_ENTRY}. ` +
-        'Install @agentclientprotocol/claude-agent-acp, and make sure the packaged build unpacks it from the asar archive.',
-      retryable: false,
-    })
-  }
-  return resolved.includes('app.asar') ? resolved.replace('app.asar', 'app.asar.unpacked') : resolved
-}
+/* Locating an agent's entry module now belongs to its profile: see
+ * `profiles.ts` and `resolvePackageEntry`. */
 
 export class AgentProcess {
   #child: ChildProcessWithoutNullStreams | null = null
@@ -125,19 +108,24 @@ export class AgentProcess {
       if (typeof value === 'string') env[key] = value
     }
     // Without this, spawning process.execPath launches a second Electron app.
-    env['ELECTRON_RUN_AS_NODE'] = '1'
-    if (opts.claudeCodeExecutable) env['CLAUDE_CODE_EXECUTABLE'] = opts.claudeCodeExecutable
+    // Only for agents that are Node entry modules; an agent shipping its own
+    // executable must not get it, or it would run as Node instead of itself.
+    if (opts.command.runAsNode) env['ELECTRON_RUN_AS_NODE'] = '1'
+    // The profile's environment goes on last: its sandbox switches are the whole
+    // reason it exists, and the inherited environment must not be able to
+    // override them.
+    for (const [key, value] of Object.entries(opts.env ?? {})) env[key] = value
 
     let child: ChildProcessWithoutNullStreams
     try {
-      child = spawn(process.execPath, [opts.entryPath], {
+      child = spawn(opts.command.command, opts.command.args, {
         cwd: opts.cwd,
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
       })
     } catch (raw) {
-      throw peekError('INTERNAL', 'Could not start the Claude agent process.', {
+      throw peekError('INTERNAL', `Could not start the ${opts.displayName} agent process.`, {
         detail: sanitizeLine(raw instanceof Error ? raw.message : String(raw)),
         retryable: true,
       })
@@ -265,8 +253,8 @@ export class AgentProcess {
 }
 
 /** The error surfaced when the agent dies with an in-flight request. */
-export function agentGoneError(): PeekError {
-  return peekError('DRIVER_CRASHED', 'The Claude agent process exited.', {
+export function agentGoneError(displayName: string): PeekError {
+  return peekError('DRIVER_CRASHED', `The ${displayName} agent process exited.`, {
     detail: 'The chat panel restarts it automatically; the conversation so far is preserved.',
     retryable: true,
   })

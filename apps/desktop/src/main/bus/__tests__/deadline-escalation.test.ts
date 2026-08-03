@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import {
-  DRIVER_CAPABILITIES,
   newResultId,
   type Capability,
   type CollectionRef,
@@ -26,8 +25,8 @@ import {
  * connection, moves its status to `error`, and fails **every other in-flight
  * result on that connection** as CONNECTION_LOST.
  *
- * qdrant is the concrete victim: the one driver in `DRIVER_CAPABILITIES`
- * without `cancel`, carrying default budgets of 120s (scan) and 60s (vector
+ * qdrant is the concrete victim: the one driver whose manifest declares no
+ * `cancel`, carrying default budgets of 120s (scan) and 60s (vector
  * search) that no UI yet exposes. Either budget expiring disconnected a user who
  * had pressed nothing.
  *
@@ -57,6 +56,7 @@ import {
  * ================================================================== */
 
 // Must run before manager.ts is resolved; see the module's own note.
+import { driverCapabilities } from '../../../drivers/manifests'
 import '../../connections/__tests__/install-stubs'
 import { stubHost } from '../../connections/__tests__/stub-host-process'
 
@@ -111,16 +111,16 @@ describe('a request that outlives its deadline', () => {
   })
 
   it('covers qdrant specifically, read from the real capability table', async () => {
-    // Pinned against core rather than a literal: if qdrant ever gains `cancel`
-    // this test keeps describing the driver that actually lacks it.
-    const withoutCancel = Object.entries(DRIVER_CAPABILITIES)
+    // Pinned against the driver manifests rather than a literal: if qdrant ever
+    // gains `cancel` this test keeps describing the driver that actually lacks it.
+    const withoutCancel = Object.entries(driverCapabilities())
       .filter(([, caps]) => !caps.includes('cancel'))
       .map(([driverId]) => driverId)
     assert.deepEqual(withoutCancel, ['qdrant'], 'qdrant is the driver this protects')
 
     const rec = recorder()
     const outcome = await stopExpiredResult(
-      target({ capabilities: DRIVER_CAPABILITIES.qdrant }, rec),
+      target({ capabilities: driverCapabilities().qdrant }, rec),
       newResultId(),
     )
     assert.equal(outcome, 'left-alone')
@@ -271,7 +271,7 @@ async function managerOn(capabilities: readonly Capability[]): Promise<ManagerHa
 
 describe('the deadline path through ConnectionManager', () => {
   it('does not kill the driver process for a driver that cannot be cancelled', async () => {
-    const h = await managerOn(DRIVER_CAPABILITIES.qdrant)
+    const h = await managerOn(driverCapabilities().qdrant)
     const doomed = newResultId()
     const bystander = newResultId()
 
@@ -314,7 +314,7 @@ describe('the deadline path through ConnectionManager', () => {
   })
 
   it('an explicit force cancel still kills — the escalation is not gone, only unhooked from the clock', async () => {
-    const h = await managerOn(DRIVER_CAPABILITIES.qdrant)
+    const h = await managerOn(driverCapabilities().qdrant)
     const resultId = newResultId()
     await h.manager.scan(h.connId, { resultId, ref: SCAN_REF, chunkRows: 100 })
 

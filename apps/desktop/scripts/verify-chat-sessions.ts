@@ -35,6 +35,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { asChatId, type ChatDelta } from '@peek/core'
 import { AcpManager } from '../src/main/acp/manager'
+import { claudeCodeProfile } from '../src/main/acp/profiles'
 import {
   DEFAULT_ACP_TIMEOUTS,
   DEFAULT_DELTA_BUDGET,
@@ -63,6 +64,8 @@ const manager = new AcpManager(
   },
   {
     resolveCwd: () => CHAT_WORKDIR,
+    profile: claudeCodeProfile,
+    agentConfig: {},
     permissionMode: 'default',
     timeouts: DEFAULT_ACP_TIMEOUTS,
     batch: DEFAULT_DELTA_BUDGET,

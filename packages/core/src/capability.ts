@@ -27,23 +27,30 @@ export const CAPABILITIES = [
 export const CapabilitySchema = z.enum(CAPABILITIES)
 export type Capability = z.infer<typeof CapabilitySchema>
 
-export const DRIVER_IDS = ['postgres', 'mysql', 'sqlite', 'redis', 'qdrant'] as const
+export const DRIVER_IDS = ['postgres', 'mysql', 'sqlite', 'redis', 'qdrant', 'neo4j'] as const
 export const DriverIdSchema = z.enum(DRIVER_IDS)
 export type DriverId = z.infer<typeof DriverIdSchema>
 
 /**
- * Capabilities each driver advertises (the four-database comparison in PLAN §4).
- * The UI and the MCP tools adapt to this table **before** a connection exists;
- * once connected, `DriverSession.capabilities` wins — it may be narrower, e.g. on
- * an older PostgreSQL server.
+ * There is deliberately **no `DRIVER_CAPABILITIES` table here.**
+ *
+ * There was one, and it pointed the wrong way. PLAN §4 says each driver declares
+ * its own capability set — but the table lived in core and
+ * all five packages imported it back as the source of truth for what *they* could
+ * do (`new Set(DRIVER_CAPABILITIES.postgres)`). The loop was self-consistent and
+ * its contract tests passed, because both halves read the same cell; it just had
+ * core describing packages that core cannot see.
+ *
+ * The declaration now lives in each package's `manifest.ts`
+ * (`DriverManifest.capabilities`, see `./manifest`), which is also what its
+ * `Driver` and `DriverSession` read, so advertised and implemented cannot drift.
+ * The pre-connection prediction the UI and the MCP tools need is assembled from
+ * those manifests by the app — `apps/desktop/src/drivers/manifests.ts` — because
+ * a driver package depends on core and core importing one back would be a cycle.
+ *
+ * Once connected, `DriverSession.capabilities` wins regardless: it may be
+ * narrower, e.g. on an older PostgreSQL server.
  */
-export const DRIVER_CAPABILITIES: Readonly<Record<DriverId, readonly Capability[]>> = {
-  postgres: ['introspect', 'tabularQuery', 'collectionScan', 'valuePeek', 'cancel'],
-  mysql: ['introspect', 'tabularQuery', 'collectionScan', 'valuePeek', 'cancel'],
-  sqlite: ['introspect', 'tabularQuery', 'collectionScan', 'valuePeek', 'cancel'],
-  redis: ['introspect', 'collectionScan', 'keyValue', 'valuePeek', 'cancel'],
-  qdrant: ['introspect', 'collectionScan', 'vectorSearch', 'valuePeek'],
-}
 
 /* ================================================================== */
 /* 2. ConnectionConfig (discriminated union on driverId)               */
@@ -113,12 +120,38 @@ export const QdrantConnectionConfigSchema = z.object({
   connectTimeoutMs: z.number().int().positive().optional(),
 })
 
+/**
+ * Neo4j speaks Bolt, and the URL is where the *routing* decision lives:
+ * `bolt://` pins one server, `neo4j://` asks the cluster's routing table where to
+ * go. They are not interchangeable spellings of one address, so the URL is
+ * offered verbatim rather than assembled from a host and a port with a scheme
+ * picked for the user.
+ */
+export const Neo4jConnectionConfigSchema = z.object({
+  driverId: z.literal('neo4j'),
+  ...baseConn,
+  /** bolt:// | neo4j:// (+s / +ssc for TLS). When given it wins over host/port. */
+  url: z.string().optional(),
+  host: z.string().optional(),
+  port: z.number().int().positive().max(65535).optional(),
+  user: z.string().optional(),
+  password: z.string().optional(),
+  /**
+   * Which database to open. Neo4j is multi-database from 4.0, and unlike
+   * PostgreSQL the connection is *not* pinned to one — absent means the server's
+   * configured home database (`neo4j` out of the box).
+   */
+  database: z.string().optional(),
+  connectTimeoutMs: z.number().int().positive().optional(),
+})
+
 export const ConnectionConfigSchema = z.discriminatedUnion('driverId', [
   PostgresConnectionConfigSchema,
   MysqlConnectionConfigSchema,
   SqliteConnectionConfigSchema,
   RedisConnectionConfigSchema,
   QdrantConnectionConfigSchema,
+  Neo4jConnectionConfigSchema,
 ])
 
 export type ConnectionConfig = z.infer<typeof ConnectionConfigSchema>
@@ -127,6 +160,7 @@ export type MysqlConnectionConfig = z.infer<typeof MysqlConnectionConfigSchema>
 export type SqliteConnectionConfig = z.infer<typeof SqliteConnectionConfigSchema>
 export type RedisConnectionConfig = z.infer<typeof RedisConnectionConfigSchema>
 export type QdrantConnectionConfig = z.infer<typeof QdrantConnectionConfigSchema>
+export type Neo4jConnectionConfig = z.infer<typeof Neo4jConnectionConfigSchema>
 
 /** Password placeholder. Any config that crosses the main-process boundary must be redacted first. */
 export const REDACTED = '***'
@@ -147,6 +181,9 @@ export function redactConnectionConfig(cfg: ConnectionConfig): ConnectionConfig 
   switch (cfg.driverId) {
     case 'postgres':
     case 'mysql':
+    // Neo4j carries its password in a separate field *and* accepts it inside the
+    // URL, so both have to be scrubbed — the same two-field shape as postgres.
+    case 'neo4j':
       return {
         ...cfg,
         ...(cfg.password === undefined ? {} : { password: REDACTED }),
@@ -208,6 +245,15 @@ export function defaultConnectionLabel(cfg: ConnectionConfig): string {
       const parts = urlParts(cfg.url)
       return hostPort(parts?.host, parts?.port) ?? safeUrlLabel(cfg.url) ?? cfg.driverId
     }
+    case 'neo4j': {
+      // The database name comes first for the same reason it does on postgres:
+      // two connections to one server differ by database, and a 240px row that
+      // truncates at the end would cut off exactly that.
+      const parts = urlParts(cfg.url)
+      return (
+        cfg.database ?? hostPort(cfg.host ?? parts?.host, cfg.port ?? parts?.port) ?? cfg.driverId
+      )
+    }
   }
 }
 
@@ -236,6 +282,13 @@ export function connectionDetail(cfg: ConnectionConfig): string {
     }
     case 'qdrant':
       return redactUrlCredentials(cfg.url)
+    case 'neo4j': {
+      if (cfg.url !== undefined) return redactUrlCredentials(cfg.url)
+      const at = hostPort(cfg.host ?? 'localhost', cfg.port ?? 7687) ?? ''
+      const user = cfg.user === undefined ? '' : `${cfg.user}@`
+      const db = cfg.database === undefined ? '' : `/${cfg.database}`
+      return `bolt://${user}${at}${db}`
+    }
   }
 }
 
@@ -337,6 +390,19 @@ export function connectionIdentity(config: ConnectionConfig): string {
       return [config.driverId, url(config.url)].join(SEP)
     case 'sqlite':
       return [config.driverId, config.file].join(SEP)
+    case 'neo4j':
+      // The database is part of the identity, unlike the postgres branch where it
+      // is also present: two Bolt connections to one server that open different
+      // databases are two connections, and a stored credential released against
+      // one of them must not be released against the other.
+      return [
+        config.driverId,
+        url(config.url),
+        config.host ?? '',
+        config.port === undefined ? '' : String(config.port),
+        config.database ?? '',
+        config.user ?? '',
+      ].join(SEP)
   }
 }
 
@@ -1499,7 +1565,20 @@ export interface DriverSession {
 
   /* --- introspect --- */
   /** A null parentId asks for the root level */
-  listChildren?(parentId: string | null): Promise<NamespaceNode[]>
+  /**
+   * `refresh` asks the driver to discard whatever it cached for this level
+   * before answering.
+   *
+   * It is part of the signature rather than a caller-side concern because a
+   * driver's introspection cache lives inside the driver process — `manager.ts`
+   * cannot reach it, and neither can the renderer. Before 2026-08-03 the flag
+   * travelled the whole way here (`DriverRpcRequest` → `driver-rpc.ts` →
+   * `manager.ts` → the RPC params) and was then **dropped on the floor** by the
+   * host runtime, because this signature had nowhere to put it: the caches only
+   * ever cleared when the session closed, so a schema change was invisible until
+   * the user reconnected. A driver that caches nothing may ignore it.
+   */
+  listChildren?(parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]>
   describeCollection?(ref: CollectionRef): Promise<CollectionSchemaInfo>
 
   /* --- tabularQuery --- */

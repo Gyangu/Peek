@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>peek icon concept B — Clear Slice</title>
+  <desc>A solid work surface opened by one smooth, continuous data slice.</desc>
+  <!-- Layer 1: background plate -->
+  <rect x="96" y="96" width="832" height="832" rx="192"
+        fill="#171A21" stroke="#66707A" stroke-width="12"/>
+  <!-- Layer 2: visible work surface -->
+  <rect x="240" y="240" width="544" height="544" rx="144" fill="#4D9CFF"/>
+  <!-- Layer 3: negative slice; same colour as the plate for deterministic knockout -->
+  <path d="M 282 612
+           C 378 612 408 552 436 484
+           C 464 416 510 412 582 412
+           L 742 412"
+        fill="none" stroke="#171A21" stroke-width="88"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

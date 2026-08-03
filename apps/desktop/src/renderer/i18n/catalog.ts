@@ -1,4 +1,4 @@
-import type { Message } from '@peek/core'
+import type { Message, MessageArgs } from '@peek/core'
 import { en, type Messages } from './messages/en'
 import { zhCN } from './messages/zh-CN'
 import type { Locale } from './locales'
@@ -20,3 +20,19 @@ export type { Messages }
 
 /** Every valid translation key. Misspell one and the build fails. */
 export type MessageKey = keyof Messages & string
+
+/**
+ * The keys whose message takes no interpolation params.
+ *
+ * `t` requires a params argument exactly when the message has placeholders, so a
+ * key that arrives as **data** — a connect field's label, a plugin view kind's
+ * title — can only be called with one argument if it is known to be
+ * parameterless. This is that narrowing.
+ *
+ * It lived in `components/connectForm.ts` while the connect dialog was its only
+ * consumer. The plugin view-kind registry is the second, and a type two
+ * unrelated surfaces depend on does not belong inside one of them.
+ */
+export type PlainMessageKey = {
+  [K in MessageKey]: MessageArgs<Messages[K]> extends [] ? K : never
+}[MessageKey]

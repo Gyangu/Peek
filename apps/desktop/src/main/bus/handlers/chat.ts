@@ -564,6 +564,12 @@ export function createChatHandlers(runtime: ChatRuntime): ChatHandlerMap {
           stageChatAttachments(draft, view, input.attachments, ctx)
         }
 
+        // Sending into a conversation is the strongest "I am using this" there
+        // is, so a provisional view stops being provisional here rather than
+        // waiting for an explicit promote — nobody should have to remember to
+        // pin a chat they have already typed into. See `ViewBase.provisional`.
+        if (view.provisional === true) delete view.provisional
+
         const attachments = plain(view.attachments)
         const messageId = ctx.ids.chatMessage()
         const text = input.text

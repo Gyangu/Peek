@@ -2,6 +2,9 @@ import { memo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { ChatAttachment, ChatAttachmentReceipt, ChatMessage } from '@peek/core'
 import { useErrorText, useT } from '../../i18n'
+import { copyText } from '../../util/clipboard'
+import { Menu } from '../../ui/Menu'
+import { useContextMenu } from '../../ui/useContextMenu'
 import { detailFor } from '../context-actions/chipDetail'
 import { attachmentKindKey, attachmentLabel } from './attachments'
 import { Markdown } from './Markdown'
@@ -22,9 +25,13 @@ export const MessageItem = memo(function MessageItem({
   const t = useT()
   const errorText = useErrorText(message.error)
   const isUser = message.role === 'user'
+  const menu = useContextMenu<null>()
 
   return (
-    <article className={`chat-msg ${message.role}${message.complete ? '' : ' streaming'}`}>
+    <article
+      className={`chat-msg ${message.role}${message.complete ? '' : ' streaming'}`}
+      onContextMenu={menu.open(null)}
+    >
       <div className="chat-msg-head">
         <span className="chat-msg-role">{isUser ? t('chat.role.user') : t('chat.role.agent')}</span>
         {message.complete ? null : <span className="chat-msg-live">{t('chat.writing')}</span>}
@@ -75,9 +82,39 @@ export const MessageItem = memo(function MessageItem({
       {message.stopReason && message.stopReason !== 'end_turn' && !errorText ? (
         <div className="chat-msg-stop">{t(stopKey(message.stopReason))}</div>
       ) : null}
+
+      {/* A message had no actions at all — not even copy. What gets copied is
+          the text the person reads, so thought blocks and tool calls are left
+          out and the blocks are joined with a blank line, which is what makes a
+          multi-block answer paste as prose rather than as one run-on. */}
+      {menu.state ? (
+        <Menu
+          label={t('menu.message.label')}
+          at={menu.state.at}
+          nodes={[
+            {
+              kind: 'item',
+              id: 'message.copy',
+              label: t('menu.message.copy'),
+              onSelect: () => {
+                copyText(messageText(message))
+              },
+            },
+          ]}
+          onClose={menu.close}
+        />
+      ) : null}
     </article>
   )
 })
+
+/** The prose of a message: its text blocks, in order, and nothing else. */
+function messageText(message: ChatMessage): string {
+  return message.blocks
+    .filter((b) => b.type === 'text')
+    .map((b) => (b.type === 'text' ? b.text : ''))
+    .join('\n\n')
+}
 
 function stopKey(
   reason: NonNullable<ChatMessage['stopReason']>,
@@ -162,11 +199,36 @@ function AttachmentReceipt({
       : { ...(receipt.notice ? { notice: receipt.notice } : {}), ...(receipt.failed === true ? { failed: true } : {}) },
     t,
   )
+  const menu = useContextMenu<null>()
+  const label = attachmentLabel(attachment)
   return (
-    <span className={`chat-chip receipt${receipt?.failed === true ? ' failed' : ''}`}>
+    <span
+      className={`chat-chip receipt${receipt?.failed === true ? ' failed' : ''}`}
+      onContextMenu={menu.open(null)}
+    >
       <span className="chat-chip-kind">{t(attachmentKindKey(attachment.kind))}</span>
-      <span className="chat-chip-label">{attachmentLabel(attachment)}</span>
+      <span className="chat-chip-label">{label}</span>
       {detail === null ? null : <span className="chat-chip-detail">{detail}</span>}
+      {/* A receipt is a record of something already sent, so there is nothing to
+          undo here — only the label, which is what someone reaches for when they
+          want to find that table again. */}
+      {menu.state ? (
+        <Menu
+          label={t('menu.chip.label')}
+          at={menu.state.at}
+          nodes={[
+            {
+              kind: 'item',
+              id: 'chip.copyLabel',
+              label: t('menu.chip.copyLabel'),
+              onSelect: () => {
+                copyText(label)
+              },
+            },
+          ]}
+          onClose={menu.close}
+        />
+      ) : null}
     </span>
   )
 }

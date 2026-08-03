@@ -23,6 +23,7 @@ import {
   type ViewSummary,
   type WorkspaceSnapshot,
 } from '@peek/core'
+import { endpointSummary } from '../../drivers/manifests'
 import { metaText } from './wait'
 
 /* ================================================================== */
@@ -149,22 +150,18 @@ export type BriefSection = 'layout' | 'views' | 'connections' | 'results'
 /* ================================================================== */
 
 /**
- * Readable description of a connection target. The config has already been through
- * redactConnectionConfig, so this only assembles the pieces.
+ * Readable description of a connection target. The config has already been
+ * through `redactConnectionConfig`, so this only assembles the pieces.
+ *
+ * The assembling itself is the driver's, not this file's: which of host / port /
+ * database / file / index actually names a server, and what each one's default
+ * is, is a fact about that database. It used to be a five-branch switch here,
+ * which meant a new driver's address line was written by whoever was editing the
+ * MCP layer that week — and a missing branch degraded to a blank target rather
+ * than to a compile error.
  */
 export function connTarget(cfg: ConnectionSummary['config']): string {
-  switch (cfg.driverId) {
-    case 'postgres':
-    case 'mysql':
-      if (cfg.url) return cfg.url
-      return `${cfg.host ?? 'localhost'}:${cfg.port ?? (cfg.driverId === 'postgres' ? 5432 : 3306)}/${cfg.database ?? ''}`
-    case 'sqlite':
-      return cfg.file
-    case 'redis':
-      return cfg.url ?? `${cfg.host ?? 'localhost'}:${cfg.port ?? 6379}/${cfg.db ?? 0}`
-    case 'qdrant':
-      return cfg.url
-  }
+  return endpointSummary(cfg)
 }
 
 export function briefConnection(c: ConnectionSummary): ConnBrief {

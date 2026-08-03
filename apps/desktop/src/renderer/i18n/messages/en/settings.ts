@@ -77,6 +77,69 @@ export const settings = {
   'settings.timeouts.stageNote':
     'The driver-host protocol has its own internal timeouts. They protect peek from a stuck driver process rather than expressing a preference, so they are not shown here.',
 
+  'settings.section.packages': 'Databases',
+
+  /* ---------------- Databases (the driver packages) ----------------
+   * Names, ids, versions and capability names are all identifiers and stay
+   * untranslated; only the surrounding prose is a message. */
+  'settings.packages.hint':
+    'Every database peek can open, and which build of each connector this app is running.',
+  'settings.packages.name': 'Database',
+  'settings.packages.version': 'Connector',
+  'settings.packages.capabilities': 'Capabilities',
+  'settings.packages.viewKinds': 'Views contributed by a package',
+  'settings.packages.noViewKinds': 'None — every database above browses through the built-in views.',
+  'settings.packages.builtinHint':
+    'These packages are built into this copy of peek, so there is nothing to install or remove yet.',
+
+  /* ---------------- The chat agent ---------------- */
+  'settings.section.agent': 'Chat agent',
+  'settings.agent.intro':
+    'Which agent answers in the chat panel. Either one reaches this window through peek’s own MCP endpoint, and every tool call still asks you first.',
+  'settings.agent.backend': 'Agent',
+  'settings.agent.backend.acp': 'Bundled agent',
+  'settings.agent.backend.endpoint': 'Your own endpoint',
+  /* Said once, at the top, because it applies to every control below it. */
+  'settings.agent.restartHint':
+    'Applies the next time peek starts. Conversations you already have keep the agent they were created with — the two store history in different places, and neither can read the other’s.',
+  'settings.agent.permissionMode': 'New conversations start in',
+  'settings.agent.mode.default': 'Ask every time',
+  'settings.agent.mode.auto': 'Let the agent judge',
+  'settings.agent.mode.acceptEdits': 'Accept edits',
+  'settings.agent.mode.plan': 'Plan only',
+  'settings.agent.modeHint.default': 'Every tool call waits for you. This is peek’s default.',
+  'settings.agent.modeHint.auto': 'The agent’s own classifier approves calls instead of you. It still cannot reach anything beyond peek’s tools.',
+  'settings.agent.modeHint.acceptEdits': 'Edits go through without asking; everything else still waits for you.',
+  'settings.agent.modeHint.plan': 'The agent plans and explains, and runs nothing until you leave this mode.',
+  'settings.agent.modeDangerNote':
+    'The two modes that skip checks entirely stay in the panel’s own dropdown, per conversation — not here, where they would quietly apply to every future one.',
+  'settings.agent.which': 'Which agent',
+  'settings.agent.missing': 'not installed',
+  'settings.agent.enforced': 'peek checks this agent’s sandbox with a probe against the real agent: no shell, no file tools, and none of your own Claude Code settings.',
+  /* Names the gap rather than implying a guarantee peek has not tested. */
+  'settings.agent.unverified':
+    '{agent} is started in its read-only mode, but peek has no probe that verifies it holds. Tool calls are still gated by you.',
+  'settings.agent.loginHint':
+    'Sign in with the agent’s own CLI. peek reuses that login and never handles the credential.',
+  'settings.agent.executable': 'Executable',
+  'settings.agent.executablePlaceholder': 'Use the bundled one',
+  'settings.agent.executableHint':
+    'Optional. Point the agent at a binary you already have instead of the one peek ships.',
+  'settings.agent.baseUrl': 'Base URL',
+  'settings.agent.model': 'Model',
+  'settings.agent.modelHint': 'The model id exactly as your endpoint spells it. It must support tool calling.',
+  'settings.agent.api': 'API',
+  'settings.agent.api.openai-completions': 'OpenAI-compatible',
+  'settings.agent.api.anthropic-messages': 'Anthropic messages',
+  'settings.agent.apiKey': 'API key',
+  'settings.agent.apiKeyStored': 'Stored — type to replace',
+  'settings.agent.apiKeyNone': 'None stored',
+  'settings.agent.apiKeyHint':
+    'Sealed by your operating system’s keychain, never written to settings.json, and never shown again.',
+  'settings.agent.forgetKey': 'Forget key',
+  'settings.agent.save': 'Save',
+  'settings.agent.saved': 'Saved. It takes effect the next time peek starts.',
+
   /* ---------------- About ---------------- */
   'settings.about.version': 'Version',
   'settings.about.configDir': 'Config folder',

@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url'
 import { after, test } from 'node:test'
 import { asChatId, type ChatDelta, type ChatId, type NotifyMessage, type PeekError } from '@peek/core'
 import { AcpManager } from '../manager'
+import { claudeCodeProfile } from '../profiles'
 import {
   DEFAULT_ACP_TIMEOUTS,
   DEFAULT_DELTA_BUDGET,
@@ -105,6 +106,8 @@ function harness(
     },
     {
       resolveCwd: () => cwd,
+      profile: claudeCodeProfile,
+      agentConfig: {},
       agentEntryPath: STUB,
       permissionMode: 'default',
       timeouts: DEFAULT_ACP_TIMEOUTS,

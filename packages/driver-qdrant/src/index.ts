@@ -2,7 +2,8 @@
  * @peek/driver-qdrant — the Qdrant driver.
  *
  * Capabilities: introspect + collectionScan + vectorSearch + valuePeek
- * (single source of truth: core's DRIVER_CAPABILITIES.qdrant).
+ * (declared by this package in `./manifest`, which is also what the connect
+ * dialog and the MCP tools read before anything has connected).
  *
  * Note the absence of `cancel`: Qdrant is an HTTP API and an in-flight request is
  * aborted with an AbortController rather than interrupted server-side, so the

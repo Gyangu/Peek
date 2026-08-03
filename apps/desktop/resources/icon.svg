@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">peek application icon</title>
+  <desc id="desc">A geometric data viewport with three visible cells.</desc>
+
+  <!-- The rounded tile is deliberately flat: its silhouette carries at Dock size. -->
+  <rect x="24" y="24" width="976" height="976" rx="224" fill="#42D6C5"/>
+
+  <!-- A single aperture owns the name “peek”; it is a viewport, not an illustrated eye. -->
+  <path
+    d="M168 512C258 402 379 344 512 344s254 58 344 168c-90 110-211 168-344 168S258 622 168 512Z"
+    fill="#101827"
+  />
+
+  <!-- A tiny 2 × 3 table: irregular column widths keep it from reading as an ellipsis. -->
+  <path
+    d="M326 430h104v64H326zm124 0h150v64H450zm170 0h78v64h-78zM326 514h104v64H326zm124 0h150v64H450zm170 0h78v64h-78z"
+    fill="#FFF5DF"
+  />
+</svg>

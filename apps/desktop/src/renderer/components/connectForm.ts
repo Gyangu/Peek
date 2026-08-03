@@ -1,18 +1,28 @@
 import { ConnectionConfigSchema } from '@peek/core'
-import type { ConnectionConfig, DriverId, MessageArgs } from '@peek/core'
-import type { MessageKey, Messages } from '../i18n'
+import type {
+  ConnectField as CoreConnectField,
+  ConnectFormSpec as CoreConnectFormSpec,
+  ConnectFormValues,
+  ConnectMode,
+  ConnectionConfig,
+  DriverId,
+  DriverManifest,
+} from '@peek/core'
+import { DRIVER_MANIFESTS } from '../../drivers/manifests'
+import type { PlainMessageKey } from '../i18n'
 
 /**
  * Catalog keys that take no interpolation params.
  *
- * A field label arrives as data, so the component calls `t(field.labelKey)` with
- * a key it cannot know statically — and `t` requires a params argument exactly
- * when the message has placeholders. Narrowing the union to the parameterless
- * keys is what keeps that call type-safe instead of casting it away.
+ * Re-exported rather than declared: it moved to `i18n/catalog.ts` when the
+ * plugin view-kind registry became a second consumer. Kept here so the connect
+ * dialog's imports do not churn.
  */
-export type PlainMessageKey = {
-  [K in MessageKey]: MessageArgs<Messages[K]> extends [] ? K : never
-}[MessageKey]
+export type { PlainMessageKey }
+
+export type { ConnectFormValues, ConnectMode }
+export type ConnectField = CoreConnectField<PlainMessageKey>
+export type ConnectFormSpec = CoreConnectFormSpec<PlainMessageKey>
 
 /* ==================================================================
  * The connect dialog's non-visual half.
@@ -23,163 +33,63 @@ export type PlainMessageKey = {
  * plus an API key), and sqlite is a file on disk with no network identity
  * whatsoever. One text box cannot ask all of those questions honestly.
  *
- * So the shape of the form is data, declared once here, and `ConnectDialog`
- * only renders it. That split is what makes the interesting part — which fields
- * exist, which are required, and how they become a `ConnectionConfig` — testable
- * without a DOM, and it is why adding a sixth driver stays a table edit.
+ * So the shape of the form is data — and that data lives in each **driver
+ * package's** manifest rather than in a table here. What a PostgreSQL connection
+ * needs is a fact about PostgreSQL, and keeping it next to the driver is what
+ * makes adding a database a package instead of an edit to every consumer that
+ * had an opinion about it. This module is what the window does with that data:
+ * resolve a driver to its form, seed values, validate, assemble.
  *
- * Everything in this file is pure.
+ * Everything here is pure.
  * ================================================================== */
 
 /**
- * How the user is spelling the connection.
+ * The manifests, re-declared with the message-key type filled in.
  *
- * `url` and `fields` are two ways of saying one thing, not two kinds of
- * connection: the config union accepts either, and a driver that is handed both
- * lets the URL win. Offering them side by side in one form would therefore be a
- * trap — you would fill in a host, not notice the URL above it, and connect
- * somewhere else. A mode picker makes the choice explicit and exclusive.
+ * **This annotation is the check.** `DRIVER_MANIFESTS` carries each package's
+ * literal `labelKey`s — see `defineManifest` in core, and the deliberate absence
+ * of a type annotation on the array itself — and naming `PlainMessageKey` here
+ * is what measures every one of them against the real catalog. A driver package
+ * that invents `connect.field.hostname` fails to compile *on this line*, with
+ * the offending key in the message, rather than shipping a dialog whose label
+ * renders as the key itself.
+ *
+ * It also rules out a key that *exists* but takes interpolation parameters,
+ * which `t(field.labelKey)` could not call with one argument.
  */
-export type ConnectMode = 'url' | 'fields'
+const MANIFESTS: readonly DriverManifest<PlainMessageKey>[] = DRIVER_MANIFESTS
 
-export type ConnectFieldType = 'text' | 'password' | 'number' | 'checkbox'
+const BY_ID = new Map<DriverId, DriverManifest<PlainMessageKey>>(
+  MANIFESTS.map((m) => [m.driverId, m]),
+)
 
-export interface ConnectField {
-  /** Key into the form's value record, and the config property it fills */
-  name: string
-  type: ConnectFieldType
-  labelKey: PlainMessageKey
-  /**
-   * Sample syntax. Never translated: a placeholder that reads as prose in one
-   * language and as a URL in another is harder to copy from, not easier.
-   */
-  placeholder?: string
-  /** Pre-filled so that the common case is "press Connect" */
-  defaultValue?: string | boolean
-  /** Connect stays disabled until this has a value */
-  required?: boolean
-  /** Render in the monospace face (URLs, paths, hosts) */
-  mono?: boolean
-}
-
-export interface ConnectFormSpec {
-  /** Available modes, the first being the default. A single-mode driver draws no picker. */
-  modes: readonly ConnectMode[]
-  fields: Readonly<Record<ConnectMode, readonly ConnectField[]>>
-}
-
-export type ConnectFormValues = Readonly<Record<string, string | boolean>>
-
-/* ------------------------------------------------------------------ */
-/* The forms                                                           */
-/* ------------------------------------------------------------------ */
-
-const URL_FIELD = (placeholder: string): ConnectField => ({
-  name: 'url',
-  type: 'text',
-  labelKey: 'connect.field.url',
-  placeholder,
-  required: true,
-  mono: true,
-})
-
-const CONNECT_FORMS: Readonly<Record<DriverId, ConnectFormSpec>> = {
-  postgres: {
-    modes: ['url', 'fields'],
-    fields: {
-      url: [URL_FIELD('postgresql://user@localhost:5432/database')],
-      fields: [
-        { name: 'host', type: 'text', labelKey: 'connect.field.host', defaultValue: 'localhost', required: true, mono: true },
-        { name: 'port', type: 'number', labelKey: 'connect.field.port', defaultValue: '5432', required: true },
-        { name: 'database', type: 'text', labelKey: 'connect.field.database', required: true, mono: true },
-        { name: 'user', type: 'text', labelKey: 'connect.field.user', mono: true },
-        { name: 'password', type: 'password', labelKey: 'connect.field.password' },
-        { name: 'ssl', type: 'checkbox', labelKey: 'connect.field.ssl' },
-      ],
-    },
-  },
-  mysql: {
-    modes: ['url', 'fields'],
-    fields: {
-      url: [URL_FIELD('mysql://user:password@localhost:3306/database')],
-      fields: [
-        { name: 'host', type: 'text', labelKey: 'connect.field.host', defaultValue: 'localhost', required: true, mono: true },
-        { name: 'port', type: 'number', labelKey: 'connect.field.port', defaultValue: '3306', required: true },
-        { name: 'database', type: 'text', labelKey: 'connect.field.database', required: true, mono: true },
-        { name: 'user', type: 'text', labelKey: 'connect.field.user', defaultValue: 'root', mono: true },
-        { name: 'password', type: 'password', labelKey: 'connect.field.password' },
-        { name: 'ssl', type: 'checkbox', labelKey: 'connect.field.ssl' },
-      ],
-    },
-  },
-  // No URL mode: a file path is not a URL, and 'sqlite:///x' would be a spelling
-  // peek invented. `readOnly` defaults on — this is a viewer, and the driver
-  // refuses to create a database that is not there.
-  sqlite: {
-    modes: ['fields'],
-    fields: {
-      url: [],
-      fields: [
-        {
-          name: 'file',
-          type: 'text',
-          labelKey: 'connect.field.file',
-          placeholder: '/absolute/path/to/db.sqlite',
-          required: true,
-          mono: true,
-        },
-        { name: 'readOnly', type: 'checkbox', labelKey: 'connect.field.readOnly', defaultValue: true },
-      ],
-    },
-  },
-  redis: {
-    modes: ['fields', 'url'],
-    fields: {
-      url: [URL_FIELD('redis://localhost:6379/0')],
-      fields: [
-        { name: 'host', type: 'text', labelKey: 'connect.field.host', defaultValue: 'localhost', required: true, mono: true },
-        { name: 'port', type: 'number', labelKey: 'connect.field.port', defaultValue: '6379', required: true },
-        // The logical database index, which redis keeps outside the connection's
-        // identity: it is selected per client, not carried in the URL host part.
-        { name: 'db', type: 'number', labelKey: 'connect.field.db', defaultValue: '0' },
-        { name: 'username', type: 'text', labelKey: 'connect.field.username', mono: true },
-        { name: 'password', type: 'password', labelKey: 'connect.field.password' },
-        { name: 'tls', type: 'checkbox', labelKey: 'connect.field.tls' },
-      ],
-    },
-  },
-  qdrant: {
-    modes: ['fields'],
-    fields: {
-      url: [],
-      fields: [
-        {
-          name: 'url',
-          type: 'text',
-          labelKey: 'connect.field.qdrantUrl',
-          placeholder: 'http://localhost:6333',
-          defaultValue: 'http://localhost:6333',
-          required: true,
-          mono: true,
-        },
-        { name: 'apiKey', type: 'password', labelKey: 'connect.field.apiKey' },
-      ],
-    },
-  },
+/**
+ * The manifest behind a driver id.
+ *
+ * Throws rather than returning null: every caller here is already committed to
+ * drawing a form, and there is nothing sensible to draw for a driver that has
+ * none. `ConnectDialog` only ever offers ids from `DRIVER_IDS`, and
+ * `driver-registry.test.ts` asserts that list and this one agree, so a miss is a
+ * wiring bug rather than a state the UI has to handle.
+ */
+function manifest(driverId: DriverId): DriverManifest<PlainMessageKey> {
+  const found = BY_ID.get(driverId)
+  if (found === undefined) throw new Error(`No driver manifest for ${driverId}`)
+  return found
 }
 
 export function connectFormSpec(driverId: DriverId): ConnectFormSpec {
-  return CONNECT_FORMS[driverId]
+  return manifest(driverId).connectForm
 }
 
 /** The fields to draw for one driver in one mode. */
 export function connectFields(driverId: DriverId, mode: ConnectMode): readonly ConnectField[] {
-  return CONNECT_FORMS[driverId].fields[mode]
+  return manifest(driverId).connectForm.fields[mode]
 }
 
 /** The mode a driver opens in. */
 export function defaultConnectMode(driverId: DriverId): ConnectMode {
-  return CONNECT_FORMS[driverId].modes[0] ?? 'fields'
+  return manifest(driverId).connectForm.modes[0] ?? 'fields'
 }
 
 /** Initial values, so switching driver or mode lands on a form that is ready to submit. */
@@ -196,7 +106,8 @@ export function initialConnectValues(driverId: DriverId, mode: ConnectMode): Rec
 /* ------------------------------------------------------------------ */
 
 /**
- * The reverse of `assemble`: seed the form from a config that already exists.
+ * The reverse of a manifest's `assembleConfig`: seed the form from a config that
+ * already exists.
  *
  * This is what makes a saved connection **editable** rather than merely
  * repeatable. Before it, correcting a port meant retyping a host, a database, a
@@ -213,7 +124,7 @@ export function initialConnectValues(driverId: DriverId, mode: ConnectMode): Rec
  * construction. The dialog says so instead of pretending the box is filled.
  */
 export function connectModeFor(driverId: DriverId, config: Readonly<Record<string, unknown>>): ConnectMode {
-  const spec = CONNECT_FORMS[driverId]
+  const spec = manifest(driverId).connectForm
   const hasUrl = typeof config['url'] === 'string' && config['url'].length > 0
   // qdrant's `url` is a plain field, not a mode — it has no URL mode to switch to.
   if (hasUrl && spec.modes.includes('url')) return 'url'
@@ -268,6 +179,10 @@ export type BuildConfigOutcome =
  * at; catching it here means a typed port or an empty file path is reported next
  * to the box that caused it. The returned `issue` names the offending key — a
  * schema path, not prose, so it is not translated.
+ *
+ * The assembly itself belongs to the driver: which form fields become which
+ * config properties, and what an empty box means for each of them, is knowledge
+ * about that one database.
  */
 export function buildConnectionConfig(
   driverId: DriverId,
@@ -275,12 +190,8 @@ export function buildConnectionConfig(
   values: ConnectFormValues,
   label: string,
 ): BuildConfigOutcome {
-  return validateConnectionConfig(assemble(driverId, mode, values, label.trim()))
+  return validateConnectionConfig(manifest(driverId).assembleConfig(mode, values, label.trim()))
 }
-
-/* ------------------------------------------------------------------ */
-/* Draft -> ConnectionConfig                                           */
-/* ------------------------------------------------------------------ */
 
 /**
  * Check one assembled draft against the real contract schema.
@@ -298,9 +209,8 @@ export function buildConnectionConfig(
  *    and the whole runtime in the bundle regardless — checked by grepping the
  *    built asset, not by reading imports.
  * 2. **`ConnectionConfigSchema` costs nothing extra here.** It is declared in
- *    `capability.ts`, the same module as `DRIVER_CAPABILITIES`, which
- *    `state/capabilities.ts` needs in order to decide what a connection may be
- *    asked to do. That module is in the chunk before this file has an opinion.
+ *    `capability.ts`, a module the renderer is already carrying for
+ *    `ConnectionState` and the command schemas, before this file has an opinion.
  *
  * So the mirror bought no bytes and spent some. A/B of the built renderer chunk,
  * everything else identical (esbuild-minified, `pnpm build`):
@@ -312,10 +222,10 @@ export function buildConnectionConfig(
  * enforces for real — correct only for as long as someone remembered to edit it
  * twice. Calling the schema is smaller, shorter, and cannot drift.
  *
- * The check is still worth doing on this side: `conn.open` validates in main
- * regardless, but a rejection from there arrives as a failed command with no
- * field to point at. Here it names the offending key, next to the box that
- * caused it.
+ * **It is also why a `DriverManifest` carries no config schema of its own.** The
+ * union discriminates on `driverId`, so parsing the whole thing selects the
+ * right branch unaided; a per-package copy would be a second description of a
+ * contract that main enforces — the mistake this comment already records once.
  */
 export function validateConnectionConfig(draft: Record<string, unknown>): BuildConfigOutcome {
   const parsed = ConnectionConfigSchema.safeParse(draft)
@@ -330,82 +240,7 @@ export function validateConnectionConfig(draft: Record<string, unknown>): BuildC
   }
 }
 
-function assemble(
-  driverId: DriverId,
-  mode: ConnectMode,
-  values: ConnectFormValues,
-  label: string,
-): Record<string, unknown> {
-  const base = label ? { label } : {}
-  // Only the active mode's fields are read. A host typed before switching to URL
-  // mode is still in the value record, and sending it as an override would
-  // silently connect somewhere other than the URL on screen.
-  const has = new Set(connectFields(driverId, mode).map((f) => f.name))
-  const text = (name: string): string | undefined =>
-    has.has(name) ? emptyToUndefined(readText(values, name)) : undefined
-  const num = (name: string): number | undefined => {
-    const raw = text(name)
-    if (raw === undefined) return undefined
-    const n = Number(raw)
-    return Number.isFinite(n) ? n : Number.NaN // NaN survives to fail the zod parse loudly
-  }
-  const bool = (name: string): boolean | undefined =>
-    has.has(name) ? (values[name] === true ? true : undefined) : undefined
-
-  switch (driverId) {
-    case 'postgres':
-    case 'mysql':
-      return {
-        driverId,
-        ...base,
-        ...defined('url', text('url')),
-        ...defined('host', text('host')),
-        ...defined('port', num('port')),
-        ...defined('database', text('database')),
-        ...defined('user', text('user')),
-        ...defined('password', text('password')),
-        ...defined('ssl', bool('ssl')),
-      }
-    case 'sqlite':
-      return {
-        driverId,
-        ...base,
-        file: readText(values, 'file'),
-        // Explicitly false rather than omitted: the driver's own default is
-        // read-only, but "I unticked the box" has to survive the trip.
-        readOnly: values['readOnly'] !== false,
-      }
-    case 'redis':
-      return {
-        driverId,
-        ...base,
-        ...defined('url', text('url')),
-        ...defined('host', text('host')),
-        ...defined('port', num('port')),
-        ...defined('db', num('db')),
-        ...defined('username', text('username')),
-        ...defined('password', text('password')),
-        ...defined('tls', bool('tls')),
-      }
-    case 'qdrant':
-      return {
-        driverId,
-        ...base,
-        url: readText(values, 'url'),
-        ...defined('apiKey', text('apiKey')),
-      }
-  }
-}
-
-function defined<T>(key: string, value: T | undefined): Record<string, T> {
-  return value === undefined ? {} : { [key]: value }
-}
-
 function readText(values: ConnectFormValues, name: string): string {
   const raw = values[name]
   return typeof raw === 'string' ? raw.trim() : ''
-}
-
-function emptyToUndefined(value: string): string | undefined {
-  return value === '' ? undefined : value
 }

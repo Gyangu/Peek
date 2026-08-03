@@ -13,6 +13,7 @@ export const panel = {
   /* The tab strip. */
   'panel.tabs.listLabel': 'Panel tabs',
   'panel.tab.close': 'Close {title}',
+  'panel.tab.provisional': '{title} — provisional tab, double-click to keep it',
 
   /* Drag and drop. These label the highlight that appears under the cursor while
    * a view is being dragged, so each one has to say what releasing *here* would
@@ -37,15 +38,25 @@ export const panel = {
   'a11y.panel.empty': 'Empty panel {index}',
 
   'view.gone': 'View {viewId} no longer exists',
+  'view.pluginMissing': 'No plugin loaded for view kind “{kind}”',
+  'view.pluginUnbuilt': 'The “{kind}” view’s interface was not built — run pnpm build:plugin-ui',
+  'view.pluginError': 'The “{kind}” view reported a problem',
 
   /* View-kind labels. `viewTitle()` in core stays English because MCP reads it;
-   * the window uses these instead when it wants the kind spelled out. */
+   * the window uses these instead when it wants the kind spelled out.
+   *
+   * `view.kind.graph` is contributed by a plugin rather than by a built-in kind,
+   * and it is here rather than in the plugin because the catalog is what
+   * `PlainMessageKey` checks a registration's `titleKey` against — a key living
+   * anywhere else could not be checked at all. Phase C, where plugins arrive at
+   * runtime, is what makes that check a load-time lookup instead. */
   'view.kind.table': 'Table',
   'view.kind.query': 'Query',
   'view.kind.inspector': 'Inspector',
   'view.kind.tree': 'Object tree',
   'view.kind.vector': 'Vector search',
   'view.kind.chat': 'Chat',
+  'view.kind.graph': 'Graph',
 
   /* One-line view descriptions for the status bar — the localized counterpart of
    * `describeView()` in core, which stays English because MCP reads it.

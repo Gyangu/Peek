@@ -1,28 +1,34 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>peek app icon — Clear Slice</title>
+  <desc>A single visible work surface opened by one continuous data slice.</desc>
   <!--
-    peek app icon — the source of truth for build/icon.icns.
+    Source of truth for every shipped icon: PNG, ICNS and ICO.
 
-    Restraint on purpose: one dark plate, one light hue, plain geometry.
-    The glyph is a three-band database cylinder whose bands are separated by
-    plate-coloured gaps rather than strokes, so the silhouette survives being
-    scaled down to 32x32 in the Dock.
+    The mark is deliberately flat and limited to two visual elements:
+      1. the near-black app plate, edged for dark-background contrast;
+      2. the blue work surface, opened by a plate-coloured negative slice.
 
-    Regenerate the .icns after editing by running "pnpm icon" in this package.
+    The slice reaches both edges of the work surface. Its 88-unit width leaves
+    at least 122 source pixels in the two narrow corner lobes, so both survive
+    direct rasterization at 16px instead of collapsing to a single antialiased
+    pixel. No effects are baked in; platform shadows and lighting stay outside
+    the editable geometry.
 
-    Geometry: an 824x824 plate inside a 1024 canvas (Apple's icon grid).
-    Cylinder rx=250 ry=86, bands 116 tall with 32 between them; the glyph
-    spans y 220..804, which centres it on the plate.
+    Regenerate all platform assets with `pnpm icon` from the repository root.
   -->
 
-  <!-- Plate: the same near-black the app window paints behind the UI -->
-  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="#171A21" />
+  <!-- Layer 1: app plate. The restrained keyline keeps its boundary on a dark Dock. -->
+  <rect x="96" y="96" width="832" height="832" rx="192"
+        fill="#171A21" stroke="#66707A" stroke-width="12"/>
 
-  <!-- Band 3 (bottom) -->
-  <path d="M 262 602 A 250 86 0 0 0 762 602 L 762 718 A 250 86 0 0 1 262 718 Z" fill="#E8ECF4" />
-  <!-- Band 2 (middle) -->
-  <path d="M 262 454 A 250 86 0 0 0 762 454 L 762 570 A 250 86 0 0 1 262 570 Z" fill="#E8ECF4" />
-  <!-- Band 1 (directly below the top face) -->
-  <path d="M 262 306 A 250 86 0 0 0 762 306 L 762 422 A 250 86 0 0 1 262 422 Z" fill="#E8ECF4" />
-  <!-- Top face: a touch brighter, the only tonal step in the whole mark -->
-  <ellipse cx="512" cy="306" rx="250" ry="86" fill="#F4F7FC" />
+  <!-- Layer 2: the shared, visible work surface. -->
+  <rect x="240" y="240" width="544" height="544" rx="144" fill="#4D9CFF"/>
+
+  <!-- Layer 3: deterministic knockout, using the plate colour rather than an effect. -->
+  <path d="M 282 612
+           C 378 612 408 552 436 484
+           C 464 416 510 412 582 412
+           L 742 412"
+        fill="none" stroke="#171A21" stroke-width="88"
+        stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

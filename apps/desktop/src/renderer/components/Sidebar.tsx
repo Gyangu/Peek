@@ -3,16 +3,17 @@ import type { ReactElement } from 'react'
 import type { ConnectionState, SavedConnection } from '@peek/core'
 import { connectionDetail } from '@peek/core'
 import { useErrorText, useT, type TFunction } from '../i18n'
-import { connCanUse, connHas } from '../state/capabilities'
 import { dispatch } from '../state/dispatch'
 import { invalidateConnection } from '../state/namespaceStore'
 import { openSettings } from '../state/settingsDialogStore'
 import { useConnections } from '../state/workspaceStore'
+import { connectionMenuNodes, editableOf } from './connectionMenu'
 import { buildConnectionRows, type ConnectionRow } from './connectionRows'
-import { ConfirmPair } from './ConfirmPair'
 import { ConnectDialog } from './ConnectDialog'
 import { FirstRunGuide } from './FirstRunGuide'
 import { Button } from '../ui/Button'
+import { Menu } from '../ui/Menu'
+import { useContextMenu } from '../ui/useContextMenu'
 
 /**
  * Connection list sidebar.
@@ -134,12 +135,23 @@ interface RowProps {
 }
 
 /**
- * One connection: a single 24px line, and an action strip while it is selected.
+ * One connection: a single 24px line, and a right-click menu.
  *
  * Click selects, double-click connects. Click-to-connect would be one gesture
- * shorter, but then a row that is *not* connected could never be selected, and
- * edit and remove would have nowhere to live short of a hover menu. Double-click
- * to open is also what every other database client does.
+ * shorter, but then a row that is *not* connected could never be selected.
+ * Double-click to open is also what every other database client does.
+ *
+ * ## The action strip is gone
+ *
+ * Until 2026-08-03 a selected row unfolded a strip of five or six buttons.
+ * `2026-08-02-connection-list.md` chose that on purpose, over a menu, because no
+ * general popup-menu primitive existed and building one for the sidebar alone
+ * was not worth it. `<Menu>` exists now — four surfaces needed it — so the acts
+ * moved into it and the sidebar got its vertical space back.
+ *
+ * What that costs is that the acts are invisible until someone tries the
+ * gesture. The tooltip says so; nothing else does. It was taken as a knowing
+ * trade, not as an oversight — design record §3.2.
  *
  * The second line is drawn only when it has something to say — a driver's error,
  * or "connecting". A line reading "no password saved" under four rows out of five
@@ -149,26 +161,11 @@ interface RowProps {
 function ConnectionRowItem({ row, active, onActivate, onEdit, onForgotten }: RowProps): ReactElement {
   const t = useT()
   const [busy, setBusy] = useState(false)
-  const [confirming, setConfirming] = useState(false)
+  const menu = useContextMenu<null>()
   const { conn, entry } = row
   const status = conn?.status ?? 'idle'
   const config = conn?.config ?? entry?.config
-  // A failed open is never remembered, so an error row usually has no entry to
-  // seed the dialog from. The live config is the same shape, redacted — which is
-  // exactly what the dialog expects to unpack.
-  const editable: SavedConnection | undefined =
-    entry ??
-    (conn === undefined
-      ? undefined
-      : {
-          id: conn.id,
-          driverId: conn.driverId,
-          label: row.label,
-          config: conn.config,
-          hasSecret: false,
-          createdAt: '',
-          lastUsedAt: '',
-        })
+  const editable = editableOf(row)
 
   const connect = (): void => {
     if (conn !== undefined || entry === undefined || busy) return
@@ -185,11 +182,23 @@ function ConnectionRowItem({ row, active, onActivate, onEdit, onForgotten }: Row
     })
   }
 
+  const close = (): void => {
+    if (conn === undefined) return
+    invalidateConnection(conn.id)
+    void dispatch('conn.close', { connId: conn.id })
+  }
+
   return (
     <div
       className={active ? 'conn-item active' : 'conn-item'}
       onClick={onActivate}
       onDoubleClick={connect}
+      // Right-click selects the row as well: the menu acts on this connection,
+      // so the highlight must agree with it before the menu opens.
+      onContextMenu={(e) => {
+        if (!active) onActivate()
+        menu.open(null)(e)
+      }}
       title={rowTitle(t, row)}
     >
       <div className="conn-row">
@@ -204,37 +213,37 @@ function ConnectionRowItem({ row, active, onActivate, onEdit, onForgotten }: Row
         <span className="conn-driver">{config?.driverId ?? ''}</span>
       </div>
       <SubLine conn={conn} />
-      {active ? (
-        <div className="conn-actions">
-          {conn === undefined ? (
-            <>
-              <Button variant="ghost" disabled={busy} onClick={connect}>
-                {t('sidebar.action.connect')}
-              </Button>
-              <EditButton editable={editable} onEdit={onEdit} />
-              {/* Two clicks rather than a modal: removing an entry drops a stored
-                  credential, which cannot be undone, but it is also not
-                  destructive enough to deserve a dialog in front of it. The
-                  second click lands on "Keep" — see ConfirmPair for why that
-                  matters more than the count. */}
-              <ConfirmPair
-                armed={confirming}
-                label={t('sidebar.action.remove')}
-                confirmLabel={t('sidebar.action.removeConfirm')}
-                cancelLabel={t('sidebar.action.removeCancel')}
-                onArm={() => {
-                  setConfirming(true)
-                }}
-                onDisarm={() => {
-                  setConfirming(false)
-                }}
-                onConfirm={forget}
-              />
-            </>
-          ) : (
-            <LiveActions conn={conn} editable={editable} onEdit={onEdit} />
+      {menu.state ? (
+        <Menu
+          label={t('menu.conn.label')}
+          at={menu.state.at}
+          nodes={connectionMenuNodes(
+            row,
+            t,
+            {
+              connect,
+              disconnect: close,
+              openTree: () => {
+                if (conn) void dispatch('view.open', { spec: { kind: 'tree', connId: conn.id } })
+              },
+              openQuery: () => {
+                if (conn) void dispatch('view.open', { spec: { kind: 'query', connId: conn.id } })
+              },
+              // No initial state: every field a plugin view needs has a default
+              // in its own `readGraphState`-style reader, and seeding one here
+              // would be the window guessing at a shape only the package knows.
+              openPluginView: (pluginKind) => {
+                if (conn) void dispatch('view.open', { spec: { kind: 'plugin', pluginKind, connId: conn.id } })
+              },
+              edit: () => {
+                if (editable) onEdit(editable)
+              },
+              forget,
+            },
+            { busy },
           )}
-        </div>
+          onClose={menu.close}
+        />
       ) : null}
     </div>
   )
@@ -254,100 +263,6 @@ function SubLine({ conn }: { conn: ConnectionState | undefined }): ReactElement 
   return null
 }
 
-function EditButton({
-  editable,
-  onEdit,
-}: {
-  editable: SavedConnection | undefined
-  onEdit: (initial: SavedConnection) => void
-}): ReactElement | null {
-  const t = useT()
-  if (editable === undefined) return null
-  return (
-    <Button
-      variant="ghost"
-      onClick={() => {
-        onEdit(editable)
-      }}
-    >
-      {t('sidebar.action.edit')}
-    </Button>
-  )
-}
-
-interface LiveActionProps {
-  conn: ConnectionState
-  editable: SavedConnection | undefined
-  onEdit: (initial: SavedConnection) => void
-}
-
-/**
- * What a row with a driver process behind it offers.
- *
- * No "remove" here: an entry cannot be forgotten while its connection is open —
- * the next successful open would write it straight back — and leaving the two out
- * of each other's way is what keeps "disconnect" and "remove" from reading as the
- * same action.
- */
-function LiveActions({ conn, editable, onEdit }: LiveActionProps): ReactElement {
-  const t = useT()
-  // Two different questions, and the actions need both: `connHas` decides
-  // whether a control is drawn at all (redis will never have a SQL editor, so
-  // offering one and greying it out would be a promise the driver cannot keep),
-  // `connCanUse` decides whether it is clickable yet.
-  const canTree = connCanUse(conn, 'introspect')
-  const hasQuery = connHas(conn, 'tabularQuery')
-  const canQuery = connCanUse(conn, 'tabularQuery')
-
-  const close = (): void => {
-    invalidateConnection(conn.id)
-    void dispatch('conn.close', { connId: conn.id })
-  }
-
-  return (
-    <>
-      {conn.status === 'error' ? null : (
-        <>
-          <Button
-            variant="ghost"
-            disabled={!canTree}
-            onClick={() => {
-              void dispatch('view.open', { spec: { kind: 'tree', connId: conn.id } })
-            }}
-          >
-            {t('sidebar.action.tree')}
-          </Button>
-          {hasQuery ? (
-            <Button
-              variant="ghost"
-              disabled={!canQuery}
-              onClick={() => {
-                void dispatch('view.open', { spec: { kind: 'query', connId: conn.id } })
-              }}
-            >
-              {t('sidebar.action.query')}
-            </Button>
-          ) : (
-            // Not a disabled button: "temporarily unavailable" and "this database
-            // has no query language" are different statements, and only the
-            // second one is true here. The driver id is an identifier, untranslated.
-            <span
-              style={{ color: 'var(--fg-faint)' }}
-              title={t('sidebar.action.noQueryTitle', { driverId: conn.driverId })}
-            >
-              {t('sidebar.action.noQuery')}
-            </span>
-          )}
-        </>
-      )}
-      <Button variant="ghost" onClick={close}>
-        {t('sidebar.action.disconnect')}
-      </Button>
-      <EditButton editable={editable} onEdit={onEdit} />
-    </>
-  )
-}
-
 /**
  * The tooltip: what the row had to leave out.
  *
@@ -361,5 +276,8 @@ function rowTitle(t: TFunction, row: ConnectionRow): string {
   const lines = [config === undefined ? row.label : connectionDetail(config)]
   if (conn?.serverInfo) lines.push(`${conn.serverInfo.flavor ?? conn.driverId} ${conn.serverInfo.version}`)
   else if (conn === undefined) lines.push(t('sidebar.connectHint'))
+  // The only place the row admits it has a menu. A hover-revealed "⋯" would say
+  // it louder, but that is the action strip back in a narrower costume.
+  lines.push(t('menu.hint'))
   return lines.join('\n')
 }

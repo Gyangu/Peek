@@ -1,6 +1,5 @@
 import {
   DEFAULT_PAGE_LIMIT,
-  DRIVER_CAPABILITIES,
   KEYSPACE_SCAN_COLUMNS,
   KEYSPACE_SCAN_SCHEMA,
   MAX_KEY_VALUE_ELEMENTS,
@@ -38,6 +37,7 @@ import {
 import { RESP_TYPES, createClient, type RedisClientType } from 'redis'
 import { isRedisCommandRefusal, mapRedisError } from './errors'
 import { RedisKeyspace, type KeyspaceDeps } from './keyspace'
+import { redisManifest } from './manifest'
 import {
   RedisScanCursor,
   isRedisResumeToken,
@@ -307,7 +307,7 @@ function scanNeedsOf(columns: readonly ColumnDef[], filter: readonly FilterSpec[
 
 export class RedisSession implements DriverSession {
   readonly driverId: DriverId = 'redis'
-  readonly capabilities: ReadonlySet<Capability> = new Set(DRIVER_CAPABILITIES.redis)
+  readonly capabilities: ReadonlySet<Capability> = new Set(redisManifest.capabilities)
   readonly serverInfo: ServerInfo
 
   /** The db this connection was opened on; a ref with no explicit db means this one */
@@ -480,7 +480,13 @@ export class RedisSession implements DriverSession {
    * One level of the keyspace tree. See `keyspace.ts` for the node-id codec and
    * for why prefix nodes are a **sampled** approximation rather than a truth.
    */
-  async listChildren(parentId: string | null): Promise<NamespaceNode[]> {
+  /**
+   * `refresh` is accepted and ignored, and that is the correct answer here:
+   * the keyspace tree is built from a live SCAN on every call (there is no
+   * `invalidateIntrospectCache` on this session because there is no cache to
+   * invalidate), so every listing is already as fresh as redis can make it.
+   */
+  async listChildren(parentId: string | null, _refresh?: boolean): Promise<NamespaceNode[]> {
     this.assertOpen()
     try {
       return await this.keyspace.listChildren(parentId)

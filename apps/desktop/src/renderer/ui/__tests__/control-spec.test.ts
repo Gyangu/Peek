@@ -13,6 +13,10 @@ import {
   BUTTON_VARIANT_NAMES,
   CONTROL_STATE_NAMES,
   LAYOUT_ONLY_PROPERTIES,
+  MENU_ITEM_CLASS,
+  MENU_TONE_NAMES,
+  menuStateSelector,
+  menuToneClass,
   sizeClass,
   stateSelector,
   type ButtonVariant,
@@ -225,6 +229,61 @@ describe('controls.css covers the whole matrix', () => {
         `A class in the control layer's namespace that the spec does not know about is a variant ` +
         `invented locally — the exact failure ${DOC} §1.2 documents. Declare it in BUTTON_VARIANTS ` +
         `(with an intent, and all five states) or give it a name outside the btn- namespace.`,
+    )
+  })
+})
+
+describe('menu.css covers the whole tone matrix', () => {
+  /*
+   * The same contract `controls.css` is held to, for the other primitive.
+   *
+   * `<Menu>`'s lines are not `<Button>`s — a menu item undoes almost everything
+   * `.btn` declares — so they get their own two-value scale (`MENU_TONES`) and
+   * their own stylesheet. What does *not* change is the completeness rule: a
+   * tone that defines three of the five states is half a tone, and the missing
+   * halves are always `:active` and `:focus-visible`, which are exactly the two
+   * nobody notices until a keyboard user cannot see where they are.
+   */
+  const css = readFileSync(join(UI, 'menu.css'), 'utf8')
+  const selectors = new Set(rules(css).flatMap((r) => r.selectors))
+
+  for (const tone of MENU_TONE_NAMES) {
+    test(`${tone} defines all ${CONTROL_STATE_NAMES.length} states`, () => {
+      const missing = CONTROL_STATE_NAMES.filter((state) => !selectors.has(menuStateSelector(tone, state)))
+      assert.deepEqual(
+        missing,
+        [],
+        `Menu tone "${tone}" is missing ${missing.length} state(s): ${missing.join(', ')}.\n` +
+          `Add to ui/menu.css:\n` +
+          missing.map((state) => `  ${menuStateSelector(tone, state)} { … }`).join('\n'),
+      )
+    })
+  }
+
+  test('no stray .menu-item-* tone exists outside the spec', () => {
+    const declared = new Set<string>([
+      MENU_ITEM_CLASS,
+      ...MENU_TONE_NAMES.map((tone) => menuToneClass(tone)),
+      // The note variants are not tones a caller picks; they are how a `note`
+      // node renders the tone it was given, so they live in the same namespace.
+      ...MENU_TONE_NAMES.map((tone) => `${menuToneClass(tone)}-note`),
+    ])
+    const stray = new Set<string>()
+    for (const sheet of STYLESHEETS) {
+      for (const rule of rules(readFileSync(join(RENDERER, sheet), 'utf8'))) {
+        for (const selector of rule.selectors) {
+          for (const m of selector.matchAll(/\.(menu-item[a-zA-Z0-9_-]*)/g)) {
+            if (!declared.has(m[1])) stray.add(`${sheet} → .${m[1]}`)
+          }
+        }
+      }
+    }
+    assert.deepEqual(
+      [...stray],
+      [],
+      `These .menu-item-* classes are styled but not declared in spec.ts:\n${[...stray].join('\n')}\n\n` +
+        `Declare the tone in MENU_TONES, with an intent and all five states, or name it outside ` +
+        `the menu-item- namespace.`,
     )
   })
 })
@@ -487,17 +546,12 @@ describe('an agent cannot be handed its own permission prompt', () => {
  */
 const NOT_CONTROLS: readonly { where: string; count: number; reason: string }[] = [
   {
-    where: 'components/context-actions/ContextMenu.tsx',
-    count: 2,
-    reason:
-      'Menu items. Full-width, left-aligned, transparent, no border — every one of those is `.btn` ' +
-      'being undone. The right home for them is a `<Menu>` primitive with roles and arrow keys, ' +
-      'which is a separate change; a Button wearing a menu item costume is not a step towards it.',
-  },
-  {
     where: 'components/chat/AttachmentBar.tsx',
     count: 1,
-    reason: 'A menu item, in the attach dropdown. Same shape and same answer as the context menu above.',
+    reason:
+      'A menu item, in the attach dropdown. The `<Menu>` primitive that took the context menu\'s two ' +
+      'items anchors to a *point*, and this one anchors to a button, so adopting it would mean ' +
+      'inventing element anchoring for a single caller — deferred on purpose in the menu design record.',
   },
   {
     where: 'components/chat/ToolCallCard.tsx',
@@ -535,7 +589,7 @@ const NOT_CONTROLS: readonly { where: string; count: number; reason: string }[] 
 const MIGRATION_LEDGER: readonly string[] = ['components/views/TreeView.tsx']
 
 /** Not on either list — they are the primitives, and must render the real element. */
-const PRIMITIVES: readonly string[] = ['ui/Button.tsx', 'ui/Segmented.tsx']
+const PRIMITIVES: readonly string[] = ['ui/Button.tsx', 'ui/Segmented.tsx', 'ui/Menu.tsx']
 
 describe('bare <button> is confined to what is written down', () => {
   const exempt = new Set([...PRIMITIVES, ...MIGRATION_LEDGER, ...NOT_CONTROLS.map((n) => n.where)])

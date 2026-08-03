@@ -1,3 +1,5 @@
+import { DRIVER_MANIFESTS } from '../../drivers/manifests'
+
 /**
  * The `instructions` string sent during MCP `initialize` — the one piece of prose
  * every model that touches peek reads before it does anything.
@@ -28,6 +30,22 @@
  * **Always English.** This is model-facing text; the language rule in
  * `docs/PLAN.md` puts it in the same bucket as `describeView` and `ResultMeta.summary`.
  */
+
+/**
+ * One `connect` argument per driver, taken from the driver packages themselves.
+ *
+ * This used to be a single hand-written postgres example, which quietly said
+ * that postgres was the connectable one: a client wanting redis or qdrant had to
+ * guess the field names, and guessing wrong costs a round trip and an error the
+ * user watches arrive. Sourcing it from the manifests means a new database
+ * arrives here already documented, and means the example cannot drift from the
+ * schema that will validate it.
+ *
+ * Built once at module load. Manifests are static data, so there is nothing to
+ * recompute per connection.
+ */
+const CONNECT_EXAMPLES = DRIVER_MANIFESTS.map((m) => `  - ${m.displayName}: ${m.mcpConnectExample}`).join('\n')
+
 export const MCP_INSTRUCTIONS = `peek is a desktop database viewer, and these tools drive its user interface directly. Humans and AI share one command channel, so every step you take appears on the user's screen as you take it — there is no staging area and nothing to commit.
 
 Where you are:
@@ -37,7 +55,8 @@ Where you are:
 
 Typical flow:
 1. read_workspace — look at the current UI first: the layout, the views stacked in each panel and which one is visible, which databases are connected.
-2. list_connections / connect — connect first if there is no connection yet (for postgres, pass {"driverId":"postgres","url":"postgresql://user@host:5432/db"}).
+2. list_connections / connect — connect first if there is no connection yet. The config to pass, per database:
+${CONNECT_EXAMPLES}
 3. introspect — expand the namespace tree to obtain a table's ref (omit parentId for the root level).
 4. open_view — open a table as a table view, or open a query view to write SQL.
 5. run_query — run a query; the receipt carries only the first 20 rows, the full result lives in the UI for the user to scroll.
@@ -63,7 +82,8 @@ Conversations:
 - A conversation whose describe mentions "awaiting permission" has stopped and is waiting for a person. Say so rather than retrying; control_chat can answer it, but answering on the user's behalf a question that was asked *of* the user is rarely what they wanted.
 
 Notes:
-- Every tool is read-only data browsing (this first version does not write data back).
+- No tool writes to a database. Statements are not inspected — peek opens every connection read-only at the server (PostgreSQL and MySQL run in a read-only transaction, SQLite is opened read-only with PRAGMA query_only), so a write you send is refused by the database itself and comes back as CONFLICT. Do not treat that as something to work around.
+- Several tools do have destructiveHint: true. That is about the *window*, not the data: run_query replaces a view's result, set_layout rearranges panes, control_chat can empty a conversation. Losing what was on screen is the risk they carry.
 - Result set data is never handed to you in full: raise previewRows if you need more rows, or let the user look at the UI.
 - The user can move, close and re-arrange things while you work. Ids you read earlier can be stale; commands fail with NOT_FOUND rather than guessing, so re-read the workspace instead of retrying blind.
 - Failures return a structured PeekError (code + message + detail); use the code to decide whether to retry or to change your arguments.`

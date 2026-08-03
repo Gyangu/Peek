@@ -1,5 +1,4 @@
 import {
-  DRIVER_CAPABILITIES,
   peekError,
   type Capability,
   type ConnectionConfig,
@@ -9,6 +8,7 @@ import {
   type MysqlConnectionConfig,
   type SqliteConnectionConfig,
 } from '@peek/core'
+import { mysqlManifest, sqliteManifest } from './manifest'
 import { mysqlBackend } from './mysql/backend'
 import { MYSQL_DIALECT } from './mysql/dialect'
 import { SqlSession } from './session'
@@ -26,8 +26,8 @@ import { SQLITE_DIALECT } from './sqlite/dialect'
  */
 
 export class MysqlDriver implements Driver<MysqlConnectionConfig> {
-  readonly meta: DriverMeta = { id: 'mysql', displayName: 'MySQL' }
-  readonly capabilities: ReadonlySet<Capability> = new Set(DRIVER_CAPABILITIES.mysql)
+  readonly meta: DriverMeta = { id: 'mysql', displayName: mysqlManifest.displayName }
+  readonly capabilities: ReadonlySet<Capability> = new Set(mysqlManifest.capabilities)
 
   async connect(cfg: MysqlConnectionConfig, signal?: AbortSignal): Promise<DriverSession> {
     const handle = await mysqlBackend.connect(cfg, signal)
@@ -36,8 +36,8 @@ export class MysqlDriver implements Driver<MysqlConnectionConfig> {
 }
 
 export class SqliteDriver implements Driver<SqliteConnectionConfig> {
-  readonly meta: DriverMeta = { id: 'sqlite', displayName: 'SQLite' }
-  readonly capabilities: ReadonlySet<Capability> = new Set(DRIVER_CAPABILITIES.sqlite)
+  readonly meta: DriverMeta = { id: 'sqlite', displayName: sqliteManifest.displayName }
+  readonly capabilities: ReadonlySet<Capability> = new Set(sqliteManifest.capabilities)
 
   async connect(cfg: SqliteConnectionConfig, signal?: AbortSignal): Promise<DriverSession> {
     const handle = await sqliteBackend.connect(cfg, signal)

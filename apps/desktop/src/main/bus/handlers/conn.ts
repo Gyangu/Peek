@@ -1,5 +1,4 @@
 import {
-  DRIVER_CAPABILITIES,
   defaultConnectionLabel,
   redactConnectionConfig,
   type ConnCloseResult,
@@ -7,6 +6,7 @@ import {
   type ConnectionConfig,
   type ConnectionState,
 } from '@peek/core'
+import { driverCapabilities } from '../../../drivers/manifests'
 import { putConnection, removeConnection } from '../../store/mutations'
 import { failMsg } from '../failure'
 import type { CommandHandlerMap } from '../types'
@@ -38,7 +38,7 @@ export const connHandlers = {
         status: 'connecting',
         // Predict capabilities from the driver until we are connected; the
         // driver host fills in the real set once the connection is ready.
-        capabilities: existing?.capabilities ?? [...DRIVER_CAPABILITIES[input.config.driverId]],
+        capabilities: existing?.capabilities ?? [...(driverCapabilities()[input.config.driverId] ?? [])],
         // Reopening overwrites it on purpose: whoever asked most recently is who
         // the next failure belongs to.
         origin: ctx.source,

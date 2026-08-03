@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>peek icon concept C — Shared Surface</title>
+  <desc>Two complementary flat surfaces join across a single stepped seam.</desc>
+  <!-- Layer 1: background plate -->
+  <rect x="100" y="100" width="824" height="824" rx="190" fill="#171A21"/>
+  <!-- Layer 2: human-side surface -->
+  <path d="M 244 386 A 142 142 0 0 1 386 244 H 566 V 406
+           H 492 V 512 H 388 V 594 H 244 Z"
+        fill="#4D9CFF"/>
+  <!-- Layer 3: agent-side surface -->
+  <path d="M 780 638 A 142 142 0 0 1 638 780 H 458 V 618
+           H 532 V 512 H 636 V 430 H 780 Z"
+        fill="#4EC9A0"/>
+</svg>
+

@@ -49,6 +49,7 @@ export const COMMAND_NAMES = [
   'view.update',
   'view.close',
   'view.activate',
+  'view.promote',
   'query.run',
   'query.cancel',
   'layout.split',
@@ -280,6 +281,43 @@ export const ChatViewSpecSchema = z.object({
   resumeSessionId: z.string().min(1).optional(),
 })
 
+/**
+ * Opening a view a plugin contributed.
+ *
+ * ## Why this is the only thing the Command contract had to open
+ *
+ * The plan called for turning `COMMAND_NAMES` into a runtime registry so a
+ * plugin could add commands. Reading the list makes that unnecessary: all 32
+ * names are kernel-generic — connections, layout, chat, settings — and not one
+ * of them belongs to a particular database. What a plugin actually needs is not
+ * a new verb but for two existing ones, `view.open` and `view.update`, to accept
+ * its `kind`.
+ *
+ * So `COMMAND_NAMES` stays closed and every guarantee built on it survives
+ * untouched: `CommandInput<K>`, `CommandResultMap`, the
+ * `_assertNoMissingResult` compile-time check, `coreHandlers satisfies
+ * Required<CommandHandlerMap>`, `parseCommandInput<K>`'s typed return, and the
+ * several hundred `dispatch('view.update', …)` call sites in the renderer.
+ * Only the two per-kind payload unions grow a member — the same shape as
+ * `ViewState` (see `core/view-kinds.ts`).
+ *
+ * ## `state` is opaque here on purpose
+ *
+ * The kernel cannot know a plugin's state shape at compile time, so it checks
+ * what it can — that this is a record — and the plugin's own declared schema
+ * checks the rest, exactly once, at the boundary. That is the same division
+ * `keyValueReadOptions` makes for a window arriving as JSON from another
+ * process: a flat bag on the wire, validated into meaning at one known place.
+ */
+export const PluginViewSpecSchema = z.object({
+  kind: z.literal('plugin'),
+  /** Which plugin view to open — must match a registered kind, or main answers BAD_REQUEST. */
+  pluginKind: z.string().min(1),
+  connId: ConnIdSchema,
+  state: z.record(z.string(), z.unknown()).optional(),
+  title: z.string().optional(),
+})
+
 /** Input spec for view.open: no id, because main generates it */
 export const ViewOpenSpecSchema = z.discriminatedUnion('kind', [
   TableViewSpecSchema,
@@ -288,6 +326,7 @@ export const ViewOpenSpecSchema = z.discriminatedUnion('kind', [
   TreeViewSpecSchema,
   VectorViewSpecSchema,
   ChatViewSpecSchema,
+  PluginViewSpecSchema,
 ])
 export type ViewOpenSpec = z.infer<typeof ViewOpenSpecSchema>
 
@@ -349,6 +388,24 @@ export const ViewPatchSchema = z.discriminatedUnion('kind', [
     kind: z.literal('chat'),
     title: z.string().optional(),
   }),
+  /**
+   * A plugin view's patch: a shallow merge into its `state`, plus the title.
+   *
+   * **Merge, not replace.** Every built-in patch above is a per-field optional,
+   * so `{kind:'table', offset: 40}` moves the page and leaves the filter alone.
+   * A plugin patch has to mean the same thing or the two would behave
+   * differently for no reason a caller could see — and an MCP client that had to
+   * resend the whole state to change one field would race with the user doing
+   * the same.
+   *
+   * `null` inside `state` is how a field is cleared, mirroring the `nullable()`
+   * fields in the vector patch above.
+   */
+  z.object({
+    kind: z.literal('plugin'),
+    state: z.record(z.string(), z.unknown()).optional(),
+    title: z.string().optional(),
+  }),
 ])
 export type ViewPatch = z.infer<typeof ViewPatchSchema>
 
@@ -393,6 +450,16 @@ export const ViewOpenInputSchema = z.object({
    * been the honest spelling of that intent.
    */
   replace: z.boolean().optional(),
+  /**
+   * Open it as the one provisional view — see `ViewBase.provisional`.
+   *
+   * Independent of `replace`, and resolved before it: a provisional open first
+   * looks for the existing provisional view and takes *its* slot, wherever it
+   * is, because "the tab I was skimming in" is a better target than "whatever
+   * panel happens to be focused". With no provisional view around it falls back
+   * to the ordinary rules, `replace` and `panelId` included.
+   */
+  provisional: z.boolean().optional(),
   /** Insert position in the target panel's tab bar; omitted means append. Ignored when `replace` is true. */
   index: z.number().int().nonnegative().optional(),
   /** Focus the view once open (default true) */
@@ -424,6 +491,23 @@ export const ViewActivateInputSchema = z.object({
   viewId: ViewIdSchema,
   /** Also make the view's panel the focused panel (default true) */
   focusPanel: z.boolean().optional(),
+})
+
+/**
+ * Keep a provisional view — the counterpart to `view.open provisional`.
+ *
+ * Separate from `view.activate` because showing a view and keeping it are two
+ * intents, and the commonest gesture (one click on a row) means only the first.
+ * Separate from `view.update` because `ViewPatch` is discriminated on `kind`,
+ * and `provisional` is the same fact for all six — it would have to be written
+ * into every branch to say one thing.
+ *
+ * Idempotent, and not an error on a view that was never provisional: every
+ * caller is a *user action* ("I am using this"), and the honest answer to
+ * "keep it" for something already kept is yes.
+ */
+export const ViewPromoteInputSchema = z.object({
+  viewId: ViewIdSchema,
 })
 
 export const QueryRunInputSchema = z
@@ -1035,6 +1119,90 @@ export const UI_ZOOM_STEPS = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const
 
 const UiZoomSchema = z.number().min(UI_ZOOM_MIN).max(UI_ZOOM_MAX)
 
+/* ================================================================== */
+/* The chat panel's agent                                              */
+/* ================================================================== */
+
+/**
+ * Which kind of backend answers in the chat panel.
+ *
+ * `acp` runs one of the agents peek ships with as a child process — the user
+ * brings their existing Claude Code or Codex login and peek never sees a
+ * credential. `endpoint` runs peek's own agent loop against an LLM the user
+ * configured, which is the path for a self-hosted or company gateway.
+ *
+ * A conversation is fixed to the backend it was created on: the two keep history
+ * in different places and neither can read the other's. Changing this setting
+ * therefore decides what the *next* conversation uses, and never moves an
+ * existing one. See `docs/design/2026-08-03-pluggable-agent-backends.md` §3.5.
+ */
+export const AGENT_BACKENDS = ['acp', 'endpoint'] as const
+export type AgentBackend = (typeof AGENT_BACKENDS)[number]
+
+/**
+ * Which API shape peek should speak to a configured endpoint.
+ *
+ * Not inferred from the URL. A gateway can serve either shape from any path, and
+ * guessing wrong produces a failure at the first token rather than at save time.
+ */
+export const AGENT_ENDPOINT_APIS = ['openai-completions', 'anthropic-messages'] as const
+export type AgentEndpointApi = (typeof AGENT_ENDPOINT_APIS)[number]
+
+const AgentBackendSchema = z.enum(AGENT_BACKENDS)
+
+/**
+ * The permission modes a user may set as their **default**.
+ *
+ * A subset of `CHAT_PERMISSION_MODES` on purpose. `dontAsk` and
+ * `bypassPermissions` are still reachable from the panel's own dropdown, where
+ * they are a deliberate act on one conversation the user is looking at. As a
+ * persisted default they are something else: a setting made once and forgotten,
+ * that silently applies to every future conversation. The panel is where you say
+ * "for this, I know what I am doing"; settings.json is not.
+ *
+ * `auto` is included. It hands approval to the agent's own classifier rather than
+ * to a person, which peek does not choose *for* anyone — but a user who has
+ * decided that for their own read-only database viewer is making an informed
+ * choice, and it is one they currently have to re-make on every new conversation.
+ */
+export const AGENT_DEFAULT_PERMISSION_MODES = ['auto', 'default', 'acceptEdits', 'plan'] as const
+export type AgentDefaultPermissionMode = (typeof AGENT_DEFAULT_PERMISSION_MODES)[number]
+
+/**
+ * The endpoint backend's configuration, minus the API key.
+ *
+ * **The key is deliberately not here.** It goes to the OS keychain through
+ * `SecretVault`, the same place connection passwords go, and never into
+ * `settings.json` — a file users hand-edit, paste into issues and sync between
+ * machines. `apiKeySet` is how a form knows whether one is stored without the
+ * value ever crossing back.
+ */
+export const AgentEndpointSettingsSchema = z.object({
+  baseUrl: z.string().url().max(2048),
+  model: z.string().min(1).max(200),
+  api: z.enum(AGENT_ENDPOINT_APIS),
+  maxTokens: z.number().int().min(1).max(1_000_000).optional(),
+  contextWindow: z.number().int().min(1_000).max(10_000_000).optional(),
+})
+
+export type AgentEndpointSettings = z.infer<typeof AgentEndpointSettingsSchema>
+
+export const AgentSettingsSchema = z.object({
+  backend: AgentBackendSchema.optional(),
+  /** The mode every new conversation starts in. See `AGENT_DEFAULT_PERMISSION_MODES`. */
+  permissionMode: z.enum(AGENT_DEFAULT_PERMISSION_MODES).optional(),
+  /** Which ACP agent, by profile id. Unknown ids fall back to the default. */
+  acpProfile: z.string().min(1).max(64).optional(),
+  /** Overrides the selected ACP agent's own executable. */
+  acpExecutablePath: z.string().max(4096).optional(),
+  endpoint: AgentEndpointSettingsSchema.optional(),
+  /**
+   * Written to the OS keychain, never to `settings.json`, and never read back.
+   * An empty string clears the stored key.
+   */
+  endpointApiKey: z.string().max(4096).optional(),
+})
+
 /** Nearest legal zoom to `value`, for callers that cannot reject. */
 export function clampUiZoom(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return UI_ZOOM_DEFAULT
@@ -1085,10 +1253,13 @@ export const SettingsWriteInputSchema = z
       .optional(),
     /** Whole-window zoom factor. See `UI_ZOOM_MIN`. */
     uiZoom: UiZoomSchema.optional(),
+    /** Which agent answers in the chat panel, and how to reach it. */
+    agent: AgentSettingsSchema.optional(),
   })
   .refine(
     (value) =>
       value.uiZoom !== undefined ||
+      (value.agent !== undefined && Object.keys(value.agent).length > 0) ||
       (value.execution !== undefined && Object.keys(value.execution).length > 0),
     { message: 'settings.write needs at least one setting to change' },
   )
@@ -1109,6 +1280,7 @@ export const commandSchemas = {
   'view.update': ViewUpdateInputSchema,
   'view.close': ViewCloseInputSchema,
   'view.activate': ViewActivateInputSchema,
+  'view.promote': ViewPromoteInputSchema,
   'query.run': QueryRunInputSchema,
   'query.cancel': QueryCancelInputSchema,
   'layout.split': LayoutSplitInputSchema,
@@ -1195,6 +1367,12 @@ export interface ViewActivateResult {
   /** The tab that was showing before; null when the panel was empty, and equal to `viewId` for a no-op */
   previousViewId: ViewId | null
   focusedPanel: PanelId | null
+}
+
+export interface ViewPromoteResult {
+  viewId: ViewId
+  /** True when this call is what cleared the flag; false when it was already kept. */
+  promoted: boolean
 }
 
 export interface QueryRunResult {
@@ -1536,6 +1714,38 @@ export interface SettingsReadResult {
   version: string
   /** Whole-window zoom factor; `UI_ZOOM_DEFAULT` when the user has never set one. */
   uiZoom: number
+  /** Which agent the chat panel uses, and what it can be switched to. */
+  agent: AgentSettingsReadResult
+}
+
+/** One ACP agent this build can run, as the settings form needs to describe it. */
+export interface AgentProfileInfo {
+  id: string
+  displayName: string
+  /**
+   * Whether peek has actually verified this agent's sandbox holds, or only asked
+   * for it. `unverified` is shown on screen and blocks the automatic permission
+   * mode — an agent peek cannot vouch for must not also be unwatched.
+   */
+  sandbox: 'enforced' | 'unverified'
+  /** False when the agent's package is not installed in this build. */
+  available: boolean
+}
+
+export interface AgentSettingsReadResult {
+  backend: AgentBackend
+  /** What a new conversation starts in; `default` (ask every time) unless changed. */
+  permissionMode: AgentDefaultPermissionMode
+  acpProfile: string
+  /** Every agent this build knows about, for the picker. */
+  profiles: AgentProfileInfo[]
+  acpExecutablePath?: string
+  endpoint?: AgentEndpointSettings
+  /**
+   * Whether an API key is in the keychain. The key itself never comes back —
+   * this is what lets a form show "configured" without ever holding the secret.
+   */
+  endpointApiKeySet: boolean
 }
 
 export interface SettingsWriteResult {
@@ -1547,6 +1757,12 @@ export interface SettingsWriteResult {
   execution: ExecutionBudgets
   /** Likewise: the zoom after clamping, which is what the window is drawing at. */
   uiZoom: number
+  /**
+   * The agent settings as they now stand, on the same principle: an unknown
+   * profile id is replaced by the default rather than rejected, so this is the
+   * only honest answer to "which agent will the next conversation use".
+   */
+  agent: AgentSettingsReadResult
 }
 
 export interface CommandResultMap {
@@ -1556,6 +1772,7 @@ export interface CommandResultMap {
   'view.update': ViewUpdateResult
   'view.close': ViewCloseResult
   'view.activate': ViewActivateResult
+  'view.promote': ViewPromoteResult
   'query.run': QueryRunResult
   'query.cancel': QueryCancelResult
   'layout.split': LayoutSplitResult

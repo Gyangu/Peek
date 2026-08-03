@@ -5,6 +5,7 @@ import { chat } from './chat'
 import { context } from './context'
 import { grid } from './grid'
 import { keyboard } from './keyboard'
+import { menu } from './menu'
 import { panel } from './panel'
 import { settings } from './settings'
 import { sidebar } from './sidebar'
@@ -28,6 +29,7 @@ export const en = {
   ...panel,
   ...grid,
   ...keyboard,
+  ...menu,
   ...views,
   ...a11y,
   ...context,

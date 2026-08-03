@@ -4,6 +4,7 @@ import { App } from './components/App'
 import { startChat } from './components/chat'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { initLocale } from './i18n'
+import { startPlugins } from './plugins/register'
 import { startRenderer } from './state/sync'
 import './styles.css'
 
@@ -24,6 +25,13 @@ import './styles.css'
 initLocale()
 
 startRenderer()
+
+// Before the first render, and at module scope for the same reason as the two
+// calls around it. A restored workspace can contain a plugin view, and a view
+// whose kind is not registered yet renders as `view.pluginMissing` — a wrong
+// answer that would correct itself a frame later, which is worse than either
+// being right or staying blank.
+startPlugins()
 
 // Two subscriptions in one call, and at module scope for the same reason
 // `startRenderer` is: StrictMode double-invokes effects, and this must not

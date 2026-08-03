@@ -15,13 +15,12 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import {
-  AGENT_DISALLOWED_TOOLS,
   CHAT_WORKDIR_NAME,
   PEEK_MCP_SERVER_NAME,
-  buildAgentSessionMeta,
   buildPeekMcpServer,
   ensureChatWorkdir,
 } from '../session-config'
+import { CLAUDE_DISALLOWED_TOOLS, claudeCodeProfile } from '../profiles'
 
 test('the descriptor carries the token as an Authorization header entry', () => {
   const descriptor = buildPeekMcpServer({ url: 'http://127.0.0.1:7332/mcp', token: 'tok_abc' })
@@ -76,7 +75,7 @@ test('no built-in agent tools are offered, and the dangerous ones are refused by
   for (const tool of ['Bash', 'Write', 'Edit', 'NotebookEdit', 'Read']) {
     assert.ok(disallowed.includes(tool), `${tool} must be refused by name as well as absent from the preset`)
   }
-  assert.deepEqual([...AGENT_DISALLOWED_TOOLS], disallowed)
+  assert.deepEqual([...CLAUDE_DISALLOWED_TOOLS], disallowed)
 })
 
 test('inherited MCP servers are dropped without touching peek’s own descriptor', () => {
@@ -95,11 +94,16 @@ test('both ways of bringing a session up are given the sandbox', () => {
   // is exactly as much of a sandbox question as a fresh one — it runs the same
   // tools with the same permissions, and an unsandboxed load would inherit the
   // user's global Claude Code configuration just as surely.
+  //
+  // The single source is now the *profile* rather than a module-level function:
+  // each agent's sandbox is expressed in the mechanism that agent understands
+  // (`_meta` for Claude Code, environment for Codex), so what this pins down is
+  // that the manager asks the profile for it instead of assembling one inline.
   const manager = readFileSync(fileURLToPath(new URL('../manager.ts', import.meta.url)), 'utf8')
   assert.match(
     manager,
-    /const _meta = buildAgentSessionMeta\(\)/,
-    'the sandbox must come from buildAgentSessionMeta, not be assembled inline',
+    /const _meta = this\.#config\.profile\.buildSessionMeta\(/,
+    'the sandbox must come from the profile, not be assembled inline',
   )
   for (const method of ['newSession', 'loadSession']) {
     const call = manager.slice(manager.indexOf(`connection.${method}({`))
@@ -110,7 +114,7 @@ test('both ways of bringing a session up are given the sandbox', () => {
 })
 
 function agentOptions(): Record<string, unknown> {
-  const meta = buildAgentSessionMeta()
+  const meta = claudeCodeProfile.buildSessionMeta({})
   const claudeCode = meta['claudeCode'] as Record<string, unknown> | undefined
   assert.ok(claudeCode, 'the sandbox rides under _meta.claudeCode')
   const options = claudeCode['options'] as Record<string, unknown> | undefined

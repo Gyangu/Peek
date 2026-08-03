@@ -13,6 +13,9 @@ import {
   type ErrorSource,
 } from './errorLog'
 import { Button } from '../../ui/Button'
+import { Menu } from '../../ui/Menu'
+import type { MenuNode } from '../../ui/menuModel'
+import { useContextMenu } from '../../ui/useContextMenu'
 
 /**
  * The error centre: the window's memory of what went wrong.
@@ -135,9 +138,11 @@ function ErrorCenterPanel(): ReactElement {
             <ErrorRow
               key={entry.id}
               entry={entry}
-              copied={copied === entry.id}
               onCopy={() => {
                 copy(formatEntry(entry), entry.id)
+              }}
+              onCopyAll={() => {
+                copy(formatErrorLog(entries), 'all')
               }}
             />
           ))
@@ -158,18 +163,46 @@ function ErrorCenterPanel(): ReactElement {
  */
 function ErrorRow({
   entry,
-  copied,
   onCopy,
+  onCopyAll,
 }: {
   entry: ErrorEntry
-  copied: boolean
   onCopy: () => void
+  onCopyAll: () => void
 }): ReactElement {
   const t = useT()
   const localized = useErrorText(entry.error)
   const text = entry.error ? localized : entry.message
+  const menu = useContextMenu<null>()
+
+  /*
+   * The row's own copy button is gone.
+   *
+   * It was a permanent ghost button on every row, so a screen of ten failures
+   * carried ten of them — competing for attention with the codes and messages
+   * that are the reason anyone opened this panel. The act itself is the one
+   * thing people do here, so it is not being hidden lightly; it is being moved
+   * to the gesture that means "act on this row", alongside the two acts that
+   * used to be reachable only from the header.
+   */
+  const nodes: MenuNode[] = [
+    { kind: 'item', id: 'error.copy', label: t('menu.error.copyEntry'), onSelect: onCopy },
+    { kind: 'item', id: 'error.copyAll', label: t('menu.error.copyAll'), onSelect: onCopyAll },
+    { kind: 'sep', id: 'error.sep' },
+    {
+      kind: 'item',
+      id: 'error.clear',
+      label: t('menu.error.clear'),
+      // It throws away the window's only memory of what failed, and nothing
+      // rebuilds it. The header keeps its own Clear button — this is the same
+      // act, and the header is where someone looking to empty the panel looks.
+      tone: 'danger',
+      onSelect: clearErrorLog,
+    },
+  ]
+
   return (
-    <div className="error-row" style={ROW_STYLE}>
+    <div className="error-row" style={ROW_STYLE} onContextMenu={menu.open(null)} title={t('menu.hint')}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
         <span className="mono" style={{ color: 'var(--fg-faint)' }}>
           {formatClock(entry.ts)}
@@ -184,10 +217,6 @@ function ErrorRow({
             {entry.context}
           </span>
         )}
-        <span className="grow" />
-        <Button variant="ghost" onClick={onCopy}>
-          {copied ? t('app.errors.copied') : t('app.errors.copyEntry')}
-        </Button>
       </div>
       <div>{text}</div>
       {entry.detail === undefined ? null : (
@@ -195,6 +224,9 @@ function ErrorRow({
           {entry.detail}
         </div>
       )}
+      {menu.state ? (
+        <Menu label={t('menu.error.label')} at={menu.state.at} nodes={nodes} onClose={menu.close} />
+      ) : null}
     </div>
   )
 }

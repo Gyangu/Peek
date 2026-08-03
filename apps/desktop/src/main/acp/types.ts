@@ -23,6 +23,12 @@ import type {
   PeekError,
   PendingPermission,
 } from '@peek/core'
+import type { DeltaBatchBudget } from '../agent/types'
+import type { AcpAgentProfile, AcpAgentUserConfig } from './profiles'
+import type { SessionIndex } from '../agent/session-index'
+
+/** Re-exported: the batching budget is backend-agnostic and lives in `agent/types.ts`. */
+export { DEFAULT_DELTA_BUDGET, type DeltaBatchBudget } from '../agent/types'
 
 /* ================================================================== */
 /* 1. The two channels out of the ACP host                             */
@@ -104,6 +110,14 @@ export interface AcpHostDeps {
    * anywhere explaining why.
    */
   resolveMcpEndpoint(): McpEndpointInfo | null
+  /**
+   * Where to record which backend owns a conversation.
+   *
+   * Optional because the index is a routing convenience, not a source of truth:
+   * every conversation's history still lives with the backend that wrote it, and
+   * a host running without an index simply cannot label rows. Tests leave it out.
+   */
+  sessionIndex?: SessionIndex
 }
 
 /** Where peek's MCP server is listening, and the bearer token that opens it. */
@@ -205,43 +219,6 @@ export const DEFAULT_ACP_TIMEOUTS: AcpTimeouts = {
   exitMs: 3_000,
 }
 
-/**
- * The coalescing budget for transcript deltas.
- *
- * ## The tension, stated plainly
- *
- * One IPC message per token is unusable; one IPC message per turn is not
- * streaming. The budget below picks the largest window a reader cannot feel.
- *
- * `intervalMs: 50` is twenty flushes a second. Perceptual work on interface
- * latency puts the threshold for "instant" at roughly 100 ms, so a 50 ms ceiling
- * on added lag sits comfortably under it while cutting IPC traffic by one to two
- * orders of magnitude — a fast turn emits tokens far quicker than 20 Hz, so a
- * flush typically carries a whole phrase rather than a character. Reading speed
- * is nowhere near 20 phrases per second either way.
- *
- * `maxChars` and `maxDeltas` bound a single flush so a burst (a large tool
- * result, a paste-sized completion) cannot build one enormous IPC payload.
- *
- * **Structural deltas do not wait.** `message.start`, `message.end` and every
- * `tool.upsert` flush immediately, because they are what the UI binds
- * affordances to: the stop button appearing, a spinner resolving, a tool row
- * turning green. Fifty milliseconds of lag on prose is invisible; on a control
- * that the user is about to click it is a bug. Text and thought chunks are the
- * only things that ever sit in the buffer, and consecutive ones for the same
- * message are concatenated into a single delta before they leave.
- */
-export interface DeltaBatchBudget {
-  intervalMs: number
-  maxChars: number
-  maxDeltas: number
-}
-
-export const DEFAULT_DELTA_BUDGET: DeltaBatchBudget = {
-  intervalMs: 50,
-  maxChars: 8_192,
-  maxDeltas: 64,
-}
 
 export interface AcpRestartPolicy {
   /** Restart attempts allowed inside `windowMs`. */
@@ -276,16 +253,22 @@ export interface AcpHostConfig {
    * actually started costs one conversation instead.
    */
   resolveCwd: () => string
-  /** Resolved path to the agent's entry module. Defaults to a `require.resolve`. */
-  agentEntryPath?: string
   /**
-   * Overrides `CLAUDE_CODE_EXECUTABLE` for the agent process.
-   *
-   * The agent SDK ships a ~245 MB native binary as a platform-specific optional
-   * dependency. When a build excludes those, this is how the agent is pointed at
-   * a Claude Code the user already has installed.
+   * Which agent to run. Carries its process shape, its sandbox switches and its
+   * display name; see `profiles.ts`.
    */
-  claudeCodeExecutable?: string
+  profile: AcpAgentProfile
+  /** Per-agent user settings, handed to every profile hook. */
+  agentConfig: AcpAgentUserConfig
+  /**
+   * Bypasses the profile's own `resolveSpawn`.
+   *
+   * Exists for the tests, which run a stub agent out of `__tests__/`. A profile
+   * resolves a published package; a test needs to point at a file in the repo,
+   * and threading that through a fake profile would mean the tests exercise a
+   * different code path than production does.
+   */
+  agentEntryPath?: string
   /** Permission mode requested right after `session/new`. */
   permissionMode: ChatPermissionMode
   /**

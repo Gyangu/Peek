@@ -7,6 +7,7 @@ import { context } from './context'
 import { errors } from './errors'
 import { grid } from './grid'
 import { keyboard } from './keyboard'
+import { menu } from './menu'
 import { panel } from './panel'
 import { settings } from './settings'
 import { sidebar } from './sidebar'
@@ -24,6 +25,7 @@ export const zhCN: CatalogFor<Messages> = {
   ...panel,
   ...grid,
   ...keyboard,
+  ...menu,
   ...views,
   ...a11y,
   ...context,

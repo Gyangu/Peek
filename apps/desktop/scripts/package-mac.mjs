@@ -54,13 +54,17 @@ function workspacePackageDirs() {
 /**
  * Packages resolved at runtime rather than imported, so no scan can find them.
  *
- * The ACP host locates the agent with `createRequire` against
- * '@agentclientprotocol/claude-agent-acp/dist/index.js' — a path built at
- * runtime, which is deliberate (the agent is spawned as a child process, never
- * linked). Nothing in the bundles mentions it as a specifier, so it has to be
- * named here or the packaged app ships a chat panel that cannot start an agent.
+ * Each ACP agent profile locates its agent with `createRequire` against a path
+ * built at runtime — deliberate, since the agent is spawned as a child process
+ * and never linked. Nothing in the bundles mentions these as specifiers, so they
+ * have to be named here or the packaged app ships a chat panel that cannot start
+ * the agent the user selected.
+ *
+ * One entry per profile in `src/main/acp/profiles.ts`. Adding a profile without
+ * adding it here works in development and fails only in a packaged build, which
+ * is the worst place to find out.
  */
-const RUNTIME_RESOLVED = ['@agentclientprotocol/claude-agent-acp']
+const RUNTIME_RESOLVED = ['@agentclientprotocol/claude-agent-acp', '@agentclientprotocol/codex-acp']
 
 const APP_NAME = 'peek'
 const BUNDLE_ID = 'io.github.gyangu.peek'
@@ -70,6 +74,7 @@ const outDir = join(packageDir, 'out')
 const releaseDir = join(packageDir, 'release')
 const stageDir = join(releaseDir, 'stage')
 const icnsPath = join(packageDir, 'build', 'icon.icns')
+const runtimeIconPath = join(packageDir, 'resources', 'icon.png')
 
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'))
 
@@ -88,6 +93,13 @@ const REQUIRED_FILES = [
   // Loaded through existsSync in createWindow; without it the window degrades to read-only
   'out/preload/index.cjs',
   'out/renderer/index.html',
+  // A Tier C plugin view's document, served over `peek-plugin://` by
+  // main/plugins/protocol.ts. It is built by a Vite pass of its own
+  // (`scripts/build-plugin-ui.mjs`), which is a step that can be skipped —
+  // `electron-vite build` on its own does not run it — and the failure it
+  // produces is a blank frame in a shipped app rather than a build error. This
+  // line is what turns that into a packaging failure instead.
+  'out/plugin-ui/neo4j/index.html',
 ]
 
 function assertContains(root, label, extraFiles = []) {
@@ -175,6 +187,9 @@ async function main() {
   if (!existsSync(icnsPath)) {
     throw new Error(`No icon at ${icnsPath}. Run "pnpm icon" to generate it from build/icon.svg.`)
   }
+  if (!existsSync(runtimeIconPath)) {
+    throw new Error(`No runtime icon at ${runtimeIconPath}. Run "pnpm icon" to generate it.`)
+  }
 
   console.log(`[package] staging ${APP_NAME} ${manifest.version} (electron ${electronVersion}, ${ARCH})`)
   const externals = stage(manifest.version)
@@ -191,6 +206,8 @@ async function main() {
     appVersion: manifest.version,
     buildVersion: manifest.version,
     icon: icnsPath,
+    // createWindow reads process.resourcesPath/icon.png in a packaged app.
+    extraResource: runtimeIconPath,
     appCategoryType: 'public.app-category.developer-tools',
     appCopyright: `Copyright © ${new Date().getFullYear()} peek`,
     darwinDarkModeSupport: true,
@@ -216,6 +233,13 @@ async function main() {
     'The packaged bundle',
     manifestPathsOf(externals),
   )
+  const packagedRuntimeIconPath = join(appBundle, 'Contents', 'Resources', 'icon.png')
+  if (!existsSync(packagedRuntimeIconPath)) {
+    throw new Error(`The packaged bundle is missing its runtime icon: ${packagedRuntimeIconPath}`)
+  }
+  if (!readFileSync(packagedRuntimeIconPath).equals(readFileSync(runtimeIconPath))) {
+    throw new Error('The packaged runtime icon does not match resources/icon.png')
+  }
 
   console.log('[package] ad-hoc signing')
   signAdHoc(appBundle)

@@ -1,6 +1,5 @@
 import {
   DEFAULT_PAGE_LIMIT,
-  DRIVER_CAPABILITIES,
   MAX_PAGE_LIMIT,
   QDRANT_VECTOR_FIELD,
   VALUE_PEEK_MAX_BYTES,
@@ -32,6 +31,7 @@ import {
 import { QdrantClient, type Schemas } from '@qdrant/js-client-rest'
 import { QdrantCollections, formatVectors, type QdrantCollectionInfo } from './collections'
 import { mapQdrantError } from './errors'
+import { qdrantManifest } from './manifest'
 import {
   buildRowShape,
   resolvePayloadColumns,
@@ -248,7 +248,7 @@ function readPayloadIndexes(info: Schemas['CollectionInfo']): QdrantCollectionIn
 
 export class QdrantSession implements DriverSession {
   readonly driverId: DriverId = 'qdrant'
-  readonly capabilities: ReadonlySet<Capability> = new Set(DRIVER_CAPABILITIES.qdrant)
+  readonly capabilities: ReadonlySet<Capability> = new Set(qdrantManifest.capabilities)
   readonly serverInfo: ServerInfo
 
   private readonly client: QdrantClient
@@ -345,8 +345,9 @@ export class QdrantSession implements DriverSession {
   /* introspect — collection → named vector / payload index            */
   /* ---------------------------------------------------------------- */
 
-  async listChildren(parentId: string | null): Promise<NamespaceNode[]> {
+  async listChildren(parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]> {
     this.assertOpen()
+    if (refresh === true) this.invalidateIntrospectCache()
     return this.collections.listChildren(parentId)
   }
 

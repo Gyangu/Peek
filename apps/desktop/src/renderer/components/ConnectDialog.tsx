@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 import type { DriverId, SavedConnection } from '@peek/core'
-import { DRIVER_CAPABILITIES, DRIVER_IDS } from '@peek/core'
+import { DRIVER_IDS } from '@peek/core'
+import { driverCapabilities } from '../../drivers/manifests'
 import { useModalDialog } from '../hooks'
 import { Button } from '../ui/Button'
 import { Segmented } from '../ui/Segmented'
@@ -161,7 +162,7 @@ export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactEl
           </div>
           <div className="form-hint">
             {/* Capability names are part of the driver contract, never translated. */}
-            {t('connect.capabilities', { list: DRIVER_CAPABILITIES[driverId].join(' · ') })}
+            {t('connect.capabilities', { list: (driverCapabilities()[driverId] ?? []).join(' · ') })}
           </div>
 
           {spec.modes.length > 1 ? (

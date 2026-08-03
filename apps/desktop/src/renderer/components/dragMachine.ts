@@ -369,6 +369,21 @@ export type DropCommand =
   | { name: 'layout.splitWithView'; input: CommandInput<'layout.splitWithView'> }
 
 /**
+ * Whether the view being dragged is the only tab of the panel it came from.
+ *
+ * This is the one fact that decides whether an edge drop on the *source* panel
+ * is real work or churn, and it is read from `panels` — the geometry measured
+ * when the gesture started and refreshed by `remeasureDrag` — rather than from a
+ * field on `DragOrigin`, so the judgement, the highlight and the caret all come
+ * from one snapshot. An absent strip (a test fixture, or a panel measured before
+ * its head laid out) counts as lone, which is the pre-tab behaviour.
+ */
+function sourceIsLoneTab(state: DragActive): boolean {
+  const hit = state.panels.find((p) => p.panelId === state.fromPanelId)
+  return (hit === undefined ? [] : tabRectsOf(hit)).length <= 1
+}
+
+/**
  * The Command for the current target, or `null` when releasing here would change
  * nothing.
  *
@@ -394,9 +409,13 @@ export type DropCommand =
  * ## What produces `null`
  *
  * - the pointer is outside every panel (the sidebar, the status bar, off-window);
- * - the source panel's **body**: centre is where the view already is, and an edge
- *   drop on your own panel would split, empty the source and collapse straight
- *   back (invariant I6);
+ * - the source panel's **body centre**: that is where the view already is;
+ * - the source panel's **body edges**, but only while the view is that panel's
+ *   only tab — then the split would create a panel, the move would empty the
+ *   source next to it, and the collapse would put the tree back where it started
+ *   (invariant I6). With a neighbour left behind nothing is emptied, nothing
+ *   collapses, and "pull this tab out beside its neighbours" is a real split —
+ *   which is also the condition `splitPanelWithView` checks on the main side;
  * - the source panel's **strip**, but only at the caret the view already
  *   occupies, and only when it was already the active tab. This is the rule the
  *   pre-tab contract got to state unconditionally, and it no longer holds
@@ -424,7 +443,7 @@ export function dropCommandFor(state: DragState): DropCommand | null {
     }
   }
 
-  if (samePanel) return null
+  if (samePanel && (!isDropEdgeZone(target.drop.zone) || sourceIsLoneTab(state))) return null
 
   if (isDropEdgeZone(target.drop.zone)) {
     const { dir, insert } = dropZonePlacement(target.drop.zone)
@@ -453,10 +472,11 @@ export function dropCommandFor(state: DragState): DropCommand | null {
 /**
  * The body zone to paint on `panelId`, or `null` for no highlight.
  *
- * The source panel's **body** is still excluded: every zone of it is a no-op, and
- * promising a split that will immediately collapse would be a lie. It gets the
- * `drag-source` treatment instead — dimmed, but never `no-drop`, which would
- * read as an error when the gesture is merely idempotent.
+ * The source panel is excluded exactly where `dropCommandFor` returns `null` —
+ * its centre always, its edges only while the dragged view is its only tab —
+ * because promising a split that will immediately collapse would be a lie. The
+ * excluded zones get the `drag-source` treatment instead: dimmed, but never
+ * `no-drop`, which would read as an error when the gesture is merely idempotent.
  *
  * Its **strip** is not excluded, and that is the change tabs force: reordering
  * happens entirely inside one panel, so suppressing its feedback would leave the
@@ -468,7 +488,9 @@ export function panelDropZone(state: DragState, panelId: PanelId): DropZone | nu
   if (!isDragging(state) || !state.target) return null
   if (state.target.panelId !== panelId) return null
   if (state.target.drop.kind === 'tab') return null
-  if (panelId === state.fromPanelId) return null
+  if (panelId === state.fromPanelId) {
+    if (!isDropEdgeZone(state.target.drop.zone) || sourceIsLoneTab(state)) return null
+  }
   return state.target.drop.zone
 }
 
