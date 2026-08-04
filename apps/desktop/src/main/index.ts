@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain, safeStorage, shell, type WebContents } from 'electron'
-import type { ConnId, NamespaceNode, NotifyMessage, WorkspaceSnapshot } from '@peek/core'
-import { stepUiZoom, toPeekError, UI_ZOOM_DEFAULT } from '@peek/core'
+import type { ConnId, MenuActionMessage, NamespaceNode, NotifyMessage, WorkspaceSnapshot } from '@peek/core'
+import { IPC, stepUiZoom, toPeekError, UI_ZOOM_DEFAULT } from '@peek/core'
 import { installAppMenu } from './menu'
 import { createAutoRefreshScheduler } from './auto-refresh'
 import { createCommandBus, type CommandBus, type CommandDeps } from './bus'
@@ -145,6 +145,20 @@ let settingsStore: SettingsStore | null = null
 function applyUiZoom(factor: number): void {
   uiZoom = factor
   mainWindow?.webContents.setZoomFactor(factor)
+}
+
+/**
+ * The macOS `Settings…` item's handler.
+ *
+ * Silent when there is no window: the menu is installed before `bootstrap()`
+ * creates one (and survives its close on macOS), and the item is a no-op in
+ * both of those moments rather than a reason to create a window.
+ */
+function menuOpenSettings(): void {
+  const wc = mainWindow?.webContents
+  if (!wc || wc.isDestroyed()) return
+  const message: MenuActionMessage = { action: 'openSettings' }
+  wc.send(IPC.MENU_ACTION, message)
 }
 
 /** The View menu's handler: step, draw, remember. */
@@ -418,7 +432,18 @@ function createWindow(): BrowserWindow {
     minWidth: 900,
     minHeight: 600,
     show: false,
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    /*
+     * `hidden` rather than `hiddenInset`, and the traffic lights placed by hand.
+     * The inset variant puts them where a 38px system title bar would want them
+     * (centre around y=19), and peek's own strip is `--bar-h` — 30px — so they
+     * sat visibly low in it. y=9 centres a 12px button in 30px exactly; x=12
+     * puts the right edge of the three at ~64px, which is what the strip's 72px
+     * left padding leaves room for. See
+     * `docs/design/2026-08-04-settings-into-app-menu.md` §2.3.
+     */
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 12, y: 9 } }
+      : {}),
     backgroundColor: '#141414',
     ...(hasIcon ? { icon: iconPath } : {}),
     webPreferences: {
@@ -940,7 +965,7 @@ if (!app.requestSingleInstanceLock()) {
     // even if assembly fails: it keeps Reload and DevTools out of a packaged
     // build, and it stops the default Window menu from binding ⌘W, which is
     // peek's own "close tab". See menu.ts.
-    installAppMenu({ isDev, onZoom: menuZoom })
+    installAppMenu({ isDev, onZoom: menuZoom, onOpenSettings: menuOpenSettings })
 
     // Before `bootstrap()`, which creates the window: the first thing a restored
     // workspace can contain is a plugin view, and its iframe would then request

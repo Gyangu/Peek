@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { readFlag, writeFlag } from '../../state/persistedFlag'
 
 /**
  * Whether the conversation rail is collapsed.
@@ -19,26 +20,11 @@ import { create } from 'zustand'
 const STORAGE_KEY = 'peek.chatRail.collapsed'
 
 /**
- * Storage is wrapped both ways because production loads the renderer from
- * `file://`, and a file-origin document can be denied storage outright depending
- * on how Chromium partitions it. Losing the preference is acceptable; throwing
- * during module init and taking the window down with it is not.
+ * Storage access is wrapped both ways — see `state/persistedFlag.ts`, which is
+ * where that wrapping and the reason for it now live. The sidebar's collapse
+ * state needed the same thing, and a caveat about `file://` origins written out
+ * three times is a caveat that will eventually be right in only two of them.
  */
-function readStored(): boolean {
-  try {
-    return globalThis.localStorage?.getItem(STORAGE_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-function writeStored(collapsed: boolean): void {
-  try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, collapsed ? '1' : '0')
-  } catch {
-    // Best-effort: the session still honours the toggle.
-  }
-}
 
 interface ChatRailState {
   collapsed: boolean
@@ -48,12 +34,12 @@ interface ChatRailState {
  * Starts expanded when nothing is stored. This whole design exists because the
  * catalogue was too far out of reach; defaulting to collapsed would put it back.
  */
-export const useChatRailStore = create<ChatRailState>(() => ({ collapsed: readStored() }))
+export const useChatRailStore = create<ChatRailState>(() => ({ collapsed: readFlag(STORAGE_KEY) }))
 
 export function setChatRailCollapsed(collapsed: boolean): void {
   if (useChatRailStore.getState().collapsed === collapsed) return
   useChatRailStore.setState({ collapsed })
-  writeStored(collapsed)
+  writeFlag(STORAGE_KEY, collapsed)
 }
 
 export function toggleChatRail(): void {
@@ -62,5 +48,5 @@ export function toggleChatRail(): void {
 
 /** Test seam: re-reads storage, which module init did once. */
 export function resetChatRailForTest(): void {
-  useChatRailStore.setState({ collapsed: readStored() })
+  useChatRailStore.setState({ collapsed: readFlag(STORAGE_KEY) })
 }

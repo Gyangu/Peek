@@ -4,6 +4,8 @@ import type { SidebarMessages } from '../en/sidebar'
 export const sidebar: CatalogFor<SidebarMessages> = {
   'sidebar.connections': '连接',
   'sidebar.newConnection': '新建连接',
+  'sidebar.collapse': '收起连接列表',
+  'sidebar.expand': '展开连接列表',
   'sidebar.empty': '还没有连接',
   'sidebar.emptyHint': '点右上角 ＋ 新建',
 

@@ -27,11 +27,19 @@
  * text field, so the two do not collide: the role item only fires when the
  * focused element is an editable one.
  *
- * Not here on purpose: a **Settings…** item. `⌘,` is handled in the renderer
- * (`useGlobalKeys`), and a menu item carrying that accelerator would take the
- * chord away from it and then need an IPC channel to give the same behaviour
- * back. The dialog is reachable from the title-bar gear and from `⌘,`; adding a
- * third door is not worth a new channel.
+ * **Settings…** used to be excluded from here, on the argument that a menu item
+ * carrying `⌘,` takes the chord away from the renderer's own handler and then
+ * needs an IPC channel to give the behaviour back — not worth it for a third
+ * door beside the title-bar gear and the shortcut. Half of that still holds: a
+ * menu accelerator is resolved before the keystroke reaches the web contents,
+ * so `⌘,` really does leave `useGlobalKeys` on macOS, and `IPC.MENU_ACTION`
+ * really is a new channel. What changed is the other half — the gear is gone
+ * from the title bar on macOS, so this is not a third door but *the* door, and
+ * `applicationName → Settings…` is where a Mac user looks first. See
+ * `docs/design/2026-08-04-settings-into-app-menu.md`.
+ *
+ * The item is macOS-only. Windows and Linux keep the gear, because their menu
+ * bar is not the place anyone looks for preferences — §3.3 of that document.
  */
 
 import { Menu, app, type MenuItemConstructorOptions } from 'electron'
@@ -41,13 +49,18 @@ export interface AppMenuOptions {
   isDev: boolean
   /** `1` larger, `-1` smaller, `0` actual size. */
   onZoom: (step: 1 | -1 | 0) => void
+  /**
+   * macOS `Settings…`. Sends the renderer down `IPC.MENU_ACTION`; never called
+   * on Windows or Linux, where the item does not exist.
+   */
+  onOpenSettings: () => void
 }
 
 export function installAppMenu(options: AppMenuOptions): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template(options)))
 }
 
-function template({ isDev, onZoom }: AppMenuOptions): MenuItemConstructorOptions[] {
+function template({ isDev, onZoom, onOpenSettings }: AppMenuOptions): MenuItemConstructorOptions[] {
   const mac = process.platform === 'darwin'
 
   const view: MenuItemConstructorOptions = {
@@ -107,6 +120,16 @@ function template({ isDev, onZoom }: AppMenuOptions): MenuItemConstructorOptions
             label: app.name,
             submenu: [
               { role: 'about' },
+              { type: 'separator' },
+              /*
+               * `label` + `click`, not `role: 'preferences'`: that role opens
+               * nothing by itself (it is a label and an accelerator, and macOS
+               * has no system-wide notion of an app's preferences window), so
+               * the click handler is required either way and the role would only
+               * hide where the string comes from. The ellipsis is the macOS
+               * convention for "this opens something you then interact with".
+               */
+              { label: 'Settings…', accelerator: 'Command+,', click: onOpenSettings },
               { type: 'separator' },
               { role: 'services' },
               { type: 'separator' },

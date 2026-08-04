@@ -31,6 +31,7 @@ export function StatusBar(): ReactElement {
   const inflight = useBusyStore((s) => s.inflight)
   const resyncCount = useWorkspaceStore((s) => s.resyncCount)
   const bridgeMissing = useWorkspaceStore((s) => s.bridgeMissing)
+  const ready = useWorkspaceStore((s) => s.ready)
 
   const panel = ws?.focusedPanel ? findPanel(ws.layout, ws.focusedPanel) : null
   // The *visible* tab of the focused panel. A status bar describing a view the
@@ -94,6 +95,12 @@ export function StatusBar(): ReactElement {
       ) : null}
 
       {bridgeMissing ? <span className="cell err">{t('status.preloadMissing')}</span> : null}
+
+      {/* Until the first snapshot lands. It used to sit in the title bar, next to
+          a *second* copy of the bridge line above — the bar had become a place
+          for state that belongs down here. Suppressed when the bridge is missing:
+          then "syncing" is not what is happening, it is never going to sync. */}
+      {!ready && !bridgeMissing ? <span className="cell">{t('app.syncing')}</span> : null}
 
       {/* The one place in the window that remembers a failure past the toast that
           announced it. Silent until something has actually gone wrong. */}

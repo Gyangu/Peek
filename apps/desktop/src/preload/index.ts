@@ -9,6 +9,7 @@ import type {
   DriverRpcRequest,
   DriverRpcResponse,
   KeyValueWindow,
+  MenuActionMessage,
   NotifyMessage,
   PeekBridge,
   ResultPortMessage,
@@ -64,6 +65,7 @@ interface InternalBridge {
   getSnapshot(): Promise<StateSnapshotMessage>
   onPatch(handler: (msg: StatePatchMessage) => void): Unsubscribe
   onNotify(handler: (msg: NotifyMessage) => void): Unsubscribe
+  onMenuAction(handler: (msg: MenuActionMessage) => void): Unsubscribe
   /** Non-command read-only RPCs: introspect / peekValue / keyValue */
   driverRpc(req: DriverRpcRequest): Promise<DriverRpcResponse>
   onResultRowsRequest(handler: (msg: ResultRowsRequestMessage) => void): Unsubscribe
@@ -97,6 +99,15 @@ const internal: InternalBridge = {
     ipcRenderer.on(IPC.NOTIFY, listener)
     return () => {
       ipcRenderer.off(IPC.NOTIFY, listener)
+    }
+  },
+  onMenuAction(handler) {
+    const listener = (_event: IpcRendererEvent, msg: MenuActionMessage): void => {
+      handler(msg)
+    }
+    ipcRenderer.on(IPC.MENU_ACTION, listener)
+    return () => {
+      ipcRenderer.off(IPC.MENU_ACTION, listener)
     }
   },
   driverRpc(req) {
@@ -199,6 +210,9 @@ function bootstrapMainWorld(internalKey: string, relayKey: string, bridgeKey: st
     onNotify(handler) {
       return bridge.onNotify(handler)
     },
+    onMenuAction(handler) {
+      return bridge.onMenuAction(handler)
+    },
 
     introspect(connId: ConnId, parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]> {
       return unwrap<NamespaceNode[]>(
@@ -295,6 +309,9 @@ if (!bootstrapped) {
     getSnapshot: () => internal.getSnapshot(),
     onPatch: (handler) => internal.onPatch(handler),
     onNotify: (handler) => internal.onNotify(handler),
+    // Implemented here as well: the menu is main's, not the data plane's, so a
+    // failed main-world bootstrap is no reason for `Settings…` to stop working.
+    onMenuAction: (handler) => internal.onMenuAction(handler),
     onResultPort: () => () => {
       // No port channel is available here
     },

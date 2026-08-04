@@ -3,6 +3,9 @@
 export const sidebar = {
   'sidebar.connections': 'Connections',
   'sidebar.newConnection': 'New connection',
+  /* The two states of one button: it stays at the same pixel either way. */
+  'sidebar.collapse': 'Collapse the connection list',
+  'sidebar.expand': 'Show the connection list',
   'sidebar.empty': 'No connections yet',
   'sidebar.emptyHint': 'Use ＋ in the top right to add one',
 

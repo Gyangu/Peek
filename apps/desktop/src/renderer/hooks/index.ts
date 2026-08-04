@@ -34,6 +34,8 @@ export {
 
 export { useGlobalKeys } from './useGlobalKeys'
 
+export { applyMenuAction, useMenuActions } from './useMenuActions'
+
 /* Escape ownership and focus containment, shared by every modal in the window. */
 export {
   isTopModal,

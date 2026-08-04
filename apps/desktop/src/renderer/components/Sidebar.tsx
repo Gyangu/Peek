@@ -6,6 +6,7 @@ import { useErrorText, useT, type TFunction } from '../i18n'
 import { dispatch } from '../state/dispatch'
 import { invalidateConnection } from '../state/namespaceStore'
 import { openSettings } from '../state/settingsDialogStore'
+import { setSidebarCollapsed, useSidebarStore } from '../state/sidebarStore'
 import { useConnections } from '../state/workspaceStore'
 import { connectionMenuNodes, editableOf } from './connectionMenu'
 import { buildConnectionRows, type ConnectionRow } from './connectionRows'
@@ -32,10 +33,24 @@ import { useContextMenu } from '../ui/useContextMenu'
  * file, it changes only when this window changes it, and a second copy kept in
  * sync through patches would buy nothing. Everything that edits it re-reads it in
  * the same breath — `conn.book.forget` even answers with the new list.
+ *
+ * ## Collapsing
+ *
+ * A 28px strip, not an absence — the same shape as the conversation rail on the
+ * other side, and for the same reason: the toggle stays at the same pixel in both
+ * states, so collapsing and expanding are two clicks on one button rather than a
+ * button that moves somewhere else the moment you use it. Wide tables are what
+ * this is for; a 40-column result in a 1440px window is already scrolling
+ * sideways. See docs/design/2026-08-04-sidebar-collapse.md.
+ *
+ * The book is still re-read while collapsed. It is one small file and the effect
+ * only fires when the live list changes, so skipping it would trade nothing for a
+ * list that can be stale at the moment it comes back into view.
  */
 export function Sidebar(): ReactElement {
   const t = useT()
   const conns = useConnections()
+  const collapsed = useSidebarStore((s) => s.collapsed)
   const [dialog, setDialog] = useState<{ initial?: SavedConnection } | null>(null)
   const [active, setActive] = useState<string | null>(null)
   const [saved, setSaved] = useState<SavedConnection[]>([])
@@ -61,10 +76,48 @@ export function Sidebar(): ReactElement {
 
   const rows = buildConnectionRows(conns, saved)
 
+  if (collapsed) {
+    return (
+      <div className="sidebar collapsed">
+        {/* The collapsed sidebar is 28px of chrome and this is all of it, so the
+            handle fills the width rather than sitting as a 24px square inside.
+            Layout only — `ghost` still says what it looks like. */}
+        <Button
+          variant="ghost"
+          icon
+          className="sidebar-handle"
+          label={t('sidebar.expand')}
+          aria-expanded={false}
+          onClick={() => {
+            setSidebarCollapsed(false)
+          }}
+        >
+          ›
+        </Button>
+      </div>
+    )
+  }
+
   return (
     <div className="sidebar">
       <div className="sidebar-head">
-        <span>{t('sidebar.connections')}</span>
+        {/* First, not last — the mirror of the rail's trailing `›`. This panel
+            closes leftwards, so its outer edge is the left one, and that is the
+            only position where this button and the `›` that reopens it are the
+            same pixel. Putting it at the head's right end reads as symmetric with
+            the rail and measures as a 200px jump. */}
+        <Button
+          variant="ghost"
+          icon
+          label={t('sidebar.collapse')}
+          aria-expanded={true}
+          onClick={() => {
+            setSidebarCollapsed(true)
+          }}
+        >
+          ‹
+        </Button>
+        <span className="sidebar-title">{t('sidebar.connections')}</span>
         <Button
           variant="ghost"
           title={t('sidebar.newConnection')}

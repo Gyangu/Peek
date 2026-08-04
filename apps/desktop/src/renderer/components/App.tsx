@@ -1,8 +1,7 @@
 import type { ReactElement } from 'react'
-import { useAnnouncement, useGlobalKeys, useLayoutAnnouncer } from '../hooks'
+import { isMacPlatform, useAnnouncement, useGlobalKeys, useLayoutAnnouncer, useMenuActions } from '../hooks'
 import { useT } from '../i18n'
 import { openSettings } from '../state/settingsDialogStore'
-import { useWorkspaceStore } from '../state/workspaceStore'
 import { ChatSessionsRail } from './chat'
 import { LayoutTree } from './LayoutTree'
 import { SettingsDialog } from './settings'
@@ -15,39 +14,44 @@ import '../keyboard-nav.css'
 export function App(): ReactElement {
   const t = useT()
   useGlobalKeys()
+  useMenuActions()
   useLayoutAnnouncer()
-  const ready = useWorkspaceStore((s) => s.ready)
-  const bridgeMissing = useWorkspaceStore((s) => s.bridgeMissing)
+  // Read once per mount, not reactively: the platform cannot change under a
+  // running window, and the class it decides drives the traffic-light gutter.
+  const mac = isMacPlatform()
 
   return (
-    <div className="app">
+    <div className={mac ? 'app mac' : 'app'}>
+      {/*
+       * On macOS this strip holds nothing at all — it is the traffic lights'
+       * gutter and the window's drag handle, which is what a Mac title bar is.
+       * What used to be here went three ways: the `peek` wordmark was
+       * decoration, the sync and bridge lines moved to the status bar (which
+       * already carried a second copy of the bridge one), and the gear became
+       * `peek → Settings…` in the application menu. See
+       * `design/2026-08-04-settings-into-app-menu.md`.
+       *
+       * Elsewhere the gear stays: Windows and Linux have no menu bar anyone
+       * looks in for preferences, so removing it there would leave `Ctrl+,` as
+       * the only way in.
+       */}
       <div className="titlebar">
-        <span className="brand">peek</span>
-        <span className="spacer" />
-        {bridgeMissing ? (
-          <span className="no-drag" style={{ color: 'var(--err)' }}>
-            {t('app.bridgeNotReady')}
-          </span>
-        ) : !ready ? (
-          <span className="no-drag" style={{ color: 'var(--fg-faint)' }}>
-            {t('app.syncing')}
-          </span>
-        ) : null}
-        {/* The titlebar is the only surface that belongs to the window rather
-            than to a connection or a panel, which is exactly what settings are.
-            The gear used to sit on the connection list's title row, where it
-            read as "settings for connections". */}
-        <Button
-          variant="ghost"
-          icon
-          label={t('settings.open')}
-          action="settings.open"
-          onClick={() => {
-            openSettings()
-          }}
-        >
-          ⚙
-        </Button>
+        {mac ? null : (
+          <>
+            <span className="spacer" />
+            <Button
+              variant="ghost"
+              icon
+              label={t('settings.open')}
+              action="settings.open"
+              onClick={() => {
+                openSettings()
+              }}
+            >
+              ⚙
+            </Button>
+          </>
+        )}
       </div>
 
       <div className="body">
@@ -63,9 +67,10 @@ export function App(): ReactElement {
       </div>
 
       <StatusBar />
-      {/* Mounted here, not inside the sidebar: it is opened from the titlebar,
-          from `⌘,` and from the first-run guide, and it must outlive any of
-          them unmounting. Renders nothing while closed. */}
+      {/* Mounted here, not inside the sidebar: it is opened from the application
+          menu (macOS) or the title-bar gear (elsewhere), from `⌘,` and from the
+          first-run guide, and it must outlive any of them unmounting. Renders
+          nothing while closed. */}
       <SettingsDialog />
       <Toasts />
       <LiveRegion />

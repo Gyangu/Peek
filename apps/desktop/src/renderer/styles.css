@@ -102,6 +102,24 @@
   --bar-h: 30px;
   --gutter-w: 54px;
 
+  /*
+   * The label column every form row is built on. Anything with no label of its
+   * own indents by this plus the row's 8px gap, to stand on the control column.
+   *
+   * One width, not four. It used to be four literals scattered over sixty lines
+   * — 88 and 96 in the base rules, 116 and 124 twice over in the settings pane —
+   * and the settings override reached three of them and missed the fourth, which
+   * is the bug this replaces. See `design/2026-08-04-settings-form-gutter.md`.
+   *
+   * The `+ 8px` is written out at each of the three use sites rather than
+   * factored into a second variable here, and that is not an oversight: a custom
+   * property substitutes its own `var()`s **where it is declared**, so a
+   * `--form-indent` computed on `:root` would freeze 88px into itself and go on
+   * saying 96px inside `.settings-pane`. Doing the arithmetic in the rule that
+   * consumes it is what lets the override reach it.
+   */
+  --form-label-w: 88px;
+
   /* Smallest side of anything a pointer is expected to hit. */
   --hit-min: 24px;
 }
@@ -254,30 +272,41 @@ textarea:focus {
   height: 100%;
 }
 
+/* The window's drag handle, and on macOS the traffic lights' gutter — that is
+   the whole job. It carried a wordmark, two status lines and the settings gear
+   until 2026-08-04; see `design/2026-08-04-settings-into-app-menu.md` for where
+   each of them went, and §3.1 there for why the strip itself stayed.
+
+   `--bar-h`, like the sidebar head, the panel head and the status bar: there is
+   no fifth height in this window. */
 .titlebar {
-  height: 34px;
+  height: var(--bar-h);
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 10px 0 82px; /* leave room for the macOS traffic lights */
+  padding: 0 10px;
   background: var(--bg-1);
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
 }
 
-.titlebar .brand {
-  font-weight: 600;
-  letter-spacing: 0.4px;
-  color: var(--fg-dim);
+/* Room for the traffic lights, which main positions at x=12 and whose three
+   buttons end around x=64. Only here: Windows and Linux have no lights, and
+   this padding was unconditional before — a blank 82px reserved on every
+   platform for a macOS control. */
+.app.mac .titlebar {
+  padding-left: 72px;
 }
 
 .titlebar .spacer {
   flex: 1;
 }
 
-.titlebar button,
-.titlebar .no-drag {
+/* The strip drags the window, so anything clickable inside it has to opt out.
+   `.no-drag` used to be here too, for the status lines that have since moved to
+   the status bar; the gear is the only child left, and only off macOS. */
+.titlebar button {
   -webkit-app-region: no-drag;
 }
 
@@ -308,18 +337,46 @@ textarea:focus {
   min-height: 0;
 }
 
+/* Collapsed is a strip, not an absence: the toggle stays at the same pixel in
+   both states, so collapsing and expanding are two clicks on one button rather
+   than a button that moves elsewhere when you use it. Mirrors
+   `.chat-rail.collapsed` — see `design/2026-08-04-sidebar-collapse.md`. */
+.sidebar.collapsed {
+  width: 28px;
+}
+
+/* Layout only: it fills the 28px of chrome that is the entire collapsed sidebar.
+   The height is the size rung's to set, not this rule's — 24px in a 28px column. */
+.sidebar.collapsed .sidebar-handle {
+  width: 100%;
+}
+
+/* Both heads carry a title plus two or three buttons, so the children are
+   grouped from the start and the title takes the slack. `space-between` strands
+   the ＋ in the middle of the title's whitespace the moment a third child
+   arrives, which is what the conversation rail hit first. */
 .sidebar-head {
   height: var(--bar-h);
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 2px;
   padding: 0 8px;
   border-bottom: 1px solid var(--border);
   color: var(--fg-dim);
   font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: 0.6px;
+}
+
+/* Takes the slack in the head so the buttons sit at its end, and gives up its
+   own width first when the title is longer than the column. */
+.sidebar-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-list {
@@ -1580,7 +1637,7 @@ body.view-dragging.view-drag-nodrop * {
  */
 .form-row label,
 .form-row .form-label {
-  width: 88px;
+  width: var(--form-label-w);
   flex: 0 0 auto;
   color: var(--fg-dim);
   text-align: right;
@@ -1601,7 +1658,14 @@ body.view-dragging.view-drag-nodrop * {
 
 .form-hint {
   color: var(--fg-faint);
-  margin: 0 0 10px 96px;
+  margin: 0 0 10px calc(var(--form-label-w) + 8px);
+}
+
+/* A row of buttons with no label of its own. It still belongs to the control
+   column: a button that falls back into the label gutter reads as if it acts on
+   the section rather than on the field above it. */
+.form-actions {
+  margin-left: calc(var(--form-label-w) + 8px);
 }
 
 .modal-foot {
@@ -1618,9 +1682,19 @@ body.view-dragging.view-drag-nodrop * {
    A fixed height rather than one that follows the section, because the sections
    are very different sizes — the MCP one is four times the About one — and a
    dialog that resized as you clicked through it would move the rail out from
-   under the cursor. */
+   under the cursor. The width is fixed for the same reason, one axis over.
+
+   800 rather than the 760 every other modal gets, because this one carries the
+   packages table: six rows whose longest cell is an untranslated capability list
+   (`introspect · tabularQuery · …`), and 760 left it 24px short, so all six wrapped
+   and the section grew to twice its height. Measured — the table stops wrapping at
+   784 in zh-CN and 786 in en; 800 clears both with a little room for a reworded
+   header. The `90vw` never binds at 100% zoom: the window's own minWidth is 900,
+   and 900 × 0.9 = 810. It exists for the zoom steps, which shrink the CSS
+   viewport — at 150% the table wraps again, which is the trade zoom is for.
+   See `design/2026-08-04-settings-dialog-width.md`. */
 .settings-modal {
-  width: min(760px, 90vw);
+  width: min(800px, 90vw);
   height: min(560px, 84vh);
 }
 
@@ -1675,20 +1749,19 @@ body.view-dragging.view-drag-nodrop * {
 }
 
 /* The sections use wider labels than the connect dialog — "Collection scan" and
-   "Connections" do not fit the 88px the form rows default to. */
-.settings-pane .form-row label {
-  width: 116px;
-}
-
-.settings-pane .form-hint {
-  margin-left: 124px;
+   "Connections" do not fit the 88px the form rows default to. Widening the
+   column is the whole edit: the hints and the button rows read the same variable
+   and follow on their own. */
+.settings-pane {
+  --form-label-w: 116px;
 }
 
 /* Button rows line up with the fields they act on, not with the label column.
    `.conn-actions` comes from the sidebar, where there is no label gutter to
-   miss. */
+   miss — `.form-actions` is the name this belongs under, and these two callers
+   are the last ones left on the borrowed class. */
 .settings-pane .conn-actions {
-  margin-left: 124px;
+  margin-left: calc(var(--form-label-w) + 8px);
   margin-bottom: 10px;
 }
 
@@ -1697,7 +1770,7 @@ body.view-dragging.view-drag-nodrop * {
 /* A real table, not a list of `.form-row`s. What is being read here is three
    values compared down a column ("which of these is at a different version"),
    and the label-gutter form layout the rest of this pane uses cannot line up a
-   column at all. It gets the full pane width, hence no 124px gutter. */
+   column at all. It gets the full pane width, hence no label gutter. */
 .pkg-table {
   width: 100%;
   border-collapse: collapse;
@@ -1762,9 +1835,9 @@ body.view-dragging.view-drag-nodrop * {
   margin-bottom: 12px;
 }
 
-/* A two-option picker stretched across a 760px dialog reads as two unrelated
-   buttons with a gap, not as one control. It only needs to be as wide as its
-   widest option. */
+/* A two-option picker stretched across the full width of this dialog reads as two
+   unrelated buttons with a gap, not as one control. It only needs to be as wide as
+   its widest option. */
 .settings-pane .seg-group {
   flex: 0 0 auto;
   min-width: 200px;
@@ -1810,21 +1883,9 @@ body.view-dragging.view-drag-nodrop * {
   width: 100%;
 }
 
-/* The head carries four things, one more than the sidebar's, so the buttons are
-   grouped at the end instead of being spread — `space-between` with four
-   children would strand the ＋ in the middle of the title's whitespace. */
-.chat-rail .sidebar-head {
-  justify-content: flex-start;
-  gap: 2px;
-}
-
-.chat-rail-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+/* The head grouping this rail needed — buttons at the end, title taking the
+   slack — moved onto `.sidebar-head` / `.sidebar-title` when the sidebar grew a
+   third child of its own and needed exactly the same thing. */
 
 /* Takes the height the window gives it rather than a number chosen here: the
    list is as long as the user's history. */

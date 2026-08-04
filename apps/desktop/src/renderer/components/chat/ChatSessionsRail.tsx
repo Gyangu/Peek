@@ -188,7 +188,9 @@ export function ChatSessionsRail(): ReactElement {
   return (
     <div className="chat-rail">
       <div className="sidebar-head">
-        <span className="chat-rail-title">{t('chat.sessions.title')}</span>
+        {/* `.sidebar-title`, shared with the connection sidebar: both heads are a
+            title that gives up its width plus buttons grouped at the end. */}
+        <span className="sidebar-title">{t('chat.sessions.title')}</span>
         <Button
           variant="ghost"
           title={t('chat.sessions.new')}

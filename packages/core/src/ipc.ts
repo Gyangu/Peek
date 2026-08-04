@@ -59,6 +59,21 @@ export const IPC = {
   NOTIFY: 'peek:notify',
 
   /**
+   * M→R: the user picked an item in the application menu.
+   *
+   * The menu lives in main and the surfaces it drives live in the renderer, so
+   * something has to cross. This channel exists rather than a Command because
+   * what crosses is not a change to the source of truth — `Settings…` opens a
+   * dialog, which is window chrome the Workspace deliberately knows nothing
+   * about (see `renderer/state/settingsDialogStore.ts`).
+   *
+   * Not folded into NOTIFY, which is next door and also M→R: a NotifyMessage is
+   * "show the user this sentence" and the renderer answers it with a toast.
+   * See `docs/design/2026-08-04-settings-into-app-menu.md` §2.2.
+   */
+  MENU_ACTION: 'peek:menu:action',
+
+  /**
    * R→M: read-only RPC that is not a command (lazy-loading the namespace tree /
    * fetching a large value in full / reading a keyValue).
    *
@@ -157,6 +172,17 @@ export interface ResultPortMessage {
   connId: ConnId
   /** Pid of the driver host, handy when debugging */
   pid?: number
+}
+
+/**
+ * One application-menu item was chosen.
+ *
+ * A tagged union of one member, on purpose: the next menu item that has to
+ * reach the renderer adds a variant here instead of a channel next door, and
+ * the renderer's `applyMenuAction` gets a compile error until it handles it.
+ */
+export interface MenuActionMessage {
+  action: 'openSettings'
 }
 
 export type NotifyLevel = 'info' | 'warn' | 'error'
@@ -284,6 +310,16 @@ export interface PeekBridge {
   onResultPort(handler: (msg: ResultPortMessage, port: MessagePort) => void): () => void
 
   onNotify(handler: (msg: NotifyMessage) => void): () => void
+
+  /**
+   * An application-menu item was chosen (macOS `peek → Settings…` today).
+   *
+   * Required, not optional, and implemented on the degraded preload path too:
+   * it is one `ipcRenderer.on` with no main world involved, so there is nothing
+   * about it for a failed data-plane bootstrap to take down. A window whose
+   * menu item silently does nothing is worse than one without the item.
+   */
+  onMenuAction(handler: (msg: MenuActionMessage) => void): () => void
 
   /* ---------------- Read-only, non-command channel ---------------- */
   /*
