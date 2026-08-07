@@ -1,106 +1,859 @@
 /* ==================================================================
- * peek global styles: dark theme at the compact density of a data tool
- * (the TablePlus / Beekeeper feel). No UI library — all of it hand-written.
- * Data values are always set in a monospace face.
+ * peek's stylesheet. All of it.
+ *
+ * Dark theme at the compact density of a data tool (the TablePlus / Beekeeper
+ * feel), no UI library, every rule hand-written. Data values are always set in a
+ * monospace face. Almost none of that is in this file any more: the window's
+ * appearance is Tailwind v4 utility classes on the elements themselves, and what
+ * is left here is the configuration those classes are generated from plus the
+ * rules no class list can reach. See
+ * docs/design/2026-08-04-tailwind-migration.md.
+ *
+ * ## Why this is one file again
+ *
+ * It was one file (2,133 lines), then six, then eight, and now one. The split
+ * was scaffolding: §2.4 of the migration record split it so that six agents
+ * could edit the CSS at once without colliding, and said so in as many words.
+ * The parallel phase is over, so the split buys nothing and costs a directory
+ * shape that matches no other Tailwind project. §11.1 retires it. This merge
+ * changed no rule — the sections below are the eight files, concatenated.
+ *
+ * ## The order is the cascade, and one section is not where you would put it
+ *
+ * Most of what follows is unlayered, and unlayered rules beat every `@layer`
+ * whatever the specificity, while among themselves they are settled by document
+ * order. So moving a section is a visual change, not a tidy-up.
+ *
+ * The chat panel is second rather than beside the feature it belongs to, and
+ * that used to be load-bearing. Its sheet, and the disclosure dialog's, were
+ * pulled in by components (`ChatView.tsx`, `ConsentDialog.tsx`) rather than by
+ * the import list here, and Vite emitted them **first** — ahead of everything,
+ * checked in `out/renderer/assets`, where the disclosure dialog's width was
+ * literally byte zero. Two of their rules argued with the app section at equal
+ * specificity and lost: the chat toolbar's gap against the shared toolbar's, and
+ * the disclosure dialog's width against the generic dialog's. Both elements wore
+ * both names, both pairs were one class specific, the app section is later, so
+ * the shared rule won — which was **not** what either comment down there
+ * claimed. Keeping the two sections first reproduced that exactly, and the
+ * record (§13) said fixing it was somebody's decision rather than a side effect
+ * of concatenating files.
+ *
+ * Somebody decided. Round 5 migrated both families to utility classes, which
+ * settled each argument by ending it: the disclosure dialog is 240px narrower
+ * and the chat toolbar's gap 2px wider than the merged build drew them, both
+ * measured, both recorded in the migration record §17.4 and §18.1. The
+ * disclosure section is gone from this file entirely — its one rule had no
+ * wearer left. What the chat section still holds is two Markdown heading sizes
+ * and two `@keyframes`, and no other rule in this file names either property on
+ * either name, so its position now decides nothing. It was left where it stands
+ * because moving it is a change, and a change nobody measured is not a tidy-up
+ * either.
+ *
+ * ## The banners, and the old file names
+ *
+ * Each section opens with a line reading `SHEET: <id>`. It is a marker, not
+ * decoration: `components/__tests__/grid-layout.test.ts` slices the grid section
+ * out by it, because "every selector here is grid-prefixed" is true of that
+ * section and cannot be true of the file. Keep the format if you move things.
+ *
+ * The banners also carry the old paths, and that is the reading rule for
+ * everything below: **where a comment names one of the eight sheets, it means
+ * the section of this file whose banner carries that name.** They were not
+ * rewritten, because roughly forty comments elsewhere in `renderer/` say things
+ * like "a rule in components/app.css" too, and one merge is not a reason to
+ * restate forty explanations of *why* a rule exists — the risk of losing a cause
+ * while tidying a path is the larger of the two. Grepping the old name lands you
+ * in the right section either way.
+ *
+ * What did get rewritten is every sentence the merge made *false* rather than
+ * merely renamed: two claims that a sheet was imported by a component, two about
+ * which of two rules wins, one about an at-rule that was unavailable and now is
+ * not, one about a rule that had already been deleted, and the five census keys
+ * in `__tests__/theme-contrast.test.ts` that named a file. Each says so where it
+ * stands.
+ *
+ * ## The shape §11.3 asked for
+ *
+ * `@import` · `@theme` · `@utility` · `@layer base` · `@keyframes`, in that
+ * order, is what the record's target sketch shows. The first three are in that
+ * order here. The last two are not gathered at the end: `@layer base` sits in
+ * the base section with the element floors it belongs to, and the three
+ * `@keyframes` sit beside the rules that name them. Gathering them would mean
+ * moving rules, and this round moves none.
  * ================================================================== */
 
-:root {
+/* ################## SHEET: tokens ################## */
+/* The design system, as Tailwind v4 configuration.
+   Was `theme.css` until the eight sheets were merged;
+   everything from here to the next SHEET banner is that file,
+   unchanged. The banner line is a marker as well as a heading —
+   see the head of this file. */
+
+/* ==================================================================
+ * peek's design tokens, as Tailwind v4's `@theme`.
+ *
+ * This is the whole configuration. There is no `tailwind.config.js` and no
+ * PostCSS setup — v4 is CSS-first and `@tailwindcss/vite` (wired into the
+ * renderer target in electron.vite.config.ts) takes it from here.
+ *
+ * Everything below used to be the `:root` block at the top of styles.css. The
+ * values are unchanged; the names moved into Tailwind's namespaces so that the
+ * tokens and the utility classes are the same set of facts rather than two.
+ *
+ * ## Why this block did not move into a `tailwind.config.js`
+ *
+ * §17.2 of the migration record decided it should, on the user's preference for
+ * the shape v3 had. It cannot, and the reason is a property of v4 rather than a
+ * matter of taste, so it is written here where the next person will be standing
+ * when they wonder.
+ *
+ * `@config` is honoured by this version (4.3.3) — pointed at a config holding
+ * one spacing token, `h-control-sm` and `w-control-sm` compiled from it. But a
+ * theme value that arrives from a JS config is registered *inline*: the utility
+ * is emitted carrying the literal, and **no custom property is written into the
+ * stylesheet**. Probed across three namespaces and none of them emitted one; the
+ * compatibility layer adds every config value with the flags that mean "inline,
+ * do not emit".
+ *
+ * That is fatal here rather than merely different, because this file's other 402
+ * code lines are not utilities. They are the rules no class list can reach — the base
+ * layer, the CodeMirror overrides, the scrollbar pseudo-elements, the keyframes
+ * — and they read the theme the only way CSS can, through `var()`. Moving the
+ * whole block and building measures the damage exactly: 86 references to 23
+ * tokens that nothing defines any more, of which the sharpest are
+ * `.form-label`'s width and colour, the grid row's two line heights (via
+ * --leading-row and --leading-cell, both of which are stated as a `var()` and
+ * would be inlined as the *text* of one), and --shadow-gutter-sel's accent.
+ * Eleven tokens in this block are derived from another token and every one of
+ * them breaks the same way. `pnpm build` exits 0 and the audit reports 506 rules
+ * all worn, so nothing in the gate sees it.
+ *
+ * Two things it would also cost, both of which outlive the version: an inlined
+ * --spacing-form-label is a literal in `margin-left`, so `.settings-pane`'s
+ * override of that width — the whole subject of design/2026-08-04-settings-form
+ * -gutter.md — silently stops reaching it; and a palette that no longer exists
+ * as custom properties cannot be re-pointed at runtime, which is what a second
+ * theme would need.
+ *
+ * A partial move is worse than either: the eight or nine tokens no rule reads
+ * would sit in a second file, and the product's vocabulary would be split across
+ * two sources of truth — the failure this file's every other comment argues
+ * against. So the block stays, and §2.1's original reasoning stands by
+ * measurement rather than by preference.
+ *
+ * See docs/design/2026-08-04-tailwind-migration.md §2.2, §17.2, §17.5.
+ * ================================================================== */
+
+/*
+ * Theme and utilities, but **not Preflight**, and that is a decision rather than
+ * an omission.
+ *
+ * `@import "tailwindcss"` bundles all three. Preflight is a reset, and peek
+ * already has one — `base.css`, where every rule carries the reason it exists (a
+ * `min-height` floor measured in two font sizes, a focus ring that had to be put
+ * on the element selector because a class-level one left the settings ✕ wearing
+ * the macOS accent). Two resets is two sources of truth about what an unstyled
+ * element looks like, which is the failure this whole codebase's comments argue
+ * against.
+ *
+ * It is also not neutral. Preflight declares `ol, ul, menu { list-style: none }`
+ * and `h1–h6 { font-size: inherit; font-weight: inherit }`. Our rules are
+ * unlayered so they win where they say anything at all — but `.md-list` sets
+ * only margin and padding and leans on the browser for its bullets, and the
+ * consent dialog's title was an `<h2>` inheriting its weight. Adopting Preflight
+ * would have taken the markers off every markdown list and flattened that
+ * heading, silently, in a migration whose stated boundary is "no regression you
+ * can verify" (§1.3). Not importing it is the zero-change option.
+ *
+ * Half of that has since stopped being true and is left standing rather than
+ * quietly dropped: the consent heading states `text-lg font-semibold` on itself
+ * now (phase 2), so Preflight could no longer flatten it. `.md-list` still leans
+ * on the browser, so the argument still holds — on one leg, and the day that
+ * leg goes the decision is worth taking again rather than inheriting.
+ *
+ * `--tw-border-style` is registered by `@layer properties` with an initial value
+ * of `solid`, so `border-b` still draws a line without Preflight's
+ * `*{border:0 solid}`. Checked in the built CSS, not assumed.
+ *
+ * `source(none)` then turns off automatic file detection and the two `@source`
+ * lines say where classes actually live. Also measured: left to scan the whole
+ * package, Tailwind harvested `ms-30000` out of a timeout constant and `bg-bg-2`
+ * out of a string inside `control-spec.test.ts`, and emitted real CSS for both.
+ * A class named only by a test is not a class in the product, and `main/` and
+ * `preload/` have no DOM to put one on. Paths are relative to this file, so
+ * `./` is `src/renderer` — the one directory this migration touches.
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+@source './';
+@source not './**/__tests__/**';
+
+/*
+ * Seven utility names that are also ordinary English words, struck off so that
+ * the prose in this directory may go on using them.
+ *
+ * §8.3 of the migration record priced the scanner alignment as "prose in
+ * src/renderer/ may not name a live class", and that price is payable for a
+ * class name — nobody needs to write a bracketed hex in a sentence. It is not
+ * payable for the word "ring", which appears in twenty-six comments about focus
+ * rings, or "inline" (twenty-five), or "collapse", "resize", "shadow",
+ * "contents", "transition". Those seven were shipping as seven real rules worn
+ * by no element, minted purely out of sentences, because Tailwind reads comments
+ * and every one of them happens to be a utility name too. Rewriting seventy
+ * comments to avoid seven English words would have made the prose worse and
+ * would have lasted until the next person wrote "focus ring".
+ *
+ * So the direction is inverted: instead of forbidding the word, kill the class.
+ * `@source not inline(…)` is Tailwind's own blocklist — the candidates below are
+ * dropped before compilation no matter which file names them, and the shipped
+ * stylesheet loses the rules. That is a real deletion, not an exemption:
+ * `.shadow` carried `rgba(0,0,0,.1)` and `.ring` `currentcolor`, two colours no
+ * token names and no source-level sweep can see, which is precisely the hole
+ * this line closes.
+ *
+ * The cost is that these seven utilities no longer exist. That used to be the
+ * same bargain `--color-*: initial` struck one block down; that reset is gone
+ * now (§29.10), which leaves this line as the *only* place the product still
+ * takes something away from Tailwind — and it is still the right call
+ * here: every one of them either bypasses the token layer (`shadow`, `ring`,
+ * `transition` — hard-coded colours, an all-property transition) or is a display
+ * mode this window has never wanted. Nothing silently breaks if somebody reaches
+ * for one anyway — `scripts/audit-shipped-css.mjs` asserts, from the other side,
+ * that no name on this list is ever worn by an element.
+ *
+ * Prefixed relatives are untouched; the blocklist matches whole candidates only.
+ * `.inline-block`, `.inline-flex`, `.transition-all`, `.resize-none` and the
+ * five `.shadow-*` tokens all still compile. Verified by building, not assumed.
+ *
+ * This comment names the seven in a `.css` file on purpose: Tailwind does not
+ * extract candidates from stylesheets, so writing them here is the one place in
+ * `src/renderer/` where saying the word is free.
+ */
+@source not inline('collapse contents inline resize ring shadow transition');
+
+@theme {
+  /*
+   * Three `initial` lines used to stand here — `--color-*`, `--text-*`,
+   * `--font-*` — emptying Tailwind's namespaces so that only the tokens below
+   * existed. They were the supporting point of the whole migration, and they are
+   * deliberately gone (§29, §29.10). What follows is what replaces them, because
+   * an absence explains nothing on its own.
+   *
+   * **What the reset bought.** `bg-red-500` and `text-base` compiled to nothing,
+   * so the palette was a *closed set*: every colour in the product came from this
+   * block, and `theme-contrast.test.ts` could audit all of them by reading it.
+   *
+   * **Why it is gone anyway.** The closed set answers "is this colour one of
+   * ours". The question actually worth answering is "are these two colours, as
+   * they land on each other on screen, readable" — and §25–§28 built a render
+   * probe that answers it without needing the palette to be enumerable. That is
+   * an architectural replacement, not a net loss.
+   *
+   * **The part that is a net loss, until the probe is extended.** The probe is
+   * mounted on 3 of 51 components; the closed set covered 100% of the artifact.
+   * `BELOW_FLOOR` (source side, 7 findings) and `BELOW_FLOOR_RENDERED` (probe, 3)
+   * are disjoint, so nothing inherits those 7. A new contrast fault introduced in
+   * an unprobed component now has no fence. Recorded in §29.10 as accepted, not
+   * overlooked.
+   *
+   * The tokens below stay literal values in a plain `@theme` rather than moving
+   * behind a raw layer with `@theme inline`. Measured, not assumed: `@theme
+   * inline` does not emit its own variable, which would break all 85 raw
+   * `var(--color-*)` references in this file and in `SqlEditor.tsx`; and a plain
+   * `@theme` holding a *literal* is already re-pointable, so a future
+   * `.light { --color-bg: … }` works as-is. `inline` is only needed when the
+   * token's value is itself a `var()` indirection. Both halves were compiled and
+   * run in Electron; the table is in §29.10.1.
+   */
+
   /* Layered backgrounds: the higher the layer, the lighter it is. */
-  --bg: #16181c;
-  --bg-1: #1b1e23;
-  --bg-2: #21252b;
-  --bg-3: #292e35;
-  --bg-hover: #2d333b;
-  --bg-sel: #16324f;
+  --color-bg: #16181c;
+  --color-bg-1: #1b1e23;
+  --color-bg-2: #21252b;
+  --color-bg-3: #292e35;
+  --color-bg-hover: #2d333b;
+  --color-bg-sel: #16324f;
 
   /*
-   * Three text weights, all of them legible. The old --fg-faint (#5a626c) sat at
-   * 2.49–2.88:1 depending on the layer under it — below the WCAG floor on every
-   * one of them, and it was the weight handed to the *smallest* type in the
-   * window. The ladder below is 12.4 / 7.6 / 5.0 against --bg-1, which is a
-   * wider spread than the old one actually delivered, because the old last rung
-   * was not readable at all. Floor: --fg-faint on --bg-2 ≥ 4.5.
+   * The zebra stripe on every other grid row. Not a layer — it sits *between*
+   * --color-bg and --color-bg-1 and is the only surface in the window whose job
+   * is to be almost invisible: 1.11:1 against --color-bg, which is enough for
+   * the eye to track a row across a wide table and not enough to read as a
+   * second background. Its predecessor was 1.04:1, which is a stripe nobody can
+   * see, i.e. a stripe not worth painting.
+   *
+   * It was a literal inside `components/grid.css` until the literal-colour sweep
+   * in `theme-contrast.test.ts` widened past `border`/`outline` and found it —
+   * the same escape as --color-danger-border, one property over. Naming it is
+   * what puts the cell text drawn on it under audit.
+   */
+  --color-bg-stripe: #1e2228;
+
+  /*
+   * The scrim behind a modal. Pure black at 60%, laid over the entire window,
+   * and the one colour here that is deliberately not a surface: the dialog it
+   * dims sits above it wearing --color-bg-1, so nothing is ever read *on* the
+   * scrim. `theme-contrast.test.ts` records that as a written exemption rather
+   * than leaving it uncovered, because "no text lands here" is a claim somebody
+   * has to make on purpose.
+   *
+   * Named for the same reason as everything else in this block: it was
+   * `background: #0009` in `components/app.css`, invisible to every assertion.
+   */
+  --color-scrim: #0009;
+
+  /*
+   * Three text weights, all of them legible. The old faint weight (#5a626c) sat
+   * at 2.49–2.88:1 depending on the layer under it — below the WCAG floor on
+   * every one of them, and it was the weight handed to the *smallest* type in
+   * the window. The ladder below is 11.7 / 7.6 / 5.0 against --color-bg-1, which
+   * is a wider spread than the old one actually delivered, because the old last
+   * rung was not readable at all. Floor: --color-fg-faint on --color-bg-2 ≥ 4.5.
    * See design/2026-08-02-ui-legibility-baseline.md §2.2.
    */
-  --fg: #d3d8de;
-  --fg-dim: #a8b0ba;
-  --fg-faint: #858d97;
+  --color-fg: #d3d8de;
+  --color-fg-dim: #a8b0ba;
+  --color-fg-faint: #858d97;
 
   /*
    * Two borders with different jobs, because WCAG asks different things of them.
-   * --border is decoration: grid lines, panel outlines. It groups, it does not
-   * announce anything clickable, so it stays quiet. --border-strong is the
-   * boundary of an actual control (input, button, select) and is therefore
-   * subject to 1.4.11 — it now clears 3:1 against --bg-1, where it used to be
-   * 1.62 and a text field was effectively invisible.
+   * --color-border is decoration: grid lines, panel outlines. It groups, it does
+   * not announce anything clickable, so it stays quiet. --color-border-strong is
+   * the boundary of an actual control (input, button, select) and is therefore
+   * subject to 1.4.11 — it now clears 3:1 against --color-bg-1, where it used to
+   * be 1.62 and a text field was effectively invisible.
    */
-  --border: #333941;
-  --border-strong: #666f79;
+  --color-border: #333941;
+  --color-border-strong: #666f79;
 
-  --accent: #4d9cff;
-  --accent-dim: #2a5a95;
-  --ok: #4ec9a0;
-  --warn: #e0b341;
-  --err: #f0736f;
+  --color-accent: #4d9cff;
+  --color-accent-dim: #2a5a95;
+  --color-ok: #4ec9a0;
+  --color-warn: #e0b341;
+  --color-err: #f0736f;
+
+  /*
+   * The six surfaces a control moves through under the pointer.
+   *
+   * These are not new colours — they are the `color-mix()` expressions that used
+   * to be written inline in `ui/controls.css`, one per variant per state. They
+   * had to be named because a utility class cannot hold an expression:
+   * `bg-[color-mix(…)]` is the arbitrary-value syntax the migration record bans
+   * outright (§3.4), and it is banned precisely so that a derived colour ends up
+   * here, where `theme-contrast.test.ts` can see it, rather than inline where it
+   * cannot. Naming them is the same move `--color-danger-border` made.
+   *
+   * They stay mixes rather than being flattened into hexes for the reason the
+   * original comment gave: a derived state should be visibly derived, so that
+   * moving `--color-accent-dim` moves its hover with it, rather than leaving a
+   * fifth blue nobody can relate to the other four.
+   *
+   * `default` and `ghost` need no entry: they move between `--color-bg-hover`
+   * and `--color-bg-1`, which are surfaces the theme already had.
+   */
+  --color-primary-hover: color-mix(in srgb, var(--color-accent-dim) 78%, var(--color-accent));
+  --color-primary-active: color-mix(in srgb, var(--color-accent-dim) 82%, #000);
+
+  /*
+   * Mixed from `--color-bg-hover` and `--color-bg-1` — the same two surfaces
+   * `default` moves between — rather than from `--color-bg-2` in both
+   * directions. Mixing more `--color-err` into the press made it *lighter* than
+   * the hover, which is the opposite of the rule the whole matrix follows (hover
+   * lightens, a press comes back down); the gallery screenshot is where that
+   * showed up. The hue is a hint on top of the neutral movement, not the
+   * movement itself.
+   */
+  --color-danger-hover: color-mix(in srgb, var(--color-bg-hover) 86%, var(--color-err));
+  --color-danger-active: color-mix(in srgb, var(--color-bg-1) 86%, var(--color-err));
+
+  /* Same correction as `danger`, and here it was also a legibility problem: a
+     third of `--color-warn` mixed into `--color-bg-2` is olive, and amber text
+     on olive is not a thing anyone should have to read. */
+  --color-caution-hover: color-mix(in srgb, var(--color-bg-hover) 88%, var(--color-warn));
+  --color-caution-active: color-mix(in srgb, var(--color-bg-1) 88%, var(--color-warn));
 
   /*
    * The resting border of a destructive control: red enough to be read as one,
-   * quieter than `--err` so a delete button is not shouting before it has been
-   * armed.
+   * quieter than `--color-err` so a delete button is not shouting before it has
+   * been armed.
    *
    * It exists because the value it replaces did not. Three separate rules
    * (`.confirm-danger`, `.chat-perm-reject`, `.chat-stop`) each hard-coded
-   * `#7a3f3f`, which measures **1.91:1** against `--bg-2` — well under the 3:1
-   * that 1.4.11 asks of a control boundary, and under the floor this very theme
-   * had already committed to for `--border-strong`. It survived because
-   * `theme-contrast.test.ts` reads `:root`, and a literal in a rule is somewhere
-   * that test can never look. Naming it is what puts it under audit.
+   * `#7a3f3f`, which measures **1.91:1** against `--color-bg-2` — well under the
+   * 3:1 that 1.4.11 asks of a control boundary, and under the floor this very
+   * theme had already committed to for `--color-border-strong`. It survived
+   * because `theme-contrast.test.ts` reads the token block, and a literal in a
+   * rule is somewhere that test can never look. Naming it is what puts it under
+   * audit. In the atomic-class era the same escape is spelled `border-[#7a3f3f]`,
+   * which is why arbitrary values are banned outright — §3.4 of the migration
+   * record, enforced from this test's file.
    */
-  --danger-border: #b25e59;
+  --color-danger-border: #b25e59;
 
   /*
    * The error *block* — a failed query, a failed tool call — as opposed to the
    * error *control* above. Decorative by 1.4.11's reckoning: what carries the
-   * meaning is the `--err` text inside, so the boundary only has to group, like
-   * `--border` does, and is held to the same 1.45 rather than to 3:1.
+   * meaning is the `--color-err` text inside, so the boundary only has to group,
+   * like `--color-border` does, and is held to the same 1.45 rather than to 3:1.
    *
-   * Named for the same reason as `--danger-border`, and found the same way:
-   * `.view-error` in styles.css and `.chat-msg-error` in chat.css declared an
-   * identical border, background and colour, each in ignorance of the other.
+   * Named for the same reason as `--color-danger-border`, and found the same way:
+   * `.view-error` and `.chat-msg-error` declared an identical border, background
+   * and colour, each in ignorance of the other.
    */
-  --err-border: #5c2f2f;
-  --err-bg: #2a1c1c;
+  --color-err-border: #5c2f2f;
+  --color-err-bg: #2a1c1c;
+
+  /*
+   * The other two blocks that tint themselves, named the same way `--color-err-bg`
+   * was and found the same way — as literals inside `components/chat/chat.css`,
+   * where no assertion in this codebase could reach them.
+   *
+   * `--color-warn-bg` is the surface of a panel that asks about *authority*: the
+   * permission prompt, and the confirmation in front of a mode that stops asking.
+   * `--color-accent-bg` is the same panel when the tool being approved is one of
+   * peek's own mutating ones — the question changes from "may I run this" to "may
+   * I change the window in front of you", and the panel changes colour with it.
+   * Both are the ambient hue mixed nearly all the way down into `--color-bg`, so
+   * they read as a tint of the block rather than as a fifth and sixth surface.
+   */
+  --color-warn-bg: #2a2415;
+  --color-accent-bg: #16233a;
+
+  /*
+   * The one place in the window where text is drawn on a *solid* semantic colour:
+   * the badge on a tool call that came from outside peek. Amber is a background
+   * there rather than a foreground, so the text on it has to be dark, and none of
+   * the three foreground weights is. Near-black with the amber's own warmth in it,
+   * rather than `--color-bg`, so the badge does not look like a hole punched in it.
+   */
+  --color-warn-ink: #2a2109;
+
+  /*
+   * Code colouring, for the four things `components/chat/highlight.ts` can tell
+   * apart. Comments and punctuation are not here: they are `--color-fg-faint` and
+   * `--color-fg-dim`, because "this is an aside" and "this is grammar" are facts
+   * the text ladder already states.
+   *
+   * They are content colours rather than chrome, and they are the only colours in
+   * the theme chosen for a *hue relationship* to each other rather than for a
+   * contrast ratio against a surface. That is why they are named for what they
+   * mark rather than for what they are.
+   */
+  --color-code-keyword: #c792ea;
+  --color-code-type: #7fd1c0;
+  --color-code-string: #c3e88d;
+  --color-code-number: #f78c6c;
+
+  /*
+   * The grid's two typed-value hues, for the two kinds of cell whose *shape*
+   * cannot be read from the text in it: a boolean and an embedded JSON document.
+   * Everything else a cell can be says so in a text weight — NULL is
+   * --color-fg-faint because it is an absence, a truncated value is
+   * --color-warn because it is a warning about the value rather than the value.
+   *
+   * Deliberately **not** folded into --color-code-keyword and --color-code-type,
+   * which are within a few points of them. Those four mark grammar inside a code
+   * block written by the agent; these two mark the type of a value in a result
+   * set the database sent. Two vocabularies that happen to have picked
+   * neighbouring hues are still two vocabularies, and merging them would move
+   * one of them the next time the other is tuned.
+   *
+   * Both were literals in `components/grid.css` — `color: #c98fe0` and
+   * `color: #7fc9a2` — and both are body text at --text-data, so they are
+   * exactly the thing the contrast audit exists for. Found by the same widened
+   * literal sweep as --color-bg-stripe.
+   */
+  --color-cell-bool: #c98fe0;
+  --color-cell-json: #7fc9a2;
+
+  /*
+   * The staged row selection ("add these rows to the chat"), on the two surfaces
+   * it lands on: a quarter of --color-accent over the cell's own background, and
+   * the same quarter over the row-number gutter's --color-bg-1.
+   *
+   * A 24% wash is a *hue* change far more than a luminance one — 1.49:1 against
+   * an unselected row — which is why the gutter also takes a 2px accent rule
+   * (--shadow-gutter-sel below). A shape difference is the half that survives a
+   * colour-vision difference, and the gutter is the one column still on screen
+   * however far right a wide table is scrolled.
+   *
+   * Both were `color-mix()` expressions written inline in `components/grid.css`,
+   * and they are named here for the same reason the six control surfaces above
+   * are: a utility class cannot hold an expression, and the arbitrary-value
+   * spelling of one is banned outright (§3.4). Naming them is also what first
+   * put the text drawn on them under the contrast audit — which immediately
+   * found two breaches that had been shipping unmeasured. Neither is repaired
+   * here; both are pinned in BELOW_FLOOR with a repair order, because this
+   * change is a migration and a migration that quietly restyles the product is
+   * not one.
+   */
+  --color-row-sel: color-mix(in srgb, var(--color-accent) 24%, var(--color-bg));
+  --color-rownum-sel: color-mix(in srgb, var(--color-accent) 24%, var(--color-bg-1));
+
+  /* ----------------------------------------------------------------
+   * 字号标度 —— 五档，零半像素
+   *
+   * §29.10.2 把八个字号收成三个（12/14/18），代价是 64 条原本严格低于
+   * 正文的声明并进 12px，六条真实区分一起消失。用户的原话是「完全没有
+   * 以前精致」——说的就是这件事，不是对齐，是层次（§31.6）。
+   *
+   * 这里把档位加回来，并且顺手把它一直带着的半像素去掉：`--fs-data` 是
+   * 11.5px，用半个像素补偿等宽字形的光学重量；现在 chrome 是 11px、数据
+   * 是 12px，同一个补偿用**整一档**表达。
+   *
+   * 先清空 Tailwind 的十三档。不清就是两套梯子并存，而 `text-xs` /
+   * `text-sm` 这两个名字说的是「小」和「稍小」，不是「这是元数据」或
+   * 「这是标题」——留着它们，三个月后一定有人写回去。清空之后
+   * `type-scale.test.ts` 可以从「列出三档、驳回另外十档」升级成「十三档
+   * 全部不存在」，那是更硬的围栏。
+   * ---------------------------------------------------------------- */
+  --text-*: initial;
+  --leading-*: initial;
+
+  /*
+   * 不是词。展开三角 ▸▾、Markdown 的勾选 ✔ —— 按形状读，不按字形辨认，
+   * 所以不受文字地板约束。合法条件写在这里而不是在站点上：所在盒子必须
+   * 另有尺寸下限（caret 列 --spacing-glyph 14px、勾选框 12×12），且不得
+   * 承载任何需要辨认的字形。
+   *
+   * `design/2026-08-02-ui-legibility-baseline.md` §2.1 定过这条「符号地板
+   * 10px」，§29.10.2 把它抹平到 12px，这里恢复。
+   */
+  --text-mark: 10px;
+  --text-mark--line-height: var(--leading-mark);
+
+  /*
+   * 有词句的地板，也是 chrome 的默认档：状态栏、表头、行号、树的 detail、
+   * 时间戳、连接副行、错误明细、`size="sm"` 控件、菜单副文本。
+   *
+   * 11px 不是审美，是查过的下限：macOS 系统 UI 最小规格是 11px（caption2），
+   * 而 peek 发布了 zh-CN —— PingFang SC 在 10px 下笔画会粘连。同一份文档
+   * 里记着它恰好也是 TablePlus 自己的地板。
+   *
+   * 它和 --text-body 差一档，这一档就是「次要」的全部含义。§29.10.2 之后
+   * 两者同为 12px，界面因此没有主次；恢复它是本轮最主要的一件事。
+   */
+  --text-micro: 11px;
+  --text-micro--line-height: var(--leading-ui);
+
+  /* 默认。`body` 穿它，数据单元格也穿它 —— 等宽字比 chrome 的比例字高
+     整一档，那是 --fs-data 那半个像素想说的话。 */
+  --text-body: 12px;
+  --text-body--line-height: var(--leading-ui);
+
+  /* 对话框标题、Markdown h2/h3、空态标题、崩溃标题。 */
+  --text-title: 14px;
+  --text-title--line-height: var(--leading-prose);
+
+  /* 只有 Markdown h1。它取代 `.md-h1` 那条 15px 的字面量规则 —— 全窗口
+     最后一个 bespoke 字号，同时把行盒从 24.375px（15 × 继承来的 1.625）
+     拉回整整 24px。 */
+  --text-hero: 16px;
+  --text-hero--line-height: var(--leading-row);
+
+  /* ----------------------------------------------------------------
+   * 行盒 —— 四个，全部 px 字面量
+   *
+   * **比值行高是这个窗口 43% 分数几何的唯一源头。** `body { line-height:
+   * 1.45 }` × 12px = 17.4px，Chromium 按 1/64px 量化成 17.390625px，于是
+   * 上下文菜单每行 27.398px、连接对话框整框 321.391px、裸 button 25.398px。
+   * 比值乘字号必然产生小数，px 永远不会 —— 所以这里一个比值都不留。
+   *
+   * 它同时消灭「同一个 12px 在窗口里有两个行高」：不写 text-* 的元素继承
+   * body 的 1.45（17.39px），写了的拿 Tailwind 的 calc(1/0.75)（16px），
+   * 而 139 条设置竖向盒子的类串里 104 条两个都没写 —— 那 1.39px 的差别
+   * 纯粹取决于当初有没有人顺手写那个 class。
+   * ---------------------------------------------------------------- */
+
+  /*
+   * 一个行盒统治 --text-micro 与 --text-body 两档。
+   *
+   * 混排是理由：一行里 11px 的标签配 12px 的数值（状态栏、树行、连接行
+   * 到处都是），行盒同为 18px 才基线一致。
+   *
+   * 18/12 = 1.50、18/11 = 1.64，两个都在 PingFang 需要的带里。它替掉的
+   * 16px 是 1.333，比这轮迁移出发时的 1.45 还紧 8% —— 那是 zh-CN 侧一处
+   * 真实回退，迁移期间没有任何文档记过。
+   *
+   * 字形原点的半像素**不追**，因为追不到：三个字族的 content-area 在
+   * 12px 处是 15(SF Pro) / 14(SF Mono) / 17(PingFang)，两奇一偶，要三者
+   * 半行距同时为整数需要 L−15、L−14 同时是偶数，无解（§31.7）。盒子边缘
+   * 的半像素才是肉眼可见的那种，那一类下面清零。
+   */
+  --leading-ui: 18px;
+
+  /*
+   * 读的东西，不是扫的东西 —— 标题，以及会换行的散文。
+   *
+   * chrome 是扫的：状态栏、表头、树行，一行一个事实，18px 的行盒让它们尽量
+   * 密。agent 写的散文、空态说明、对话框正文是**读**的，一段几行，行距要松
+   * 一档才不费眼。20px 同时是 --text-title 的行盒：一个 14px 的标题和一段
+   * 12px 的散文本来就该在同一个节奏上。
+   *
+   * 它吸收了 Tailwind 的 `relaxed`(1.625) 与 `normal`(1.5)、以及原来的
+   * --leading-hint(1.7)。那三个都是比值，12px 下分别是 19.5 / 18 / 20.4 —— 
+   * 三个不同的小数，说的是同一件事。
+   */
+  --leading-prose: 20px;
+
+  /*
+   * 只给 --text-mark，也是唯一一个不是 18 的 chrome 行盒。
+   *
+   * 它必须存在：Markdown 的任务勾选框是一个 12×12 的 inline-block +
+   * text-center，不走 flex 居中。18px 的行盒塞进 12px 外框，勾号会掉出去。
+   */
+  --leading-mark: 12px;
 
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI',
     'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-mono: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
 
   /*
-   * The type scale, as names rather than as loose numbers scattered over 1,700
-   * lines. Two floors, and they are the point of the whole set:
+   * 窗口的竖向骨架，放在 `--spacing-*` 命名空间里，于是 `h-bar` / `h-row` /
+   * `w-gutter` 直接是工具类，而不是谁都得记住的 `var()`。
    *
-   *   - anything that is *words* is at least --fs-sm (11px). The window used to
-   *     go down to 9px, and it ships zh-CN, where 10px PingFang runs its strokes
-   *     together. 11px is also the smallest size macOS itself uses (caption2).
-   *   - --fs-mark is for pure geometry — a disclosure caret, a checkbox tick.
-   *     Those are read by shape, not by type, so they are allowed under the text
-   *     floor, but only on the condition that they carry no letters and have a
-   *     size of their own (the caret is 14px wide, the tick 11px square).
+   * 上一版这里写着「没有第五种高度：标题栏、侧栏头、面板头和状态栏都是
+   * --spacing-bar」。**这句话是假的**：状态栏是 26px（`StatusBar.tsx` 写的是
+   * 裸数字 `h-6.5`），全窗 13 条横条只有它不用令牌。已改成 `h-head`，注释
+   * 也改成说实话的版本。
    *
-   * --fs-data is half a pixel over --fs-sm on purpose: cell values are set in a
-   * monospace face, whose stroke density reads heavier than the UI face at the
-   * same nominal size.
+   * 20/24/26/30 一个都不动，尽管它们没有一个是 4 的倍数。强推 4px 网格
+   * 修不了半像素（偶数减 1px 描边恒得奇数内容盒，实测 28px 与 32px 条配
+   * 六种子元素，十二格全糊），而代价是真的：表头 26→28 按
+   * rows(v)=floor((v−HEAD_H)/24) 在 v=300..1600 上枚举，8.3% 的窗口高度
+   * 少显示一行。要修的是那条线的画法，不是这些数（§31.3）。
    */
-  --fs-sm: 11px;
-  --fs-md: 12px;
-  --fs-lg: 13px;
-  --fs-data: 11.5px;
-  --fs-mark: 10px;
+  --spacing-row: 24px;
+  --spacing-head: 26px;
+  --spacing-bar: 30px;
 
-  --row-h: 24px;
-  --head-h: 26px;
-  --bar-h: 30px;
-  --gutter-w: 54px;
+  /*
+   * 行号槽，54px → 48px。本轮唯一一处横向密度净赚。
+   *
+   * 槽的内容宽 = 槽宽 − 右内边距 − `border-r`。行号从 12px 降到
+   * --text-micro(11px) 之后重算：SF Mono 11px 的 advance 实测 6.6226px，
+   * 48 − 7 − 1 = 40px 装得下 6 位（39.74px），和 54px @12px 时的容量
+   * 一模一样，第七位两边都装不下。
+   *
+   * 每一行、每一个表格视图永久省 6px 横向。
+   */
+  --spacing-gutter: 48px;
+
+  /* 树的 caret 列与图标列宽 —— 也是 --text-mark 合法性的那条尺寸下限：
+     一个 10px 的字形必须有一个不由字号决定的外框。 */
+  --spacing-glyph: 14px;
+
+  /* ----------------------------------------------------------------
+   * 间距标度 —— 六档，前四档翻倍
+   *
+   * 现在 0–16px 之间**每一个整数像素都在用**，奇数值 121 处。漏口是
+   * Tailwind 的 `.25` 分数：`--spacing` 是 4px，所以 `p-2.25` 恰好 9px，
+   * 1px 粒度是白送的（§31.4）。
+   *
+   * 修法不是「把所有数凑成 4 的倍数」——那只是另一种徒手。密集界面的
+   * 精致感来自「嵌套一层，间距翻一倍」：眼睛分不出 5 和 6，但分得出 4 和 8。
+   * 现在 5/6/7/8/9/10 挤在同一个容器里，所以**没有任何一层能被看出来**。
+   *
+   * **故意没有 12px 档。** 8 → 16 必须是干净的一倍，塞个 12 进去就又糊回去。
+   * 这是这把梯子最容易被将来的人破坏的地方，所以写在这里。
+   *
+   * 这一组只管**缝**（padding / margin / gap）。尺寸（w / h / max-w）不走
+   * 这把梯子：一个列宽、一个点击边、一个字形的最小外框都是量出来的，不是
+   * 从嵌套层级推出来的。把它们塞进同一把梯子，要么逼着 88px 的标签列变成
+   * 96px，要么逼着会换行的块套上 h-row 把内容裁掉。
+   * ---------------------------------------------------------------- */
+
+  /* 控件盒子内部的余量。合法位置只有两处：控件自己的 padding-block、
+     一个标记和它外框的缝。两个可独立点击的东西之间禁止用它。 */
+  --spacing-inset: 2px;
+
+  /* 图标 ↔ 它自己的文字。读作「同一个对象的两个部分」。 */
+  --spacing-tight: 4px;
+
+  /* **默认档。** 控件↔控件、label↔field、面板与卡片的内边距。拿不准用它。 */
+  --spacing-snug: 8px;
+
+  /* 一个面板里组↔组。工具条的两簇之间、表单的两个 section 之间。 */
+  --spacing-loose: 16px;
+
+  /* 块↔块，以及对话框正文的内缩。**等于一行**，那是有意的。 */
+  --spacing-block: 24px;
+
+  /* 模态框最外层、空态四周。全窗口只有这两类地方。 */
+  --spacing-page: 32px;
+
+  /* ---- 以下三个是算出来的，不是从梯子上选的 ---- */
+
+  /*
+   * 控件的上下内边距。(24 − 18 − 2×1px 描边) / 2 = 2。
+   *
+   * 这个数让 `<button>` 与 `<input>` 由**构造**同高，而不是靠
+   * `min-height` 兜底：--leading-ui 是 18px，加两倍 2px 内边距、加两条
+   * 1px 描边，正好 24px = --spacing-hit。§30.2 那次 button 24 / input 28.3
+   * 的参差，根子是两边各自凑高度，没有一个共同的算术。
+   */
+  --spacing-control-y: 2px;
+
+  /*
+   * 控件的左右内边距。8px 光学内缩 − 1px 描边 = 7px。
+   *
+   * 奇数，但它是**规范允许的那种奇数**：写成「某个栅格值 ± 它所核算的
+   * 那一条 1px 线」。今天 button 是 9px 而 input 是 6px，同一张表单里
+   * 两种控件的文字起点差 3px；统一到 7px 之后，描边外沿到文字的距离
+   * 两边都是 8px。
+   */
+  --spacing-control-x: 7px;
+
+  /*
+   * 数据格的左右内边距。**量出来的，不属于梯子。**
+   *
+   * 相邻两列文字之间的间隙 = 6 + 1(列分隔线) + 6 = 13px。SF Mono 11px 的
+   * advance 实测 6.6226px，13 / 6.6226 = 1.96 个字符——刚好够把两列数字
+   * 分开而不浪费。换成 --spacing-snug(8) 是 2.57 字符，每列白扔 4px；
+   * 13 寸屏上 10 列可见就是 40px 数据宽度、约 6 个字符从屏幕上消失。
+   * 换成 --spacing-tight(4) 是 1.36 字符，相邻数字列会粘在一起。
+   *
+   * 所以它是**测量值**而不是节奏值，只许出现在网格的单元格与表头格上。
+   */
+  --spacing-cell: 6px;
+
+  /*
+   * macOS 交通灯的让位宽度。**量出来的，不属于梯子。**
+   *
+   * 主进程 `trafficLightPosition` 把三颗灯放在 x=18、y=(30−12)/2=9，
+   * 这个 72px 是「让开它们再留一口气」的结果，不是四档间距里的任何一档。
+   * 它和 --spacing-cell 一样，是规范里明确的第二类数：测量值。
+   */
+  --spacing-traffic: 72px;
+
+  /* 工具条里的竖发丝线。偶数，所以在 24 / 26 / 30 三种条里居中都落整数
+     （分别是 6 / 7 / 9）。它取代 29 处 `h-3.25`(13px) —— 那个 13 是被
+     29px 的奇数内容盒逼出来的，不是设计（§31.4、§31.5）。 */
+  --spacing-divider: 12px;
+
+  /*
+   * 恰好等于一行的行盒。不是排版行高，是布局装置。
+   *
+   * 网格靠「行盒 == 内容盒」把字居中：单元格是 absolute top-0、行号是
+   * inline-block align-top，两者都不走 flex 居中，所以行高就是落位。
+   *
+   * `vscroll.ts` 用行高算产品里每一个滚动偏移，所以这里必须是从
+   * --spacing-row 推出来的而不是写死的 24。
+   *
+   * **--leading-cell 已删除，因为它制造了产品里最显眼的那个半像素。**
+   * 它是 calc(--spacing-row − 1px) = 23px，补的是数据单元格自己的
+   * `border-b`；可它要对齐的行号格根本没有 `border-b`（只有 `border-r`）。
+   * 用 Range 量两列文字的真实行盒（元素盒都是 24px，量元素盒会说「对齐」）：
+   * 行号中心 12，单元格中心 11.5 —— **每一行数据都比它自己的行号高
+   * 0.5px**，在用户整天盯着的那个东西上。单元格的下线改成
+   * --shadow-rule-b（inset，不占布局）之后，两边内容盒都是 24，行盒都是
+   * --leading-row，实测两列文字中心完全重合（§31.3 的修正段）。
+   */
+  --leading-row: var(--spacing-row);
+
+
+  /*
+   * The focused panel's two marks, minted so that `.layout-root .panel.focused`
+   * and its `.panel-head` companion could stop being rules.
+   *
+   * Both are `box-shadow`, which is the one paint family whose value a class
+   * list cannot hold without a token — there is no utility for "1px ring plus a
+   * soft accent glow", and the arbitrary spelling is banned (§3.4).
+   *
+   * They are separate tokens rather than one, and `--shadow-head-focused` is not
+   * `--shadow-gutter-sel` reused, because the gutter's token is documented in
+   * `theme-contrast.test.ts` as the grid gutter's selection rule. Two surfaces
+   * wearing one token means the next person to tune either one moves both, and
+   * the note explaining what the token is for would be true of half its wearers.
+   */
+  --shadow-panel-focused: 0 0 0 1px var(--color-accent), 0 2px 14px -6px var(--color-accent);
+  /* 面板头的聚焦标记**带着**那条底部发丝线，理由同 --shadow-cell：
+     `shadow-rule-b group-data-focused/panel:shadow-head-focused` 是两个
+     同族工具类，聚焦时后者会把底线一起顶掉。 */
+  --shadow-head-focused: inset 2px 0 0 var(--color-accent), inset 0 -1px 0 var(--color-border);
+
+  /*
+   * The glow on the tab-strip insertion line. Minted so `.tab-insert-caret`
+   * could stop being a rule.
+   *
+   * The note that used to stand over that rule argued against minting this: "the
+   * theme's five shadows each name a *kind of surface that floats*, and this is a
+   * 2px line — the rule has to exist for the other two anyway." The second half
+   * stopped being true when the other two moved onto the element (§29.11.8), and
+   * with it the reason not to. A sixth shadow that names a mark rather than a
+   * surface is a smaller inconsistency than a whole rule kept alive for one
+   * declaration.
+   */
+  --shadow-caret: 0 0 6px var(--color-accent);
+
+  /* ----------------------------------------------------------------
+   * 发丝线 —— 一条 1px 的分界线，画出来但**不占布局**
+   *
+   * 这是本轮最要紧的一条机制。窗口里每一条固定高度的横条都是
+   * `h-bar`/`h-head`（**border-box** 高度）再往里画 1px 描边，于是内容盒
+   * 是 29 或 25 —— 奇数。`align-items: center` 在奇数盒里居中，落点是 x.5。
+   * 实测 8 条横条，7 条有半像素，而且符号随描边位置翻转：`border-b` 偏
+   * −0.5、`border-t` 偏 +0.5，所以工具条和页脚叠着看差整整 1px（§31.1）。
+   *
+   * 2x 屏上半个 CSS 像素是一个真实设备像素：那条 1px 的线跨两个物理像素，
+   * 渲染成两条半亮的灰线而不是一条实线。这就是「糊」的直接视觉形态。
+   *
+   * 五个候选方案实测过（§31.3）。`inset` 阴影与绝对定位的 `::after` 都能
+   * 做到「内容盒 30、文字偏移 0、描边照画、外框不变」；`border-b`、
+   * 奇数高度、以及把 1px 减回行高（`--leading-cell` 那一招）都做不到 ——
+   * 最后一个尤其值得记：`align-items: center` 居中的是**盒子**不是行盒，
+   * 改行高在 flex 里根本够不着。
+   *
+   * 选 `inset` 阴影而不是 `::after`：不需要额外元素、不需要在容器上加
+   * `relative`（那会改变定位上下文，网格里有一批 absolute 子元素靠祖先
+   * 定位），而且仓库里已经有同形先例（--shadow-head-focused）。
+   *
+   * **代价写下来。** `render-probe` 的 `border-bands` 检查是按「元素有
+   * border」找被检对象的，改成阴影之后这些容器会从它的视野里消失。这是
+   * 覆盖面的净损失，所以 probe 那侧同时加了 hairline 的读数，否则是拿一个
+   * 已知缺陷换一个盲区。
+   * ---------------------------------------------------------------- */
+  /* ----------------------------------------------------------------
+   * 圆角 —— 按**被圆的元素有多高**选，不按「大中小」选
+   *
+   * 现在 46 处 `rounded-sm`、3 处 `md`、2 处 `lg`、1 处 `xs`，名字说的是
+   * 「小/中/大」，而一个 24px 的按钮和一个 400px 的对话框用同一个 4px，
+   * 视觉上前者偏方、后者偏尖。圆角是全窗口唯一一个不随尺寸变化的量。
+   *
+   * 清空 Tailwind 的八档，理由和字号那边一样：留着就是两套梯子并存。
+   * `rounded-full` 不受影响 —— 它是静态工具类，编译成一个巨大的 px 值，
+   * 不走 `--radius-*` 命名空间，所以 `--radius-*: initial` 清不掉它。
+   * ---------------------------------------------------------------- */
+  --radius-*: initial;
+
+  /* h ≤ 16：行内 `<code>`、tag、色块、勾选框。 */
+  --radius-mark: 2px;
+
+  /* 17–32：按钮、输入、选择、列表行、单元格、chip、标签。窗口里绝大多数。 */
+  --radius-control: 4px;
+
+  /* > 32 的浮层与面板：菜单、弹层、toast、错误中心、选区条、面板本身。 */
+  --radius-surface: 6px;
+
+  /* 模态框，只有模态框。 */
+  --radius-dialog: 8px;
+
+  --shadow-rule-b: inset 0 -1px 0 var(--color-border);
+  --shadow-rule-t: inset 0 1px 0 var(--color-border);
+  --shadow-rule-r: inset -1px 0 0 var(--color-border);
+  --shadow-rule-b-strong: inset 0 -1px 0 var(--color-border-strong);
+  --shadow-rule-r-strong: inset -1px 0 0 var(--color-border-strong);
+
+  /*
+   * 两条线的组合，铸成一个令牌而不是两个类。
+   *
+   * `shadow-rule-r shadow-rule-b` 写在同一个 class 串里是**两个同族工具类**
+   * ——class 串没有层叠，谁赢由 Tailwind 的发射顺序决定，而不是由书写顺序。
+   * 这是本仓库明令禁止的形状（`ui/CLAUDE.md` 第 2 条），所以需要几条线就
+   * 铸几个组合令牌。
+   */
+  --shadow-cell: inset -1px 0 0 var(--color-border), inset 0 -1px 0 var(--color-border);
 
   /*
    * The label column every form row is built on. Anything with no label of its
@@ -112,17 +865,344 @@
    * is the bug this replaces. See `design/2026-08-04-settings-form-gutter.md`.
    *
    * The `+ 8px` is written out at each of the three use sites rather than
-   * factored into a second variable here, and that is not an oversight: a custom
-   * property substitutes its own `var()`s **where it is declared**, so a
-   * `--form-indent` computed on `:root` would freeze 88px into itself and go on
-   * saying 96px inside `.settings-pane`. Doing the arithmetic in the rule that
-   * consumes it is what lets the override reach it.
+   * factored into a second token here, and that is not an oversight: a custom
+   * property substitutes its own `var()`s **where it is declared**, so an indent
+   * computed in `@theme` would freeze 88px into itself and go on saying 96px
+   * inside `.settings-pane`. Doing the arithmetic in the rule that consumes it is
+   * what lets the override reach it — and the override still works through a
+   * utility class, because `ml-form-label` compiles to
+   * `margin-left: var(--spacing-form-label)` and reads whatever the ancestor set.
+   *
+   * 88px → 100px → 88px, and the round trip is the point: this is a *width
+   * measured against a font size*, so it tracks the scale and does not survive a
+   * change to it on its own. The failure is the quiet kind — nothing clips, the
+   * row just grows a line. Every connect-dialog label was rendered and measured
+   * at each size rather than scaled by the font ratio: "Database index" is
+   * **87.1px** at the 12px body and was 99.5px at 14px. Every other label has
+   * room to spare; the widest is the one that sets this number.
+   *
+   * Nine tenths of a pixel of headroom is thin, and it is the headroom this
+   * gutter has always had. Left at 88px rather than padded, because 100px was
+   * only ever the 14px body's answer and keeping it would leave 13px of dead
+   * column that no label reaches (§30.6) — a re-tune of a width nobody asked to
+   * re-tune, in the round that exists to undo an inflation.
+   *
+   * `.settings-pane`'s 116px override is deliberately untouched. Its own labels
+   * are longer than its gutter and were before ("Views contributed by a package"
+   * is 180.4px at the 12px body, against 116px), so wrapping there is the design
+   * rather than a regression. Widening it to fit would be a restyle this change
+   * has no mandate for.
    */
-  --form-label-w: 88px;
+  --spacing-form-label: 88px;
 
   /* Smallest side of anything a pointer is expected to hit. */
-  --hit-min: 24px;
+  --spacing-hit: 24px;
+
+  /*
+   * The other control rung — `size="sm"`, deliberately under the hit floor and
+   * only because the strip around it sets the ceiling (see `CONTROL_SIZES`).
+   *
+   * A name rather than `h-5`, which is the same twenty pixels spelled as a
+   * multiple of the spacing step. It is a rung: it is stated in `spec.ts` as
+   * `px: 20` and worn in four places (a button's height, an icon button's width,
+   * and both of those again for a segmented option). The number was four
+   * separate literals in four rules before the rung existed, which is the
+   * mistake this token is here to not repeat one namespace over.
+   */
+  --spacing-control-sm: 20px;
+
+  /*
+   * Five shadows, because five kinds of surface float.
+   *
+   * It said three until the literal-colour sweep in `theme-contrast.test.ts`
+   * stopped watching only `border` and `outline`. The last two below were
+   * `box-shadow: 0 18px 48px #000a` and `box-shadow: 0 6px 18px rgb(0 0 0 / 45%)`,
+   * written straight into `components/app.css` — which is the same paragraph the
+   * `--shadow-float` note further down tells about three *other* values that did
+   * not know about each other. The sweep that would have caught them was there
+   * the whole time and was looking at one property family. Neither value is
+   * changed here; naming them is what makes the next merge possible.
+   *
+   * `--shadow-elevated` is the control that sits over scrolling content and has
+   * to separate itself from whatever happens to be behind it; `--shadow-menu` is
+   * the popup; `--shadow-float` is something laid over the whole window rather
+   * than over one panel — the selection action bar, the error centre, and the
+   * toast stack in the bottom-right corner. All three are darker and tighter
+   * than anything in Tailwind's own `--shadow-*` ladder, which is tuned for
+   * light interfaces — `shadow-lg` is `rgb(0 0 0 / 0.1)`, invisible on
+   * `--color-bg-1`.
+   *
+   * `--shadow-float` is one token where there were three values: the selection
+   * bar's `0 8px 24px #0009`, written in a stylesheet, the error centre's
+   * `0 8px 32px rgb(0 0 0 / 0.35)`, written inline in a component that admits
+   * its styles were a local expedient, and the toast's `0 6px 20px #0008`. Same
+   * offset, same intent, none of the three aware of the others — the shape
+   * `--color-err-border` was named to stop. The stylesheet's value won because
+   * it is the one that was ever reviewed; the error centre's panel goes a little
+   * tighter and a little darker, which on a --color-bg window is the direction
+   * 0.35 alpha was wrong in anyway, and the toast gains two pixels of offset
+   * that nothing ever argued for either.
+   */
+  --shadow-elevated: 0 2px 10px rgb(0 0 0 / 45%);
+  --shadow-menu: 0 12px 32px #000b;
+  --shadow-float: 0 8px 24px #0009;
+
+  /*
+   * The dialog, and the ghost that follows the pointer while a view is being
+   * torn out of its panel. The dialog's is the deepest shadow in the window
+   * because it is the only surface with a scrim under it — it has to look like
+   * it is a long way in front. The ghost's is `--shadow-elevated`'s alpha at
+   * three times the offset, which is the one difference between "raised" and
+   * "picked up".
+   *
+   * Both are candidates to be folded into the three above the day somebody
+   * looks at all five together; they are separate today only because merging
+   * them would change what ships, and this change is an audit.
+   */
+  --shadow-modal: 0 18px 48px #000a;
+  --shadow-drag: 0 6px 18px rgb(0 0 0 / 45%);
+
+  /*
+   * The 2px accent rule down the row-number gutter of a selected row — the
+   * *shape* half of the selection, next to --color-rownum-sel's hue half.
+   *
+   * Inset, and a shadow rather than a border, because it has to cost no layout:
+   * `box-sizing: border-box` is set on everything in base.css, so a 2px left
+   * border would take those pixels out of a 54px content box and shove the row
+   * number sideways every time a row was selected. It is the only shadow in
+   * this block that is not a float — it is a rule, and it is here because a
+   * `box-shadow` can only be named from JSX through this namespace.
+   */
+  --shadow-gutter-sel: inset 2px 0 0 var(--color-accent);
+
+  /*
+   * A key column that hugs its widest key, and a value column that takes the
+   * rest. The inspector's header grid is built on it: the field names are a
+   * closed set the reader scans down, so a column wide enough for the longest of
+   * them and not one pixel wider is what keeps the values aligned on a common
+   * left edge.
+   *
+   * Here rather than in the rule because `grid-cols-[max-content_1fr]` is the
+   * arbitrary-value syntax §3.4 bans outright, and the ban has no carve-out for
+   * "it is only a track list". This is the answer the ban asks for: a name, in
+   * the one file that holds the product's vocabulary. It is a shape rather than
+   * a measurement, which is why it carries no px and needs no contrast audit.
+   */
+  --grid-template-columns-kv: max-content 1fr;
+
+  /*
+   * The chat panel's two indefinite animations: the status dot that breathes
+   * while the agent is working, and the ◐ that turns while a tool call is open.
+   *
+   * The `@keyframes` themselves stay in `components/chat/chat.css`, beside the
+   * panel that is the only thing that has ever used them, and §4.3 keeps them as
+   * ordinary CSS because a keyframe has no element to hang a class on. What has
+   * to live here is the shorthand, because `animate-*` reads it out of `@theme`
+   * and there is no other way to name an animation from JSX. Two halves in two
+   * files, each where its kind of thing belongs, and each naming the other.
+   *
+   * Neither carries a state: a streaming agent is a solid --color-accent dot
+   * whether or not it pulses, so both call sites also write
+   * `motion-reduce:animate-none` and lose nothing when the OS asks them to stop.
+   */
+  --animate-chat-pulse: chat-pulse 1.1s ease-in-out infinite;
+  --animate-chat-spin: chat-spin 1.1s linear infinite;
 }
+
+/*
+ * The Electron title bar, as the one property no Tailwind namespace has.
+ *
+ * `-webkit-app-region` is proprietary, so there is no family it belongs to and
+ * no scale to hang it off; the only way to write it inline would be the
+ * arbitrary-property syntax the migration record bans outright (§3.4). `@utility`
+ * is v4's answer to exactly this shape — a named class defined once here, in the
+ * one file that holds the product's vocabulary, and worn from JSX like any other.
+ * It replaces `components/app.css`'s `.titlebar` / `.titlebar button` pair, whose
+ * second half had to be an element selector because a `<Button>`'s `className` is
+ * layout-only and could not carry a name.
+ *
+ * Two utilities and not one: the strip drags the window, so everything clickable
+ * inside it has to opt back out, and both halves of that are the same property.
+ * `app-no-drag` goes on a wrapper around the control rather than on the control —
+ * the className fence classifies by prefix and `app-` is neither layout nor paint,
+ * which is the fence working, not a hole. See `components/App.tsx`.
+ */
+@utility app-drag {
+  -webkit-app-region: drag;
+}
+
+@utility app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/*
+ * Scroll anchoring, off — the second property with no Tailwind family, and the
+ * step §13.7 of the migration record left standing as "the first thing to do
+ * next".
+ *
+ * Chromium silently corrects `scrollTop` when content above the viewport grows
+ * or shrinks. That is the right default for a document and the wrong one for
+ * two surfaces here, both of which drive their own scroll position and lose the
+ * argument to the browser whenever it enters:
+ *
+ *   - the transcript, which pins itself to the bottom while the reader is
+ *     already there and lets go the moment they scroll up (`MessageList.tsx`);
+ *   - the grid's horizontal scroller, whose rows enter and leave the DOM as it
+ *     scrolls (`.grid-scroll`, and the scrollTop guard in `DataGrid.tsx`).
+ *
+ * It was a declaration in two rules because Tailwind ships no utility for the
+ * property and the arbitrary-property spelling of one is banned outright (§3.4).
+ * `@utility` is the answer to that shape and could not be used while these rules
+ * lived in sheets a component imported — the at-rule only expands inside a sheet
+ * that is one of Tailwind's roots, and a planted one came through into the build
+ * verbatim, as an at-rule the browser ignores. Merging the eight sheets into
+ * this one (§11.4) removed the blocker; `app-drag` above is the same shape.
+ *
+ * One definition, and it retired the transcript's own rule outright — that rule
+ * is gone from the chat section below, and the transcript wears this class
+ * instead. `.grid-scroll` still declares the property itself: that rule is nine
+ * other declarations wide, it is worn by an element in a file the round that
+ * added this utility did not own, and half-migrating it would leave one fact
+ * split across a stylesheet and a class list — the failure this record argues
+ * against everywhere else. It is the next caller, and the recipe is written out
+ * in the migration record §17's handover: the second `@utility` it needs is one
+ * for `contain: layout paint`, which has no family either.
+ */
+@utility overflow-anchor-none {
+  overflow-anchor: none;
+}
+
+/* ################## SHEET: chat ################## */
+/* The chat panel.
+   Was `components/chat/chat.css` until the eight sheets were merged;
+   everything from here to the next SHEET banner is that file,
+   unchanged. The banner line is a marker as well as a heading —
+   see the head of this file. */
+
+/* ==================================================================
+ * What is left of the chat panel's stylesheet.
+ *
+ * Everything that could become a utility class did — the panel's ~120 rules are
+ * now class strings on the elements they paint, built from `theme.css`'s tokens.
+ * Two declarations and two `@keyframes` survive here, in two groups, and each
+ * group is a different reason a utility could not reach it. Both reasons are
+ * permanent; nothing left in this section is waiting on anything.
+ *
+ * Three groups have left, and each departure is worth knowing because each one
+ * retired a claim this file used to make:
+ *
+ *  - **the child combinator.** Two rules gave the first and last block of a
+ *    message their zero outer margin that way, and round 2 wrote that no class
+ *    list can carry a position among siblings. It can — the positional variants
+ *    stacked under the direct-child variant compile to exactly that combinator,
+ *    matched from the container and no other element. They are on the container
+ *    in `Markdown.tsx` now, and the container's own name went with them. That is
+ *    the correction §11.2 of the migration record exists to make.
+ *  - **"beaten by an unlayered rule somewhere else".** One rule was left holding
+ *    the chat toolbar's gap because the shared `.toolbar` was unlayered and, at
+ *    equal specificity and later in the file, beat it anyway — so it had never
+ *    painted the 2px it asked for. The strip states its whole shape as utilities
+ *    now and takes the gap it always meant to; the change was measured (§17.4,
+ *    and the second round-5 group's record). `.toolbar` itself is still an
+ *    unlayered rule in the app section, worn by three views that have not
+ *    migrated.
+ *  - **"a property Tailwind has no utility for".** Scroll anchoring, off. The
+ *    answer §11.2 offers for that shape is `@utility`, which could not be used
+ *    while these rules were in a sheet a component imported; the merge (§11.4)
+ *    removed the blocker and `overflow-anchor-none` is defined in the tokens
+ *    section above. The transcript wears it.
+ *
+ * The import used to live in `ChatView.tsx`, and the paragraph here used to warn
+ * that this was a source-graph fact rather than a bundling one — the production
+ * build emitted a single stylesheet and these rules were in it whether or not a
+ * chat was ever opened. The import is gone with the merge and the warning with
+ * it. What the import left behind is a cascade position — these rules were
+ * emitted *ahead* of everything the old `styles.css` imported, so the section
+ * sits second here rather than with the rest of the chat vocabulary — and that
+ * position stopped mattering when the gap rule left. See the head of this file.
+ *
+ * See docs/design/2026-08-04-tailwind-migration.md §4.3, §11.2 and §13.
+ * ================================================================== */
+
+/* ------------------------------------------------------------------ */
+/* 1. Two sizes the window's type scale deliberately does not have     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The top of the Markdown heading ladder.
+ *
+ * `theme.css`'s five `--text-*` rungs size peek's *chrome*, and their value is
+ * that there are five of them. These size prose an agent wrote, which is
+ * content, and adding two rungs to the chrome scale to serve it would dilute the
+ * scale to buy nothing. Both are above the 11px floor and both are read by
+ * `type-scale.test.ts` from here, so they are audited exactly as they were.
+ * `md-h3` down lands on rungs that already exist — see `HEADING` in Markdown.tsx.
+ *
+ * Re-checked against §11.2 and unchanged by it: every answer in that table is
+ * about *reaching* an element — a generated one, a descendant, a state. Nothing
+ * here has trouble reaching. The argument is about what belongs in the scale,
+ * and that is a decision, not a limitation.
+ */
+.md-h1 {
+  font-size: 15px;
+}
+
+/* ------------------------------------------------------------------ */
+/* 2. Keyframes, which have no element to hang a class on              */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The panel's two indefinite animations. `--animate-chat-pulse` and
+ * `--animate-chat-spin` in `theme.css` are the shorthands that name them, and
+ * `animate-*` is how a JSX element reaches one; the steps have to be ordinary
+ * CSS, which is what §4.3 carves this file out for.
+ *
+ * Both call sites also write `motion-reduce:animate-none`, and lose nothing when
+ * the OS asks for it: a streaming agent is a solid --color-accent dot beside the
+ * word "Streaming" whether or not it breathes, and a running tool keeps its ◐ in
+ * --color-accent beside an elapsed-time readout that goes on counting. The
+ * motion is emphasis, never the message.
+ */
+@keyframes chat-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes chat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ################## SHEET: base ################## */
+/* The element layer.
+   Was `base.css` until the eight sheets were merged;
+   everything from here to the next SHEET banner is that file,
+   unchanged. The banner line is a marker as well as a heading —
+   see the head of this file. */
+
+/* ==================================================================
+ * The element layer: everything with no JSX mount point of its own.
+ *
+ * A reset, the document's own type and colour, the bare `button` / `input`
+ * floors, the scrollbars Chromium draws, CodeMirror's theme, and the
+ * reduced-motion policy. None of these are reachable from a className, so none
+ * of them can become utility classes without first inventing a wrapper element
+ * whose only job is to carry the class — which is why the migration record
+ * (§4.3) keeps these as ordinary CSS rather than pushing them through
+ * `@apply`.
+ *
+ * Comes before every component section, which is what "loaded before every
+ * component sheet" meant while there were eight files. Everything here except
+ * the `@layer base` block is unlayered, so that ordering is only a tie-breaker
+ * against the four sections below it — and none of them names a property this
+ * one does. The layered block is a different matter and says so on itself.
+ * ================================================================== */
 
 * {
   box-sizing: border-box;
@@ -137,103 +1217,274 @@ body,
 }
 
 body {
-  background: var(--bg);
-  color: var(--fg);
+  background: var(--color-bg);
+  color: var(--color-fg);
   font-family: var(--font-ui);
-  font-size: var(--fs-md);
-  line-height: 1.45;
+  /*
+   * 这一档就是整个窗口：别处不写字号的元素全部继承它。
+   *
+   * 它经历过 12（--fs-md）→ 14（Tailwind text-sm）→ 12（Tailwind text-xs）
+   * 三次，现在是 --text-body，还是 12px，但这次它是**一个有名字的档位**，
+   * 而不是「Tailwind 最小的那个刚好合适」。
+   *
+   * 行高一起改：`1.45` 是这个文件里最后一个比值，12 × 1.45 = 17.390625px，
+   * 87 个实测面里 37 个（43%）的小数几何全部追到这一行（§31.2）。
+   * --leading-ui 是 18px 字面量，比值消失，小数随之消失。
+   */
+  font-size: var(--text-body);
+  line-height: var(--leading-ui);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   user-select: none;
   cursor: default;
 }
 
-button {
-  font: inherit;
-  color: inherit;
-  background: var(--bg-2);
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  padding: 3px 9px;
+/* ==================================================================
+ * The element floors, in `@layer base` — and the layer is the point.
+ *
+ * Everything else in this file is unlayered, which in the cascade means it wins
+ * over every `@layer`, whatever the specificity on either side. That was
+ * harmless while the control layer was `ui/controls.css`: `.btn-ghost` beat
+ * `button` on specificity and the two argued as equals. It stops being harmless
+ * the moment the control layer becomes utility classes, because those live in
+ * `@layer utilities` — so an unlayered `button { background: var(--color-bg-2) }`
+ * would beat `bg-transparent` and every ghost button in the window would come
+ * back grey. Measured in Electron's own Chromium, not reasoned about: unlayered
+ * red beat a layered utility, the same rule inside `@layer base` lost to it.
+ *
+ * So these rules are a **floor for elements nothing has claimed**, which is what
+ * they always meant to be — the bare `<button>`s that are deliberately not
+ * controls (a menu item, a disclosure header, a tab; see NOT_CONTROLS) and the
+ * one file still on the migration ledger. `<Button>` now states its own geometry
+ * in `ui/spec.ts` and rises above all of it.
+ *
+ * Two declarations are still inherited on purpose rather than restated there:
+ * `font: inherit` and `color: inherit`. They are undoing a browser default (a
+ * button ships at 13.33px in the system font), which is this file's job and not
+ * the spec's — and `font: inherit` in particular *has* to stay inheritance,
+ * because a button in the 11px status bar is meant to be 11px. There is no
+ * `font-inherit` utility, and there should not be.
+ *
+ * `input` / `select` / `textarea` are in the same layer, for the same reason and
+ * one phase later. Their own note is below.
+ * ================================================================== */
+
+@layer base {
   /*
-   * Padding alone does not get there and cannot: a button inherits its font
-   * size, so the same rule yields 25.4px in the 12px body and 23.9px inside the
-   * 11px status bar — measured, not assumed. `min-height` is what makes the
-   * floor a floor regardless of the context the control lands in.
+   * The one colour declaration in this file that is not about a colour.
    *
-   * The exemptions used to be four rules that each set their own height and each
-   * explained why — `.tab-close`, `.tree-action`, `.chat-chip-x`, `.md-copy`.
-   * Four correct explanations of one fact is what a missing rung looks like, and
-   * they are `size="sm"` (20px, `--fs-sm`) in ui/controls.css now. `.tree-action`
-   * is the last one still written out, because TreeView has not migrated.
-   * See design/2026-08-02-ui-legibility-baseline.md §2.3 and the control spec §2.4.
+   * Everything above and below states paint. This states which paint the *user
+   * agent* is allowed to use for the widgets it draws itself, and until this
+   * line existed the answer was "the light ones" — `color-scheme` appeared
+   * nowhere in `src/`, there is not one `prefers-color-scheme` query in the
+   * renderer, and `getComputedStyle(document.documentElement).colorScheme` read
+   * `normal`. `normal` is not neutral: Chromium paints an `accent-color: auto`
+   * control with its light-scheme accent, measured rgb(1, 117, 255), which on
+   * this window's field background (`--color-bg`, rgb(22, 24, 28)) is **4.18:1**
+   * against the 10.21:1 the dark-scheme accent gets. That is a thirty-ninth
+   * colour, shipping, painted by nothing any fence in this repo can read: it is
+   * in no stylesheet, in no class string, and in no bundle. It is not written
+   * down anywhere at all.
+   *
+   * What rides on it, counted rather than guessed: four `<select>`, four
+   * `<input type="number">`, the connect dialog's checkbox, the settings
+   * radio, and the password field — plus two surfaces the page cannot style at
+   * any price, the OS-drawn `<select>` popup and Chromium's autofill sheet.
+   * Those two are the argument for putting it here rather than fixing the
+   * controls one at a time.
+   *
+   * **Why `styles.css` and not the utility.** Tailwind's `scheme-dark` is
+   * already in this codebase, on exactly one element: the plugin `<iframe>` in
+   * `plugins/PluginFrame.tsx`, where it is the right tool because it is a
+   * statement about a *foreign document* made from the one element that owns
+   * it. The main window is the opposite case on three counts. It is a property
+   * of the document, and the element it belongs on is `<html>`, which no
+   * component renders — React mounts into `#root`, a grandchild. It has to hold
+   * from the first paint, before any component has mounted, or the window opens
+   * with light scrollbars and repaints. And a class is one deletion away from a
+   * silent regression of exactly the kind this line is fixing, whereas a
+   * declaration in the sheet is read by the stylesheet sweeps. The iframe keeps
+   * its utility; nothing about this supersedes it.
+   *
+   * In `@layer base` rather than unlayered for the reason the block itself
+   * gives: an element floor belongs where a utility can outrank it. If some
+   * element ever needs the other scheme, the utility on that element wins,
+   * which is the behaviour every other rule in this block already has.
    */
-  min-height: var(--hit-min);
-  cursor: pointer;
-  white-space: nowrap;
-}
+  :root {
+    color-scheme: dark;
+  }
 
-button:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
+  button {
+    font: inherit;
+    color: inherit;
+    background: var(--color-bg-2);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-control);
+    padding: var(--spacing-control-y) var(--spacing-control-x);
+    /*
+     * Padding alone does not get there and cannot: a button inherits its font
+     * size, so the same rule yields 25.4px in the 12px body and 23.9px inside the
+     * 11px status bar — measured, not assumed. `min-height` is what makes the
+     * floor a floor regardless of the context the control lands in.
+     *
+     * The exemptions used to be four rules that each set their own height and each
+     * explained why — `.tab-close`, `.tree-action`, `.chat-chip-x`, `.md-copy`.
+     * Four correct explanations of one fact is what a missing rung looks like, and
+     * they are `size="sm"` (20px, `--text-sm`) in `CONTROL_SIZES` now. `.tree-action`
+     * is the last one still written out, because TreeView has not migrated.
+     * See design/2026-08-02-ui-legibility-baseline.md §2.3 and the control spec §2.4.
+     */
+    min-height: var(--spacing-hit);
+    cursor: pointer;
+    white-space: nowrap;
+  }
 
-button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
+  button:hover:not(:disabled) {
+    background: var(--color-bg-hover);
+  }
 
-/*
- * The focus ring, on the element selector rather than only on `.btn`.
- *
- * `ui/controls.css` gives migrated controls an accent ring; a bare `<button>`
- * had none at all, so it fell through to Chromium's default — which on macOS
- * follows the *system* accent colour. The settings dialog was showing an amber
- * ring on its ✕ and a blue one on everything the control layer owns, in the same
- * dialog, because one file is on the migration ledger and the other is not.
- *
- * Sits here for the same reason `min-height: var(--hit-min)` does a few lines up:
- * these are floors, and a floor that only applies to the files somebody got
- * round to is not a floor. Found by looking at a screenshot, which is the only
- * way it could have been found.
- */
-button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
+  button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
 
-button.primary {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-}
+  /*
+   * The focus ring, on the element selector rather than only on the control layer.
+   *
+   * `<Button>` gives migrated controls an accent ring; a bare `<button>`
+   * had none at all, so it fell through to Chromium's default — which on macOS
+   * follows the *system* accent colour. The settings dialog was showing an amber
+   * ring on its ✕ and a blue one on everything the control layer owns, in the same
+   * dialog, because one file is on the migration ledger and the other is not.
+   *
+   * Sits here for the same reason `min-height: var(--spacing-hit)` does a few lines up:
+   * these are floors, and a floor that only applies to the files somebody got
+   * round to is not a floor. Found by looking at a screenshot, which is the only
+   * way it could have been found.
+   */
+  button:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
 
-button.ghost {
-  background: transparent;
-  border-color: transparent;
-  color: var(--fg-dim);
-}
+  button.primary {
+    background: var(--color-accent-dim);
+    border-color: var(--color-accent);
+  }
 
-button.ghost:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--fg);
-}
+  button.ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--color-fg-dim);
+  }
 
-input,
-select,
-textarea {
-  font: inherit;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  padding: 3px 6px;
-  outline: none;
-  user-select: text;
-}
+  button.ghost:hover:not(:disabled) {
+    background: var(--color-bg-hover);
+    color: var(--color-fg);
+  }
 
-input:focus,
-select:focus,
-textarea:focus {
-  border-color: var(--accent);
+  /*
+   * The form controls, in the layer for the same reason and one phase later.
+   *
+   * Unlayered, this block was a wall two separate phase-2 modules hit and walked
+   * around, each writing a class rule whose only job was to outrank it:
+   *
+   *   - the chat composer's line-height and the mode select's size, padding and
+   *     amber state, kept as `.chat-*` rules in `components/chat/chat.css`;
+   *   - the vector query bar's four field sizes, kept as `input.vq*` rules in
+   *     `components/views.css`, and reported as blocked rather than declined.
+   *
+   * All of them are utility classes on their elements now, and those rules are
+   * gone. `font: inherit` was the worst of the set and worth naming: it is a
+   * shorthand, so it carries `font-size` **and** `line-height`, and a utility
+   * setting either of them lost to a declaration nobody had written on purpose.
+   *
+   * A third module was blocked by the same *fact* and not by this block:
+   * `components/app.css`'s `.toolbar` is unlayered too, which is why the grid's
+   * footer still states two borders inline. That one is shared vocabulary rather
+   * than an element floor, so its home is `@layer components`, not here — see
+   * the note on the element in `components/DataGrid.tsx`.
+   *
+   * Moving a rule *into* a layer changes who wins, so this was measured rather
+   * than reasoned about — every `<input>`, `<select>` and `<textarea>` the
+   * renderer can draw, rendered against the built stylesheet in Electron's own
+   * Chromium and compared property for property before and after: the connect
+   * dialog (driver select, text fields, checkbox, `mono` fields), all four
+   * settings sections, the table view's page-size select, the vector query bar,
+   * the chat composer in both states, and the mode select in both. Nothing that
+   * was not deliberately migrated moved.
+   *
+   * Two things the layer hands to `@layer utilities` that unlayered CSS kept:
+   *
+   *   - `font: inherit` still has to stay inheritance, exactly as on `button` —
+   *     a field in the 11px status strip is meant to be 11px — so a component
+   *     that wants a different rung states that rung and nothing else;
+   *   - `outline: none` and the focus `border-color` are now overridable, which
+   *     means a component that states its own border colour as a utility takes
+   *     the focus colour with it. That is already the intended reading for the
+   *     one control that does it (a permissive chat mode stays amber while
+   *     focused, and did before this move too, on specificity), but it is a
+   *     general property now and not a local accident.
+   *
+   * `.mono` a few blocks down is unlayered and stays that way: it is a class, it
+   * already outranked this block on specificity, and nothing about it changed.
+   */
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: var(--color-fg);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-control);
+    /* `button` 上面用的是同一个算术：--leading-ui(18) + 2×2 + 2×1 = 24。
+       两边写同一件事，所以两边由构造同高（§30.2 / §32）。 */
+    padding: var(--spacing-control-y) var(--spacing-control-x);
+    outline: none;
+    user-select: text;
+  }
+
+  /*
+   * The height floor `button` has had all along, and these never did.
+   *
+   * `button` a few blocks up carries `min-height: var(--spacing-hit)`; this
+   * block did not, so a field's height was whatever its inherited leading and
+   * padding added up to. At the old 12px body that was 25.4px against the
+   * button's 24px — a 1.4px difference nobody could see. It stopped being
+   * invisible when §29.11.7 pinned buttons to exactly 24px and left these at
+   * 28.3px: one stacked form, four heights, 4.3px apart. See §30.2.
+   *
+   * `min-height` alone would not have fixed it, and this is the part worth
+   * stating: it is a *lower* bound, and the natural height was already *above*
+   * it. The vertical padding has to come down first — 12px leading at 1.45 is
+   * 17.4px, plus 2×2px padding and 2×1px border is 23.4px — and only then does
+   * the floor do the work. The field's text is centred in the 24px box, so the
+   * 2px is not what the eye reads; the box is.
+   *
+   * Two exclusions, both deliberate:
+   *
+   *   - **`textarea` is not here.** The chat composer is a textarea, and a
+   *     multi-line field's height is its content's business. Handing it a
+   *     single-line control's geometry would be the same category error this
+   *     block is fixing, pointed the other way.
+   *   - **`checkbox` and `radio` are not here.** They are 13px UA-drawn
+   *     widgets. A 24px floor would stretch the box, not the tick.
+   */
+  input:not([type='checkbox']):not([type='radio']),
+  select {
+    /* 真正的**地板**，不是高度的来源。上面那条算术在 12px 正文里给出
+       整整 24px；这一行只在字号更小的上下文里起作用（11px 的状态栏里
+       内容会掉到 22px）。§30.6 那一版靠 `padding-block: 2px` 把自然高度
+       压到地板之下再让地板托住，数字对但因果反了。 */
+    min-height: var(--spacing-hit);
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus {
+    border-color: var(--color-accent);
+  }
 }
 
 ::-webkit-scrollbar {
@@ -242,14 +1493,14 @@ textarea:focus {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
+  background: var(--color-border-strong);
   border: 3px solid transparent;
   background-clip: content-box;
   border-radius: 6px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--fg-faint);
+  background: var(--color-fg-faint);
   background-clip: content-box;
 }
 
@@ -257,558 +1508,408 @@ textarea:focus {
   background: transparent;
 }
 
-.mono {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
+/* The CodeMirror dark theme used to live here — thirteen unlayered rules, kept
+   outside `@layer` because CodeMirror injects its own rules unlayered at
+   runtime and an unlayered rule always beats a layered one. It now lives in
+   `components/SqlEditor.tsx` as `PEEK_THEME`, an `EditorView.theme` extension,
+   which goes through the same style-mod injector as CodeMirror's own rules and
+   so wins on injection order rather than on layer. The values are unchanged and
+   still read `var(--color-*)` from this file's `@theme` block. */
+
+/* ==================================================================
+ * Reduced motion.
+ *
+ * Everything that loops in this window loops *forever* — a connection that is
+ * dialling, a tree node that is loading, a tool call that is running. An
+ * indefinite animation is exactly what the OS-level "reduce motion" switch
+ * exists to turn off, and until now peek ignored it outright.
+ *
+ * The rule that makes this safe: **no state in peek is carried by motion
+ * alone**. A dialling connection is a solid --color-warn dot whether or not it
+ * pulses, and it is still distinguishable from idle (hollow) and ready (green)
+ * with every animation stopped. The pulse is emphasis, never the message. Any
+ * future state that needs to be legible only while animating is a bug against
+ * this block.
+ *
+ * `animation: none` rather than a slower duration: a spinner that creeps is
+ * more distracting than one that stands still, and the mark it is drawn from
+ * (◐) reads as "in progress" without turning.
+ *
+ * The chat module states its own two loops as `motion-reduce:animate-none`
+ * beside the animation that needs stopping, which is the better place for it —
+ * one class instead of a selector somewhere else that has to be kept in step.
+ *
+ * ## Why the connection dot is no longer answered from here
+ *
+ * It used to be, and **that is the shape that broke it.** This block and the
+ * `.dot.connecting` rule it was overriding are both unlayered and both (0,2,0),
+ * so nothing but document order decided between them — and the eight-sheet merge
+ * (§13) put the base rule *after* this block. In the shipped stylesheet the
+ * override sat at byte 32423 and the rule it was meant to beat at 33223, so with
+ * `prefers-reduced-motion: reduce` emulated in Electron the dot still measured
+ * `animation-name: pulse`, `1s`, `infinite`, with `matchMedia(…).matches` true.
+ * The merge was proved lossless as a *set* — the same 138 top-level statements,
+ * one not more one not less — and for unlayered rules a set is not a cascade.
+ *
+ * So the override moved **inside** the rule it overrides, as a nested `@media`
+ * (see `.dot.connecting` in the app section). Reordering these two blocks would
+ * have worked today and would have been the same trap tomorrow: the fix has to
+ * survive somebody moving a section, which is exactly what happened. Nesting
+ * survives it because there is no longer a pair of blocks to get out of order —
+ * there is one rule, and the override is part of it. Specificity was the other
+ * candidate and was rejected: doubling a class to force (0,3,0) buys
+ * order-independence with a selector that means nothing, and the next override
+ * needs (0,4,0). A layer was never a candidate: a layered rule loses to every
+ * unlayered one whatever its specificity, so it would have moved the loss rather
+ * than removed it.
+ *
+ * `.drop-highlight` stays here, and it is a different case, not an inconsistency:
+ * the transition it turns off is not a rule in this file at all, it is the
+ * `transition-all duration-90 ease-out` utilities on the element. Those live in
+ * `@layer utilities`, this block is unlayered, and unlayered beats layered at any
+ * distance — so there is nothing to co-locate with and nothing order can break.
+ * `__tests__/cascade-order.test.ts` is what keeps that true: it requires every
+ * reduced-motion block in this file to be unlayered, and requires any rule in
+ * this file that one of them overrides to lose.
+ *
+ * `.tree-caret.spin` used to be listed here and was removed with the tree's
+ * migration: no `.tsx` has ever applied `spin`, in this tree or before it, so
+ * the loading-node case this block names was written down and never wired up.
+ * A future spinner there is `animate-spin motion-reduce:animate-none` on the
+ * element, not a second selector in this list.
+ * ================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  /* The drop highlight slides between zones as the pointer moves; with motion
+     reduced it snaps instead. The block itself is unchanged, so the target is
+     just as legible. */
+  .drop-highlight {
+    transition: none;
+  }
 }
 
-/* ------------------------------------------------------------------ */
-/* Shell                                                                 */
-/* ------------------------------------------------------------------ */
+/* ==================================================================
+ * Focus emphasis for keyboard navigation.
+ *
+ * Once ⌘⌥ arrows can move focus without the pointer ever entering a panel, "which
+ * panel is active" stops being something the user just did with the mouse and
+ * becomes something they have to *read* — and the base 1px `--color-accent-dim` ring is
+ * not readable across a four-panel window at a glance.
+ *
+ * These lived in their own `keyboard-nav.css` until the Tailwind split, kept apart
+ * so that this and the drag-and-drop styles could be written at the same time
+ * without fighting over the same lines. That split has now happened at file
+ * granularity, so the separate file had nothing left to buy.
+ *
+ * These used to be described as a stronger form of a state `components/app.css`
+ * already defined. That is no longer the shape: the weaker `.panel.focused` rule
+ * *was* in the app section and has been deleted, because these three-level
+ * selectors always beat it and it had therefore never painted anything (§12.3 of
+ * the migration record). The `focused` class survives on the element for these
+ * rules to select, and nothing else states the panel's focus emphasis. The extra
+ * `.layout-root` ancestor still earns its keep — it is what keeps these above
+ * any class the panel wears, section order or not.
+ * ================================================================== */
 
-.app {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+/* The title-text contrast that used to live here moved with the title: the head
+   is a tab strip now, and `.panel-title` no longer exists. The same fact is
+   carried by the tab rules in `components/app.css` — a tab is `--color-fg-dim`, the active one
+   `--color-fg`, and `.panel.focused .panel-tab.active` takes the full accent. */
+
+/* ==================================================================
+ * Real focus rings.
+ *
+ * The `.focused` styling above says which panel the *workspace* considers
+ * active. That is a different fact from where the caret is, and until now they
+ * were the only one drawn. A keyboard user needs both: `.focused` tells them
+ * which panel a ⌘\ would split, `:focus-visible` tells them which element the
+ * next keystroke reaches. The two coincide most of the time and diverge exactly
+ * when it matters — a background command moving `focusedPanel` while the caret
+ * politely stays where the user put it.
+ *
+ * `:focus-visible` rather than `:focus`: the panel and the tab strip are now
+ * programmatically focused (R2 in `usePanelFocus`, and the roving strip), and a
+ * ring that appeared every time a mouse click moved focus would be visual noise
+ * on a surface people click constantly.
+ * ================================================================== */
+
+.layout-root .panel:focus-visible,
+.layout-root .panel-body:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 
-/* The window's drag handle, and on macOS the traffic lights' gutter — that is
-   the whole job. It carried a wordmark, two status lines and the settings gear
-   until 2026-08-04; see `design/2026-08-04-settings-into-app-menu.md` for where
-   each of them went, and §3.1 there for why the strip itself stayed.
+/* ==================================================================
+ * Visually hidden, still announced — and the rule that used to be here is gone.
+ *
+ * The live region in `App` and any other text meant only for a screen reader.
+ * `display: none` and `visibility: hidden` would remove it from the
+ * accessibility tree along with the pixels, which is the one thing it must not
+ * do; clipping a 1px box leaves it readable to assistive technology while
+ * occupying nothing. `white-space: nowrap` matters more than it looks: without
+ * it a long announcement wraps inside the 1px box and some screen readers read
+ * the fragments as separate lines.
+ *
+ * All of that is still true and none of it is stated here any more, because it
+ * was being stated **twice**. `App.tsx` puts the screen-reader-only class on the
+ * live region, which is a real Tailwind utility, so the artifact carried two
+ * rules of the same name: Tailwind's inside `@layer utilities`, and a
+ * hand-written one here, unlayered. Unlayered beats every layer, so the copy
+ * that won was always this one — by construction, not by anybody choosing it.
+ *
+ * They happened to agree. Read back out of the built stylesheet, side by side,
+ * the two differed in exactly one declaration: `border: 0` here against
+ * `border-width: 0` there, which paint the same nothing. **The agreement was the
+ * accident.** Tailwind's utility is the definition of that class in this
+ * codebase and it can change under us at any release; a duplicate that silently
+ * outranks it means a future divergence lands as an invisible behaviour freeze
+ * rather than as a change anybody reviews. There is no third option where both
+ * survive and the winner is chosen on purpose — the winner is decided by which
+ * one is in a layer.
+ *
+ * So the hand-written copy is deleted and Tailwind's is what ships. It does
+ * everything the paragraph above asks for, including the two declarations that
+ * paragraph exists to justify: `clip-path: inset(50%)` and `white-space:
+ * nowrap` are both in it, verified in the artifact rather than in the docs.
+ * If a future Tailwind ever drops one of them, the answer is to write the rule
+ * back here **and** delete the class from the element, so there is still only
+ * one of it.
+ * ================================================================== */
 
-   `--bar-h`, like the sidebar head, the panel head and the status bar: there is
-   no fifth height in this window. */
-.titlebar {
-  height: var(--bar-h);
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 10px;
-  background: var(--bg-1);
-  border-bottom: 1px solid var(--border);
-  -webkit-app-region: drag;
-}
+/* ################## SHEET: app ################## */
+/* The window's own chrome.
+   Was `components/app.css` until the eight sheets were merged;
+   everything from here to the next SHEET banner is that file,
+   unchanged. The banner line is a marker as well as a heading —
+   see the head of this file. */
 
-/* Room for the traffic lights, which main positions at x=12 and whose three
-   buttons end around x=64. Only here: Windows and Linux have no lights, and
-   this padding was unconditional before — a blank 82px reserved on every
-   platform for a macOS control. */
-.app.mac .titlebar {
-  padding-left: 72px;
-}
-
-.titlebar .spacer {
-  flex: 1;
-}
-
-/* The strip drags the window, so anything clickable inside it has to opt out.
-   `.no-drag` used to be here too, for the status lines that have since moved to
-   the status bar; the gear is the only child left, and only off macOS. */
-.titlebar button {
-  -webkit-app-region: no-drag;
-}
-
-.body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-
-.workarea {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
+/* ==================================================================
+ * The window's own chrome: what is left of it that has to be CSS.
+ *
+ * This sheet was the title bar, the sidebar, the tiled layout and its dividers,
+ * panels and their tab strips, the drag that moves a view between them, the
+ * shared view toolbar, modals and the form rows inside them, the status bar, the
+ * toasts and the crash screen. Everything with a JSX element to hang a class on
+ * has moved onto that element. What is below is the residue, and every rule says
+ * which of three reasons put it there.
+ *
+ * ## The correction this round is built on
+ *
+ * Round two kept ten descendant selectors and seven pseudo-elements under the
+ * heading "no utility can express this". That was wrong, and the record now says
+ * so (§11.2). Tailwind v4 has `after:` and `before:` for the pseudo-elements,
+ * `group-*` for an ancestor's state deciding a descendant's appearance, `data-*`
+ * variants for state that used to be a class, and `@utility` for a property with
+ * no namespace at all. All of it was checked against a build rather than
+ * believed: the divider's line, the active tab's mark, the ✕ that appears on
+ * hover, the focused panel's head and `-webkit-app-region` are all gone from
+ * here and none of them left a CSS rule behind.
+ *
+ * ## The three reasons anything is still here
+ *
+ *  1. **A test or a script outside this module reads the rule, or the name.**
+ *     `components/__tests__/view-drag.test.ts` reads six rule bodies by
+ *     selector — they are the assumptions the tear-out gesture is built on, and
+ *     that file is owned elsewhere. `theme-contrast.test.ts`'s ALPHA_SITES
+ *     records three alphas here by *file and selector*, so moving one takes its
+ *     written exemption out from under the census. `control-spec.test.ts`'s
+ *     CLASSNAME_LEDGER needs `.tab-close` to be defined somewhere.
+ *  2. **Something outside this module wears the class.** The form rows belong to
+ *     `settings/` as much as to the connect dialog, `.toolbar` / `.sep` are three
+ *     views' and the error centre's, `.empty-hint` is shared three ways. Deleting
+ *     them breaks another module; restating them as utilities *and* keeping them
+ *     here is two sources of truth for one visual fact. They go when their owner
+ *     migrates.
+ *
+ *     Round 5 took two entries off that list — the modal shell and the error box
+ *     — by migrating every module that wore each of them in one go, which is the
+ *     only way this reason ever discharges. `.value-box` is down to a single
+ *     wearer and is therefore no longer shared vocabulary at all; it is one
+ *     file's migration away and says so on itself.
+ *  3. **No utility can express it, and this time the claim is checked.** A
+ *     `@keyframes` body. `::-webkit-scrollbar`, which is not our element. Rules
+ *     on `<body>`, which has no JSX. `scrollbar-width`, which has no utility. And
+ *     one animation shorthand that cannot be named in `@theme` — see `.dot`.
+ *
+ * A fourth fact governs all three: **unlayered CSS outranks every utility.**
+ * Where a rule survives, it has been cut down to the declarations that had to
+ * stay, so that no utility written on the same element is silently outranked. The
+ * two rules that are still whole (`.panel-body`, and the shared vocabulary
+ * below) say on themselves why they could not be split.
+ * ================================================================== */
 
 /* ------------------------------------------------------------------ */
 /* Sidebar                                                               */
 /* ------------------------------------------------------------------ */
 
-.sidebar {
-  width: 240px;
-  flex: 0 0 auto;
-  background: var(--bg-1);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-/* Collapsed is a strip, not an absence: the toggle stays at the same pixel in
-   both states, so collapsing and expanding are two clicks on one button rather
-   than a button that moves elsewhere when you use it. Mirrors
-   `.chat-rail.collapsed` — see `design/2026-08-04-sidebar-collapse.md`. */
-.sidebar.collapsed {
-  width: 28px;
-}
-
-/* Layout only: it fills the 28px of chrome that is the entire collapsed sidebar.
-   The height is the size rung's to set, not this rule's — 24px in a 28px column. */
-.sidebar.collapsed .sidebar-handle {
-  width: 100%;
-}
-
-/* Both heads carry a title plus two or three buttons, so the children are
-   grouped from the start and the title takes the slack. `space-between` strands
-   the ＋ in the middle of the title's whitespace the moment a third child
-   arrives, which is what the conversation rail hit first. */
-.sidebar-head {
-  height: var(--bar-h);
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--border);
-  color: var(--fg-dim);
-  font-size: var(--fs-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-}
-
-/* Takes the slack in the head so the buttons sit at its end, and gives up its
-   own width first when the title is longer than the column. */
-.sidebar-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-list {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 4px;
-}
+/*
+ * The sidebar's box, its head, its title and its rows are utility classes in
+ * `Sidebar.tsx` and `components/shellClasses.ts` now. The head was the last
+ * thing holding this section together: it is worn by the connection sidebar and
+ * by `chat/ChatSessionsRail.tsx` both, so neither module could move it alone —
+ * which stopped being true the moment all four files landed in one hand. It is
+ * `LIST_HEAD` there, one string, one source.
+ */
 
 /*
- * A connection is one line. The list is the sidebar's index, not its content —
- * the object tree below it is what the user reads — so a row costs 24px and
- * grows only for a row that is selected or has an error to report.
+ * The connection light: everything about it except the pulse is `CONN_DOT` in
+ * `components/shellClasses.ts`, one whole class string per state. What is left
+ * here is the animation, and it is here for a reason that had to be measured.
+ *
+ * Tailwind's answer to an animation shorthand is `@theme { --animate-* }`, with
+ * the keyframes staying raw CSS — which is exactly what the chat panel does. It
+ * does not work for this one: Tailwind's own default theme already defines
+ * `--animate-pulse` **and** a `@keyframes pulse` of its own, and adding any
+ * `--animate-*` that names `pulse` makes the two collide. That collision was not
+ * hypothetical and it was not confined to the `--animate-*` route: the keyframe
+ * below was called `pulse` too, and Tailwind's won. It is called `conn-pulse`
+ * now; the note on the keyframe itself records what that changed.
+ *
+ * The `.dot` and `.connecting` names therefore stay on the element, and they
+ * carry a second job: the `prefers-reduced-motion` switch below selects
+ * `.dot.connecting`. Spelling the state as a data attribute would leave that
+ * switch selecting nothing, silently, which is the failure mode it exists to
+ * prevent.
+ *
+ * The switch is nested here rather than sitting in the reduced-motion block up
+ * in the base section, where it lived until it stopped working. Both blocks were
+ * unlayered and both were (0,2,0), so document order was the whole of the
+ * cascade between them, and the merge that made this one file put them the wrong
+ * way round — measured in the artifact at 32423 against 33223, and measured in
+ * Electron as a dot that kept pulsing with `reduce` on. Nested, the override
+ * cannot be separated from what it overrides by anything short of deleting it.
+ * The long version of that reasoning is on the reduced-motion block itself.
  */
-.conn-item {
-  border-radius: 4px;
-  padding: 3px 7px;
-  margin-bottom: 1px;
-  cursor: default;
-  user-select: none;
-}
-
-.conn-item:hover {
-  background: var(--bg-2);
-}
-
-.conn-item.active {
-  background: var(--bg-sel);
-}
-
-.conn-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.conn-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.conn-sub {
-  color: var(--fg-faint);
-  font-size: var(--fs-sm);
-  margin-top: 1px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.conn-driver {
-  flex: 0 0 auto;
-  color: var(--fg-faint);
-  font-size: var(--fs-sm);
-}
-
-/* Only drawn when there is a credential in the vault; its absence says the rest. */
-.conn-key {
-  flex: 0 0 auto;
-  font-size: var(--fs-sm);
-  opacity: 0.85;
-}
-
-.conn-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 5px;
-}
-
-/* The armed state of a destructive action: cancel first, in the position the
-   resting button occupied. See components/ConfirmPair.tsx. The confirm button
-   is `<Button variant="danger">`; the `.confirm-danger` class this rule was
-   paired with is gone — it was a duplicate of `.chat-perm-reject`. */
-.confirm-pair {
-  display: inline-flex;
-  gap: 4px;
-}
-
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex: 0 0 auto;
-  background: var(--fg-faint);
-}
-
-/* Hollow rather than grey: in a merged list "not connected" is a real state, and
-   it has to be legible next to a connected row without competing with it. */
-.dot.idle {
-  background: transparent;
-  box-shadow: inset 0 0 0 1px var(--fg-faint);
-}
-
-.dot.ready {
-  background: var(--ok);
-}
-
 .dot.connecting {
-  background: var(--warn);
-  animation: pulse 1s ease-in-out infinite;
-}
+  animation: conn-pulse 1s ease-in-out infinite;
 
-.dot.error {
-  background: var(--err);
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.25;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
   }
 }
 
-.empty-hint {
-  color: var(--fg-faint);
-  padding: 14px 10px;
-  text-align: center;
-  line-height: 1.7;
+/*
+ * The name is `conn-pulse` and not `pulse`, and the two characters are the whole
+ * of a bug that shipped for two rounds.
+ *
+ * `pulse` is a name Tailwind's default theme also uses, for a keyframe of its
+ * own whose step is `opacity: 0.5`. Two `@keyframes` with one name is not a
+ * conflict CSS resolves by specificity or by layer — the *last* definition wins
+ * outright, and Lightning CSS drops the other on the way out. Measured in the
+ * artifact rather than argued: on a clean tree `out/renderer/assets/*.css` held
+ * exactly one `@keyframes pulse` and its body was `50%{opacity:.5}`. The value
+ * written here never arrived, so the dot faded to half and the sheet said a
+ * quarter.
+ *
+ * That made `theme-contrast.test.ts`'s ALPHA_SITES entry a **green assertion
+ * about a value that did not ship** — a pinned 0.25 measured against a
+ * stylesheet declaration the artifact had already thrown away. Nothing could
+ * catch it: `audit-shipped-css` asks whether class rules have wearers, and a
+ * keyframe is not a class rule; every other fence reads this file, where 0.25 is
+ * exactly what is written.
+ *
+ * Renaming is a real change to what the window does — the dot now fades to 0.25
+ * as this file has claimed since it was written, rather than to Tailwind's 0.5 —
+ * and it is the change the source, the census and the design record all already
+ * described. ALPHA_SITES keys on `styles.css:@keyframes conn-pulse` now; the two
+ * moved in one edit, and the two-way `unclassified` / `stale` assertion in that
+ * census is what makes it impossible for them to drift apart again.
+ */
+@keyframes conn-pulse {
+  50% {
+    opacity: 0.25;
+  }
 }
 
 /* ------------------------------------------------------------------ */
 /* Tiled layout                                                          */
 /* ------------------------------------------------------------------ */
 
-.layout-root {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  padding: 4px;
-  gap: 0;
-}
-
-.split {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-}
-
-.split[data-dir='row'] {
-  flex-direction: row;
-}
-
-.split[data-dir='col'] {
-  flex-direction: column;
-}
-
-.split-child {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-}
-
-.divider {
-  flex: 0 0 5px;
-  background: transparent;
-  position: relative;
-  z-index: 3;
-}
-
-.split[data-dir='row'] > .divider {
-  cursor: col-resize;
-}
-
-.split[data-dir='col'] > .divider {
-  cursor: row-resize;
-}
-
-.divider::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  margin: auto;
-}
-
-.split[data-dir='row'] > .divider::after {
-  width: 1px;
-  background: var(--border);
-}
-
-.split[data-dir='col'] > .divider::after {
-  height: 1px;
-  background: var(--border);
-}
-
-.divider:hover::after,
-.divider.dragging::after {
-  background: var(--accent);
-}
-
-.drag-ghost {
-  position: fixed;
-  background: var(--accent);
-  z-index: 999;
-  pointer-events: none;
-}
+/*
+ * Nothing left. The split, its children and the divider are utility strings in
+ * `LayoutTree.tsx`, including the two things this section was the standing
+ * example for:
+ *
+ *  - `.divider::after`, which drew a 1px rule down the middle of a 5px hit
+ *    target, is `after:absolute after:inset-0 after:m-auto` plus one axis of
+ *    1px. The `after:` variant supplies `content` itself; that was read out of
+ *    the built stylesheet, not assumed.
+ *  - the two `.split[data-dir='…'] > .divider` rules are two whole class strings,
+ *    one per direction, chosen by the `dir` the component already has. `data-dir`
+ *    survives on the element as something a person reads off the DOM; nothing
+ *    styles from it.
+ *
+ * `.drag-ghost` — the guide line the divider creates for the length of one drag —
+ * never passed through JSX at all, and it did not need to: its class string is
+ * assigned in `LayoutTree.tsx`, which is a file Tailwind scans. The `dragging`
+ * class it used to gain is a `data-dragging` attribute now, because a variant
+ * can match an attribute and cannot match a bare class without the
+ * arbitrary-value syntax the record bans.
+ *
+ * `layout-root` and `split-child` survive as *names* only. `base.css` hangs the
+ * keyboard focus emphasis off `.layout-root .panel.focused` and `usePanelFocus`
+ * finds the tiling with `el.closest('.layout-root')`; `split-child` is what the
+ * divider's pointer handler filters this row's children by, so that the gaps
+ * between panes are not counted as panes.
+ */
 
 /* ------------------------------------------------------------------ */
 /* Panels                                                                */
 /* ------------------------------------------------------------------ */
 
-.panel {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  /* Containing block for `.panel-drop-overlay`. `.panel-body` is positioned too,
-     so no existing descendant changes its anchor. */
-  position: relative;
-  margin: 2px;
-  background: var(--bg-1);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  overflow: hidden;
-}
+/*
+ * The panel and its tab strip are utility strings in `Panel.tsx` and
+ * `PanelTabs.tsx`. Six declarations could not go with them, and all six are here
+ * for the same reason: `components/__tests__/view-drag.test.ts` reads them by
+ * selector, they are the assumptions the tear-out gesture is built on, and that
+ * file is owned elsewhere.
+ *
+ * Each rule below has been cut down to exactly what that test reads, so that no
+ * utility on the same element loses to it. `.panel` no longer declares a
+ * background, a border or a margin; `.panel-head` no longer declares a
+ * background; `.panel-tab` no longer declares padding or colour. Where a rule is
+ * still whole, it says why.
+ *
+ * Two rules that used to live here are simply gone, not moved:
+ *
+ *  - `.panel.focused` was **dead**. `base.css`'s `.layout-root .panel.focused` is
+ *    three levels deep and unlayered, so it won on specificity wherever a panel
+ *    can exist — measured in Electron, a focused panel draws `--color-accent`,
+ *    never the `--color-accent-dim` this rule named. The `focused` class stays on
+ *    the element because that is what base.css selects.
+ *  - `.panel.drop-target` is `border-accent`, chosen in `Panel.tsx` as an
+ *    alternative to `border-border` rather than layered over it. A class list has
+ *    no cascade.
+ */
 
-.panel.focused {
-  border-color: var(--accent-dim);
-  box-shadow: 0 0 0 1px var(--accent-dim);
-}
+/* The scrolling half. Both overflow axes are confined here on purpose: this must
+   never reach the panel or the page, and it is emphatically not the grid's
+   scroll container.
 
-/* The head is the tab strip: a scrolling strip of tabs on the left, a fixed
-   action area on the right. It is *not* a bar above a second, taller one — its
-   height is unchanged from the pre-tab title bar, which is what keeps the body's
-   available height constant at every tab count. The virtualised grid below
-   depends on that. */
-.panel-head {
-  height: var(--bar-h);
-  flex: 0 0 auto;
-  display: flex;
-  align-items: stretch;
-  padding: 0;
-  background: var(--bg-2);
-  border-bottom: 1px solid var(--border);
-  /* Tabs are the drag handle. Selection here would only ever be accidental, and
-     suppressing it in CSS means the pointer handler does not have to call
-     `preventDefault()` — which would also swallow the click that focuses the
-     panel. */
-  user-select: none;
-}
+   Both overflow axes and `scrollbar-width` are on the element now
+   (`overflow-x-auto overflow-y-hidden scrollbar-none`), and the second of those
+   is a correction: the note here used to say `scrollbar-width` "has no utility",
+   which was true when it was written and is not true of Tailwind 4.3.3 —
+   `scrollbar-none` compiles. The reasoning it carried is still right, so it is
+   kept: an 11px bar inside a 30px strip would eat a third of it, so overflow is
+   read from the clipped tab at the edge, which is the usual convention for a tab
+   strip.
 
-.panel.focused .panel-head {
-  background: var(--bg-3);
-}
-
-/* The scrolling half. `overflow-x` is confined here on purpose: it must never
-   reach the panel or the page, and it is emphatically not the grid's scroll
-   container. The scrollbar itself is hidden — an 11px bar inside a 30px strip
-   would eat a third of it — so overflow is read from the clipped tab at the
-   edge, which is the usual convention for a tab strip. */
-.panel-tabs {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: stretch;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-
+   What cannot move is below. `::-webkit-scrollbar` is a pseudo-element Chromium
+   synthesises, and there is no element to put a class on — the same instruction
+   as `scrollbar-none`, for the engine that ignores it. */
 .panel-tabs::-webkit-scrollbar {
   display: none;
 }
 
+/* Tabs shrink towards this and then stop; past it the strip scrolls. A tab
+   squeezed narrower than its own text is not a tab, it is a smear. The custom
+   property and the `min-width` that reads it are one fact, and `view-drag.test.ts`
+   asserts the pair. */
 .panel-tab {
   --tab-min-width: 96px;
 
-  flex: 0 1 auto;
-  /* Tabs shrink towards this and then stop; past it the strip scrolls. A tab
-     squeezed narrower than its own text is not a tab, it is a smear. */
   min-width: var(--tab-min-width);
-  max-width: 220px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 4px 0 9px;
-  border-right: 1px solid var(--border);
-  color: var(--fg-dim);
-  cursor: grab;
-  /* The active tab is marked with an inset top rule rather than a border, so
-     nothing in the strip changes size when the active tab moves. */
-  box-shadow: inset 0 2px 0 transparent;
-}
-
-.panel-tab:hover {
-  background: var(--bg-hover);
-  color: var(--fg);
-}
-
-.panel-tab.active {
-  background: var(--bg-1);
-  color: var(--fg);
-  box-shadow: inset 0 2px 0 var(--accent-dim);
-}
-
-.panel.focused .panel-tab.active {
-  box-shadow: inset 0 2px 0 var(--accent);
-}
-
-/* The focus ring for a tab lives in keyboard-nav.css, with every other real
-   focus ring — one place to read them all. */
-
-/* A tab opened to be looked at, not yet kept — `ViewBase.provisional`. Italic
-   is the editors' word for this and costs no layout: the strip must not reflow
-   at the moment a tab is promoted. It is never the *only* signal — the tab's
-   `title` says it in words, for anyone the slant does not reach. */
-.panel-tab.provisional .tab-title {
-  font-style: italic;
-}
-
-.tab-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Still loading. A dot rather than a spinner: it sits in a 30px strip next to
-   eleven others, and eleven spinners is a disco. */
-.tab-busy {
-  flex: 0 0 auto;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--warn);
-}
-
-/*
- * Layout only now. The 20px box that used to be spelled out here is what
- * `size="sm"` means — it was one of the four rules that each reinvented that
- * rung with its own `min-height: 0`, which is why the rung exists.
- *
- * 20 and not 16 is still the point: the strip is 30px tall, and a ✕ that has to
- * be aimed at is a ✕ that gets missed onto the tab underneath, which activates a
- * view instead of closing one.
- */
-.tab-close {
-  flex: 0 0 auto;
-  /* Space reserved, not revealed on hover: a ✕ that appears under the cursor
-     shifts the title beside it, and a strip that reflows while being read is
-     worse than a permanently visible glyph. */
-  visibility: hidden;
-}
-
-.panel-tab:hover .tab-close,
-.panel-tab.active .tab-close,
-.tab-close:focus-visible {
-  visibility: visible;
-}
-
-/* An empty panel has no tabs to label itself with, and a bare strip reads as a
-   rendering fault. */
-.panel-tabs-empty {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  padding: 0 9px;
-  color: var(--fg-faint);
-}
-
-/* The fixed half: never scrolls away, however many tabs there are. */
-.panel-actions {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 4px;
-  border-left: 1px solid var(--border);
-}
-
-.panel-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-}
-
-.panel-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  color: var(--fg-faint);
-}
-
-/* ------------------------------------------------------------------ */
-/* A self-drawn (Tier C) plugin view                                     */
-/* ------------------------------------------------------------------ */
-
-/* The frame fills the panel and draws its own everything. peek contributes no
-   chrome around it on purpose: a plugin that is given a header it does not
-   control ends up drawing a second one inside, and the two disagree about which
-   view is which. See docs/design/2026-08-03-plugin-architecture.md §2.6. */
-.plugin-frame {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-
-.plugin-frame-doc {
-  flex: 1;
-  border: 0;
-  /* The frame's own document paints its background; without this the iframe's
-     default white flashes through for one frame on a dark window. */
-  background: var(--bg-1);
-  /* Cross-origin, so nothing here can style it — every visual decision inside is
-     the plugin's, and this element only decides how much room it gets. */
-  color-scheme: dark;
-}
-
-/* Shown only when the frame never answered `ready` — see READY_TIMEOUT_MS. It
-   covers the frame rather than replacing it, so a plugin that recovers late is
-   still visible underneath rather than having been unmounted. */
-.plugin-frame-stalled {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 24px;
-  text-align: center;
-  background: var(--bg-1);
-  color: var(--fg-faint);
 }
 
 /* ------------------------------------------------------------------ */
@@ -818,7 +1919,11 @@ textarea:focus {
 /* A drag is a modal gesture, so every element under the pointer has to agree on
    one cursor — dividers carry `col-resize`, the grid carries its own, and both
    are more specific than a body-level rule. `!important` scoped to a body class
-   is the smallest thing that wins, and it lasts exactly as long as the drag. */
+   is the smallest thing that wins, and it lasts exactly as long as the drag.
+
+   `<body>` has no JSX element and `dragStore.ts` toggles the class on it
+   directly, so there is nowhere to write a utility even if one could carry
+   `!important`. Reason 3. */
 body.view-dragging,
 body.view-dragging * {
   cursor: grabbing !important;
@@ -834,790 +1939,64 @@ body.view-dragging.view-drag-nodrop * {
 
 /* The panel the view is leaving. Dimmed, never `no-drop`: dropping back on it is
    a no-op, and a forbidden cursor would read as an error rather than as "this
-   changes nothing". */
-.panel.drag-source {
-  /* 0.75, not the 0.55 this shipped with. Only "dimmed" was ever argued for; the
-     number was not, and at 0.55 the panel's own --fg-dim text composited to
-     3.23:1 against the desktop behind it. 0.75 keeps the intent and clears AA
-     (--fg 7.10, --fg-dim 4.87). See the legibility baseline §2.2.1. */
-  opacity: 0.75;
-}
+   changes nothing".
 
-/* The panel a release would land in. The border reads at the edge of vision
-   while the eye is on the highlight block. */
-.panel.drop-target {
-  border-color: var(--accent);
-}
-
-.panel-drop-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  pointer-events: none;
-}
-
-.drop-highlight {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-  /* Animated so the block slides when the zone changes instead of blinking out
-     and back in; the pointer is already moving and a hard cut reads as a glitch. */
-  transition: all 90ms ease-out;
-}
-
-.drop-label {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  color: var(--fg);
-}
-
+   Like `.conn-key`, this one is named in `theme-contrast.test.ts`'s ALPHA_SITES
+   as `styles.css:.panel.drag-source`; the census reads the file and the
+   selector, so the alpha has to stay where it is written down. */
 /* The insertion line for a drop on a tab strip: 2px, accent, drawn in viewport
-   coordinates so the strip's own `overflow: hidden` cannot clip it at the one
-   position that matters — the gap past the last tab of a full strip. */
-.tab-insert-caret {
-  position: fixed;
-  z-index: 998;
-  pointer-events: none;
-  width: 2px;
-  background: var(--accent);
-  box-shadow: 0 0 6px var(--accent);
-}
+   coordinates so the strip's own overflow cannot clip it at the one position that
+   matters — the gap past the last tab of a full strip.
 
-/*
- * `max-width: 100%` is right for the highlight's label — it is bounded by the
- * half-panel it names. Here the containing block is the caret itself, which is
- * 2px wide, so the same declaration shrinks the label to two pixels and
- * `overflow: hidden` cuts the first glyph in half. The line is drawn in viewport
- * coordinates precisely so nothing clips it; its label inherits that, and sizes
- * to the words it carries.
- */
-.tab-insert-caret .drop-label {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 3px;
-  max-width: none;
-  white-space: nowrap;
-  border: 1px solid var(--accent-dim);
-}
-
-/* The label riding under the cursor: what is being dragged, as opposed to where
-   it would land. */
-.view-drag-ghost {
-  position: fixed;
-  z-index: 999;
-  pointer-events: none;
-  transform: translate(14px, 14px);
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: var(--bg-3);
-  border: 1px solid var(--accent-dim);
-  color: var(--fg);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 45%);
-}
-
-/* ------------------------------------------------------------------ */
+   Two of these three are read by `view-drag.test.ts`. The third is the glow, and
+   it stays because it has no `--shadow-*` token and is not worth minting one for:
+   the theme's five shadows each name a *kind of surface that floats*, and this is
+   a 2px line. The rule has to exist for the other two anyway. */
+ /* ------------------------------------------------------------------ */
 /* Shared view toolbar                                                   */
 /* ------------------------------------------------------------------ */
 
-.toolbar {
-  height: var(--bar-h);
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-1);
-  color: var(--fg-dim);
-  overflow: hidden;
-}
+/* Reason 2: the table view, the tree view and the error centre wear `.toolbar`,
+   `.sep` and `.toolbar .grow`. None of those files are this module's, and this
+   sheet is unlayered, so half-migrating any of them would leave utilities losing
+   silently on the other module's element. They go when their owner migrates.
 
-.sep {
-  flex: 0 0 auto;
-  width: 1px;
-  height: 13px;
-  background: var(--border-strong);
-}
-
-.toolbar .grow {
-  flex: 1;
-}
-
-.view-error {
-  flex: 0 0 auto;
-  margin: 6px;
-  padding: 6px 8px;
-  border: 1px solid var(--err-border);
-  background: var(--err-bg);
-  color: var(--err);
-  border-radius: 4px;
-  user-select: text;
-}
-
-/* Secondary evidence inside the error box — the driver's own code, a character
-   offset. Was an inline `opacity: 0.7`, which took the inherited `--err` to
-   3.52:1 on `--err-bg`; this is 7.48:1 and is a token the contrast test can see.
-   See design/2026-08-02-ui-legibility-baseline.md §2.2.1. */
-.view-error-aside {
-  color: var(--fg-dim);
-}
-
-.view-error .detail {
-  color: var(--fg-dim);
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-  white-space: pre-wrap;
-  max-height: 120px;
-  overflow: auto;
-  margin-top: 4px;
-}
+   It was six views, the chat panel and the error centre until round 5, which
+   converted the query, vector, inspector and chat strips and the grid footer.
+   Those five elements state the whole shape as utilities at each site rather
+   than through a shared constant, precisely because three wearers of the class
+   are still here — a constant would have been a second source of truth for one
+   strip. `.sep` and `.toolbar .grow` are spelled both ways for the same reason
+   and for as long as this rule lives. The error box that used to be listed here
+   is gone: both its wearers moved in the same round, which is what it takes. */
 
 /* ------------------------------------------------------------------ */
-/* Virtualized grid                                                      */
+/* Form rows                                                             */
 /* ------------------------------------------------------------------ */
 
-/*
- * Hiding the vertical axis is the foundation of the whole scheme (see the top of
- * renderer/components/vscroll.ts): with no height in the DOM derived from
- * rowCount, Chromium's ~16.7M px layout ceiling can never be reached. The
- * horizontal axis stays native `auto` — total width tops out in the hundreds of
- * thousands of pixels, so colVirt and the sticky row-number gutter need no
- * changes whatsoever.
- */
-/*
- * The overlay anchor. **Not scrollable**, which is what keeps the absolutely
- * positioned elements under it (the hand-drawn scrollbar, the overlay) pinned to
- * the panel.
- *
- * They used to be descendants of .grid: .grid is a horizontal scroll container,
- * its absolute descendants count as scrollable content, and their x in
- * getBoundingClientRect is always `container right edge - scrollLeft` (measured
- * in Electron 43: scrollLeft=0 → [889,900], =1000 → [-111,-100], =4000 →
- * [-3111,-3100]). Add .grid's `contain: layout paint` clipping and one horizontal
- * scroll makes the scrollbar vanish and stop responding to clicks. For a table
- * with a few more columns (totalWidth > panel width) that is the normal case, so
- * the cure has to be structural.
- */
-.grid-wrap {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  display: flex;
-  outline: none;
-}
-
-.grid {
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-y: contain;
-  /* Chromium must not quietly compensate scrollTop as rows enter and leave the
-     DOM (paired with the scrollTop guard in DataGrid). */
-  overflow-anchor: none;
-  position: relative;
-  background: var(--bg);
-  contain: layout paint;
-  outline: none;
-}
-
-.grid-inner {
-  position: relative;
-  height: 100%;
-}
-
-/*
- * The row surface. Height 0, so it contributes nothing to any scroll dimension;
- * the driver writes its transform once per frame (magnitude < 98,304px,
- * composited, no layout and no repaint).
- */
-.grid-surface {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 0;
-  height: 0;
-  will-change: transform;
-}
-
-/* --- The hand-drawn vertical scrollbar (there is no native one any more) ---
- * Positioned against .grid-wrap, *not* .grid — see the note on .grid-wrap. */
-.grid-vsb {
-  position: absolute;
-  top: var(--head-h);
-  right: 0;
-  bottom: 0;
-  width: 11px;
-  z-index: 6;
-}
-
-/*
- * Solid, not a 40%-opacity wash. There is no native vertical scrollbar behind
- * this one (see the note at the top of vscroll.ts), so it is the only vertical
- * navigation affordance a million-row result set has — and at --fg-faint × 0.4
- * it measured 1.46:1 against the grid, i.e. you had to know it was there. It now
- * clears the 3:1 that WCAG 1.4.11 asks of a control boundary, and brightens to
- * full --fg-faint under the pointer.
- */
-.grid-vsb-thumb {
-  position: absolute;
-  top: 0;
-  left: 2px;
-  right: 2px;
-  border-radius: 4px;
-  background: var(--border-strong);
-  cursor: default;
-  will-change: transform;
-}
-
-.grid-vsb-thumb:hover,
-.grid-vsb-thumb.dragging {
-  background: var(--fg-faint);
-}
-
-.grid-vsb-bubble {
-  position: absolute;
-  right: 15px;
-  padding: 1px 6px;
-  border: 1px solid var(--border-strong);
-  border-radius: 3px;
-  background: var(--bg-3);
-  color: var(--fg);
-  font-size: var(--fs-sm);
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-.paused-tag {
-  color: var(--warn);
-}
-
-.grid-head {
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  height: var(--head-h);
-  background: var(--bg-2);
-  border-bottom: 1px solid var(--border-strong);
-}
-
-.grid-head-cell {
-  position: absolute;
-  top: 0;
-  height: var(--head-h);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 6px;
-  border-right: 1px solid var(--border);
-  color: var(--fg-dim);
-  font-size: var(--fs-sm);
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.grid-head-cell:hover {
-  color: var(--fg);
-  background: var(--bg-3);
-}
-
-.grid-head-cell .cname {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.grid-head-cell .ctype {
-  color: var(--fg-faint);
-  font-size: var(--fs-sm);
-  flex: 0 0 auto;
-}
-
-.grid-head-cell .csort {
-  color: var(--accent);
-  flex: 0 0 auto;
-}
-
-.grid-corner {
-  position: sticky;
-  left: 0;
-  z-index: 5;
-  display: inline-block;
-  vertical-align: top;
-  width: var(--gutter-w);
-  height: var(--head-h);
-  background: var(--bg-2);
-  border-right: 1px solid var(--border-strong);
-}
-
-.col-resizer {
-  position: absolute;
-  right: -3px;
-  top: 0;
-  width: 7px;
-  height: 100%;
-  cursor: col-resize;
-  z-index: 6;
-}
-
-.col-resizer:hover,
-.col-resizer.active {
-  background: var(--accent);
-  opacity: 0.7;
-}
-
-.grid-row {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: var(--row-h);
-  display: block;
-  white-space: nowrap;
-  font-size: 0; /* collapse the whitespace nodes between inline-blocks */
-}
-
-.grid-row:hover .grid-cell {
-  background: var(--bg-1);
-}
-
-/* Was #191c20, which measured 1.04:1 against --bg — a stripe nobody could see is
-   a stripe not worth painting. Still deliberately faint at 1.11. */
-.grid-row.odd .grid-cell {
-  background: #1e2228;
-}
-
-.grid-row.odd:hover .grid-cell {
-  background: var(--bg-1);
-}
-
-/* Rows staged for "add these to the chat". Written after the odd/hover rules so
-   it wins on specificity ties: a selection the user built must not disappear
-   under the zebra striping. */
-.grid-row.row-selected .grid-cell,
-.grid-row.odd.row-selected .grid-cell,
-.grid-row.row-selected:hover .grid-cell,
-.grid-row.odd.row-selected:hover .grid-cell {
-  background: color-mix(in srgb, var(--accent) 24%, var(--bg));
-}
-
-/* The bar is the part that survives a colour-vision difference: a 24% accent
-   wash is 1.49:1 against the unselected row, which is a hue change more than a
-   luminance one. A 2px rule down the gutter is a *shape* difference, and it is
-   drawn on the one column that is always on screen no matter how far right the
-   table is scrolled. */
-.grid-row.row-selected .grid-rownum {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 24%, var(--bg-1));
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-
-.grid-rownum {
-  position: sticky;
-  left: 0;
-  z-index: 2;
-  display: inline-block;
-  vertical-align: top;
-  width: var(--gutter-w);
-  height: var(--row-h);
-  line-height: var(--row-h);
-  padding-right: 7px;
-  text-align: right;
-  color: var(--fg-faint);
-  background: var(--bg-1);
-  border-right: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-  overflow: hidden;
-  /* The gutter is the selection handle; saying so with the cursor is the
-     cheapest bit of discoverability the gesture has. */
-  cursor: pointer;
-}
-
-.grid-cell {
-  position: absolute;
-  top: 0;
-  height: var(--row-h);
-  line-height: calc(var(--row-h) - 1px);
-  padding: 0 6px;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: var(--fs-data);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  background: var(--bg);
-}
-
-.grid-cell.num {
-  text-align: right;
-}
-
-.grid-cell.null {
-  color: var(--fg-faint);
-  font-style: italic;
-}
-
-.grid-cell.bool {
-  color: #c98fe0;
-}
-
-.grid-cell.json {
-  color: #7fc9a2;
-}
-
-.grid-cell.trunc {
-  color: var(--warn);
-  cursor: pointer;
-}
-
-.grid-cell.pending {
-  color: var(--fg-faint);
-}
-
-.grid-cell.selected {
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
-  background: var(--bg-sel) !important;
-}
-
-/* Also under .grid-wrap; otherwise the "Running… / 0 rows" hint slides away with
-   a horizontal scroll. */
-.grid-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--fg-faint);
-  pointer-events: none;
-}
-
-/* ------------------------------------------------------------------ */
-/* Query view                                                            */
-/* ------------------------------------------------------------------ */
-
-.query-view {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.editor-wrap {
-  flex: 0 0 auto;
-  min-height: 60px;
-  overflow: hidden;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-}
-
-.editor-wrap .cm-editor {
-  width: 100%;
-  height: 100%;
-  user-select: text;
-}
-
-.h-resizer {
-  flex: 0 0 5px;
-  cursor: row-resize;
-  background: transparent;
-  position: relative;
-}
-
-.h-resizer::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  height: 1px;
-  background: var(--border);
-}
-
-.h-resizer:hover::after {
-  background: var(--accent);
-}
-
-/* CodeMirror dark theme, hand-written rather than pulling in a theme package. */
-.cm-editor {
-  background: var(--bg);
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: var(--fs-md);
-}
-
-.cm-editor.cm-focused {
-  outline: none;
-}
-
-.cm-editor .cm-scroller {
-  font-family: var(--font-mono);
-  line-height: 1.5;
-}
-
-.cm-editor .cm-gutters {
-  background: var(--bg-1);
-  color: var(--fg-faint);
-  border-right: 1px solid var(--border);
-}
-
-.cm-editor .cm-activeLineGutter {
-  background: var(--bg-2);
-  color: var(--fg-dim);
-}
-
-.cm-editor .cm-activeLine {
-  background: #1b1e2333;
-}
-
-.cm-editor .cm-content {
-  caret-color: var(--accent);
-}
-
-.cm-editor .cm-cursor {
-  border-left-color: var(--accent);
-}
-
-.cm-editor .cm-selectionBackground,
-.cm-editor.cm-focused .cm-selectionBackground,
-.cm-editor ::selection {
-  background: var(--bg-sel) !important;
-}
-
-.cm-editor .cm-tooltip {
-  background: var(--bg-2);
-  border: 1px solid var(--border-strong);
-  color: var(--fg);
-}
-
-.cm-editor .cm-tooltip-autocomplete ul li[aria-selected] {
-  background: var(--accent-dim);
-}
-
-.cm-editor .cm-panels {
-  background: var(--bg-2);
-  color: var(--fg);
-}
-
-/* ------------------------------------------------------------------ */
-/* Tree view                                                             */
-/* ------------------------------------------------------------------ */
-
-.tree {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 4px 0;
-}
-
-.tree-node {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  /* Was 22px. Matching --row-h lines the tree up with the grid beside it and
-     leaves room for a 20px per-node action button. */
-  height: var(--row-h);
-  padding-right: 8px;
-  white-space: nowrap;
-}
-
-.tree-node:hover {
-  background: var(--bg-2);
-}
-
-.tree-node.selected {
-  background: var(--bg-sel);
-}
-
-/* A disclosure triangle is geometry, not a word, so it sits below the text floor
-   at --fs-mark — on the condition it keeps a size of its own (14px wide) and the
-   whole 24px row, not the glyph, is the click target. */
-.tree-caret {
-  width: 14px;
-  flex: 0 0 auto;
-  text-align: center;
-  color: var(--fg-faint);
-  font-size: var(--fs-mark);
-}
-
-.tree-caret.spin {
-  animation: spin 0.9s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/*
- * The node-kind glyph does **not** get the --fs-mark exemption the caret gets,
- * and the difference is worth stating: the caret has two states and they differ
- * by 90°, while these are ⛁ ❏ ▦ ◫ ◪ ⧉ ◇ — a set the reader is meant to tell
- * apart. ◫ and ◪ differ by which half is filled, which at 10px is a coin flip.
- * A glyph that has to be identified is sized *above* the text floor, not below.
- */
-.tree-icon {
-  flex: 0 0 auto;
-  color: var(--fg-dim);
-  font-size: var(--fs-md);
-  width: 14px;
-  text-align: center;
-}
-
-.tree-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tree-detail {
-  color: var(--fg-faint);
-  font-size: var(--fs-sm);
-  margin-left: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ------------------------------------------------------------------ */
-/* Vector search query bar                                               */
-/* ------------------------------------------------------------------ */
-
-/* A second toolbar row under the vector view's own. The fields are short by
-   nature (a point id, a vector name, two numbers), so they are sized to their
-   content instead of stretching: a row of half-empty full-width boxes reads as
-   a form, and this is a query bar. */
-.vector-query {
-  color: var(--fg-dim);
-}
-
-.vector-query label {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-
-.toolbar input.vq {
-  flex: 0 0 auto;
-  height: 22px;
-  padding: 0 6px;
-  font-size: var(--fs-sm);
-}
-
-.toolbar input.vq-id {
-  width: 190px;
-}
-
-.toolbar input.vq-name {
-  width: 110px;
-}
-
-.toolbar input.vq-num {
-  width: 70px;
-}
-
-/* ------------------------------------------------------------------ */
-/* Inspector and value modal                                             */
-/* ------------------------------------------------------------------ */
-
-.inspector {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 10px 12px;
-  user-select: text;
-}
-
-.kv-grid {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 3px 12px;
-  margin-bottom: 12px;
-}
-
-.kv-grid .k {
-  color: var(--fg-dim);
-}
-
-.kv-grid .v {
-  font-family: var(--font-mono);
-  overflow-wrap: anywhere;
-}
-
-.value-box {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 8px;
-  font-family: var(--font-mono);
-  font-size: var(--fs-data);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 100%;
-  overflow: auto;
-  user-select: text;
-}
-
-.modal-mask {
-  position: fixed;
-  inset: 0;
-  background: #0009;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 500;
-}
-
-.modal {
-  width: min(760px, 86vw);
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-1);
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  box-shadow: 0 18px 48px #000a;
-  overflow: hidden;
-}
-
-.modal-head {
-  height: var(--bar-h);
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 6px 0 10px;
-  background: var(--bg-2);
-  border-bottom: 1px solid var(--border);
-}
-
-.modal-head .t {
-  flex: 1;
-  font-weight: 600;
-}
-
-.modal-body {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 10px;
-}
-
+/* The form rows are the window's, not this module's: the settings dialog and the
+   connect dialog are both built from them, and the settings pane overrides the
+   form gutter by redeclaring `--spacing-form-label` around these very selectors.
+   They migrate with whichever module ends up owning the form vocabulary, not
+   with this one.
+
+   The modal shell used to stand above them under the same sentence — the mask,
+   the shell, the head, its title, the body and the foot. All six are gone: round
+   5 put every dialog in the window into one hand and converted them together,
+   which is what discharging reason 2 costs. `components/modalClasses.ts` is
+   where that vocabulary lives now, and the two sizes that had no token to their
+   name are inline `style` on the dialogs that need them, for the reason
+   `ErrorCenter.tsx`'s `PANEL_SIZE` already gives.
+
+   That deletion also re-opened a door those dialogs had been told was shut. The
+   sentences under `.settings-modal` and the disclosure dialog's width each said
+   `@utility` was unavailable to them because a layered width would compile and
+   then lose to the unlayered `.modal`. There is no unlayered `.modal`, so that
+   reason is gone. The other reason those sentences gave is not: a name in the
+   spacing namespace is a legal padding and a legal gap as well as a width, so
+   one fact would generate three classes. That is why the sizes are inline
+   `style` and not `@utility`, and it is the question to answer first if anybody
+   wants to change that. */
 .form-row {
   display: flex;
   align-items: center;
@@ -1637,9 +2016,9 @@ body.view-dragging.view-drag-nodrop * {
  */
 .form-row label,
 .form-row .form-label {
-  width: var(--form-label-w);
+  width: var(--spacing-form-label);
   flex: 0 0 auto;
-  color: var(--fg-dim);
+  color: var(--color-fg-dim);
   text-align: right;
 }
 
@@ -1657,477 +2036,250 @@ body.view-dragging.view-drag-nodrop * {
 }
 
 .form-hint {
-  color: var(--fg-faint);
-  margin: 0 0 10px calc(var(--form-label-w) + 8px);
+  color: var(--color-fg-faint);
+  margin: 0 0 10px calc(var(--spacing-form-label) + 8px);
 }
 
 /* A row of buttons with no label of its own. It still belongs to the control
    column: a button that falls back into the label gutter reads as if it acts on
    the section rather than on the field above it. */
 .form-actions {
-  margin-left: calc(var(--form-label-w) + 8px);
-}
-
-.modal-foot {
-  flex: 0 0 auto;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 8px 10px;
-  border-top: 1px solid var(--border);
-}
-
-/* The settings dialog: a category rail on the left, one section on the right.
-
-   A fixed height rather than one that follows the section, because the sections
-   are very different sizes — the MCP one is four times the About one — and a
-   dialog that resized as you clicked through it would move the rail out from
-   under the cursor. The width is fixed for the same reason, one axis over.
-
-   800 rather than the 760 every other modal gets, because this one carries the
-   packages table: six rows whose longest cell is an untranslated capability list
-   (`introspect · tabularQuery · …`), and 760 left it 24px short, so all six wrapped
-   and the section grew to twice its height. Measured — the table stops wrapping at
-   784 in zh-CN and 786 in en; 800 clears both with a little room for a reworded
-   header. The `90vw` never binds at 100% zoom: the window's own minWidth is 900,
-   and 900 × 0.9 = 810. It exists for the zoom steps, which shrink the CSS
-   viewport — at 150% the table wraps again, which is the trade zoom is for.
-   See `design/2026-08-04-settings-dialog-width.md`. */
-.settings-modal {
-  width: min(800px, 90vw);
-  height: min(560px, 84vh);
-}
-
-.settings-split {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-
-.settings-nav {
-  flex: 0 0 auto;
-  width: 148px;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 8px 6px;
-  background: var(--bg-2);
-  border-right: 1px solid var(--border);
-  overflow-y: auto;
-}
-
-.settings-nav-item {
-  text-align: left;
-  padding: 5px 8px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg-dim);
-}
-
-.settings-nav-item:hover {
-  background: var(--bg-3, var(--bg-1));
-  color: var(--fg);
-}
-
-.settings-nav-item.active {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-  color: var(--fg);
-}
-
-.settings-pane {
-  flex: 1;
-  min-width: 0;
-}
-
-/* One sentence of orientation at the top of a section: what these controls are
-   for, before the first label. */
-.settings-intro {
-  color: var(--fg-dim);
-  margin-bottom: 12px;
-}
-
-/* The sections use wider labels than the connect dialog — "Collection scan" and
-   "Connections" do not fit the 88px the form rows default to. Widening the
-   column is the whole edit: the hints and the button rows read the same variable
-   and follow on their own. */
-.settings-pane {
-  --form-label-w: 116px;
-}
-
-/* Button rows line up with the fields they act on, not with the label column.
-   `.conn-actions` comes from the sidebar, where there is no label gutter to
-   miss — `.form-actions` is the name this belongs under, and these two callers
-   are the last ones left on the borrowed class. */
-.settings-pane .conn-actions {
-  margin-left: calc(var(--form-label-w) + 8px);
-  margin-bottom: 10px;
-}
-
-/* ---- Databases section ---- */
-
-/* A real table, not a list of `.form-row`s. What is being read here is three
-   values compared down a column ("which of these is at a different version"),
-   and the label-gutter form layout the rest of this pane uses cannot line up a
-   column at all. It gets the full pane width, hence no label gutter. */
-.pkg-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 4px 0 14px;
-  font-size: 12px;
-}
-
-.pkg-table th,
-.pkg-table td {
-  text-align: left;
-  vertical-align: top;
-  padding: 6px 10px 6px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.pkg-table thead th {
-  color: var(--fg-faint);
-  font-weight: 500;
-}
-
-.pkg-table tbody th {
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-/* The id sits under the proper name rather than beside it: the two are the same
-   fact at different levels of formality, and a second column for it would push
-   the numbers people are comparing further apart. */
-.pkg-id {
-  display: block;
-  color: var(--fg-faint);
-  font-size: 11px;
-}
-
-/* Capabilities are the longest cell and the least urgent, so they are the one
-   allowed to wrap. */
-.pkg-caps {
-  color: var(--fg-dim);
-  white-space: normal;
-}
-
-.pkg-kinds {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.pkg-kind-label {
-  margin-left: 8px;
-  color: var(--fg-faint);
-}
-
-/* A label above its content rather than beside it, for the one block here whose
-   content is a list and would otherwise be indented into a narrow column. */
-.form-row-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-/* A two-option picker stretched across the full width of this dialog reads as two
-   unrelated buttons with a gap, not as one control. It only needs to be as wide as
-   its widest option. */
-.settings-pane .seg-group {
-  flex: 0 0 auto;
-  min-width: 200px;
-}
-
-/* The conversation catalogue, as a rail down the right-hand side.
-
-   Mirrors `.sidebar` on purpose — same border treatment, same head, same row
-   shape — because it is the same kind of surface: a standing list you pick from
-   repeatedly, not a question to be answered and dismissed. It squeezes the work
-   area rather than floating over it, so the panel tab strip underneath keeps its
-   split and close buttons. See `design/2026-08-02-chat-sessions-side-rail.md`.
-
-   260px rather than the sidebar's 240: these rows carry a timestamp line the
-   connection rows do not. */
-.chat-rail {
-  width: 260px;
-  flex: 0 0 auto;
-  background: var(--bg-1);
-  border-left: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-/* Collapsed is a strip, not an absence: the toggle stays at the same pixel in
-   both states, so collapsing and expanding are two clicks on one button rather
-   than a button that moves to the status bar when you use it. */
-.chat-rail.collapsed {
-  width: 28px;
-}
-
-/*
- * Layout only: it fills the 28px of chrome that is the entire collapsed rail.
- *
- * The height went with it. This used to say `height: var(--bar-h)` and the fence
- * was right to refuse it — a control's box height is the size rung's to set, and
- * a rule that quietly makes one control 30px while every other `md` is 24px is
- * how a scale stops meaning anything. 24px in a 28px column is the answer the
- * spec already had.
- */
-.chat-rail.collapsed .chat-rail-handle {
-  width: 100%;
-}
-
-/* The head grouping this rail needed — buttons at the end, title taking the
-   slack — moved onto `.sidebar-head` / `.sidebar-title` when the sidebar grew a
-   third child of its own and needed exactly the same thing. */
-
-/* Takes the height the window gives it rather than a number chosen here: the
-   list is as long as the user's history. */
-.session-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 4px;
-}
-
-.session-item {
-  border-radius: 4px;
-  padding: 5px 7px;
-  margin-bottom: 2px;
-  border-bottom: 1px solid var(--border);
-}
-
-.session-item[aria-selected='true'] {
-  background: var(--bg-2);
-}
-
-.session-item:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.session-item:hover {
-  background: var(--bg-2);
-}
-
-.session-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.session-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The row's timestamp. It used to be an inline `fontSize: 10` in the component,
-   which is both under the text floor and invisible to the type-scale test. */
-.session-when {
-  color: var(--fg-faint);
-  font-size: var(--fs-sm);
+  margin-left: calc(var(--spacing-form-label) + 8px);
 }
 
 /* ------------------------------------------------------------------ */
 /* Status bar and notifications                                          */
 /* ------------------------------------------------------------------ */
 
-/* 26px, not 22px. The bar carries real buttons (new conversation, the rail
-   toggle, the error centre), a button is 25.4px tall, and `overflow: hidden` on
-   a 22px bar was quietly clipping every one of them. */
-.statusbar {
-  height: 26px;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 10px;
-  background: var(--bg-1);
-  border-top: 1px solid var(--border);
-  color: var(--fg-dim);
-  font-size: var(--fs-sm);
-  overflow: hidden;
-  white-space: nowrap;
-}
+/* The status bar owns no rules at all now, and the one that was here was dead.
+   It coloured `<span className="err">` inside the unseen-failure count, and its
+   comment said so in the present tense — but `ErrorCenter.tsx` migrated to
+   `text-err` in round 5 and its own comment records the swap. Nothing in the
+   renderer has worn `err` since; the declaration has been shipping and painting
+   nothing.
 
+   Worth knowing *why* the build audit did not catch it, because that is a real
+   gap rather than an oversight: `audit-shipped-css.mjs` asks whether a rule's
+   class names are worn, and `.statusbar .err` names two. `statusbar` is worn
+   (StatusBar.tsx), so the selector passed on the strength of its anchor while
+   its subject had no wearer at all. Every compound descendant selector left in
+   this file has the same shape. The `statusbar` name itself now survives only as
+   a name — nothing selects through it. */
 
-/* The status bar's cells: the connection dot, the view description, the row
-   count, the cache watermark. Called `.cell` since `<Segmented>` landed: it used
-   to be `.seg`, which was also the connect dialog's segmented-control class —
-   two unrelated rules wearing one name, and a name-based fence has to take the
-   stricter of the two meanings for both. That collision is what made the control
-   layer block this file for a reason belonging to another one. */
-.statusbar .cell {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.statusbar .grow {
-  flex: 1;
-}
-
-.statusbar .warn {
-  color: var(--warn);
-}
-
-.statusbar .err {
-  color: var(--err);
-}
-
-.toasts {
-  position: fixed;
-  right: 12px;
-  /* Clears the status bar, which is now 26px + its 1px top rule. */
-  bottom: 36px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  z-index: 600;
-  max-width: 380px;
-}
-
-.toast {
-  background: var(--bg-2);
-  border: 1px solid var(--border-strong);
-  border-left-width: 3px;
-  border-radius: 4px;
-  padding: 6px 9px;
-  box-shadow: 0 6px 20px #0008;
-  user-select: text;
-}
-
-.toast.info {
-  border-left-color: var(--accent);
-}
-
-.toast.warn {
-  border-left-color: var(--warn);
-}
-
-.toast.error {
-  border-left-color: var(--err);
-}
-
-.toast .msg {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-}
-
-.toast .msg .grow {
-  flex: 1;
-}
-
-.toast .detail {
-  color: var(--fg-dim);
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-  white-space: pre-wrap;
-  max-height: 140px;
-  overflow: auto;
-  margin-top: 4px;
-}
+/* ################## SHEET: grid ################## */
+/* The virtualised data grid.
+   Was `components/grid.css` until the eight sheets were merged;
+   everything from here to the next SHEET banner is that file,
+   unchanged. The banner line is a marker as well as a heading —
+   see the head of this file. */
 
 /* ==================================================================
- * Window-level crash screen (components/ErrorBoundary.tsx).
+ * What is left of the grid's stylesheet after the Tailwind migration.
  *
- * Styled entirely from the same variables as the rest of the app so that it
- * reads as peek reporting a fault, not as the browser's own error page. It is
- * the only screen in the product with no working chrome around it, so it
- * centres itself and offers exactly one control.
+ * The geometry in here is load-bearing in a way the rest of the window's is not:
+ * `vscroll.ts` computes scroll positions from `--spacing-row`, so a row that is
+ * one pixel off drifts a million-row result set out from under the cursor.
+ * Anything changed in this file is measured, not eyeballed. See
+ * components/vscroll.ts and components/__tests__/grid-layout.test.ts.
+ *
+ * Two rules, and each says why it is still a rule where it stands:
+ *
+ *   - `.grid-scroll`, because `overflow-anchor` and `contain` have no utility
+ *     class at all, and the rest of that rule is the same decision as those two;
+ *   - `.grid-row`, because of one declaration — `font-size: 0`, a value the type
+ *     scale does not have and must not gain.
+ *
+ * Every selector here is `grid-`-prefixed, and that is a rule rather than a
+ * habit: this sheet is unlayered, so a bare name that happens to also be a
+ * Tailwind utility silently dresses every element wearing that utility in this
+ * whole rule. `.grid-scroll` was `.grid` until exactly that happened — see
+ * migration record §12.9 for what it did to FirstRunGuide, and
+ * `grid-layout.test.ts`, which now asserts the prefix.
+ *
+ * A third group used to be here: the cell, the row-number gutter, and the four
+ * descendant rules by which a row painted its own cells. All of it has moved.
+ * The reason it could not before was a file boundary rather than a technical
+ * wall — the modifier names were minted by `cellClass()` in `util/format.ts`,
+ * which no round that owned this sheet also owned — and the reason the
+ * descendant selectors could not be expressed turned out to be wrong: a row is
+ * a hover `group` and a cell reads it with a variant. See migration record
+ * §11.2, which is the correction, and `util/format.ts`, which is where the
+ * decision about a cell's background is taken now.
  * ================================================================== */
 
-.crash {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: var(--bg);
+/* ------------------------------------------------------------------ */
+/* Virtualized grid                                                      */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The row, reduced to the one declaration that keeps it here.
+ *
+ * `font-size: 0` is not type — it is how the whitespace text nodes JSX leaves
+ * between the inline-block cells are collapsed to nothing. There is no rung for
+ * it and there must not be: the type scale's whole job is that nothing sets a
+ * size under the floor, and 0 is not an exception to that so much as not a size
+ * at all. (It used to have company — `--text-mark` was a declared way to go
+ * under the floor for glyphs read by shape. That went with the bespoke scale in
+ * §29.10.2, so this is now the *only* value the floor looks past.)
+ * `type-scale.test.ts` skips it **by value**, so the exemption survives the rule
+ * moving or being renamed.
+ *
+ * Everything else the row used to declare — its position, its height, the
+ * `nowrap` its children inherit — is a class list on the element now
+ * (`ROW_CLASS` in DataGrid.tsx). That is a split, and it is safe in exactly one
+ * direction: this sheet is unlayered, so it outranks every utility for any
+ * property it names, and `font-size` is the only property it names. Add a
+ * second declaration here and it will silently beat whatever class the row is
+ * wearing for it.
+ *
+ * The height is the number to be careful with: it is `--spacing-row` in the
+ * class (`h-row`) and `ROW_H` in vscroll.ts, and the two have to stay the same
+ * 24px or a million-row scroll drifts.
+ */
+.grid-row {
+  font-size: 0; /* collapse the whitespace nodes between inline-blocks */
 }
 
-.crash-box {
-  max-width: 560px;
-  width: 100%;
-  background: var(--bg-1);
-  border: 1px solid var(--border-strong);
-  border-left: 3px solid var(--err);
-  border-radius: 5px;
-  padding: 16px 18px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.crash-title {
-  font-size: var(--fs-lg);
-  font-weight: 600;
-}
-
-.crash-body {
-  color: var(--fg-dim);
-}
-
-/* The stack text is developer output: monospace, selectable, and capped so a
-   long trace cannot push the reload button off screen. */
-.crash-detail {
-  width: 100%;
-  margin: 0;
-  padding: 8px 10px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--fg-faint);
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 180px;
-  overflow: auto;
-  user-select: text;
-}
+/* ################## SHEET: views ################## */
+/* The query view.
+   Was `components/views.css` until the eight sheets were merged;
+   everything from here to the next SHEET banner is that file,
+   unchanged. The banner line is a marker as well as a heading —
+   see the head of this file. */
 
 /* ==================================================================
- * Reduced motion.
+ * What is left of the views' stylesheet after the Tailwind migration: one
+ * subject, stated in two rules.
  *
- * Everything that loops in this window loops *forever* — a connection that is
- * dialling, a tree node that is loading, a tool call that is running. An
- * indefinite animation is exactly what the OS-level "reduce motion" switch
- * exists to turn off, and until now peek ignored it outright.
+ * Query, table, tree, inspector and vector are utility classes in their own
+ * components now. What could not go with them is the editor host, and the reason
+ * is the one §11.3 of the migration record calls the floor: the element the rule
+ * is *about* is a DOM node CodeMirror creates, so there is no JSX to hang a
+ * className on. The wrapper keeps a name only because a descendant selector has
+ * to start somewhere.
  *
- * The rule that makes this safe: **no state in peek is carried by motion
- * alone**. A dialling connection is a solid --warn dot whether or not it
- * pulses, and it is still distinguishable from idle (hollow) and ready (green)
- * with every animation stopped. The pulse is emphasis, never the message. Any
- * future state that needs to be legible only while animating is a bug against
- * this block.
+ * Two blocks that were here in earlier rounds are gone:
  *
- * `animation: none` rather than a slower duration: a spinner that creeps is
- * more distracting than one that stands still, and the mark it is drawn from
- * (◐) reads as "in progress" without turning.
+ *   1. the vector query bar's four field sizes, which existed only to outrank
+ *      `base.css`'s unlayered element floor for text inputs. That floor is in
+ *      `@layer base` now (§7.1, and §11 for the move itself), so the sizes are
+ *      utility classes on the fields in `views/VectorView.tsx`;
+ *   2. the editor/grid drag handle and the hairline it drew with a generated
+ *      element. §11.2 corrects the round-2 verdict that a generated element has
+ *      no className to reach it. The `after` variant compiles one and supplies
+ *      the empty `content` itself — the custom property behind it is registered
+ *      with an initial value of the empty string, so there is no bracketed
+ *      spelling to write and nothing for §3.4 to catch. Read out of the built
+ *      stylesheet, not assumed: the hover form compiles to the class, the state
+ *      pseudo-class and the element pseudo-element in that order, which is one
+ *      class more specific than the resting form and also 1537 bytes later in
+ *      the same layer. Both tie-breakers point the same way, and it is the same
+ *      pair the two hand-written rules had.
+ *
+ *      Measured in a browser against this build: the strip is 5px, the hairline
+ *      1px centred with 2px above and below it, `#333941` at rest and `#4d9cff`
+ *      under the pointer — every one of them what the rules here produced, and
+ *      a control run with one class removed regressed exactly the property that
+ *      class carries, so the comparison was not two elements with nothing on
+ *      them. The handle is a class string in `views/QueryView.tsx` now.
+ *
+ * What is left is permanent; nothing in this file is waiting on anything.
+ *
+ * See docs/design/2026-08-04-tailwind-migration.md.
  * ================================================================== */
 
-@media (prefers-reduced-motion: reduce) {
-  .dot.connecting,
-  .tree-caret.spin {
-    animation: none;
-  }
+/* ------------------------------------------------------------------ */
+/* Query view — the editor host                                          */
+/* ------------------------------------------------------------------ */
 
-  /* The drop highlight slides between zones as the pointer moves; with motion
-     reduced it snaps instead. The block itself is unchanged, so the target is
-     just as legible. */
-  .drop-highlight {
-    transition: none;
-  }
+/*
+ * Stays a named class, but for one reason now rather than two.
+ *
+ * The wrapper is worn by two components: `SqlEditor.tsx` mounts the real editor
+ * into it, `QueryView.tsx` renders an empty one the same height while the lazy
+ * chunk loads. Inlining it as utilities would mean writing the same five
+ * declarations in two files and hoping they stay equal — and the usual escape,
+ * a shared module constant, is closed here on purpose: `SqlEditor.tsx` is behind
+ * `lazy()` because CodeMirror is the heaviest thing in the bundle, so importing
+ * anything from it eagerly would pull the chunk back in. A third module to hold
+ * one string is a file whose only job is to hold one string.
+ *
+ * The second reason is gone. There used to be a `.editor-wrap .cm-editor` rule
+ * here sizing CodeMirror's own element, kept as a descendant selector because
+ * `.cm-editor` is built by the editor and there was nowhere to hang a utility on
+ * it. `EditorView.theme` is that missing hook, so the sizing moved into
+ * `PEEK_THEME` in `SqlEditor.tsx` and the ancestor is no longer load-bearing for
+ * anything but this element's own box.
+ */
+/* ################## SHEET: settings ################## */
+/* The settings dialog.
+   Was `components/settings.css` until the eight sheets were merged;
+   everything from here to the next SHEET banner is that file,
+   unchanged. The banner line is a marker as well as a heading —
+   see the head of this file. */
+
+/* ==================================================================
+ * What is left of the settings dialog's stylesheet after the Tailwind
+ * migration: two rules, each with a different reason, and each reason
+ * re-checked against §11.2 of the migration record rather than inherited from
+ * the round that first wrote it.
+ *
+ * The rail, the panes and the packages table are `className`s on their own
+ * elements now — see `settings/SettingsDialog.tsx` and `PackagesSection.tsx`.
+ *
+ * A third rule left earlier: the button rows' indent into the label gutter. It
+ * was a descendant selector with the gutter arithmetic inlined, and the
+ * arithmetic already existed under its own name in `components/app.css`, written
+ * for exactly this. The three rows compose that name with the wrapping button
+ * row they already wore and state their own bottom margin as a utility, which is
+ * one shared rule reused instead of a second copy of it. Nothing about the
+ * geometry moved.
+ *
+ * And a fourth left in round 5: this dialog's own 800 × 560. It is an inline
+ * `style` on the shell in `SettingsDialog.tsx` now, sitting in one object beside
+ * the shared 80vh ceiling that was always the binding constraint at ordinary
+ * window heights — two numbers a reader could not previously see together. The
+ * paragraph that argued the size out of the spacing namespace, and out of
+ * `@utility` for as long as an unlayered `.modal` existed, went with it: half of
+ * that argument is dead (there is no `.modal`) and the live half is now written
+ * where the value is.
+ *
+ * See docs/design/2026-08-04-tailwind-migration.md §4.3 and §11.2.
+ * ================================================================== */
+
+/* The sections use wider labels than the connect dialog — "Collection scan" and
+   "Connections" do not fit the 88px the form rows default to. Widening the
+   column is the whole edit: the hints and the button rows read the same variable
+   and follow on their own.
+
+   A custom property, so it cannot be a utility: the only Tailwind syntax that
+   sets one is `[--spacing-form-label:116px]`, which is the arbitrary-value form
+   the migration record bans outright (§3.4). It has to be a rule, and the rule
+   has to be on an ancestor — which is the entire mechanism. `w-form-label` on a
+   label inside compiles to `width: var(--spacing-form-label)` and reads whatever
+   this sets, exactly as `.form-row label` does today. */
+.settings-pane {
+  --spacing-form-label: 116px;
 }
+
+/* A two-option picker used to be stopped from stretching across this dialog by a
+   `.settings-pane .seg-group` rule here. It is gone: the six callers inside the
+   pane state `grow-0 shrink-0 basis-auto min-w-50` themselves.
+
+   The measurement that made that legal is worth keeping, because the comment
+   that stood here got it backwards. It claimed the longhand spelling cannot
+   escape `SEGMENTED.group`'s own `flex-1`, since "a shorthand emitted after them
+   resets all three". Measured in the built stylesheet: the shorthand is emitted
+   **before** all three longhands, so at equal specificity in one layer the
+   longhands win — the same guarantee that makes a directional padding utility
+   override the all-round one.
+
+   What did block it was shared vocabulary: the rule said *where* the control is,
+   not *which* control, and copying four classes to six callers is six copies
+   that can drift. That objection is still true and was accepted anyway, because
+   the alternative — an unlayered rule reaching through an ancestor — is the
+   shape this whole migration exists to remove, and six literal call sites are
+   visible to a grep in a way an ancestor selector is not. `SEGMENTED.group` still
+   spends the shorthand on itself; when `ui/spec.ts` stops, these six can drop
+   the three longhands and keep only the width. */
+

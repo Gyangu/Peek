@@ -74,8 +74,11 @@ export function ConfirmPair(props: ConfirmPairProps): ReactElement {
     // Blur is read on the pair rather than on either button, so moving between
     // the two does not count as leaving. `relatedTarget` is null when focus goes
     // nowhere at all (a click on the window chrome), which also disarms.
+    //
+    // `inline-flex`, because the pair replaces a single button inline in a row
+    // of them and must not become a block where the one button was.
     <span
-      className="confirm-pair"
+      className="inline-flex gap-tight"
       onBlur={(e: ReactFocusEvent<HTMLSpanElement>) => {
         if (!e.currentTarget.contains(e.relatedTarget)) onDisarm()
       }}

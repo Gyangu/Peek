@@ -26,6 +26,7 @@ import type {
 import type { DeltaBatchBudget } from '../agent/types'
 import type { AcpAgentProfile, AcpAgentUserConfig } from './profiles'
 import type { SessionIndex } from '../agent/session-index'
+import type { AcpSnapshotStore } from './snapshot-store'
 
 /** Re-exported: the batching budget is backend-agnostic and lives in `agent/types.ts`. */
 export { DEFAULT_DELTA_BUDGET, type DeltaBatchBudget } from '../agent/types'
@@ -58,6 +59,8 @@ export interface ChatAgentStatePatch {
   lastMessagePreview?: string
   usage?: ChatUsage
   pendingPermission?: PendingPermission | null
+  /** See `ChatViewState.showingSnapshot`. Set when a picture goes up, cleared when the agent's copy replaces it. */
+  showingSnapshot?: boolean
 }
 
 /**
@@ -118,6 +121,17 @@ export interface AcpHostDeps {
    * a host running without an index simply cannot label rows. Tests leave it out.
    */
   sessionIndex?: SessionIndex
+  /**
+   * Where to keep a picture of what the window drew, so the next open can show
+   * it while `session/load` builds the live session behind it.
+   *
+   * Optional for the same reason as `sessionIndex`, and with a stronger one on
+   * top: a host without it is not degraded in any way a user could name — every
+   * conversation still opens, from the agent, exactly as before. The snapshot
+   * only removes a wait. See `AcpSnapshotStore` for why storing this does not
+   * contradict "peek keeps no ACP transcripts".
+   */
+  snapshots?: AcpSnapshotStore
 }
 
 /** Where peek's MCP server is listening, and the bearer token that opens it. */

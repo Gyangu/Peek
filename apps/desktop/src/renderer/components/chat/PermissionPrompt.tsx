@@ -81,28 +81,43 @@ export function PermissionPrompt({
     <div
       ref={boxRef}
       tabIndex={-1}
-      className={`chat-permission${parsed.mutatesWorkspace ? ' mutating' : ''}`}
+      // The panel takes focus when it appears (see above) so that Tab reaches the
+      // answers. That is a programmatic focus, not a keyboard one, and a ring
+      // drawn around a panel the user did not navigate to reads as an error
+      // state — so `focus:` gives it none and the ring is kept for
+      // `focus-visible:`, where it means something. `focus-visible:outline-solid`
+      // is not decoration: `focus:outline-none` sets `--tw-outline-style: none`,
+      // and `focus-visible:outline-2` reads that variable rather than restating
+      // `solid`, so without it the ring would compile to a width with no style.
+      // All three are quoted under the variant they are worn with rather than as
+      // bare stems, because a bare stem here compiles into a rule no element
+      // wears — `scripts/audit-shipped-css.mjs` refuses to ship one.
+      className={`flex-none m-tight px-snug py-snug rounded-control select-text border focus:outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 ${
+        // Peek's own mutating tools change the window in front of you, so the
+        // question changes with them and the panel changes colour to say so.
+        parsed.mutatesWorkspace ? 'bg-accent-bg border-accent' : 'bg-warn-bg border-warn'
+      }`}
       role="group"
       aria-label={t('chat.permission.label')}
       aria-live="assertive"
     >
-      <div className="chat-permission-title">{title}</div>
+      <div className="mb-tight font-semibold text-fg">{title}</div>
 
-      <div className="chat-permission-row">
-        <span className="chat-permission-key">{t('chat.permission.tool')}</span>
-        <span className="mono chat-permission-val">{permission.toolName}</span>
+      <div className={ROW}>
+        <span className={KEY}>{t('chat.permission.tool')}</span>
+        <span className={`font-mono tabular-nums ${VAL}`}>{permission.toolName}</span>
       </div>
 
       {permission.inputPreview === '' ? null : (
-        <div className="chat-permission-row">
-          <span className="chat-permission-key">{t('chat.permission.arguments')}</span>
-          <span className="mono chat-permission-val">{permission.inputPreview}</span>
+        <div className={ROW}>
+          <span className={KEY}>{t('chat.permission.arguments')}</span>
+          <span className={`font-mono tabular-nums ${VAL}`}>{permission.inputPreview}</span>
         </div>
       )}
 
-      <div className="chat-permission-note">{t('chat.permission.waiting')}</div>
+      <div className="mt-snug mb-snug text-micro text-fg-dim">{t('chat.permission.waiting')}</div>
 
-      <div className="chat-permission-actions">
+      <div className="flex flex-wrap gap-tight">
         {options.map((option) => (
           <Button
             key={option.optionId}
@@ -132,10 +147,35 @@ export function PermissionPrompt({
         ))}
       </div>
 
-      {hasAlways ? <div className="chat-permission-always-note">{t('chat.permission.alwaysNote')}</div> : null}
+      {/*
+        The note under the one answer that outlives this call.
+        `permissionButtonVariant` draws `allow_always` as `caution` — dashed, in
+        --color-warn — and that is a mark rather than a promotion: it has to read
+        as "this one is different", not as "this one is recommended". None of the
+        four buttons is `primary`, for the reason in the header. `caution` is
+        also deliberately not `danger`: answering always is not destructive, it
+        is a choice whose consequence outlives the moment, which is the whole
+        distinction the control spec §3.6 keeps the two variants apart for.
+      */}
+      {hasAlways ? (
+        <div className="mt-snug text-micro text-fg-faint">{t('chat.permission.alwaysNote')}</div>
+      ) : null}
     </div>
   )
 }
+
+/**
+ * The key/value lines that show the tool and its arguments.
+ *
+ * A fixed key column, so the two labels and the two values each line up on one
+ * edge — and `grow-0 shrink-0 basis-17` rather than `flex-none basis-17`,
+ * because `flex-none` is the `flex` shorthand and carries a `flex-basis` of its
+ * own. Which of the two won would be Tailwind's emission order to decide, not
+ * this file's. Three longhands say one thing each.
+ */
+const ROW = 'flex gap-snug my-inset text-micro'
+const KEY = 'grow-0 shrink-0 basis-17 text-fg-faint'
+const VAL = 'flex-1 min-w-0 text-fg-dim break-words'
 
 function optionLabel(option: PermissionOption, t: TFunction): string {
   switch (option.kind) {

@@ -14,7 +14,14 @@ import { notify } from '../state/notifyStore'
 import { getCell, isRowLoaded, setViewport } from '../state/resultCache'
 import { useResult } from '../state/useResult'
 import { copyText } from '../util/clipboard'
-import { cellClass, cellText, formatCount, formatMs, isExpandable } from '../util/format'
+import {
+  cellClass,
+  cellSurfaceClass,
+  cellText,
+  formatCount,
+  formatMs,
+  isExpandable,
+} from '../util/format'
 import { columnMenuNodes } from './columnMenu'
 import { Menu } from '../ui/Menu'
 import { useContextMenu } from '../ui/useContextMenu'
@@ -164,17 +171,19 @@ export function DataGrid(props: DataGridProps): ReactElement {
 
   const shownResultId = heldRef.current ?? resultId
   const snap = useResult(shownResultId)
-  /** The horizontal scroll container (.grid). Vertical is hidden, so it only scrolls scrollLeft. */
+  /** The horizontal scroll container (.grid-scroll). Vertical is hidden, so it
+   *  only scrolls scrollLeft. */
   const scrollRef = useRef<HTMLDivElement | null>(null)
   /**
    * The overlay anchor that does not move with horizontal scrolling (.grid-wrap).
    *
    * The custom scrollbar and the overlay **must** live here rather than inside
-   * .grid: .grid is a horizontal scroll container, so its absolutely positioned
-   * descendants count as scrollable content and translate with scrollLeft
-   * (measured: at scrollLeft=1000 the .grid-vsb x range moves from [889,900] to
-   * [-111,-100]). Add .grid's `contain: layout paint` clipping on top and a single
-   * horizontal scroll makes the scrollbar both invisible and unclickable.
+   * .grid-scroll: it is a horizontal scroll container, so its absolutely
+   * positioned descendants count as scrollable content and translate with
+   * scrollLeft (measured: at scrollLeft=1000 the .grid-vsb x range moves from
+   * [889,900] to [-111,-100]). Add .grid-scroll's `contain: layout paint`
+   * clipping on top and a single horizontal scroll makes the scrollbar both
+   * invisible and unclickable.
    */
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [sizing, setSizing] = useState<ColumnSizing>({})
@@ -366,8 +375,8 @@ export function DataGrid(props: DataGridProps): ReactElement {
 
   /* --- wheel must be attached by hand: React registers wheel as passive, so
    * preventDefault inside onWheel is a no-op. It goes on the wrap rather than on
-   * .grid because the scrollbar and the overlay are .grid's siblings — with the
-   * pointer over the scrollbar, wheel events never reach .grid. */
+   * .grid-scroll because the scrollbar and the overlay are its siblings — with
+   * the pointer over the scrollbar, wheel events never reach .grid-scroll. */
   useLayoutEffect(() => {
     const el = scrollRef.current
     const wrap = wrapRef.current
@@ -643,16 +652,45 @@ export function DataGrid(props: DataGridProps): ReactElement {
 
   return (
     <>
-      {/* Overlay anchor: only the .grid inside it scrolls horizontally, so the
-          scrollbar and the overlay stay put. tabIndex sits on this level so that
-          clicking the scrollbar keeps keyboard focus. */}
-      <div className="grid-wrap" ref={wrapRef} tabIndex={0} onKeyDown={onKeyDown}>
-        <div className="grid" ref={scrollRef}>
+      {/* Overlay anchor: only the .grid-scroll inside it scrolls horizontally, so the
+          scrollbar and the overlay stay put. **Not scrollable**, and for a table
+          with more columns than fit — the normal case for a database viewer —
+          that had to be structural rather than a z-index; the measurements are
+          on wrapRef above. tabIndex sits on this level so that clicking the
+          scrollbar keeps keyboard focus.
+
+          The `grid-*` names below survive alongside their utilities, and that is
+          not leftovers. A utility says what a node looks like; it cannot say
+          *which* node it is, and each of these four is addressed by that
+          identity from outside this file: base.css draws the grid's focus ring
+          through `.layout-root .grid-wrap:focus-visible`, grid-layout.test.ts
+          guards who is whose descendant by name, and PLAN §8's acceptance run
+          counts `.grid-surface`'s children on a real machine.
+
+          All four are `grid-`-prefixed, and the prefix is load-bearing. The
+          scroll container below was plain `grid` until it was measured: `grid`
+          is also a live Tailwind utility, grid.css is unlayered, and unlayered
+          beats layered — so the rule meant for *this* node was landing on every
+          element that wore `grid` meaning `display: grid`. Migration record
+          §12.9. An identity name must never be a bare utility name. */}
+      <div
+        className="grid-wrap relative flex flex-1 min-h-0 min-w-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2"
+        ref={wrapRef}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+      >
+        <div
+          className="grid-scroll relative flex-1 min-h-0 min-w-0 overflow-x-auto overflow-y-hidden overscroll-y-contain overflow-anchor-none bg-bg contain-layout contain-paint outline-none"
+          ref={scrollRef}
+        >
           {/* Height is always 100%: no dimension in the DOM is derived from
               rowCount any more, so the 16,777,214px wall simply does not exist */}
-          <div className="grid-inner" style={{ width: totalWidth }}>
-            <div className="grid-head" style={{ width: totalWidth }}>
-              <div className="grid-corner" />
+          <div className="grid-inner relative h-full" style={{ width: totalWidth }}>
+            <div
+              className="sticky top-0 z-4 h-head bg-bg-2 shadow-rule-b-strong"
+              style={{ width: totalWidth }}
+            >
+              <div className="sticky left-0 z-5 inline-block align-top w-gutter h-head bg-bg-2 shadow-rule-r-strong" />
               {stableCols.map((vc) => {
                 const header = headers[vc.index]
                 const col = schema ? schema[vc.index] : undefined
@@ -661,7 +699,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
                 return (
                   <div
                     key={header.id}
-                    className="grid-head-cell"
+                    className="absolute top-0 h-head flex items-center gap-tight px-cell shadow-rule-r text-fg-dim text-micro overflow-hidden whitespace-nowrap hover:text-fg hover:bg-bg-3"
                     style={{ left: GUTTER_W + vc.start, width: vc.size }}
                     onClick={onSortColumn ? () => onSortColumn(col.name) : undefined}
                     onContextMenu={headerMenu.open(col.name)}
@@ -671,11 +709,33 @@ export function DataGrid(props: DataGridProps): ReactElement {
                         : t('grid.columnTitle', { name: col.name, type: col.nativeType })
                     }
                   >
-                    <span className="cname">{col.name}</span>
-                    <span className="ctype">{col.nativeType}</span>
-                    {s ? <span className="csort">{s.dir === 'asc' ? '▲' : '▼'}</span> : null}
+                    {/* One class for the same three declarations: `truncate` is
+                        overflow-hidden plus the ellipsis plus a `white-space:
+                        nowrap` this span already inherits from the header cell,
+                        so the computed style is unchanged. */}
+                    <span className="truncate">{col.name}</span>
+                    <span className="text-fg-faint text-micro flex-none">{col.nativeType}</span>
+                    {s ? (
+                      <span className="text-accent flex-none">{s.dir === 'asc' ? '▲' : '▼'}</span>
+                    ) : null}
+                    {/* The 7px drag bar. `opacity-70` is unconditional and that
+                        is not a shortcut: at rest the bar has no background at
+                        all, and 70% of nothing is nothing — so the alpha only
+                        ever applies to the accent it wears while hovered or
+                        dragged, which is what it always meant. Stating it once
+                        also keeps it a single entry in the ALPHA_SITES census;
+                        restating the same alpha under a hover variant, beside
+                        the plain `opacity-70`, would be one fact filed twice.
+                        (Written that way round on purpose: the hover spelling
+                        does not appear on any element, and a comment naming it
+                        would mint a rule nobody wears — see
+                        `scripts/audit-shipped-css.mjs`.) */}
                     <span
-                      className={header.isResizing ? 'col-resizer active' : 'col-resizer'}
+                      className={
+                        header.isResizing
+                          ? 'absolute -right-0.75 top-0 w-1.75 h-full cursor-col-resize z-6 opacity-70 bg-accent'
+                          : 'absolute -right-0.75 top-0 w-1.75 h-full cursor-col-resize z-6 opacity-70 hover:bg-accent'
+                      }
                       onClick={stopClick}
                       {...header.resize}
                     />
@@ -684,17 +744,24 @@ export function DataGrid(props: DataGridProps): ReactElement {
               })}
             </div>
 
-            <div className="grid-surface" ref={setSurface}>
+            {/* Height 0, so it contributes nothing to any scroll dimension; the
+                driver writes its transform once per frame (magnitude < 98,304px,
+                composited, no layout and no repaint). */}
+            <div className="grid-surface absolute top-0 left-0 w-0 h-0 will-change-transform" ref={setSurface}>
               {rows}
             </div>
           </div>
         </div>
 
-        {/* The next three are **siblings** of .grid, not descendants: they have to
+        {/* The next three are **siblings** of .grid-scroll, not descendants: they have to
             stay pinned to the panel. The action bar is `position: absolute`, so
-            inside .grid it would slide away with scrollLeft exactly as the
+            inside .grid-scroll it would slide away with scrollLeft exactly as the
             scrollbar once did. */}
-        {overlay !== null ? <div className="grid-overlay">{overlay}</div> : null}
+        {overlay !== null ? (
+          <div className="grid-overlay absolute inset-0 flex items-center justify-center text-fg-faint pointer-events-none">
+            {overlay}
+          </div>
+        ) : null}
 
         <SelectionActionBar
           viewId={view.id}
@@ -843,6 +910,14 @@ const GridRow = memo(function GridRow(props: GridRowProps): ReactElement {
     height: ROW_H,
   }
 
+  const odd = rowIndex % 2 === 1
+
+  // One background for the whole row, computed once; the focused cell is the
+  // only one that differs, and it differs by replacing this rather than by
+  // layering over it. See cellSurfaceClass in util/format.ts.
+  const rowSurface = cellSurfaceClass(odd, rowSelected, false)
+  const selectedSurface = cellSurfaceClass(odd, rowSelected, true)
+
   const cells: ReactElement[] = []
   for (const vc of cols) {
     const value = getCell(resultId, rowIndex, vc.index)
@@ -851,7 +926,7 @@ const GridRow = memo(function GridRow(props: GridRowProps): ReactElement {
     cells.push(
       <div
         key={vc.index}
-        className={vc.index === selectedCol ? `${base} selected` : base}
+        className={`${base} ${vc.index === selectedCol ? selectedSurface : rowSurface}`}
         data-col={vc.index}
         style={{ left: GUTTER_W + vc.start, width: vc.size }}
       >
@@ -860,20 +935,50 @@ const GridRow = memo(function GridRow(props: GridRowProps): ReactElement {
     )
   }
 
-  const rowClass =
-    (rowIndex % 2 === 1 ? 'grid-row odd' : 'grid-row') + (rowSelected ? ' row-selected' : '')
-
   return (
-    <div className={rowClass} style={style} onClick={onClick} onContextMenu={onContextMenu}>
+    <div
+      className={ROW_CLASS}
+      style={style}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+    >
       {/* `data-gutter` is what tells a plain click "this is a selection", the
           same delegation trick `data-col` uses for cells. */}
-      <div className="grid-rownum" data-gutter="" title={ROWNUM_TITLE}>
+      <div
+        className={rowSelected ? ROWNUM_SELECTED_CLASS : ROWNUM_CLASS}
+        data-gutter=""
+        title={ROWNUM_TITLE}
+      >
         {rowIndex + 1}
       </div>
       {cells}
     </div>
   )
 })
+
+/**
+ * The row, the gutter, and the gutter again while the row is staged for the
+ * chat. Three complete strings, not a base plus a patch — see the note above
+ * `cellSurfaceClass`, which is the same argument for the cells.
+ *
+ * `group` is the only thing on the row that is not the row's own appearance: it
+ * is what lets a cell say "while the row I am in is hovered", which used to be
+ * `.grid-row:hover .grid-cell` and is now a variant on the cell. `grid-row`
+ * itself stays a real selector — one declaration is still in components/grid.css
+ * and cannot be anything else. The row's height is deliberately stated twice,
+ * once here and once as an inline pixel value from `ROW_H`: both resolve to
+ * --spacing-row, which is what vscroll.ts does its arithmetic in.
+ */
+const ROW_CLASS = 'grid-row group absolute top-0 left-0 block h-row whitespace-nowrap'
+
+const ROWNUM_CLASS = 'grid-rownum sticky left-0 z-2 inline-block align-top w-gutter h-row leading-row pr-control-x text-right font-mono text-micro text-fg-faint bg-bg-1 shadow-rule-r overflow-hidden cursor-pointer'
+
+/* Hue and shape, and the shape is the half that survives a colour-vision
+   difference: --shadow-gutter-sel is a 2px accent rule down the one column that
+   is still on screen however far right a wide table is scrolled. Inset, so it
+   costs no layout — a left border would eat 2px out of the 54px gutter and shove
+   the number sideways. */
+const ROWNUM_SELECTED_CLASS = 'grid-rownum sticky left-0 z-2 inline-block align-top w-gutter h-row leading-row pr-control-x text-right font-mono text-micro text-accent bg-rownum-sel shadow-gutter-sel overflow-hidden cursor-pointer'
 
 /**
  * Tooltip on the row number.
@@ -899,43 +1004,59 @@ interface GridFooterProps {
 function GridFooter(p: GridFooterProps): ReactElement {
   const t = useT()
   return (
-    <div className="toolbar" style={{ borderTop: '1px solid var(--border)', borderBottom: 'none' }}>
+    /*
+     * The same strip as a view's toolbar, with the rule on the other edge — it
+     * closes the grid rather than opening it.
+     *
+     * The two borders were an inline `style` here until this round, and the note
+     * that stood in this place said why: the strip was a named rule in an
+     * unlayered sheet declaring a bottom border, an unlayered rule outranks every
+     * `@layer`, so a top border written as a utility would have lost silently and
+     * this footer would have kept a line under it and gained none above. Inline
+     * was the only writing that won the argument.
+     *
+     * The strip is a class list now, so this element states its own edge and the
+     * argument is over. Nothing above this footer changed: the grid's row
+     * geometry is computed in `vscroll.ts` from the row height, and a pixel lost
+     * here would accumulate over a million rows.
+     */
+    <div className="flex h-bar flex-none items-center gap-tight overflow-hidden shadow-rule-t bg-bg-1 px-snug text-fg-dim">
       {/* `count` selects the plural form, `rows` carries the grouped number —
           t() never formats numbers itself. */}
-      <span className="mono">{t('grid.rows', { count: p.rowCount, rows: formatCount(p.rowCount) })}</span>
-      <span className="sep" />
-      <span className={p.status === 'paused' ? 'paused-tag' : undefined}>
+      <span className="font-mono tabular-nums">{t('grid.rows', { count: p.rowCount, rows: formatCount(p.rowCount) })}</span>
+      <span className="h-divider w-px flex-none bg-border-strong" />
+      <span className={p.status === 'paused' ? 'text-warn' : undefined}>
         {statusLabel(t, p.status)}
       </span>
       {p.elapsedMs !== undefined ? (
         <>
-          <span className="sep" />
-          <span className="mono">{formatMs(p.elapsedMs)}</span>
+          <span className="h-divider w-px flex-none bg-border-strong" />
+          <span className="font-mono tabular-nums">{formatMs(p.elapsedMs)}</span>
         </>
       ) : null}
       {p.pausedReason !== null ? (
         <>
-          <span className="sep" />
+          <span className="h-divider w-px flex-none bg-border-strong" />
           {/* The reason comes from main and is canonical English, the same text
               MCP reads; only the sentence around it is localized. */}
-          <span className="paused-tag" title={t('grid.pausedTitle', { reason: p.pausedReason })}>
+          <span className="text-warn" title={t('grid.pausedTitle', { reason: p.pausedReason })}>
             {t('grid.paused')}
           </span>
         </>
       ) : null}
       {p.truncated ? (
         <>
-          <span className="sep" />
+          <span className="h-divider w-px flex-none bg-border-strong" />
           <span title={t('grid.truncatedTitle')}>{t('grid.truncated')}</span>
         </>
       ) : null}
       {p.evicted > 0 ? (
         <>
-          <span className="sep" />
+          <span className="h-divider w-px flex-none bg-border-strong" />
           <span title={t('grid.evictedTitle')}>{t('grid.evicted', { count: p.evicted })}</span>
         </>
       ) : null}
-      <span className="grow" />
+      <span className="flex-1" />
     </div>
   )
 }

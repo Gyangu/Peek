@@ -39,6 +39,7 @@ export function AppearanceSection(): ReactElement {
             nothing keeps. */}
         <span className="form-label">{t('settings.language')}</span>
         <Segmented
+          className="grow-0 shrink-0 basis-auto min-w-50"
           label={t('settings.language')}
           value={locale}
           options={LOCALES.map((l) => ({ value: l.id, label: l.label }))}
@@ -96,6 +97,7 @@ function ZoomRow(): ReactElement {
          * roving tabindex, is a control the keyboard cannot enter.
          */}
         <Segmented
+          className="grow-0 shrink-0 basis-auto min-w-50"
           label={t('settings.zoom')}
           value={UI_ZOOM_STEPS.find((step) => zoom !== null && Math.abs(zoom - step) < 0.001) ?? -1}
           options={UI_ZOOM_STEPS.map((step) => ({

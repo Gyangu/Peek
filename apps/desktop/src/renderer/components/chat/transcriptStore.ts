@@ -363,12 +363,30 @@ const requested = new Set<ChatId>()
  */
 export async function restoreChat(chatId: ChatId): Promise<boolean> {
   if (requested.has(chatId)) return false
-  const ch = channel()
-  const ask = ch?.restoreChat
-  if (typeof ask !== 'function') return false
   requested.add(chatId)
+  return ask(chatId)
+}
+
+/**
+ * Ask again, on purpose.
+ *
+ * The button under a snapshot that could not be replaced. It goes around the
+ * once-per-conversation guard above, and that is the entire difference between
+ * the two functions: the guard exists to keep an *automatic* request from
+ * looping, and a person pressing a button is not a loop. Nothing else about a
+ * retry differs — same channel, same reply, same deltas.
+ */
+export async function retryLoad(chatId: ChatId): Promise<boolean> {
+  requested.add(chatId)
+  return ask(chatId)
+}
+
+async function ask(chatId: ChatId): Promise<boolean> {
+  const ch = channel()
+  const request = ch?.restoreChat
+  if (typeof request !== 'function') return false
   try {
-    return await ask.call(ch, chatId)
+    return await request.call(ch, chatId)
   } catch {
     // Main answers `false` on every failure it can see; this is the transport
     // itself failing. Either way the panel shows what it has.

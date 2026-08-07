@@ -44,6 +44,7 @@ import {
   summarizeToolInput,
   toolResultText,
 } from '../toolCalls'
+import { composerDisabled, strandedOnSnapshot, transcriptState } from '../panelState'
 import {
   applyChatDelta,
   applyChatDeltas,
@@ -560,8 +561,13 @@ test('markdown: agent links never become anchors', () => {
   const markdown = code('../Markdown.tsx')
   assert.doesNotMatch(markdown, /<a[\s>]/)
   assert.doesNotMatch(markdown, /href=/)
-  // The link branch renders an inert span instead.
-  assert.match(markdown, /className="md-link"/)
+  // The link branch renders an inert span instead. This used to look for
+  // `className="md-link"`; that class went in the Tailwind migration, and a
+  // class name was never what made the element safe anyway. What does is the
+  // shape: a span that is operable (so it is not a dead affordance) and copies
+  // rather than navigates.
+  assert.match(markdown, /<span\b[\s\S]*?role="button"/)
+  assert.match(markdown, /copyLink\(node\.href\)/)
 })
 
 test('permission: the agent’s optionId is what goes back, not the kind', () => {
@@ -907,4 +913,84 @@ test('reset clears the flat projection the same way it clears the mirror', () =>
   assert.equal(mine.length, 2)
   mine = applyChatDeltaToMessages(mine, { type: 'reset', chatId })
   assert.deepEqual(mine, [])
+})
+
+/* ------------------------------------------------------------------ */
+/* What the transcript area shows                                      */
+/* ------------------------------------------------------------------ */
+
+// The regression lock for the bug in
+// `design/2026-08-06-opening-a-stored-conversation.md` §1.2: a conversation
+// being fetched from the agent rendered the *new conversation* invitation, which
+// reads as "this conversation is gone" rather than "this is on its way".
+test('a conversation being loaded is never mistaken for an empty one', () => {
+  assert.equal(transcriptState('loading', 0), 'loading')
+})
+
+// The other half, and the reason this cannot be "always show the loading state
+// when the mirror is empty": a genuinely empty conversation still gets the
+// invitation to type.
+test('an idle conversation with nothing in it still invites a first message', () => {
+  assert.equal(transcriptState('idle', 0), 'empty')
+  assert.equal(transcriptState('ready', 0), 'empty')
+})
+
+// Bringing a *new* conversation up is not fetching anything, so the invitation
+// is right there too — the empty state is not missing information, it is the
+// information.
+test('bringing up a new conversation keeps the invitation', () => {
+  assert.equal(transcriptState('starting', 0), 'empty')
+  assert.equal(transcriptState('authenticating', 0), 'empty')
+})
+
+// The ordering half of the rule, and the one that is easy to get backwards. A
+// replay emits its deltas *before* the status patch that ends the load, so a
+// state machine that checked `loading` first would blank an arrived transcript
+// for a frame on every single load.
+test('messages that have arrived win over a status that has not caught up', () => {
+  assert.equal(transcriptState('loading', 1), 'messages')
+  assert.equal(transcriptState('streaming', 3), 'messages')
+})
+
+/* ------------------------------------------------------------------ */
+/* The snapshot that could not be replaced                             */
+/* ------------------------------------------------------------------ */
+
+/*
+ * `design/2026-08-06-opening-a-stored-conversation.md` §2.4, and the reason it
+ * is a test rather than a comment: this is the one clause of the snapshot design
+ * that is a correctness rule. Everything else about a snapshot is a head start
+ * on a wait; this stops a picture from being mistaken for a live conversation.
+ */
+
+test('a failed load leaves the snapshot marked as a picture, not as a conversation', () => {
+  assert.equal(strandedOnSnapshot({ agentStatus: 'error', showingSnapshot: true }), true)
+})
+
+// The two near misses, which is where a rule like this actually goes wrong.
+test('neither half alone strands a conversation on its snapshot', () => {
+  // Still loading: the agent's copy is on its way and nothing is wrong.
+  assert.equal(strandedOnSnapshot({ agentStatus: 'loading', showingSnapshot: true }), false)
+  // A crashed agent with no snapshot under it: the composer must stay live,
+  // because sending is what reconnects.
+  assert.equal(strandedOnSnapshot({ agentStatus: 'error' }), false)
+})
+
+test('a message cannot be sent on top of a snapshot the agent never loaded', () => {
+  assert.equal(composerDisabled({ agentStatus: 'error', showingSnapshot: true }), true)
+})
+
+// The regression this guards is a real one that shipped once: a composer
+// disabled on `error` turns a recoverable crash into a dead panel whose only
+// exit is "Clear", which throws the conversation away.
+test('a crashed agent still takes a message, because sending is the reconnect', () => {
+  assert.equal(composerDisabled({ agentStatus: 'error' }), false)
+})
+
+test('the composer is shut while a conversation is being fetched or a tool is waiting', () => {
+  assert.equal(composerDisabled({ agentStatus: 'loading' }), true)
+  assert.equal(composerDisabled({ agentStatus: 'starting' }), true)
+  assert.equal(composerDisabled({ agentStatus: 'awaiting-permission' }), true)
+  assert.equal(composerDisabled({ agentStatus: 'ready' }), false)
+  assert.equal(composerDisabled({ agentStatus: 'idle' }), false)
 })

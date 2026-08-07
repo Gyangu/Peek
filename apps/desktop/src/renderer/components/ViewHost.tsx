@@ -27,7 +27,11 @@ export function ViewHost({ viewId }: { viewId: ViewId }): ReactElement {
   const t = useT()
   const view = useView(viewId)
   if (!view) {
-    return <div className="panel-empty">{t('view.gone', { viewId })}</div>
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-tight text-fg-faint">
+        {t('view.gone', { viewId })}
+      </div>
+    )
   }
   switch (view.kind) {
     case 'table':
@@ -49,7 +53,11 @@ export function ViewHost({ viewId }: { viewId: ViewId }): ReactElement {
       // kind is what lets someone work out which plugin to put back — a blank
       // pane would not.
       if (!entry) {
-        return <div className="panel-empty">{t('view.pluginMissing', { kind: view.pluginKind })}</div>
+        return (
+          <div className="flex flex-1 flex-col items-center justify-center gap-tight text-fg-faint">
+            {t('view.pluginMissing', { kind: view.pluginKind })}
+          </div>
+        )
       }
       return entry.render(view)
     }

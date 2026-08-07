@@ -111,12 +111,12 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
 
   return (
     <>
-      <div className="toolbar">
+      <div className="flex h-bar flex-none items-center gap-tight overflow-hidden shadow-rule-b bg-bg-1 px-snug text-fg-dim">
         {/* A collection label such as `public.orders` is an identifier, never translated. */}
-        <span className="mono" title={collectionRefLabel(ref)}>
+        <span className="font-mono tabular-nums" title={collectionRefLabel(ref)}>
           {collectionRefLabel(ref)}
         </span>
-        <span className="sep" />
+        <span className="h-divider w-px flex-none bg-border-strong" />
         <Button
           variant="ghost"
           onClick={refresh}
@@ -136,7 +136,7 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
           {...(view.autoRefreshMs !== undefined ? { autoRefreshMs: view.autoRefreshMs } : {})}
           {...(view.autoRefreshStoppedBy !== undefined ? { stoppedBy: view.autoRefreshStoppedBy } : {})}
         />
-        <span className="sep" />
+        <span className="h-divider w-px flex-none bg-border-strong" />
         {controls.offsetPager ? (
           <>
             <Button
@@ -148,7 +148,7 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
             >
               ← {t('table.prevPage')}
             </Button>
-            <span className="mono">
+            <span className="font-mono tabular-nums">
               {page.offset + 1} – {page.offset + page.limit}
             </span>
             <Button
@@ -175,7 +175,7 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
             </Button>
           </>
         )}
-        <span className="sep" />
+        <span className="h-divider w-px flex-none bg-border-strong" />
         <select
           value={page.limit}
           onChange={(e) => {
@@ -191,12 +191,12 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
         </select>
         {filter && filter.length > 0 ? (
           <>
-            <span className="sep" />
+            <span className="h-divider w-px flex-none bg-border-strong" />
             {/* The tooltip is the raw filter JSON — evidence, shown as it is. */}
             <span title={JSON.stringify(filter)}>{t('table.filters', { count: filter.length })}</span>
           </>
         ) : null}
-        <span className="grow" />
+        <span className="flex-1" />
       </div>
 
       <ViewError error={view.error} />

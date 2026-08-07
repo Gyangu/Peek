@@ -1,9 +1,8 @@
 import { useRef } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 
-import './segmented.css'
 import { indexOfValue, wrapIndex } from '../util/roving'
-import type { ControlSize } from './spec'
+import { CONTROL_SIZES, SEGMENTED, type ControlSize } from './spec'
 
 /**
  * One choice out of several, said in a way a screen reader understands.
@@ -107,8 +106,23 @@ export function Segmented<T extends string | number>(props: SegmentedProps<T>): 
     }
   }
 
-  const classes = ['seg-group', `seg-${size}`]
+  /*
+   * `seg-group` is gone. It was the hook `.settings-pane .seg-group` reached
+   * through to stop this control stretching across the settings dialog, and that
+   * rule is now a `className` on the six callers inside the pane — which is what
+   * the name's own comment said would happen when the sheet migrated.
+   *
+   * The array survives one entry because `className` is still optional, and the
+   * order matters: the caller's classes go last so that a caller that overrides
+   * the group's own flex behaviour reads later in the string. That decides
+   * nothing on its own — a class list has no cascade — but it is the order the
+   * rest of this layer writes and consistency is the whole reason it is written
+   * down.
+   */
+  const classes: string[] = [SEGMENTED.group]
   if (className !== undefined && className !== '') classes.push(className)
+
+  const item = `${SEGMENTED.item} ${CONTROL_SIZES[size].classes}`
 
   return (
     // `radiogroup`, not `tablist`: nothing here switches to a panel, and a
@@ -135,7 +149,13 @@ export function Segmented<T extends string | number>(props: SegmentedProps<T>): 
             aria-checked={checked}
             tabIndex={i === roving ? 0 : -1}
             disabled={option.disabled === true}
-            className={checked ? 'seg-item seg-on' : 'seg-item'}
+            // `on` and `off` are alternatives rather than a base plus an
+            // override: both set a background and a border colour, and two
+            // classes from one utility family resolve in Tailwind's emission
+            // order, not the author's. It emits `border-accent` before
+            // `border-border-strong`, so the layered spelling would have given
+            // the chosen option the unchosen border.
+            className={`${item} ${checked ? SEGMENTED.on : SEGMENTED.off}`}
             {...(option.title === undefined ? {} : { title: option.title })}
             onClick={() => {
               onChange(option.value)

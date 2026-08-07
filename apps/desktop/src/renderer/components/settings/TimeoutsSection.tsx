@@ -71,7 +71,7 @@ export function TimeoutsSection(): ReactElement {
 
   return (
     <>
-      <div className="settings-intro">{t('settings.timeouts.intro')}</div>
+      <div className="text-fg-dim mb-snug">{t('settings.timeouts.intro')}</div>
 
       {FIELDS.map((field) => (
         <div className="form-row" key={field}>
@@ -92,12 +92,12 @@ export function TimeoutsSection(): ReactElement {
               if (e.key === 'Enter') apply()
             }}
           />
-          <span style={{ color: 'var(--fg-faint)' }}>{t('settings.timeouts.seconds')}</span>
+          <span className="text-fg-faint">{t('settings.timeouts.seconds')}</span>
         </div>
       ))}
       <div className="form-hint">{t('settings.timeouts.zeroHint')}</div>
 
-      <div className="conn-actions">
+      <div className="flex flex-wrap gap-tight mt-tight form-actions mb-snug">
         <Button disabled={busy || draft === null} onClick={apply}>
           {t('settings.timeouts.apply')}
         </Button>

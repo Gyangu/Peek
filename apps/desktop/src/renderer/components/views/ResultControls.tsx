@@ -129,7 +129,10 @@ export function CacheGapNotice({ resultId, onRefetch, disabled }: CacheGapNotice
   const snap = useResult(resultId)
   if (!snap.evictedInViewport) return null
   return (
-    <div className="view-error cache-gap" role="status" style={CACHE_GAP_STYLE}>
+    <div
+      className="m-tight flex flex-none items-center gap-snug rounded-control border border-warn bg-err-bg px-snug py-tight text-warn select-text"
+      role="status"
+    >
       <div>
         <strong>{t('result.cacheGap')}</strong> {t('result.cacheGapDetail')}
       </div>
@@ -223,19 +226,26 @@ export function AutoRefreshControl(props: AutoRefreshControlProps): ReactElement
   )
 }
 
-/**
- * Inline rather than a stylesheet rule: this reuses `.view-error`'s box so it sits
- * exactly where an error bar would, and only needs the row layout that a bar with
- * a button on the right requires. Reaching into the global stylesheet for four
- * declarations would spread one component across two files.
+/*
+ * The inline style that used to sit here is gone, and the condition its own note
+ * named is what removed it.
  *
- * The colour is `--warn`, not the error red `.view-error` carries: nothing has
- * failed here, and every row still on screen is real.
+ * It read: "Reconsider when the app sheet migrates: if the error box becomes
+ * utilities on `ViewError`, this borrows nothing and has to state its own shape."
+ * That happened this round (migration record §17). The box was a named rule in an
+ * **unlayered** sheet, so an amber border and an amber colour written as
+ * utilities lost to the rule's red ones however specific they were, and an inline
+ * style was the only writing that still won. Nothing outranks anything now:
+ * both boxes state their whole shape on their own element.
+ *
+ * The one thing the old note was right to fear is still true and is now the
+ * reader's job rather than the cascade's — these two boxes and the chat panel's
+ * error block are three statements of one visual fact, and the two that were
+ * literally the same rule twice over are why `--color-err-border` exists at all.
+ * The tokens are the shared part; the shapes are not. If a fourth appears, name
+ * the shape before copying it.
+ *
+ * The colour is `--color-warn`, not the error red: nothing has failed here, and
+ * every row still on screen is real. The background stays the error block's —
+ * amber on it reads fine, and repainting it is a look change, not a migration.
  */
-const CACHE_GAP_STYLE = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-  borderColor: 'var(--warn)',
-  color: 'var(--warn)',
-} as const

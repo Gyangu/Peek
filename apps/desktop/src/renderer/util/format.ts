@@ -42,22 +42,127 @@ export function cellText(v: unknown): string {
   }
 }
 
-/** CSS class for one cell (alignment and colour). Returns constants, allocates nothing. */
+/* ==================================================================
+ * The cell's classes, in two halves.
+ *
+ * Until the Tailwind migration reached this file these were six modifier names
+ * — a word each — and `components/grid.css` held the rules that painted them.
+ * That split was the last thing keeping the grid's stylesheet alive, and it was
+ * a file-ownership accident rather than a technical one: the modifiers are
+ * minted here, the rules lived one directory over, and no round owned both.
+ *
+ * ## Why every string below is written out whole
+ *
+ * Tailwind's extractor reads raw bytes and compiles every candidate it finds. It
+ * cannot see through a `+`, so a name assembled from a prefix and a value is a
+ * name that never reaches the stylesheet: the class is not merely unaudited, it
+ * paints nothing at all, and the cell silently loses that colour. Every token
+ * therefore appears here, spelled out, in a constant.
+ *
+ * Joining two whole constants with a space at the call site is a different
+ * thing and is safe — both halves are literals in this file, so the scanner has
+ * already seen every token in them. It is the *token* that may not be split.
+ * See migration record §11.5 and the header of `__tests__/sourceScan.ts`.
+ *
+ * ## Why the background is a separate half, decided here rather than in CSS
+ *
+ * A class list has no cascade. The five backgrounds a cell can have used to be
+ * ordered by selector specificity and by the order of the rules in the sheet —
+ * the zebra stripe was deliberately written after the hover rule so it would
+ * win a tie, and the focused cell needed `!important` to beat both. Written as
+ * four background utilities on one element, that ordering would be Tailwind's
+ * emission order and not ours, which is the failure `ui/CLAUDE.md` calls "two
+ * classes from one utility family". So exactly one background class is chosen,
+ * here, from the state the caller already knows.
+ *
+ * The one state the caller cannot know is the pointer, and that is the one that
+ * stays in CSS — as a `group-hover:` variant against the row, which is what
+ * replaced the `.grid-row:hover .grid-cell` descendant selector.
+ * ================================================================== */
+
+/**
+ * Geometry, grid lines and type — identical on every cell whatever it holds.
+ *
+ * The line height is `--leading-row`, derived from the row height rather than
+ * written as a number, because `vscroll.ts` computes every scroll offset in the
+ * product from that row height and a cell whose text does not move with it
+ * slides off its own row.
+ *
+ * **It used to be `--leading-cell` (23px) and that was the product's worst half
+ * pixel.** The 1px came off to make room for the cell's own `border-b` — but
+ * the row number this cell has to line up with has no bottom border, only a
+ * right one, so every row of data sat half a pixel above its own row number.
+ * Measured with a `Range` around each text node, because the element boxes are
+ * both 24px and would have said "aligned": row number centre 12, cell centre
+ * 11.5 (§31.3).
+ *
+ * Both grid lines are `--shadow-cell` now — one token, two `inset` shadows,
+ * neither of which takes layout space. One token rather than two classes: a
+ * class list has no cascade, so `shadow-rule-r shadow-rule-b` would be decided
+ * by Tailwind's emission order and one of the two lines would simply not paint.
+ *
+ * `--text-body` rather than the chrome rung: a data cell is monospace, and
+ * mono glyphs carry more ink than proportional ones at the same nominal size.
+ * That compensation used to be `--fs-data: 11.5px` — half a pixel over the
+ * 11px chrome. It is a whole rung now (§31.6).
+ */
+const CELL =
+  'grid-cell absolute top-0 h-row leading-row px-cell font-mono text-body truncate shadow-cell'
+
+const CELL_NUM = `${CELL} text-right`
+const CELL_NULL = `${CELL} text-fg-faint italic`
+const CELL_BOOL = `${CELL} text-cell-bool`
+const CELL_JSON = `${CELL} text-cell-json`
+const CELL_TRUNC = `${CELL} text-warn cursor-pointer`
+const CELL_PENDING = `${CELL} text-fg-faint`
+
+/**
+ * What a cell looks like given what is in it: alignment and colour.
+ *
+ * Returns one of seven module constants, so it still allocates nothing on a hot
+ * path that runs hundreds of times a frame. Pair it with `cellSurfaceClass`.
+ */
 export function cellClass(v: unknown, logical: LogicalType | undefined): string {
-  if (isPendingCell(v)) return 'grid-cell pending'
-  if (v === null || v === undefined) return 'grid-cell null'
-  if (isTruncatedValue(v)) return 'grid-cell trunc'
+  if (isPendingCell(v)) return CELL_PENDING
+  if (v === null || v === undefined) return CELL_NULL
+  if (isTruncatedValue(v)) return CELL_TRUNC
   switch (typeof v) {
     case 'number':
     case 'bigint':
-      return 'grid-cell num'
+      return CELL_NUM
     case 'boolean':
-      return 'grid-cell bool'
+      return CELL_BOOL
     case 'object':
-      return v instanceof Date ? 'grid-cell' : 'grid-cell json'
+      return v instanceof Date ? CELL : CELL_JSON
     default:
-      return logical === 'number' || logical === 'bigint' ? 'grid-cell num' : 'grid-cell'
+      return logical === 'number' || logical === 'bigint' ? CELL_NUM : CELL
   }
+}
+
+/* The four backgrounds, as alternatives rather than as a base plus overrides. */
+const SURFACE_REST = 'bg-bg group-hover:bg-bg-1'
+const SURFACE_STRIPE = 'bg-bg-stripe group-hover:bg-bg-1'
+/** A selected row does not change under the pointer, so it carries no variant. */
+const SURFACE_ROW_SELECTED = 'bg-row-sel'
+/** The focused cell outranks the row it is in, hover included. */
+const SURFACE_CELL_SELECTED = 'bg-bg-sel outline outline-accent -outline-offset-1'
+
+/**
+ * What a cell is drawn *on*: exactly one background, and the hover variant that
+ * goes with it where the row has one.
+ *
+ * The precedence is the same one the four descendant rules encoded, read top
+ * to bottom: the focused cell beats the staged selection, which beats the zebra
+ * stripe, which beats the resting surface.
+ */
+export function cellSurfaceClass(
+  odd: boolean,
+  rowSelected: boolean,
+  cellSelected: boolean,
+): string {
+  if (cellSelected) return SURFACE_CELL_SELECTED
+  if (rowSelected) return SURFACE_ROW_SELECTED
+  return odd ? SURFACE_STRIPE : SURFACE_REST
 }
 
 /** Whether the value is worth opening up: truncated values, JSON, long text. */

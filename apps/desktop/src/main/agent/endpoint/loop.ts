@@ -50,6 +50,7 @@ import { DeltaBatcher } from '../batcher'
 import { PermissionBroker } from '../permissions'
 import { requestToolPermission } from './gate'
 import { redact, sanitizeLine } from '../redact'
+import { lastMessagePreview } from '../preview'
 import { classifyAgentEvent, EndpointTranslator, type EndpointEvent } from './events'
 import type { EndpointThreadStore } from './thread-store'
 import type { SessionIndex } from '../session-index'
@@ -355,7 +356,7 @@ export class EndpointManager {
         transcriptToDeltas(chatId, stored.transcript),
         {
           messageCount: stored.transcript.length,
-          lastMessagePreview: lastPreview(stored.transcript),
+          lastMessagePreview: lastMessagePreview(stored.transcript),
           streamingMessageId: null,
         },
         { flush: true },
@@ -703,18 +704,6 @@ const TITLE_CHARS = 80
  * at any higher one.
  */
 const LOOKS_LIKE_AUTH_FAILURE = /\b(401|403|unauthor|forbidden|authentication|api[ _-]?key|credential|token)/i
-
-function lastPreview(messages: readonly ChatMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i]
-    if (!message) continue
-    for (let j = message.blocks.length - 1; j >= 0; j -= 1) {
-      const block = message.blocks[j]
-      if (block?.type === 'text' && block.text) return sanitizeLine(block.text, 200)
-    }
-  }
-  return ''
-}
 
 function firstMessageId(deltas: readonly ChatDelta[]): ChatMessageId {
   for (const delta of deltas) {

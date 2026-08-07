@@ -88,7 +88,8 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
 
   return (
     <>
-      <div className="toolbar">
+      {/* The shared strip, written out — see the same note in `QueryView.tsx`. */}
+      <div className="flex h-bar flex-none items-center gap-tight overflow-hidden shadow-rule-b bg-bg-1 px-snug text-fg-dim">
         <Button variant="primary" disabled={!ready || running || !hasQuery} onClick={search}>
           ▶ {t('vector.run')}
         </Button>
@@ -103,46 +104,62 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
           {...(view.autoRefreshMs !== undefined ? { autoRefreshMs: view.autoRefreshMs } : {})}
           {...(view.autoRefreshStoppedBy !== undefined ? { stoppedBy: view.autoRefreshStoppedBy } : {})}
         />
-        <span className="sep" />
+        <span className="h-divider w-px flex-none bg-border-strong" />
         {/* The collection name is an identifier: never translated. */}
-        <span className="mono" title={collection}>
+        <span className="font-mono tabular-nums" title={collection}>
           {collection}
         </span>
         {view.queryVec ? (
           <>
-            <span className="sep" />
+            <span className="h-divider w-px flex-none bg-border-strong" />
             <span>{t('vector.queryVector', { dim: view.queryVec.length })}</span>
           </>
         ) : null}
         {view.queryText ? (
           <>
-            <span className="sep" />
+            <span className="h-divider w-px flex-none bg-border-strong" />
             <span title={view.queryText}>{t('vector.textQuery')}</span>
           </>
         ) : null}
         {meta ? (
           <>
-            <span className="sep" />
-            <span className="mono">
+            <span className="h-divider w-px flex-none bg-border-strong" />
+            <span className="font-mono tabular-nums">
               {t('grid.rows', { count: meta.rows, rows: formatCount(meta.rows) })}
               {` · ${formatMs(meta.elapsedMs)}`}
             </span>
           </>
         ) : null}
-        <span className="grow" />
+        <span className="flex-1" />
         {canSearchEver ? null : (
           // Not a disabled button: this connection will never search vectors, and
           // saying "unavailable" would suggest waiting fixes it.
-          <span style={{ color: 'var(--warn)' }}>{t('vector.unavailable')}</span>
+          <span className="text-warn">{t('vector.unavailable')}</span>
         )}
       </div>
 
       {canSearchEver ? (
-        <div className="toolbar vector-query">
-          <label htmlFor={`vq-id-${viewId}`}>{t('vector.pointId')}</label>
+        // A second toolbar row under the view's own. The fields are short by
+        // nature — a point id, a vector name, two numbers — so each states its
+        // own width instead of stretching: a row of half-empty full-width boxes
+        // reads as a form, and this is a query bar. The labels hold their width
+        // for the same reason.
+        //
+        // The shape shared by all four (`flex-none h-control-sm px-control-x py-0 text-micro`)
+        // is written out on each rather than hoisted into a constant. That is
+        // deliberate: a constant here would be one more name to look up, and the
+        // widths — the only part that differs — would end up beside a name
+        // instead of beside the field. These four rules lived in views.css until
+        // the `input` floor moved into `@layer base`; before that they had to be
+        // CSS, because an unlayered element rule outranks every utility however
+        // specific the utility is.
+        <div className="flex h-bar flex-none items-center gap-tight overflow-hidden shadow-rule-b bg-bg-1 px-snug text-fg-dim">
+          <label className="shrink-0 whitespace-nowrap" htmlFor={`vq-id-${viewId}`}>
+            {t('vector.pointId')}
+          </label>
           <input
             id={`vq-id-${viewId}`}
-            className="mono vq vq-id"
+            className="font-mono tabular-nums flex-none h-control-sm px-control-x py-0 text-micro w-47.5"
             value={draft.pointId}
             spellCheck={false}
             title={t('vector.pointIdTitle')}
@@ -151,13 +168,15 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
             }}
             onKeyDown={onKeyDown}
           />
-          <span className="sep" />
-          <label htmlFor={`vq-name-${viewId}`}>{t('vector.vectorName')}</label>
+          <span className="h-divider w-px flex-none bg-border-strong" />
+          <label className="shrink-0 whitespace-nowrap" htmlFor={`vq-name-${viewId}`}>
+            {t('vector.vectorName')}
+          </label>
           {/* A datalist, not a select: the names are only known once the tree has
               been read, and a picker with no options would be a dead end. */}
           <input
             id={`vq-name-${viewId}`}
-            className="mono vq vq-name"
+            className="font-mono tabular-nums flex-none h-control-sm px-control-x py-0 text-micro w-27.5"
             list={suggestions.length > 0 ? `vq-names-${viewId}` : undefined}
             value={draft.vectorName}
             spellCheck={false}
@@ -175,12 +194,14 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
               ))}
             </datalist>
           ) : null}
-          <span className="sep" />
+          <span className="h-divider w-px flex-none bg-border-strong" />
           {/* `topK` is the API's own name for it, left as it is in every language. */}
-          <label htmlFor={`vq-topk-${viewId}`}>topK</label>
+          <label className="shrink-0 whitespace-nowrap" htmlFor={`vq-topk-${viewId}`}>
+            topK
+          </label>
           <input
             id={`vq-topk-${viewId}`}
-            className="vq vq-num"
+            className="flex-none h-control-sm px-control-x py-0 text-micro w-17.5"
             type="number"
             min={1}
             value={draft.topK}
@@ -190,11 +211,13 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
             }}
             onKeyDown={onKeyDown}
           />
-          <span className="sep" />
-          <label htmlFor={`vq-score-${viewId}`}>{t('vector.minScore')}</label>
+          <span className="h-divider w-px flex-none bg-border-strong" />
+          <label className="shrink-0 whitespace-nowrap" htmlFor={`vq-score-${viewId}`}>
+            {t('vector.minScore')}
+          </label>
           <input
             id={`vq-score-${viewId}`}
-            className="vq vq-num"
+            className="flex-none h-control-sm px-control-x py-0 text-micro w-17.5"
             type="number"
             step="any"
             value={draft.score}
@@ -206,14 +229,14 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
           />
           {view.filter && view.filter.length > 0 ? (
             <>
-              <span className="sep" />
+              <span className="h-divider w-px flex-none bg-border-strong" />
               {/* The tooltip is the raw filter JSON — evidence, shown as it is. */}
               <span title={JSON.stringify(view.filter)}>
                 {t('vector.filters', { count: view.filter.length })}
               </span>
             </>
           ) : null}
-          <span className="grow" />
+          <span className="flex-1" />
         </div>
       ) : null}
 

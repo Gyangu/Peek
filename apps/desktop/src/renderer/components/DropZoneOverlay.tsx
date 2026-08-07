@@ -43,9 +43,32 @@ export function PanelDropOverlay({ panelId, occupantTitle }: PanelDropOverlayPro
     height: pct(rect.height),
   }
   return (
-    <div className="panel-drop-overlay">
-      <div className="drop-highlight" style={style}>
-        <span className="drop-label">{dropLabel(t, zone, occupantTitle)}</span>
+    /*
+     * `panel-drop-overlay` keeps two declarations — `position: absolute` and
+     * `pointer-events: none` — because `view-drag.test.ts` reads them by
+     * selector: the overlay covers the panel, and a hit-testable one would eat
+     * the release that ends the drag. `inset-0` and the layer it sits on are
+     * here.
+     *
+     * `drop-highlight` keeps its name for a different reason: `base.css` turns
+     * the slide off under `prefers-reduced-motion` by selecting it. The rule it
+     * used to have is gone, so nothing here is outranked.
+     *
+     * `bg-accent/18` replaces `color-mix(in srgb, var(--color-accent) 18%,
+     * transparent)`. Tailwind's slash modifier mixes in oklab rather than sRGB,
+     * and that is the same colour here rather than a near miss: mixing *with
+     * `transparent`* is premultiplied, so the second colour contributes nothing
+     * and only the alpha moves, whichever space the mix names. Confirmed by
+     * reading the composited value back out of Electron.
+     */
+    <div className="panel-drop-overlay pointer-events-none absolute inset-0 z-5">
+      <div
+        className="drop-highlight absolute flex items-center justify-center rounded-control bg-accent/18 px-tight outline-2 -outline-offset-2 outline-accent transition-all duration-90 ease-out"
+        style={style}
+      >
+        <span className="max-w-full truncate rounded-control bg-bg/82 px-snug py-inset text-fg">
+          {dropLabel(t, zone, occupantTitle)}
+        </span>
       </div>
     </div>
   )
@@ -90,11 +113,27 @@ export function TabInsertCaret(): ReactElement | null {
   const line = useTabCaretLine()
   if (!line) return null
   return (
-    <div className="tab-insert-caret" style={{ left: line.x, top: line.top, height: line.height }}>
+    /* `tab-insert-caret` keeps three declarations: `position: fixed` and
+       `pointer-events: none`, which `view-drag.test.ts` reads by selector, and
+       the 6px accent glow, which has no `--shadow-*` token and is not worth
+       inventing one for — the theme's five shadows each name a *kind of surface
+       that floats*, and this is a 2px line. The rule has to exist for the first
+       two anyway, so the glow costs nothing extra by staying in it. */
+    <div className="tab-insert-caret pointer-events-none fixed z-998 w-0.5 bg-accent shadow-caret" style={{ left: line.x, top: line.top, height: line.height }}>
       {/* The strip's counterpart of the highlight's label: the line says *where*,
           this says *what*. Without it a drop on the strip is the one gesture with
-          no words attached to it. */}
-      <span className="drop-label">{t('panel.drop.tab')}</span>
+          no words attached to it.
+
+          Deliberately *not* the same string as the highlight's label, and the
+          difference is the whole rule this replaces (`.tab-insert-caret
+          .drop-label`): `max-w-full` is right against a half-panel and wrong
+          here, where the containing block is the 2px caret itself — the label
+          would shrink to two pixels and clip its first glyph in half. The line
+          is drawn in viewport coordinates precisely so nothing clips it; its
+          label inherits that and sizes to the words it carries. */}
+      <span className="absolute top-full left-0 mt-inset rounded-control border border-accent-dim bg-bg/82 px-snug py-inset whitespace-nowrap text-fg">
+        {t('panel.drop.tab')}
+      </span>
     </div>
   )
 }
@@ -116,7 +155,18 @@ export function DragGhost(): ReactElement | null {
   const view = useView(viewId)
   if (!pointer) return null
   return (
-    <div className="view-drag-ghost" style={{ left: pointer.x, top: pointer.y }}>
+    /* `view-drag-ghost` keeps exactly one declaration — `pointer-events: none`,
+       which `view-drag.test.ts` reads by selector and which is what keeps the
+       label from ever becoming its own drop target. The rest is here.
+
+       `translate-3.5` is the 14px offset that puts the label below and right of
+       the cursor rather than under it. `z-999` is the top of this window's
+       stack, shared with the divider's guide line: both are things the pointer
+       is carrying. */
+    <div
+      className="view-drag-ghost pointer-events-none fixed z-999 max-w-65 translate-3.5 truncate rounded-control border border-accent-dim bg-bg-3 px-snug py-inset text-fg shadow-drag"
+      style={{ left: pointer.x, top: pointer.y }}
+    >
       {view ? viewTitleOf(t, view) : t('panel.dragView')}
     </div>
   )

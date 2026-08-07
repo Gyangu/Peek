@@ -65,7 +65,9 @@ export function ErrorCenterButton(): ReactElement | null {
        * fence forces and the more accurate statement.
        *
        * (`seg` in that class list was `.statusbar .seg`, which `<Segmented>`
-       * renamed to `.cell`; `.btn` already provides what it declared.)
+       * renamed to `.cell`; `.btn` already provides what it declared. `err` was
+       * `.statusbar .err`, and is `text-err` now — the token is the same one,
+       * said without needing to be inside a status bar to mean it.)
        */}
       <Button
         variant="ghost"
@@ -73,7 +75,7 @@ export function ErrorCenterButton(): ReactElement | null {
         aria-expanded={open}
         onClick={toggleErrorCenter}
       >
-        <span className={unseen > 0 ? 'err' : undefined}>
+        <span className={unseen > 0 ? 'text-err' : undefined}>
           ⚠ {unseen > 0 ? t('app.errors.unseen', { count: unseen }) : t('app.errors.count', { count })}
         </span>
       </Button>
@@ -110,10 +112,15 @@ function ErrorCenterPanel(): ReactElement {
   const ordered = [...entries].reverse()
 
   return (
-    <div className="error-center" role="dialog" aria-label={t('app.errors.title')} style={PANEL_STYLE}>
-      <div className="toolbar" style={HEADER_STYLE}>
+    <div
+      className="fixed right-2 bottom-8 z-60 flex flex-col bg-bg border border-border rounded-surface shadow-float"
+      role="dialog"
+      aria-label={t('app.errors.title')}
+      style={PANEL_SIZE}
+    >
+      <div className="flex h-bar flex-none items-center gap-tight overflow-hidden shadow-rule-b bg-bg-1 px-snug text-fg-dim">
         <strong>{t('app.errors.title')}</strong>
-        <span className="grow" />
+        <span className="flex-1" />
         <Button
           variant="ghost"
           onClick={() => {
@@ -130,9 +137,9 @@ function ErrorCenterPanel(): ReactElement {
         </Button>
       </div>
 
-      <div style={LIST_STYLE}>
+      <div className="overflow-y-auto overflow-x-hidden">
         {ordered.length === 0 ? (
-          <div style={{ padding: '12px', color: 'var(--fg-faint)' }}>{t('app.errors.empty')}</div>
+          <div className="p-snug text-fg-faint">{t('app.errors.empty')}</div>
         ) : (
           ordered.map((entry) => (
             <ErrorRow
@@ -202,27 +209,25 @@ function ErrorRow({
   ]
 
   return (
-    <div className="error-row" style={ROW_STYLE} onContextMenu={menu.open(null)} title={t('menu.hint')}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-        <span className="mono" style={{ color: 'var(--fg-faint)' }}>
-          {formatClock(entry.ts)}
-        </span>
-        <span className="mono" title={t('app.errors.sourceTitle')} style={SOURCE_STYLE}>
+    <div
+      className="flex flex-col gap-inset py-tight px-snug border-t border-border"
+      onContextMenu={menu.open(null)}
+      title={t('menu.hint')}
+    >
+      <div className="flex items-baseline gap-tight">
+        <span className="font-mono tabular-nums text-fg-faint">{formatClock(entry.ts)}</span>
+        <span className="font-mono tabular-nums text-fg-faint" title={t('app.errors.sourceTitle')}>
           {sourceLabel(t, entry.source)}
         </span>
-        <strong className="mono">{entry.code}</strong>
+        <strong className="font-mono tabular-nums">{entry.code}</strong>
         {entry.context === undefined ? null : (
           // An identifier (view id / connection label): never translated.
-          <span className="mono" style={{ color: 'var(--fg-faint)' }}>
-            {entry.context}
-          </span>
+          <span className="font-mono tabular-nums text-fg-faint">{entry.context}</span>
         )}
       </div>
       <div>{text}</div>
       {entry.detail === undefined ? null : (
-        <div className="detail" style={DETAIL_STYLE}>
-          {entry.detail}
-        </div>
+        <div className="text-fg-faint whitespace-pre-wrap break-words">{entry.detail}</div>
       )}
       {menu.state ? (
         <Menu label={t('menu.error.label')} at={menu.state.at} nodes={nodes} onClose={menu.close} />
@@ -261,43 +266,28 @@ function formatClock(ts: number): string {
 }
 
 /*
- * Inline styles rather than stylesheet rules, on purpose and only here: this
- * component is a self-contained overlay that no other component positions, and
- * splitting eight declarations into styles.css would put half of it in a file
- * owned by everybody. The colours are all existing custom properties, so it
- * follows the theme like everything else.
+ * The panel's two dimensions, and the only styling here that is not a class.
+ *
+ * The other twelve declarations used to be inline too, with a comment saying why:
+ * this is a self-contained overlay nobody else positions, and splitting it into
+ * styles.css would have put half of it in a file owned by everybody. Utilities
+ * grant that wish exactly — the declarations are on the elements, and there is no
+ * shared file to put half of them in — so they are `className`s now.
+ *
+ * These two are not, because neither is a value the theme has any business
+ * holding. `min(720px, calc(100vw - 16px))` is this panel's answer to a narrow
+ * window; a `--spacing-*` token for it would also be a legal padding and a legal
+ * gap, which is three generated classes for one fact. The settings dialog and
+ * the disclosure dialog made the same call, and used to reach it from the
+ * stylesheet side; both are inline `style` on their own shells now, so all three
+ * arrive here the same way. See `components/modalClasses.ts` and the migration
+ * record §18.2.
+ *
+ * The background moved from `var(--bg-elevated, var(--color-bg))` to `bg-bg`:
+ * `--bg-elevated` has never been defined anywhere, so the fallback was the value
+ * and the name in front of it was decoration.
  */
-const PANEL_STYLE = {
-  position: 'fixed',
-  right: '8px',
-  bottom: '32px',
+const PANEL_SIZE = {
   width: 'min(720px, calc(100vw - 16px))',
   maxHeight: 'min(60vh, 520px)',
-  display: 'flex',
-  flexDirection: 'column',
-  background: 'var(--bg-elevated, var(--bg))',
-  border: '1px solid var(--border)',
-  borderRadius: '6px',
-  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.35)',
-  zIndex: 60,
-} as const
-
-const HEADER_STYLE = { flex: '0 0 auto' } as const
-
-const LIST_STYLE = { overflowY: 'auto', overflowX: 'hidden' } as const
-
-const ROW_STYLE = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '2px',
-  padding: '6px 10px',
-  borderTop: '1px solid var(--border)',
-} as const
-
-const SOURCE_STYLE = { color: 'var(--fg-faint)' } as const
-
-const DETAIL_STYLE = {
-  color: 'var(--fg-faint)',
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-word',
 } as const

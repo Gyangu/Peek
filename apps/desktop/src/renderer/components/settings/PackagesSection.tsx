@@ -37,26 +37,54 @@ export function PackagesSection(): ReactElement {
     <>
       <div className="form-hint">{t('settings.packages.hint')}</div>
 
-      <table className="pkg-table">
+      {/*
+       * A real table, not a list of `.form-row`s. What is being read here is
+       * three values compared down a column ("which of these is at a different
+       * version"), and the label-gutter form layout the rest of this pane uses
+       * cannot line up a column at all. It gets the full pane width, hence no
+       * label gutter.
+       *
+       * The cell shape is spelled out on every `th` and `td` rather than hoisted
+       * into a shared constant. A constant would read better and would also be
+       * invisible to the three contract tests, which scan `className` attributes
+       * — the same blind spot `ui/spec.ts` had to be given its own scan for.
+       * Six repetitions is the price of staying auditable.
+       */}
+      <table className="w-full border-collapse mt-tight mb-loose text-body">
         <thead>
           <tr>
-            <th scope="col">{t('settings.packages.name')}</th>
-            <th scope="col">{t('settings.packages.version')}</th>
-            <th scope="col">{t('settings.packages.capabilities')}</th>
+            <th scope="col" className="text-left align-top py-tight pr-snug pl-0 border-b border-border text-fg-faint font-medium">
+              {t('settings.packages.name')}
+            </th>
+            <th scope="col" className="text-left align-top py-tight pr-snug pl-0 border-b border-border text-fg-faint font-medium">
+              {t('settings.packages.version')}
+            </th>
+            <th scope="col" className="text-left align-top py-tight pr-snug pl-0 border-b border-border text-fg-faint font-medium">
+              {t('settings.packages.capabilities')}
+            </th>
           </tr>
         </thead>
         <tbody>
           {DRIVER_MANIFESTS.map((manifest) => (
             <tr key={manifest.driverId}>
-              <th scope="row">
+              <th scope="row" className="text-left align-top py-tight pr-snug pl-0 border-b border-border font-medium whitespace-nowrap">
                 {manifest.displayName}
                 {/* The id, not just the proper name: it is what a connection
                     config, an MCP `connect` call and an error message all say,
-                    so it is the string someone actually has to match against. */}
-                <span className="pkg-id mono">{manifest.driverId}</span>
+                    so it is the string someone actually has to match against.
+
+                    It sits under the proper name rather than beside it: the two
+                    are the same fact at different levels of formality, and a
+                    second column for it would push the numbers people are
+                    comparing further apart. */}
+                <span className="font-mono tabular-nums block text-fg-faint text-micro">{manifest.driverId}</span>
               </th>
-              <td className="mono">{manifest.version}</td>
-              <td className="pkg-caps mono">{manifest.capabilities.join(' · ')}</td>
+              <td className="font-mono tabular-nums align-top py-tight pr-snug pl-0 border-b border-border">{manifest.version}</td>
+              {/* Capabilities are the longest cell and the least urgent, so they
+                  are the one allowed to wrap. */}
+              <td className="font-mono tabular-nums align-top py-tight pr-snug pl-0 border-b border-border text-fg-dim whitespace-normal">
+                {manifest.capabilities.join(' · ')}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -70,18 +98,22 @@ export function PackagesSection(): ReactElement {
        * belongs to. Joining the two on a name that happens to match today would
        * be a coincidence dressed as a fact.
        */}
-      <div className="form-row-stack">
+      {/* A label above its content rather than beside it, for the one block here
+          whose content is a list and would otherwise be indented into a narrow
+          column. `.form-label` therefore picks up none of the label-column
+          geometry: that rule is `.form-row .form-label`, and this is not one. */}
+      <div className="flex flex-col gap-tight mb-snug">
         <span className="form-label">{t('settings.packages.viewKinds')}</span>
         {viewKinds.length === 0 ? (
           <span className="form-hint">{t('settings.packages.noViewKinds')}</span>
         ) : (
-          <ul className="pkg-kinds">
+          <ul className="list-none m-0 p-0 flex flex-col gap-tight">
             {viewKinds.map((kind) => {
               const entry = lookupViewKind(kind)
               return (
                 <li key={kind}>
-                  <span className="mono">{kind}</span>
-                  {entry === null ? null : <span className="pkg-kind-label">{t(entry.titleKey)}</span>}
+                  <span className="font-mono tabular-nums">{kind}</span>
+                  {entry === null ? null : <span className="ml-snug text-fg-faint">{t(entry.titleKey)}</span>}
                 </li>
               )
             })}

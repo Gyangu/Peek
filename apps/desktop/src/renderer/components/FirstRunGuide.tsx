@@ -60,9 +60,19 @@ export function FirstRunGuide({
   }
 
   return (
-    <div className="empty-hint" style={{ textAlign: 'left', display: 'grid', gap: 14 }}>
+    /* `.empty-hint` is the shared shape of "this list has nothing in it" — the
+       guide is what the empty connection list *is*, not a card laid over one —
+       and it centres its text, which this does not.
+
+       `textAlign` stays inline, and the reason changed: `text-left` used to be
+       rejected by the type scale's usage scan, which now allows the alignment
+       keywords. What still rules it out is the cascade — `.empty-hint` is
+       unlayered in `components/app.css`, so a `text-left` in `@layer utilities`
+       loses to it and the override silently stops working. Same wall TreeView
+       records on its own error notice. */
+    <div className="grid gap-loose px-snug py-loose text-left leading-prose text-fg-faint">
       <div>
-        <div style={{ color: 'var(--fg)' }}>{t('firstRun.title')}</div>
+        <div className="text-fg">{t('firstRun.title')}</div>
         <div>{t('firstRun.subtitle')}</div>
       </div>
 
@@ -93,7 +103,7 @@ export function FirstRunGuide({
         <Button variant="ghost" onClick={onOpenSettings}>
           {t('firstRun.mcpSettings')}
         </Button>
-        {hint === null ? <div style={{ color: 'var(--err)' }}>{t('firstRun.mcpDown')}</div> : null}
+        {hint === null ? <div className="text-err">{t('firstRun.mcpDown')}</div> : null}
       </Step>
 
       <Step index={3} title={t('firstRun.chatTitle')} body={t('firstRun.chatBody')}>
@@ -122,11 +132,11 @@ function Step({
   children: ReactElement | (ReactElement | null)[]
 }): ReactElement {
   return (
-    <div style={{ display: 'grid', gap: 4 }}>
+    <div className="grid gap-tight">
       {/* The number is a position in a list, and reads the same in every language. */}
-      <div style={{ color: 'var(--fg)' }}>{`${String(index)}. ${title}`}</div>
+      <div className="text-fg">{`${String(index)}. ${title}`}</div>
       <div>{body}</div>
-      <div className="conn-actions" style={{ flexWrap: 'wrap' }}>
+      <div className="flex flex-wrap gap-tight mt-tight">
         {children}
       </div>
     </div>

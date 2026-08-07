@@ -74,6 +74,7 @@ export {
   flushChatDeltas,
   setChatTranscript,
   restoreChat,
+  retryLoad,
   forgetChat,
   readChatMessages,
   type ChatBridgeChannel,

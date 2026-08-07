@@ -6,7 +6,6 @@ import { rowsAttachment } from './descriptors'
 import { MAX_SELECTION_SPAN, selectedIndexes, selectionSpan, type RowSelection } from './selection'
 import { useContextActions } from './useContextActions'
 import { Button } from '../../ui/Button'
-import './context-actions.css'
 
 /**
  * The floating bar that appears once rows are selected.
@@ -53,9 +52,30 @@ export function SelectionActionBar(props: SelectionActionBarProps): ReactElement
   const label = t('context.float.add', { count })
 
   return (
-    <div className="ctx-selection-bar" role="toolbar" aria-label={label}>
+    /*
+     * Anchored to the bottom of the panel it belongs to, so it never covers the
+     * rows the user just selected. The panel needs `position: relative`; every
+     * `.panel` already has it.
+     *
+     * `inset-x-3 mx-auto w-fit` rather than the `left-1/2` + `translateX(-50%)`
+     * this used to be. Both centre the bar; the difference is the clearance,
+     * which was `max-width: calc(100% - 24px)` and is the one thing in the old
+     * rule with no utility spelling. With left and right both set and the width
+     * shrink-to-fit, auto side margins centre the box and the inset box is
+     * already the cap — same 12px either side, stated once instead of twice, and
+     * no arbitrary value (migration record §3.4).
+     *
+     * The radius is 6px where it was 7. Nothing on the scale is 7, and a token
+     * whose only justification is "the old number was that" is not a token —
+     * the same call §7.3 made for the gallery card.
+     */
+    <div
+      className="absolute inset-x-3 bottom-11 mx-auto w-fit z-40 flex items-center gap-snug py-tight px-snug bg-bg-3 border border-border-strong rounded-surface shadow-float font-ui text-body"
+      role="toolbar"
+      aria-label={label}
+    >
       {tooWide ? (
-        <span className="ctx-selection-warning" role="status">
+        <span className="max-w-95 text-warn text-micro leading-ui" role="status">
           {t('context.float.spanWarning', { span, count })}
         </span>
       ) : null}

@@ -34,26 +34,31 @@ export function Gallery(): ReactElement {
   const [pressed, setPressed] = useState<string>('—')
 
   return (
-    <div className="gal">
-      <p className="gal-note">
+    <div className="flex flex-col gap-snug mt-tight">
+      <p className="m-0 text-fg-dim text-micro leading-prose">
         Hover, press and tab through these: <code>:hover</code>, <code>:active</code> and{' '}
         <code>:focus-visible</code> cannot be shown at rest, and the last two did not exist at all
-        before the control layer. Last pressed: <span className="mono">{pressed}</span>
+        before the control layer. Last pressed:{' '}
+        <span className="font-mono tabular-nums">{pressed}</span>
       </p>
 
       {BUTTON_VARIANT_NAMES.map((variant) => (
-        <section className="gal-row" key={variant}>
-          <header className="gal-head">
-            <code className="gal-name">{variant}</code>
-            <span className="gal-intent">{BUTTON_VARIANTS[variant].intent}</span>
+        <section className="px-snug py-snug bg-bg-1 border border-border rounded-control" key={variant}>
+          <header className="flex flex-wrap items-baseline gap-snug mb-snug">
+            <code className="text-fg font-mono text-micro">{variant}</code>
+            <span className="grow shrink basis-55 text-fg-dim text-micro leading-ui">
+              {BUTTON_VARIANTS[variant].intent}
+            </span>
             {BUTTON_VARIANTS[variant].rule === null ? null : (
-              <span className="gal-rule">{BUTTON_VARIANTS[variant].rule}</span>
+              <span className="grow shrink basis-full text-fg-faint text-micro leading-ui">
+                {BUTTON_VARIANTS[variant].rule}
+              </span>
             )}
           </header>
 
-          <div className="gal-cells">
+          <div className="flex flex-wrap gap-loose">
             {CONTROL_SIZE_NAMES.map((size) => (
-              <div className="gal-cell" key={size}>
+              <div className="flex items-center gap-tight" key={size}>
                 <Button variant={variant} size={size} onClick={() => setPressed(`${variant} / ${size}`)}>
                   {size === 'md' ? 'Action' : 'Inline'}
                 </Button>
@@ -69,7 +74,7 @@ export function Gallery(): ReactElement {
                 >
                   ✕
                 </Button>
-                <span className="gal-size">{size}</span>
+                <span className="text-fg-faint font-mono text-micro">{size}</span>
               </div>
             ))}
           </div>

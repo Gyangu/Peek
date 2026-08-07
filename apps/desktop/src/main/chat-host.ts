@@ -90,6 +90,12 @@ export function createChatStateApplier(
       if (patch.messageCount !== undefined) view.messageCount = patch.messageCount
       if (patch.lastMessagePreview !== undefined) view.lastMessagePreview = patch.lastMessagePreview
       if (patch.usage !== undefined) view.usage = patch.usage
+      // Absent rather than `false`, so a view that never showed a picture does
+      // not carry a field saying it is not showing one.
+      if (patch.showingSnapshot !== undefined) {
+        if (patch.showingSnapshot) view.showingSnapshot = true
+        else delete view.showingSnapshot
+      }
       if (patch.pendingPermission !== undefined) {
         if (patch.pendingPermission === null) delete view.pendingPermission
         else view.pendingPermission = patch.pendingPermission as Draft<typeof patch.pendingPermission>

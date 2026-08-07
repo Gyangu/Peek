@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react'
-import type { ReactElement } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import type {
   Capability,
   ConnId,
@@ -85,20 +85,20 @@ export function TreeView({ view }: { view: TreeViewState }): ReactElement {
 
   return (
     <>
-      <div className="toolbar">
+      <div className="flex h-bar flex-none items-center gap-tight overflow-hidden shadow-rule-b bg-bg-1 px-snug text-fg-dim">
         <span>{conn?.label ?? connId}</span>
-        <span className="sep" />
+        <span className="h-divider w-px flex-none bg-border-strong" />
         <button className="ghost" onClick={refresh} disabled={!hasChannel}>
           ⟳ {t('tree.refresh')}
         </button>
-        <span className="grow" />
-        <span style={{ color: 'var(--fg-faint)' }}>{t('tree.openHint')}</span>
+        <span className="flex-1" />
+        <span className="text-fg-faint">{t('tree.openHint')}</span>
       </div>
 
       <ViewError error={view.error} />
 
       {hasChannel ? (
-        <div className="tree">
+        <div className="flex-1 min-h-0 overflow-auto py-tight">
           <TreeLevel
             connId={connId}
             parentId={null}
@@ -154,32 +154,29 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
     // failed or closed connection needs the user — and the sidebar is where the
     // reason for the failure is reported.
     return (
-      <div className="tree-node" style={{ paddingLeft: 8 + depth * 14, color: 'var(--fg-faint)' }}>
+      <TreeNotice depth={depth}>
         {connStatus === 'connecting' ? t('tree.connecting') : t('tree.notReady')}
-      </div>
+      </TreeNotice>
     )
   }
   if (entry.status === 'error') {
+    // `.empty-hint` centres its text; the inline `textAlign` is what overrules
+    // that for a message long enough to wrap, and it has to stay inline —
+    // `.empty-hint` lives unlayered in components/app.css, so a `text-left`
+    // utility in `@layer utilities` would lose to it and the override would
+    // silently stop working. See views.css on the same wall.
     return (
-      <div className="empty-hint" style={{ paddingLeft: 12 + depth * 14, textAlign: 'left' }}>
+      <div className="px-snug py-loose text-left leading-prose text-fg-faint" style={{ paddingLeft: 12 + depth * 14 }}>
         {/* `entry.error` is whatever the bridge threw — shown verbatim. */}
         {t('tree.loadFailed', { error: entry.error ?? '' })}
       </div>
     )
   }
   if (entry.status === 'loading' && entry.nodes.length === 0) {
-    return (
-      <div className="tree-node" style={{ paddingLeft: 8 + depth * 14, color: 'var(--fg-faint)' }}>
-        {t('tree.loading')}
-      </div>
-    )
+    return <TreeNotice depth={depth}>{t('tree.loading')}</TreeNotice>
   }
   if (entry.nodes.length === 0) {
-    return (
-      <div className="tree-node" style={{ paddingLeft: 8 + depth * 14, color: 'var(--fg-faint)' }}>
-        {t('tree.empty')}
-      </div>
-    )
+    return <TreeNotice depth={depth}>{t('tree.empty')}</TreeNotice>
   }
 
   return (
@@ -188,8 +185,28 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
         const open = expandedSet.has(node.id)
         return (
           <div key={node.id}>
+            {/* `h-row` was 22px until it became --spacing-row: matching the grid
+                beside it lines the two up, and leaves room for a 20px per-node
+                action button.
+
+                Selection and hover are alternatives, never layered. A class list
+                has no cascade, and `.hover\:bg-bg-2:hover` outweighs a plain
+                `.bg-bg-sel` on specificity, so writing both would repaint the
+                selected node grey the moment the pointer crossed it — the
+                opposite of what the stylesheet did, where `.tree-node.selected`
+                came second and won. Naming one or the other says it outright.
+                See §7.2 of the migration record. */}
             <div
-              className={selected === node.id ? 'tree-node selected' : 'tree-node'}
+              className={
+                // Concatenated rather than interpolated into a template literal:
+                // `classNames()` in __tests__/sourceScan.ts reads the string
+                // literals of `cond ? 'a' : 'b'` but only the leading fragment of
+                // a template, so the two backgrounds would be invisible to the
+                // arbitrary-value ban and the type floor both. Its docstring says
+                // as much. Same classes, written where the audit can reach them.
+                'flex items-center gap-tight h-row pr-snug whitespace-nowrap ' +
+                (selected === node.id ? 'bg-bg-sel' : 'hover:bg-bg-2')
+              }
               style={{ paddingLeft: 6 + depth * 14 }}
               onClick={() => {
                 onSelect(node)
@@ -207,10 +224,32 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
               }}
               title={`${node.detail ?? node.name}\n${t('menu.hint')}`}
             >
-              <span className="tree-caret">{node.hasChildren ? (open ? '▾' : '▸') : ''}</span>
-              <span className="tree-icon">{iconOf(node.kind)}</span>
-              <span className="tree-name">{node.name}</span>
-              {node.detail ? <span className="tree-detail">{node.detail}</span> : null}
+              {/* A disclosure triangle is geometry, not a word. It used to say so
+                  in the only way a stylesheet can — 10px, deliberately *below* the
+                  text floor — and it cannot any more: `text-micro` is 12px and there
+                  is no rung under it (§30.5). What survives is the part that does
+                  not need a font size: a fixed 14px column, and the whole 24px row
+                  rather than the glyph as the click target. */}
+              <span className="w-glyph shrink-0 text-center text-fg-faint text-mark">
+                {node.hasChildren ? (open ? '▾' : '▸') : ''}
+              </span>
+              {/* The node-kind glyph is now the same 12px as the caret above it,
+                  and that is a real distinction being lost rather than a tidy-up.
+                  The caret has two states and they differ by 90°; these are
+                  ⛁ ❏ ▦ ◫ ◪ ⧉ ◇ — a set the reader is meant to tell apart, where
+                  ◫ and ◪ differ only by which half is filled. It was sized *above*
+                  the floor for that reason and the caret *below* it, one rung each
+                  way. A two-rung default scale has neither rung, so the sizes met
+                  in the middle. If these ever become hard to tell apart, this is
+                  the note that says it was foreseen and what the fix is: a size,
+                  not a different glyph. */}
+              <span className="w-glyph shrink-0 text-center text-fg-dim text-body">
+                {iconOf(node.kind)}
+              </span>
+              <span className="truncate">{node.name}</span>
+              {node.detail ? (
+                <span className="ml-tight truncate text-fg-faint text-micro">{node.detail}</span>
+              ) : null}
             </div>
             {open ? (
               <TreeLevel
@@ -241,6 +280,34 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
         />
       ) : null}
     </>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * A level that has no nodes to draw yet, or none at all.
+ *
+ * One component rather than three copies of the same `<div>` because the row's
+ * shape is a class list now instead of a single `.tree-node`, and three
+ * verbatim copies of seven utilities is three places for them to drift. The
+ * three callers differ only in their wording — not connected, still loading,
+ * nothing here — so what they share is exactly a component.
+ *
+ * It wears the node row's own geometry so a level that says "loading" occupies
+ * the same 24px a node would, and the tree does not jump when the answer lands.
+ * The indent is the node's `6 + depth * 14` plus two — carried over as it was
+ * found, because two pixels on a placeholder is not a fact worth inventing a
+ * reason for.
+ */
+function TreeNotice({ depth, children }: { depth: number; children: ReactNode }): ReactElement {
+  return (
+    <div
+      className="flex items-center gap-tight h-row pr-snug whitespace-nowrap text-fg-faint"
+      style={{ paddingLeft: 8 + depth * 14 }}
+    >
+      {children}
+    </div>
   )
 }
 
@@ -312,12 +379,12 @@ function NoIntrospectChannel({ connId }: { connId: ConnId }): ReactElement {
     })
   }
   return (
-    <div className="empty-hint">
+    <div className="px-snug py-loose text-center leading-prose text-fg-faint">
       <div>{t('tree.unavailable')}</div>
       <div style={{ marginTop: 6, textAlign: 'left', maxWidth: 320 }}>
         {t('tree.unavailableDetail')}
       </div>
-      <button style={{ marginTop: 10 }} onClick={openQuery}>
+      <button className="mt-snug" onClick={openQuery}>
         {t('tree.browseWithSql')}
       </button>
     </div>

@@ -7,8 +7,10 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "pnpm run build:plugin-ui && electron-vite dev",
-    "build": "pnpm run build:plugin-ui && electron-vite build",
+    "build": "pnpm run build:plugin-ui && electron-vite build && node scripts/audit-shipped-css.mjs && pnpm run probe:render",
     "build:plugin-ui": "node scripts/build-plugin-ui.mjs",
+    "audit:css": "node scripts/audit-shipped-css.mjs",
+    "probe:render": "electron scripts/render-probe/probe-main.mjs",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --import ./src/main/bus/__tests__/ts-resolve.hooks.mjs --test \"src/main/bus/__tests__/*.test.ts\" \"src/main/connections/__tests__/*.test.ts\" \"src/main/plugins/__tests__/*.test.ts\" \"src/main/mcp/__tests__/*.test.ts\" \"src/main/acp/**/__tests__/*.test.ts\" \"src/main/agent/**/__tests__/*.test.ts\" \"src/renderer/**/__tests__/*.test.ts\"",
@@ -42,12 +44,14 @@
   },
   "devDependencies": {
     "@electron/packager": "^20.0.4",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^43.2.0",
     "electron-vite": "^5.0.0",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vite": "^7.3.6"
   }

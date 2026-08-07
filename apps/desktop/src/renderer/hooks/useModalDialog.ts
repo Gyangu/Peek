@@ -18,9 +18,15 @@ import { isTopModal, nextFocusIndex, popModal, pushModal } from './modalStack'
  *    when the dialog opened — the row, the button, the tab that led here.
  *
  * Usage: put the returned ref on the dialog element (the panel, not the mask).
+ * The mask and the shell wear `MODAL_MASK` and `MODAL_SHELL` from
+ * `components/modalClasses.ts`; this example used to name the mask's old class
+ * directly, which stopped being a class at all when that vocabulary became
+ * utilities. Left in words rather than spelled out, because Tailwind's extractor
+ * reads this comment and a class name in a doc block ships as a real rule —
+ * migration record §8.3.
  *
  *     const ref = useModalDialog({ label: 'value', onClose })
- *     return <div className="modal-mask"><div ref={ref} role="dialog" aria-modal="true">…
+ *     return <div className={MODAL_MASK}><div ref={ref} role="dialog" aria-modal="true">…
  */
 export interface ModalDialogOptions {
   /** For debugging; shows up as the symbol description in the stack. */

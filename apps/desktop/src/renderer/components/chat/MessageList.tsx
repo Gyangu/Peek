@@ -117,13 +117,19 @@ export function MessageList({ chatId }: { chatId: ChatId }): ReactElement {
   const items = virtualizer.getVirtualItems()
 
   return (
-    <div className="chat-list-wrap">
-      <div className="chat-list" ref={scrollRef} onScroll={onScroll}>
-        <div className="chat-list-inner" style={{ height: virtualizer.getTotalSize() }}>
+    <div className="relative flex flex-1 min-h-0">
+      {/* The last class here is what the follow logic above depends on: with
+          scroll anchoring left on, Chromium corrects `scrollTop` under us as a
+          streaming message grows, and it wins every round it enters. Tailwind
+          ships no family for the property, so it is defined once as an
+          `@utility` in styles.css — the same shape as the title bar's drag
+          region, and the rule that used to carry this element's name. */}
+      <div className="flex-1 min-h-0 py-snug overflow-y-auto overflow-x-hidden overflow-anchor-none" ref={scrollRef} onScroll={onScroll}>
+        <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
           {items.map((item) => (
             <div
               key={item.key}
-              className="chat-list-row"
+              className="absolute top-0 left-0 w-full"
               data-index={item.index}
               ref={virtualizer.measureElement}
               style={{ transform: `translateY(${item.start}px)` }}
@@ -138,7 +144,13 @@ export function MessageList({ chatId }: { chatId: ChatId }): ReactElement {
         <Button
           size="sm"
           elevated
-          className="chat-jump"
+          // Where it sits, and nothing else. The raised surface is `elevated`,
+          // the type size is `sm`, and the border is what `default` already
+          // draws — this used to be a named class that stated all four, which is
+          // what made it the one the control layer's design record predicted
+          // would fail the className fence. It did, and this is the split it
+          // asked for.
+          className="absolute left-1/2 bottom-2.5 -translate-x-1/2"
           onClick={() => {
             follow.current = true
             setShowJump(false)

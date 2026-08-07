@@ -110,12 +110,13 @@ export function InspectorView({ view }: { view: InspectorViewState }): ReactElem
 
   return (
     <>
-      <div className="toolbar">
+      {/* The shared strip, written out — see the same note in `QueryView.tsx`. */}
+      <div className="flex h-bar flex-none items-center gap-tight overflow-hidden shadow-rule-b bg-bg-1 px-snug text-fg-dim">
         <span>{conn?.label ?? connId}</span>
-        <span className="sep" />
+        <span className="h-divider w-px flex-none bg-border-strong" />
         {/* `ref.kind` is the addressing scheme's own name — an identifier. */}
-        <span className="mono">{ref.kind}</span>
-        <span className="sep" />
+        <span className="font-mono tabular-nums">{ref.kind}</span>
+        <span className="h-divider w-px flex-none bg-border-strong" />
         <Button variant="ghost" disabled={loading || !canRead} onClick={fetchFull}>
           {loading
             ? t('inspector.fetching')
@@ -125,7 +126,7 @@ export function InspectorView({ view }: { view: InspectorViewState }): ReactElem
         </Button>
         {more ? (
           <>
-            <span className="sep" />
+            <span className="h-divider w-px flex-none bg-border-strong" />
             <Button
               variant="ghost"
               disabled={loading}
@@ -137,9 +138,9 @@ export function InspectorView({ view }: { view: InspectorViewState }): ReactElem
             </Button>
           </>
         ) : null}
-        <span className="grow" />
+        <span className="flex-1" />
         {!canRead ? (
-          <span style={{ color: 'var(--warn)' }}>
+          <span className="text-warn">
             {isKeyValue ? t('inspector.keyValueUnavailable') : t('inspector.peekUnavailable')}
           </span>
         ) : null}
@@ -147,8 +148,20 @@ export function InspectorView({ view }: { view: InspectorViewState }): ReactElem
 
       <ViewError error={view.error} />
 
-      <div className="inspector">
-        <div className="kv-grid">
+      <div className="flex-1 min-h-0 overflow-auto px-snug py-snug select-text">
+        {/* `grid-cols-kv` is `max-content 1fr` under a name — the field labels are
+            a closed set, so the column that holds them is exactly as wide as the
+            longest one and the values all start on a common edge. It is a token
+            because the same two values written inline, in square brackets, are a
+            banned arbitrary value; see theme.css.
+
+            That last clause used to name the bracketed form outright, and naming
+            it shipped it: Tailwind's scanner reads raw bytes and does not know
+            this is a comment, so the rule it describes was compiled into
+            `index.css` from these four lines while no element wore it. Say it in
+            words. `theme-contrast.test.ts` reads this file the way Tailwind does
+            now and will go red if the token comes back. */}
+        <div className="grid grid-cols-kv gap-x-snug gap-y-inset mb-snug">
           {refRows(t, ref).map(([k, v]) => (
             <ReadonlyRow key={k} k={k} v={v} />
           ))}
@@ -184,7 +197,7 @@ export function InspectorView({ view }: { view: InspectorViewState }): ReactElem
         {kv ? (
           <KeyValueBody connId={connId} payload={kv.value} />
         ) : (
-          <div className="value-box">
+          <div className="max-h-full overflow-auto rounded-control border border-border bg-bg p-snug font-mono text-micro whitespace-pre-wrap wrap-anywhere select-text">
             {peeked
               ? peeked.encoding === 'base64'
                 ? `(base64)\n${peeked.data}`
@@ -220,10 +233,10 @@ function KeyValueBody({
   const t = useT()
   switch (payload.shape) {
     case 'missing':
-      return <div className="value-box">{t('inspector.keyMissing')}</div>
+      return <div className="max-h-full overflow-auto rounded-control border border-border bg-bg p-snug font-mono text-micro whitespace-pre-wrap wrap-anywhere select-text">{t('inspector.keyMissing')}</div>
     case 'scalar':
       return (
-        <div className="value-box">
+        <div className="max-h-full overflow-auto rounded-control border border-border bg-bg p-snug font-mono text-micro whitespace-pre-wrap wrap-anywhere select-text">
           <ElementText connId={connId} element={payload.value} />
         </div>
       )
@@ -289,12 +302,13 @@ function ElementTable({
   rows: [string, KeyValueElement][]
 }): ReactElement {
   const t = useT()
-  if (rows.length === 0) return <div className="value-box">{t('inspector.windowEmpty')}</div>
+  if (rows.length === 0) return <div className="max-h-full overflow-auto rounded-control border border-border bg-bg p-snug font-mono text-micro whitespace-pre-wrap wrap-anywhere select-text">{t('inspector.windowEmpty')}</div>
   return (
-    <div className="kv-list">
-      <div className="kv-list-row head">
-        <div className="k">{head[0]}</div>
-        <div className="v">{head[1]}</div>
+    <div>
+      {/* Unstyled, and that is not an omission of this change — see ElementRow. */}
+      <div>
+        <div>{head[0]}</div>
+        <div>{head[1]}</div>
       </div>
       {rows.map(([label, element], i) => (
         <ElementRow key={`${label}:${String(i)}`} connId={connId} label={label} element={element} />
@@ -311,6 +325,16 @@ function ElementTable({
  * taking the value somewhere else is what happens next. Both halves are offered
  * because both get copied: the field name to write the next command with, the
  * value to paste into whatever asked for it.
+ *
+ * **It has no layout either, and never has.** This row and the header above it
+ * wore `kv-list-row` / `head` / `k` / `v`, and no stylesheet in the repo has
+ * ever declared one of them — checked against the pre-migration `styles.css`,
+ * not only against today's. So a redis hash draws as a stack of unstyled block
+ * divs, field above value, rather than as the two columns the markup describes.
+ * The names went when the migration made every other class real; carrying four
+ * that promise a table nobody wrote would have been the worse half of the
+ * trade. Giving it the header grid's `grid-cols-kv` is the obvious fix and is a
+ * change to how the panel looks, so it is not smuggled in here.
  */
 function ElementRow({
   connId,
@@ -325,9 +349,9 @@ function ElementRow({
   const menu = useContextMenu<null>()
 
   return (
-    <div className="kv-list-row" onContextMenu={menu.open(null)}>
-      <div className="k mono">{label}</div>
-      <div className="v mono">
+    <div onContextMenu={menu.open(null)}>
+      <div className="font-mono tabular-nums">{label}</div>
+      <div className="font-mono tabular-nums">
         <ElementText connId={connId} element={element} />
       </div>
       {menu.state ? (
@@ -405,7 +429,9 @@ function ElementText({
   return (
     <>
       {element.preview}
-      <span className="trunc-mark">
+      {/* `trunc-mark` was the class here and nothing ever declared it either;
+          the ellipsis and whatever follows it inherit the row's own type. */}
+      <span>
         {' … '}
         {ref && bridgeExtras.hasPeekValue() ? (
           <Button variant="ghost" disabled={busy} onClick={fetchWhole}>
@@ -419,11 +445,22 @@ function ElementText({
   )
 }
 
+/**
+ * One line of the header grid: a label and its value.
+ *
+ * A fragment, not a wrapper — both cells are direct children of the grid, which
+ * is what lets the labels share a column. Anything around them would break that
+ * and is the reason this is not `<div className="grid-cols-kv">` per row.
+ *
+ * `wrap-anywhere` on the value because a `resultId` or a primary key has no
+ * spaces to break at, and a value that cannot wrap widens the grid until the
+ * panel scrolls sideways.
+ */
 function ReadonlyRow({ k, v }: { k: string; v: string }): ReactElement {
   return (
     <>
-      <div className="k">{k}</div>
-      <div className="v">{v}</div>
+      <div className="text-fg-dim">{k}</div>
+      <div className="font-mono wrap-anywhere">{v}</div>
     </>
   )
 }

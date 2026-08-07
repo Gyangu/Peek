@@ -65,8 +65,15 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
   }
 
   return (
-    <div className="query-view">
-      <div className="toolbar">
+    <div className="flex flex-col flex-1 min-h-0">
+      {/* The shared strip every view opens with. It was a named rule in
+          `components/app.css`, unlayered, which is what stopped six views and the
+          grid footer from writing anything of their own on this element — see the
+          migration record §17. The string is written out here rather than hoisted
+          into a shared constant because three other views still wear the old
+          class; a constant would be a second source of truth for the same strip
+          until they follow. */}
+      <div className="flex h-bar flex-none items-center gap-tight overflow-hidden shadow-rule-b bg-bg-1 px-snug text-fg-dim">
         {/* The title is key notation, not prose: the same symbols in every language. */}
         <Button
           variant="primary"
@@ -86,22 +93,22 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
           {...(view.autoRefreshMs !== undefined ? { autoRefreshMs: view.autoRefreshMs } : {})}
           {...(view.autoRefreshStoppedBy !== undefined ? { stoppedBy: view.autoRefreshStoppedBy } : {})}
         />
-        <span className="sep" />
+        <span className="h-divider w-px flex-none bg-border-strong" />
         <span>{conn?.label ?? connId}</span>
         {meta ? (
           <>
-            <span className="sep" />
-            <span className="mono">
+            <span className="h-divider w-px flex-none bg-border-strong" />
+            <span className="font-mono tabular-nums">
               {t('grid.rows', { count: meta.rows, rows: formatCount(meta.rows) })}
               {` · ${formatMs(meta.elapsedMs)}`}
             </span>
           </>
         ) : null}
-        <span className="grow" />
-        <span style={{ color: 'var(--fg-faint)' }}>{t('query.runHint')}</span>
+        <span className="flex-1" />
+        <span className="text-fg-faint">{t('query.runHint')}</span>
       </div>
 
-      <Suspense fallback={<div className="editor-wrap" style={{ height: editorH }} />}>
+      <Suspense fallback={<div className="flex flex-none min-h-15 overflow-hidden border-b border-border" style={{ height: editorH }} />}>
         <SqlEditor
           value={text}
           driverId={conn?.driverId ?? 'postgres'}
@@ -110,7 +117,18 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
           height={editorH}
         />
       </Suspense>
-      <div className="h-resizer" onMouseDown={onResizeDown} />
+      {/* The drag handle between the editor and the result grid: a 5px strip the
+          pointer can find, with a 1px line drawn down the middle of it by a
+          generated element, so the visible divider is thinner than the target.
+          The generated element is a variant here rather than a rule in
+          `views.css`, and the class string is written whole rather than assembled
+          — the `flex` shorthand is stated as its three longhands because the
+          shorthand would have to fight the same-family rule the migration record
+          §7.2 is about. */}
+      <div
+        className="grow-0 shrink-0 basis-1.25 relative cursor-row-resize bg-transparent after:absolute after:inset-0 after:m-auto after:h-px after:bg-border hover:after:bg-accent"
+        onMouseDown={onResizeDown}
+      />
 
       <ViewError error={view.error} />
       {/* Re-running is the only refill a free-form query has: its rows came from a

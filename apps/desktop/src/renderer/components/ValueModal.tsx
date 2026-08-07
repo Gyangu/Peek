@@ -8,6 +8,7 @@ import { tStatic, useT, type TFunction } from '../i18n'
 import { notify } from '../state/notifyStore'
 import { Button } from '../ui/Button'
 import { formatBytes, fullValueText } from '../util/format'
+import { MODAL_BODY, MODAL_HEAD, MODAL_MASK, MODAL_SHELL, MODAL_SIZE, MODAL_TITLE } from './modalClasses'
 
 export interface ValueModalProps {
   connId: ConnId
@@ -69,22 +70,23 @@ export function ValueModal(props: ValueModalProps): ReactElement {
   const size = truncated?.byteLength ?? peeked?.totalBytes
 
   return (
-    <div className="modal-mask" onMouseDown={onClose}>
+    <div className={MODAL_MASK} onMouseDown={onClose}>
       <div
-        className="modal"
+        className={MODAL_SHELL}
+        style={MODAL_SIZE}
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={column.name}
         onMouseDown={stop}
       >
-        <div className="modal-head">
-          <span className="t mono">{column.name}</span>
-          <span style={{ color: 'var(--fg-faint)' }}>
+        <div className={MODAL_HEAD}>
+          <span className={`font-mono tabular-nums ${MODAL_TITLE}`}>{column.name}</span>
+          <span className="text-fg-faint">
             {t('value.subtitle', { type: column.nativeType, row: row + 1 })}
             {size !== undefined ? ` · ${formatBytes(size)}` : ''}
           </span>
-          <span style={{ flex: 1 }} />
+          <span className="flex-1" />
           {truncated && !peeked ? (
             <Button
               variant="primary"
@@ -102,14 +104,14 @@ export function ValueModal(props: ValueModalProps): ReactElement {
             ✕
           </Button>
         </div>
-        <div className="modal-body">
+        <div className={MODAL_BODY}>
           {truncated && !peeked ? (
-            <div style={{ color: 'var(--warn)', marginBottom: 8 }}>
+            <div className="mb-snug text-warn">
               {t('value.previewOnly')}
               {canPeek ? t('value.previewHint') : t('value.previewNoPeek')}
             </div>
           ) : null}
-          <div className="value-box">{body}</div>
+          <div className="max-h-full overflow-auto rounded-control border border-border bg-bg p-snug font-mono text-body whitespace-pre-wrap wrap-anywhere select-text">{body}</div>
         </div>
       </div>
     </div>

@@ -1,13 +1,11 @@
 import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react'
 
-import './controls.css'
 import {
-  BASE_CLASS,
+  BUTTON_MODIFIERS,
+  BUTTON_VARIANTS,
+  CONTROL_BASE,
+  CONTROL_SIZES,
   DEFAULT_EXPOSURE,
-  ELEVATED_CLASS,
-  ICON_CLASS,
-  sizeClass,
-  variantClass,
   type ControlSize,
   type ButtonVariant,
   type Exposure,
@@ -116,9 +114,21 @@ export function Button(props: ButtonProps): ReactNode {
     ...rest
   } = props
 
-  const classes = [BASE_CLASS, variantClass(variant), sizeClass(size)]
-  if (icon) classes.push(ICON_CLASS)
-  if (elevated) classes.push(ELEVATED_CLASS)
+  /*
+   * Composed, not concatenated blindly: two of these slots are alternatives
+   * rather than additions. A class list has no cascade, so `elevated` cannot sit
+   * *on top of* the variant's surface and an icon shape cannot sit on top of the
+   * text shape — in both cases whichever rule Tailwind emitted later would win,
+   * and Tailwind's order is not the author's. Choosing here means the string
+   * never contains two members of one utility family. See `spec.ts`'s header.
+   */
+  const rung = CONTROL_SIZES[size]
+  const classes = [
+    CONTROL_BASE,
+    icon ? rung.iconClasses : rung.classes,
+    BUTTON_VARIANTS[variant].classes,
+    elevated ? BUTTON_MODIFIERS.elevated.classes : BUTTON_VARIANTS[variant].surface,
+  ]
   if (className !== undefined && className !== '') classes.push(className)
 
   return (

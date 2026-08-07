@@ -56,12 +56,31 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     // `tStatic` rather than `useT`: a class component has no hooks, and the
     // language switcher lives in the sidebar — which is inside the tree that just
     // stopped rendering — so there is no live language to follow any more.
+    /*
+     * Drawn from the same tokens as the rest of the window, so that it reads as
+     * peek reporting a fault rather than as the browser's own error page. It is
+     * the only screen in the product with no working chrome around it, so it
+     * centres itself and offers exactly one control.
+     *
+     * The box wears the error colour as a stripe down its leading edge, stated
+     * as three separate edges plus `border-l-3` — a `border` the stripe then
+     * overrode would be two classes from one utility family, decided by
+     * Tailwind's emission order rather than by writing order (§7.2).
+     *
+     * The corner radius is `rounded-control`, 4px where this was 5px. Nothing chose
+     * the 5, and a token whose only justification is "the old number was that"
+     * is not a token — the same rounding §7.3 records for the gallery card.
+     */
     return (
-      <div className="crash">
-        <div className="crash-box">
-          <div className="crash-title">{tStatic('app.crash.title')}</div>
-          <div className="crash-body">{tStatic('app.crash.body')}</div>
-          <pre className="crash-detail">{detail}</pre>
+      <div className="flex h-full items-center justify-center bg-bg p-block">
+        <div className="flex w-full max-w-140 flex-col items-start gap-snug rounded-control border-y border-r border-l-3 border-y-border-strong border-r-border-strong border-l-err bg-bg-1 px-loose py-loose">
+          <div className="text-title font-semibold">{tStatic('app.crash.title')}</div>
+          <div className="text-fg-dim">{tStatic('app.crash.body')}</div>
+          {/* The stack text is developer output: monospace, selectable, and
+              capped so a long trace cannot push the reload button off screen. */}
+          <pre className="m-0 max-h-45 w-full overflow-auto rounded-control border border-border bg-bg px-snug py-snug font-mono text-micro break-words whitespace-pre-wrap text-fg-faint select-text">
+            {detail}
+          </pre>
           <Button
             onClick={() => {
               location.reload()

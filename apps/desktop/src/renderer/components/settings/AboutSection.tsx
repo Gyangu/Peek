@@ -28,7 +28,7 @@ export function AboutSection(): ReactElement {
       <div className="form-row">
         {/* The value is a span; a span cannot be labelled. */}
         <span className="form-label">{t('settings.about.version')}</span>
-        <span className="mono">{info?.version === '' ? t('settings.about.unavailable') : info?.version}</span>
+        <span className="font-mono tabular-nums">{info?.version === '' ? t('settings.about.unavailable') : info?.version}</span>
       </div>
 
       {PATHS.map(([key, label]) => (
@@ -36,7 +36,7 @@ export function AboutSection(): ReactElement {
           <label htmlFor={`peek-path-${key}`}>{t(label)}</label>
           <input
             id={`peek-path-${key}`}
-            className="mono"
+            className="font-mono tabular-nums"
             readOnly
             value={info?.paths[key] ?? ''}
             spellCheck={false}
@@ -66,7 +66,9 @@ export function AboutSection(): ReactElement {
        */}
       {import.meta.env.DEV ? (
         <>
-          <hr className="gal-sep" />
+          {/* `.gal-sep` until `ui/controls.css` was deleted — the last of the
+              gallery's classes, and the only one that was ever worn outside it. */}
+          <hr className="h-0 mt-loose mb-snug mx-0 border-0 border-t border-border" />
           <div className="form-hint">Control gallery — renderer/ui/CLAUDE.md</div>
           <Gallery />
         </>

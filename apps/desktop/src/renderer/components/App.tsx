@@ -9,7 +9,6 @@ import { Sidebar } from './Sidebar'
 import { StatusBar } from './StatusBar'
 import { Toasts } from './Toasts'
 import { Button } from '../ui/Button'
-import '../keyboard-nav.css'
 
 export function App(): ReactElement {
   const t = useT()
@@ -21,7 +20,7 @@ export function App(): ReactElement {
   const mac = isMacPlatform()
 
   return (
-    <div className={mac ? 'app mac' : 'app'}>
+    <div className="flex h-full flex-col">
       {/*
        * On macOS this strip holds nothing at all — it is the traffic lights'
        * gutter and the window's drag handle, which is what a Mac title bar is.
@@ -34,29 +33,59 @@ export function App(): ReactElement {
        * Elsewhere the gear stays: Windows and Linux have no menu bar anyone
        * looks in for preferences, so removing it there would leave `Ctrl+,` as
        * the only way in.
+       *
+       * `--spacing-bar`, like the sidebar head, the panel head and the status
+       * bar: there is no fifth height in this window.
+       *
+       * `app-drag` is what makes the strip move the window, and it is a class
+       * now rather than a rule in `app.css`: `-webkit-app-region` belongs to no
+       * Tailwind namespace, so it is declared once as an `@utility` in
+       * `theme.css` and worn here. The `titlebar` class it replaces is gone —
+       * that name existed only to be the rule's selector, and nothing else in
+       * the repo ever read it.
+       *
+       * The left padding is room for the traffic lights, which main positions at x=12 and
+       * whose three buttons end around x=64. It is conditional because Windows
+       * and Linux have no lights, and this padding was unconditional before — a
+       * blank 82px reserved on every platform for a macOS control.
        */}
-      <div className="titlebar">
+      <div
+        className={
+          mac
+            ? 'app-drag flex h-bar flex-none items-center gap-snug shadow-rule-b bg-bg-1 py-0 pr-snug pl-traffic'
+            : 'app-drag flex h-bar flex-none items-center gap-snug shadow-rule-b bg-bg-1 px-snug'
+        }
+      >
         {mac ? null : (
           <>
-            <span className="spacer" />
-            <Button
-              variant="ghost"
-              icon
-              label={t('settings.open')}
-              action="settings.open"
-              onClick={() => {
-                openSettings()
-              }}
-            >
-              ⚙
-            </Button>
+            <span className="flex-1" />
+            {/* The opt-out is on a wrapper rather than on the control, and that
+                is the className fence doing its job rather than a hole in it: it
+                classifies a passed class by its prefix, and `app-` is neither a
+                layout family nor a paint one, so a `<Button>` may not carry it.
+                The wrapper's rectangle is the button's, so the region Chromium
+                subtracts is the same one either way. `flex` so the span is the
+                button's box and not a line box around it. */}
+            <span className="app-no-drag flex">
+              <Button
+                variant="ghost"
+                icon
+                label={t('settings.open')}
+                action="settings.open"
+                onClick={() => {
+                  openSettings()
+                }}
+              >
+                ⚙
+              </Button>
+            </span>
           </>
         )}
       </div>
 
-      <div className="body">
+      <div className="flex min-h-0 flex-1">
         <Sidebar />
-        <div className="workarea">
+        <div className="flex min-w-0 flex-1 flex-col">
           <LayoutTree />
         </div>
         {/* Squeezes the work area rather than floating over it: the panel tab

@@ -12,9 +12,8 @@ import { Composer } from './Composer'
 import { MessageList } from './MessageList'
 import { isPermissiveMode, needsModeConfirmation } from './permissionOptions'
 import { PermissionPrompt } from './PermissionPrompt'
-import { restoreChat, useChatChannelReady, useChatMessageCount } from './transcriptStore'
-
-import './chat.css'
+import { composerDisabled, strandedOnSnapshot, transcriptState } from './panelState'
+import { restoreChat, retryLoad, useChatChannelReady, useChatMessageCount } from './transcriptStore'
 
 /**
  * The chat panel, as an ordinary view.
@@ -63,6 +62,9 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
     // button over a conversation that is only being read off disk.
     view.agentStatus === 'loading'
   const failed = view.agentStatus === 'error'
+  // Why both halves are required, and why this is not just `failed`, is in
+  // `panelState.ts`.
+  const stranded = strandedOnSnapshot(view)
 
   /**
    * The way back from a reload.
@@ -122,26 +124,56 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
   )
 
   return (
-    <div className="chat-view">
-      <div className="toolbar chat-toolbar">
-        <span className={`chat-status ${view.agentStatus}`}>
-          <span className="chat-status-dot" aria-hidden="true" />
+    // `chat-view` carries no styles. It is the handle
+    // `scripts/verify-chat-restore.mjs` drives the real window by — it finds the
+    // panel and its composer over CDP — so it outlives the rule it used to name.
+    <div className="chat-view flex flex-col h-full min-h-0 bg-bg">
+      {/*
+       * The shared view strip, with one deliberate difference: this row carries
+       * two separators and a select, so it takes the wider of the two gaps.
+       *
+       * That difference is a **behaviour change**, not a restatement. The panel
+       * had a rule of its own asking for the wider gap and it never took effect:
+       * the shared strip's rule was one class specific too and later in the
+       * sheet, so it won, and this row has been drawing at the narrow gap since
+       * the two sheets were written. Measured in Electron against the built
+       * stylesheet, before and after — 6px before, 8px now. Migration record
+       * §17.4.
+       */}
+      <div className="flex h-bar flex-none items-center gap-snug overflow-hidden shadow-rule-b bg-bg-1 px-snug text-fg-dim">
+        <span className="inline-flex items-center gap-tight whitespace-nowrap">
+          <span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[view.agentStatus]}`} aria-hidden="true" />
           {t(statusKey(view.agentStatus))}
         </span>
 
-        <span className="sep" />
+        <span className="h-divider w-px flex-none bg-border-strong" />
 
-        <label className="chat-mode" title={t('chat.mode.title')}>
-          <span className="chat-mode-label">{t('chat.mode.label')}</span>
+        <label className="inline-flex items-center gap-tight" title={t('chat.mode.title')}>
+          <span className="text-fg-faint">{t('chat.mode.label')}</span>
+          {/* A mode that removes the human from the loop is flagged, never
+              hidden — the amber border and text below, and the ⚠ in the option
+              text for the reason the next comment gives.
+
+              Both branches are written out whole rather than appended to a
+              shared prefix: a class list has no cascade, so a state that changes
+              a colour states the colour it wants instead of layering one over
+              another (migration record §7.2). None of this could be classes at
+              all until the `input, select, textarea` floor moved into
+              `@layer base` — unlayered, its `font: inherit` and `border`
+              outranked every utility, whatever the specificity. */}
           <select
             value={view.permissionMode}
             onChange={onMode}
-            className={isPermissiveMode(view.permissionMode) ? 'permissive' : undefined}
+            className={
+              isPermissiveMode(view.permissionMode)
+                ? 'px-tight py-px text-micro border-warn text-warn'
+                : 'px-tight py-px text-micro'
+            }
           >
             {CHAT_PERMISSION_MODES.map((mode) => (
               // The ⚠ is not decoration: the permissive modes used to be marked
               // by colour alone (`select.permissive`), which is nothing at all
-              // to a reader who cannot separate --warn from --fg — and a
+              // to a reader who cannot separate --color-warn from --color-fg — and a
               // closed <select> shows one option, so the colour has nothing to
               // contrast against either.
               <option key={mode} value={mode}>
@@ -153,15 +185,15 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
 
         {conn ? (
           <>
-            <span className="sep" />
+            <span className="h-divider w-px flex-none bg-border-strong" />
             <span>{conn.label}</span>
           </>
         ) : null}
 
-        <span className="grow" />
+        <span className="flex-1" />
 
         {view.usage ? (
-          <span className="chat-usage mono" title={t('chat.usageTitle')}>
+          <span className="font-mono tabular-nums text-micro text-fg-faint" title={t('chat.usageTitle')}>
             {t('chat.usage', {
               used: formatCount(view.usage.used),
               size: formatCount(view.usage.size),
@@ -196,26 +228,83 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
 
       <ViewError error={view.error} />
 
-      {failed ? (
-        <div className="chat-retry" role="status">
+      {/*
+        * A conversation peek is showing from its own snapshot says so, and says
+        * it differently depending on whether the agent's copy is still coming.
+        *
+        * The `strandedOnSnapshot` branch is the one that matters, and it is the
+        * one rule this feature is not allowed to soften: the transcript on
+        * screen is real, but the agent does not have it, so continuing the
+        * conversation here would have the model answer questions it cannot see.
+        * The composer below is disabled for that reason and no other. See
+        * `design/2026-08-06-opening-a-stored-conversation.md` §2.4.
+        */}
+      {stranded ? (
+        <div
+          className="flex-none mx-tight mb-tight px-snug py-tight rounded-control select-text text-micro bg-warn-bg border border-warn"
+          role="status"
+        >
+          <div className="font-semibold text-warn">{t('chat.snapshot.failed.title')}</div>
+          <div className="mt-inset text-fg-dim">{t('chat.snapshot.failed.detail')}</div>
+          <Button
+            className="mt-tight"
+            size="sm"
+            onClick={() => {
+              void retryLoad(view.chatId)
+            }}
+          >
+            {t('chat.snapshot.retry')}
+          </Button>
+        </div>
+      ) : view.showingSnapshot ? (
+        // Still on its way. A quiet line rather than a warning: nothing is wrong,
+        // the user is just reading a moment ahead of the agent.
+        <div
+          className="flex-none mx-tight mb-tight px-snug py-tight rounded-control select-text text-micro text-fg-faint bg-bg-2 border border-border"
+          role="status"
+        >
+          {t('chat.snapshot.loading')}
+        </div>
+      ) : failed ? (
+        // Shown while `agentStatus` is `error`. The composer beside it stays live
+        // — sending is the retry — so this reads as an instruction, not as a wall.
+        // The amber edge is the whole of the alarm: a bar down the leading side,
+        // not a red block, because nothing here has failed permanently.
+        <div
+          className="flex-none mx-tight mb-tight px-snug py-tight rounded-control select-text text-micro text-fg-dim bg-bg-2 border border-l-2 border-border-strong border-l-warn"
+          role="status"
+        >
           {t('chat.retry.hint')}
         </div>
       ) : null}
 
       {channelReady ? null : (
-        <div className="chat-gap">
-          <strong>{t('chat.gap.title')}</strong>
+        <div className="flex-none m-tight px-snug py-tight rounded-control select-text text-fg-dim bg-bg-2 border border-border-strong">
+          <strong className="text-warn">{t('chat.gap.title')}</strong>
           <div>{t('chat.gap.detail')}</div>
         </div>
       )}
 
-      {messageCount === 0 ? (
-        <div className="chat-empty">
-          <div className="chat-empty-title">{t('chat.empty.title')}</div>
-          <div className="chat-empty-hint">{t('chat.empty.hint')}</div>
-        </div>
-      ) : (
+      {/* Which of the three, and why in that order, is `transcriptState`. */}
+      {transcriptState(view.agentStatus, messageCount) === 'messages' ? (
         <MessageList chatId={view.chatId} />
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center gap-tight px-block text-center text-fg-faint">
+          {transcriptState(view.agentStatus, messageCount) === 'loading' ? (
+            <>
+              {/* The conversation's own title when the rail passed one through,
+                  the generic line when it did not. Never a guess: a wrong title
+                  here would be a claim about *which* conversation is loading. */}
+              <div className="text-title text-fg-dim">{view.title ?? t('chat.loading.title')}</div>
+              <div className="max-w-105 leading-prose">{t('chat.loading.hint')}</div>
+            </>
+          ) : (
+            <>
+              <div className="text-title text-fg-dim">{t('chat.empty.title')}</div>
+              <div className="max-w-105 leading-prose">{t('chat.empty.hint')}</div>
+            </>
+          )}
+        </div>
       )}
 
       {view.pendingPermission ? (
@@ -224,15 +313,20 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
 
       <AttachmentBar viewId={view.id} attachments={view.attachments} views={views} />
 
+      {/* The recovery placeholder below invites the user to send, which is right
+          for a crashed agent and wrong for a stranded snapshot — there, sending
+          is the one thing that must not happen. */}
       <Composer
         busy={busy}
-        disabled={notReady || blocked}
+        disabled={composerDisabled(view)}
         {...(blocked
           ? { disabledReason: t('chat.status.awaiting-permission') }
-          : notReady
-            ? { disabledReason: t(statusKey(view.agentStatus)) }
-            : {})}
-        {...(failed ? { placeholderOverride: t('chat.retry.placeholder') } : {})}
+          : stranded
+            ? { disabledReason: t('chat.snapshot.composer') }
+            : notReady
+              ? { disabledReason: t(statusKey(view.agentStatus)) }
+              : {})}
+        {...(failed && !stranded ? { placeholderOverride: t('chat.retry.placeholder') } : {})}
         onSend={onSend}
         onStop={onStop}
       />
@@ -267,12 +361,22 @@ function ModeConfirm({
   }, [])
 
   return (
-    <div className="chat-mode-confirm" role="group" aria-label={t('chat.mode.confirmTitle')} aria-live="assertive">
-      <div className="chat-mode-confirm-title">{t('chat.mode.confirmTitle')}</div>
-      <div className="chat-mode-confirm-body">
+    // The same shape as `PermissionPrompt`, because it is the same kind of
+    // moment: a question about authority that has to be answered deliberately.
+    // It is reached from the toolbar's mode select — a control people click
+    // through while looking for something else — and the two modes behind this
+    // gate switch the tool approvals off for the rest of the conversation.
+    <div
+      className="flex-none m-tight px-snug py-snug rounded-control select-text bg-warn-bg border border-warn"
+      role="group"
+      aria-label={t('chat.mode.confirmTitle')}
+      aria-live="assertive"
+    >
+      <div className="mb-tight font-semibold text-warn">{t('chat.mode.confirmTitle')}</div>
+      <div className="mb-snug text-fg-dim">
         {t('chat.mode.confirmBody', { mode: t(modeKey(mode)) })}
       </div>
-      <div className="chat-mode-confirm-actions">
+      <div className="flex flex-wrap gap-tight">
         <Button ref={cancelRef} onClick={onCancel}>
           {t('chat.mode.confirmCancel')}
         </Button>
@@ -289,6 +393,40 @@ function ModeConfirm({
       </div>
     </div>
   )
+}
+
+/**
+ * The status pill's dot: what colour it is, and whether it breathes.
+ *
+ * One entry per member of `ChatAgentStatus`, so a new member is a type error
+ * here rather than an uncoloured dot nobody notices — the same reason
+ * `statusKey` below is written as an exhaustive switch.
+ *
+ * Exactly one `bg-*` per entry: a class list has no cascade, so a colour layered
+ * over a base colour would be decided by Tailwind's emission order rather than
+ * by the order written here. Alternatives, never overrides.
+ *
+ * `motion-reduce:animate-none` on the two that move. Nothing is carried by the
+ * motion: a streaming agent is a solid --color-accent dot next to the word
+ * "Streaming" whether or not it pulses, and it is still distinguishable from
+ * idle (green) and error (red) with every animation stopped. The pulse is
+ * emphasis. Any future state that is legible only while animating is a bug
+ * against this comment. `@keyframes chat-pulse` is in chat.css; the shorthand it
+ * is named by is `--animate-chat-pulse` in theme.css.
+ */
+const PULSE = 'animate-chat-pulse motion-reduce:animate-none'
+
+const STATUS_DOT: Record<ChatAgentStatus, string> = {
+  idle: 'bg-ok',
+  ready: 'bg-ok',
+  starting: `bg-accent ${PULSE}`,
+  authenticating: `bg-accent ${PULSE}`,
+  streaming: `bg-accent ${PULSE}`,
+  'awaiting-permission': `bg-warn ${PULSE}`,
+  error: 'bg-err',
+  // Replaying a conversation off disk. Quiet on purpose — it is the one busy
+  // state the user did not ask for and cannot hurry.
+  loading: 'bg-fg-faint',
 }
 
 type StatusKey =

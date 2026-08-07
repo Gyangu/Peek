@@ -90,18 +90,21 @@ export function AttachmentBar({
   )
 
   return (
-    <div className="chat-attach-bar" ref={boxRef}>
-      <span className="chat-attach-label">{t('chat.attach.label')}</span>
+    <div
+      className="relative flex-none flex flex-wrap items-center gap-tight px-snug py-inset min-h-head bg-bg-1 shadow-rule-t"
+      ref={boxRef}
+    >
+      <span className="mr-inset text-micro uppercase tracking-wider text-fg-faint">{t('chat.attach.label')}</span>
 
       {attachments.length === 0 ? (
-        <span className="chat-attach-empty">{t('chat.attach.empty')}</span>
+        <span className="text-micro text-fg-faint">{t('chat.attach.empty')}</span>
       ) : (
         attachments.map((a) => (
           <AttachmentChip key={a.id} attachment={a} onRemove={remove} />
         ))
       )}
 
-      <span className="grow" />
+      <span className="flex-1" />
 
       <Button
         variant="ghost"
@@ -116,22 +119,25 @@ export function AttachmentBar({
       </Button>
 
       {open ? (
-        <div className="chat-attach-menu">
+        <div className="absolute right-2 bottom-full z-20 mb-tight p-inset min-w-60 max-w-90 max-h-70 overflow-auto rounded-control bg-bg-2 border border-border-strong shadow-menu">
           {candidates.length === 0 ? (
-            <div className="chat-attach-none">{t('chat.attach.noCandidates')}</div>
+            <div className="px-tight py-tight text-micro text-fg-faint">{t('chat.attach.noCandidates')}</div>
           ) : (
             candidates.map((c) => (
+              // A menu line, not a control — see NOT_CONTROLS. `base.css` gives
+              // it the hit height and the focus ring; these strip the button
+              // shape off it and lay the label over its hint.
               <button
                 key={c.key}
                 type="button"
-                className="chat-attach-option"
+                className="flex flex-col items-start gap-inset w-full px-tight py-inset text-left rounded-control border-0 bg-transparent hover:not-disabled:bg-bg-hover"
                 onClick={() => {
                   setOpen(false)
                   void actions.add(stageableAttachment(c.spec, c.label), viewId)
                 }}
               >
-                <span className="chat-attach-option-label">{c.label}</span>
-                {c.hint ? <span className="chat-attach-option-hint mono">{c.hint}</span> : null}
+                <span>{c.label}</span>
+                {c.hint ? <span className="font-mono tabular-nums max-w-full truncate text-micro text-fg-faint">{c.hint}</span> : null}
               </button>
             ))
           )}
@@ -148,6 +154,59 @@ export function AttachmentBar({
 }
 
 /* ------------------------------------------------------------------ */
+
+/**
+ * A chip's classes, for the two things a chip can be.
+ *
+ * `staged` is context the *next* message will carry and can still be taken back;
+ * a receipt is a record of what a past message already carried. Both are drawn
+ * here rather than twice, because they were one rule (`.chat-chip`) before the
+ * migration and splitting them across two components is how the two drift.
+ * `MessageItem` imports it for the receipt; the direction is that way round
+ * because a chip is born on this bar.
+ *
+ * Two things worth knowing about the shape:
+ *
+ *  - the chip is 20px tall and that is what `leading-ui` is doing. It has to be
+ *    tall enough to hold the ✕, which is `<Button variant="ghost" size="sm" icon>`
+ *    — the smallest control in the window, and the one place `--spacing-hit`
+ *    bends, because a chip is an inline token in a wrapping strip rather than a
+ *    row. Removing an attachment by mistake costs one re-add.
+ *  - a receipt reads quieter than a staged chip **in its colours, at full
+ *    opacity**. It used to say `opacity: 0.75`, which composites the whole chip
+ *    and put the --color-accent kind label at 3.72:1 somewhere
+ *    `theme-contrast.test.ts` structurally could not look. The parameter could
+ *    not be tuned out of it either: --color-accent only clears 4.5 at about
+ *    α = 0.88, by which point nothing is muted. See
+ *    design/2026-08-02-ui-legibility-baseline.md §2.2.1.
+ *
+ * A receipt carrying a truncation notice is the one thing on either strip the
+ * user has to actually read, so it keeps the loud treatment and gains an amber
+ * edge — which a failure then overrides with red.
+ */
+export function chipClasses(state: { receipt: boolean; detail: boolean; failed: boolean }): {
+  box: string
+  kind: string
+  label: string
+  detail: string
+} {
+  const loud = !state.receipt || state.detail || state.failed
+  return {
+    box:
+      'inline-flex items-center gap-tight max-w-65 pl-tight text-micro leading-ui rounded-full bg-bg-2 border ' +
+      (state.receipt ? 'pr-tight ' : 'pr-inset ') +
+      (state.failed
+        ? 'border-err'
+        : state.detail
+          ? 'border-warn'
+          : state.receipt
+            ? 'border-border'
+            : 'border-border-strong'),
+    kind: `text-micro ${loud ? 'text-accent' : 'text-fg-dim'}`,
+    label: `font-mono truncate ${loud ? 'text-fg-dim' : 'text-fg-faint'}`,
+    detail: `max-w-55 truncate text-micro ${state.failed ? 'text-err' : 'text-warn'}`,
+  }
+}
 
 /**
  * One staged attachment.
@@ -168,19 +227,24 @@ function AttachmentChip({
   const t = useT()
   const menu = useContextMenu<null>()
   const label = attachmentLabel(attachment)
+  const chip = chipClasses({ receipt: false, detail: false, failed: false })
 
   return (
-    <span className="chat-chip" title={label} onContextMenu={menu.open(null)}>
-      <span className="chat-chip-kind">{t(attachmentKindKey(attachment.kind))}</span>
-      <span className="chat-chip-label">{label}</span>
+    <span className={chip.box} title={label} onContextMenu={menu.open(null)}>
+      <span className={chip.kind}>{t(attachmentKindKey(attachment.kind))}</span>
+      <span className={chip.label}>{label}</span>
       {/* 18px → 20px, the `sm` rung. The legibility baseline §2.4 planned
-          exactly this swap; the chip grows 2px and that was measured. */}
+          exactly this swap; the chip grows 2px and that was measured.
+          One deliberate loss when the rung landed: this ✕ used to turn
+          --color-err on hover. Un-staging an attachment is not destructive — it
+          is re-addable in one click — so `danger` would overstate it, and
+          `ghost`'s own hover already says the control is live. Colour spent on a
+          reversible act is colour unavailable for an irreversible one. */}
       <Button
         variant="ghost"
         size="sm"
         icon
         label={t('chat.attach.remove')}
-        className="chat-chip-x"
         onClick={() => {
           onRemove(attachment)
         }}

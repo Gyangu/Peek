@@ -17,8 +17,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { after, test } from 'node:test'
-import { asChatId, type ChatDelta, type ChatId, type NotifyMessage, type PeekError } from '@peek/core'
+import {
+  applyChatDeltaToMessages,
+  asChatId,
+  type ChatDelta,
+  type ChatId,
+  type ChatMessage,
+  type NotifyMessage,
+  type PeekError,
+} from '@peek/core'
 import { AcpManager } from '../manager'
+import { AcpSnapshotStore } from '../snapshot-store'
 import { claudeCodeProfile } from '../profiles'
 import {
   DEFAULT_ACP_TIMEOUTS,
@@ -45,6 +54,8 @@ interface Harness {
   status(): string | undefined
   /** The error the turn ended with, read off the transcript rather than the state. */
   endError(): PeekError | undefined
+  /** The snapshot store this host was given, so a test can seed or inspect it. */
+  snapshots: AcpSnapshotStore
 }
 
 /**
@@ -90,6 +101,7 @@ function harness(
   const deltas: ChatDelta[] = []
   const patches: ChatAgentStatePatch[] = []
   const notifications: NotifyMessage[] = []
+  const snapshots = new AcpSnapshotStore(join(cwd, 'snapshots'))
   const manager = new AcpManager(
     {
       applyState: (patch) => {
@@ -103,6 +115,7 @@ function harness(
         notifications.push(message)
       },
       resolveMcpEndpoint: () => endpoint,
+      snapshots,
     },
     {
       resolveCwd: () => cwd,
@@ -123,6 +136,7 @@ function harness(
     patches,
     notifications,
     chatId: asChatId('chat_test'),
+    snapshots,
     status: () => [...patches].reverse().find((p) => p.status !== undefined)?.status,
     endError: () =>
       [...deltas]
@@ -863,6 +877,106 @@ test('a live turn still records the user’s message once, not twice', async () 
         d.type === 'message.start' && d.message.role === 'user',
     )
     assert.equal(userMessages.length, 1, 'exactly one user bubble per turn the user actually took')
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+/* ================================================================== */
+/* The stored snapshot                                                 */
+/* ================================================================== */
+
+/** Fold a delta run the way the renderer's mirror does, for comparing projections. */
+function project(deltas: readonly ChatDelta[]): ChatMessage[] {
+  let messages: ChatMessage[] = []
+  for (const delta of deltas) messages = applyChatDeltaToMessages(messages, delta)
+  return messages
+}
+
+// `design/2026-08-06-opening-a-stored-conversation.md` §4.1. What is stored has
+// to be *what the window was shown* — not approximately, exactly. The two are
+// built by the same function from the same delta run, and this is what keeps
+// them that way: if `#emit` ever folds the batcher's merged output instead of
+// its input, or writes at a moment when the two disagree, this fails.
+test('what is written to a snapshot is exactly what the window was shown', async () => {
+  const h = harness()
+  try {
+    await h.manager.openChat(h.chatId, 'stub-session-old')
+    await sleep(400)
+
+    const stored = h.snapshots.read('stub-session-old')
+    assert.ok(stored, 'a replayed conversation should leave a snapshot behind')
+    assert.deepEqual(stored.transcript, project(h.deltas))
+    assert.ok(stored.transcript.length > 0)
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+// §2.3. The snapshot goes up first and the agent's copy replaces it — the whole
+// point of the feature — and the ordering is what makes it safe. A `reset` has
+// to separate the two, or the replay lands *underneath* the picture and the
+// user reads the conversation twice.
+test('a stored snapshot is drawn first and then replaced by the agent’s own copy', async () => {
+  const h = harness()
+  try {
+    // A picture of an earlier visit to this conversation, as `#saveSnapshot`
+    // would have left it.
+    h.snapshots.write(
+      'stub-session-old',
+      [
+        {
+          id: 'snap_1' as ChatMessage['id'],
+          role: 'agent',
+          blocks: [{ type: 'text', text: 'from the snapshot' }],
+          complete: true,
+          createdAt: 1,
+        },
+      ],
+      1,
+    )
+
+    // Deliberately not awaited yet. `openChat` draws the snapshot **before** its
+    // first await, so the picture is on screen in the same tick the user
+    // clicked — awaiting here would measure the state after the load finished
+    // and prove nothing about the wait it exists to remove.
+    const opening = h.manager.openChat(h.chatId, 'stub-session-old')
+
+    const drawn = project(h.deltas)
+    assert.equal(drawn.length, 1, 'the picture should be on screen before anything is awaited')
+    assert.equal(drawn[0]?.blocks[0]?.type === 'text' && drawn[0].blocks[0].text, 'from the snapshot')
+
+    await opening
+    await sleep(400)
+    assert.equal(h.patches.some((p) => p.showingSnapshot === true), true)
+
+    // And afterwards it is gone, replaced rather than appended to. The stub's
+    // replay is the only text left.
+    const finished = project(h.deltas)
+    const text = finished
+      .flatMap((m) => m.blocks)
+      .map((b) => (b.type === 'text' ? b.text : ''))
+      .join('')
+    assert.equal(text.includes('from the snapshot'), false, 'the picture must not survive the replay')
+    assert.equal(text, 'what did I ask?replayed history')
+    assert.equal([...h.patches].reverse().find((p) => p.showingSnapshot !== undefined)?.showingSnapshot, false)
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+// §2.6. A snapshot that outlives the conversation it pictures is the one way
+// this store could show a user something that exists nowhere else.
+test('deleting a conversation deletes the picture of it too', async () => {
+  const h = harness()
+  try {
+    await h.manager.openChat(h.chatId, 'stub-session-old')
+    await sleep(400)
+    assert.ok(h.snapshots.read('stub-session-old'))
+
+    h.manager.closeChat(h.chatId)
+    await h.manager.deleteSession('stub-session-old')
+    assert.equal(h.snapshots.read('stub-session-old'), null)
   } finally {
     await h.manager.dispose()
   }

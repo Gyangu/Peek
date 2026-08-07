@@ -290,6 +290,25 @@ export interface ChatViewState extends ViewBase {
    * conversation from a sequence of these.
    */
   lastMessagePreview?: string
+  /**
+   * The transcript on screen is peek's stored **picture** of this conversation,
+   * not the agent's copy of it.
+   *
+   * Set while a conversation opened from the rail is being fetched: peek draws
+   * what it last saw so the user can read during the ~1.5s `session/load` takes,
+   * and clears this when the agent's own transcript replaces it.
+   *
+   * It matters *after* a failed load, which is the case it exists for. The
+   * picture stays on screen — it is the only record anyone has at that moment —
+   * and this is what stops the panel from treating it as a live conversation.
+   * Sending a message on top of it would have the model answer a question it
+   * cannot see the history for: the user reads a full transcript, the model
+   * remembers none of it. That is the exact failure
+   * `design/2026-08-03-chat-history-ownership.md` §3.1 forbids, and
+   * `2026-08-06-opening-a-stored-conversation.md` §2.4 is the rule that holds it
+   * shut.
+   */
+  showingSnapshot?: boolean
   /** Staged for the next prompt. Descriptors, never payloads — see `ChatAttachment`. */
   attachments: ChatAttachment[]
   /** Set while the agent is blocked on a human decision. Small, modal, and the AI must see it. */

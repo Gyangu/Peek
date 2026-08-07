@@ -91,10 +91,19 @@ export function Composer({
   const canSend = draft.trim() !== '' && !busy && !disabled
 
   return (
-    <div className="chat-composer">
+    <div className="flex-none flex flex-col gap-tight px-snug pt-tight pb-snug bg-bg-1 border-t border-border">
       <textarea
         ref={areaRef}
-        className="chat-input mono"
+        // The growth range is `MIN_H`/`MAX_H` above, restated here as the two
+        // classes that bound it — the effect below writes an explicit height
+        // between them, and these are what the box falls back to.
+        //
+        // The line height is stated because `base.css`'s `font: inherit` is a
+        // shorthand: it carries the body's 1.45 along with the size, and the
+        // composer wants the looser 1.5 for prose somebody is drafting. It was a
+        // rule in chat.css until that floor moved into `@layer base`; unlayered,
+        // it beat this class whatever the specificity.
+        className="font-mono tabular-nums w-full min-h-8.5 max-h-55 resize-none overflow-y-auto leading-prose"
         value={draft}
         rows={1}
         maxLength={MAX_CHAT_PROMPT_CHARS}
@@ -116,9 +125,9 @@ export function Composer({
           composing.current = false
         }}
       />
-      <div className="chat-composer-bar">
-        <span className="chat-composer-hint">{t('chat.composer.hint')}</span>
-        <span className="grow" />
+      <div className="flex items-center gap-snug">
+        <span className="text-micro text-fg-faint">{t('chat.composer.hint')}</span>
+        <span className="flex-1" />
         {busy ? (
           /* Was `.chat-stop`, the third independent spelling of "this button is
              destructive" in the codebase. It is a `danger` variant now, and the

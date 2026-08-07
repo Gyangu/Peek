@@ -13,7 +13,7 @@
  *    says so once in the console (`port.ts` explains why that beats a cast);
  * 2. `DataGrid` holds the `RowSelection` and updates it with `applyRowClick` —
  *    the row-number gutter selects, ⇧ extends, ⌘/ctrl toggles;
- * 3. `DataGrid` renders `<SelectionActionBar>` as a sibling of `.grid` (it is
+ * 3. `DataGrid` renders `<SelectionActionBar>` as a sibling of `.grid-scroll` (it is
  *    `position: absolute`, so inside the horizontal scroll container it would
  *    slide away), and `<ContextMenu>` on right-click;
  * 4. the chat panel's own `AttachmentBar` covers the other direction — the user

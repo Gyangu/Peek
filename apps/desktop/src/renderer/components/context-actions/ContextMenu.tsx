@@ -7,7 +7,6 @@ import { hasContextConsent } from './consent'
 import { ConsentDialog } from './ConsentDialog'
 import { contextActionsFor, type ContextTarget } from './descriptors'
 import { useContextActions } from './useContextActions'
-import './context-actions.css'
 
 /**
  * The grid's right-click menu: "add what I am pointing at to the chat".

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { blankComments, readShippedCss, utilityBody } from '../../__tests__/sourceScan'
 import { PanelIdSchema, ViewIdSchema, type DropZone, type PanelId, type ViewId } from '@peek/core'
 import {
   DRAG_THRESHOLD_PX,
@@ -652,8 +653,12 @@ const src = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, imp
 
 const PANEL_TSX = src('../Panel.tsx')
 const PANEL_TABS_TSX = src('../PanelTabs.tsx')
+const OVERLAY_TSX = src('../DropZoneOverlay.tsx')
 const DRAG_STORE = src('../dragStore.ts')
 const DRAG_MACHINE = src('../dragMachine.ts')
+// One selector is still read out of the stylesheet: `.panel-tab`, below, which
+// cannot become a class list. Everything else this file used to read there now
+// comes from the element — see the note under `paints`.
 const CSS = src('../../styles.css')
 
 function ruleBody(css: string, selector: string): string {
@@ -662,6 +667,96 @@ function ruleBody(css: string, selector: string): string {
   const open = css.indexOf('{', start)
   const close = css.indexOf('}', open)
   return css.slice(open + 1, close)
+}
+
+/* ==================================================================
+ * How the layout facts below are pinned, and why it changed.
+ *
+ * These assertions guard five things a refactor breaks silently: the overlay
+ * cannot swallow the pointer, the panel is the overlay's containing block, the
+ * tab strip's scroll never escapes it, and the head keeps the height the
+ * virtualised body depends on.
+ *
+ * They used to be pinned by reading `styles.css` for the declaration —
+ * `ruleBody('.panel')` matched `/position:\s*relative/`. That was a correct
+ * fence and it had a side effect nobody chose: **it made the rule unmovable.**
+ * Six panel rules stayed in the stylesheet through the whole Tailwind migration
+ * for no reason except that this file read them there, and the migration record
+ * listed them as "blocked by a test" (§29.11.5).
+ *
+ * So the fence moved to the element instead, and it is asserted in two halves
+ * because either half alone is weaker than what it replaced:
+ *
+ *   1. **The element wears the class.** Read out of the component source, which
+ *      is where the fact now lives.
+ *   2. **The class carries the declaration.** Read out of the shipped artifact,
+ *      because a class name is a spelling and a spelling that compiles to
+ *      nothing looks exactly like one that compiles. This is the half that keeps
+ *      the assertion about `position: absolute` rather than about the six
+ *      letters `absolute`.
+ *
+ * Half 2 needs a build. Without one it is skipped **loudly** — the test says so
+ * in its own output rather than passing quietly — because a silent skip is the
+ * exact shape of vacuous pass this file exists to prevent. `pnpm build` runs the
+ * stylesheet audit unconditionally, so CI always has one.
+ * ================================================================== */
+
+const SHIPPED = readShippedCss(fileURLToPath(new URL('../..', import.meta.url)))
+
+/**
+ * Every class on the element that carries `identity`, as a set.
+ *
+ * Comments are blanked first, and that is not a precaution — the first version of
+ * this helper did not, and every one of these elements has a paragraph above it
+ * explaining what its classes are for. It matched the prose, reported that
+ * `panel-head` "wears: .panel-head", and failed. Fifth time this codebase has
+ * been bitten by a scanner reading a comment as code; see the header of
+ * `__tests__/sourceScan.ts`, which exists because of the first four.
+ */
+function classesOn(source: string, identity: string, where: string): Set<string> {
+  // The identity name and the utilities around it live in one class string. Both
+  // spellings this codebase writes are covered: a literal attribute, and a
+  // module-level constant assigned a string.
+  const re = new RegExp(`['"\`]([^'"\`]*\\b${identity}\\b[^'"\`]*)['"\`]`)
+  const m = re.exec(blankComments(source))
+  assert.ok(m, `${where}: no class string contains \`${identity}\` any more`)
+  return new Set(m[1].split(/\s+/).filter(Boolean))
+}
+
+/**
+ * `identity`'s element declares `property`, via `utility`.
+ *
+ * Both halves, and the second one names what it could not check when there is no
+ * build so that a reader of the output can tell a skip from a pass.
+ */
+function paints(
+  source: string,
+  identity: string,
+  utility: string,
+  property: RegExp,
+  where: string,
+): void {
+  const worn = classesOn(source, identity, where)
+  assert.ok(
+    worn.has(utility),
+    `${where}: the element carrying \`${identity}\` no longer wears \`${utility}\`, which is what ` +
+      `sets ${String(property)}. It wears: ${[...worn].join(' ')}`,
+  )
+  if (SHIPPED === null) {
+    console.log(`  (no build artifact: \`.${utility}\` was not checked against ${String(property)})`)
+    return
+  }
+  const body = utilityBody(SHIPPED.css, utility)
+  assert.ok(
+    body !== null,
+    `${where}: \`${utility}\` is on the element but generates no rule in ${SHIPPED.name}. A class ` +
+      `name that compiles to nothing is the failure this half of the check exists to catch.`,
+  )
+  assert.match(
+    body,
+    property,
+    `${where}: \`.${utility}\` ships as {${body.trim()}}, which does not set ${String(property)}.`,
+  )
 }
 
 describe('structure — no optimistic updates', () => {
@@ -715,8 +810,13 @@ describe('structure — where the gesture lives', () => {
     assert.notEqual(tab, -1, 'no tab element to drag')
     assert.ok(PANEL_TABS_TSX.includes('beginViewDrag'), 'a tab does not start a drag')
     assert.ok(PANEL_TABS_TSX.includes('onPointerDown'), 'a tab has no pointer handler')
-    const body = PANEL_TSX.indexOf('className="panel-body"')
-    assert.notEqual(body, -1)
+    // Anchored on the *name* rather than on the whole attribute. It used to be
+    // `indexOf('className="panel-body"')`, an exact-string match that made the
+    // element unable to grow a utility beside its name — which is why
+    // `.panel-body` sat in the stylesheet for the whole migration. See the note
+    // under `paints`.
+    const body = PANEL_TSX.indexOf('panel-body')
+    assert.notEqual(body, -1, 'the body element lost its name')
     assert.ok(
       !PANEL_TSX.slice(body).includes('onPointerDown'),
       'the panel body must not start a drag',
@@ -756,21 +856,27 @@ describe('structure — where the gesture lives', () => {
   it('the overlay is positioned against the panel and cannot swallow the pointer', () => {
     // `pointer-events: none` is load-bearing: the overlay covers the panel, and a
     // hit-testable one would eat the release that ends the drag.
-    assert.match(ruleBody(CSS, '.panel-drop-overlay'), /pointer-events:\s*none/)
-    assert.match(ruleBody(CSS, '.panel-drop-overlay'), /position:\s*absolute/)
-    assert.match(ruleBody(CSS, '.panel'), /position:\s*relative/)
-    assert.match(ruleBody(CSS, '.view-drag-ghost'), /pointer-events:\s*none/)
-    assert.match(ruleBody(CSS, '.tab-insert-caret'), /pointer-events:\s*none/)
-    assert.match(ruleBody(CSS, '.tab-insert-caret'), /position:\s*fixed/)
+    const O = 'DropZoneOverlay.tsx'
+    paints(OVERLAY_TSX, 'panel-drop-overlay', 'pointer-events-none', /pointer-events:\s*none/, O)
+    paints(OVERLAY_TSX, 'panel-drop-overlay', 'absolute', /position:\s*absolute/, O)
+    paints(PANEL_TSX, 'panel', 'relative', /position:\s*relative/, 'Panel.tsx')
+    paints(OVERLAY_TSX, 'view-drag-ghost', 'pointer-events-none', /pointer-events:\s*none/, O)
+    paints(OVERLAY_TSX, 'tab-insert-caret', 'pointer-events-none', /pointer-events:\s*none/, O)
+    paints(OVERLAY_TSX, 'tab-insert-caret', 'fixed', /position:\s*fixed/, O)
   })
 
   it('the strip scrolls itself, and the scroll never leaks out of it', () => {
     // The forbidden zone, restated in CSS: the strip is a horizontal scroll
     // container, it is not the grid's, and `overflow-x` must not reach the panel
     // or the page.
-    assert.match(ruleBody(CSS, '.panel-tabs'), /overflow-x:\s*auto/)
-    assert.match(ruleBody(CSS, '.panel-tabs'), /overflow-y:\s*hidden/)
-    assert.match(ruleBody(CSS, '.panel'), /overflow:\s*hidden/)
+    const P = 'PanelTabs.tsx'
+    paints(PANEL_TABS_TSX, 'panel-tabs', 'overflow-x-auto', /overflow-x:\s*auto/, P)
+    paints(PANEL_TABS_TSX, 'panel-tabs', 'overflow-y-hidden', /overflow-y:\s*hidden/, P)
+    paints(PANEL_TSX, 'panel', 'overflow-hidden', /overflow:\s*hidden/, 'Panel.tsx')
+    // `.panel-tab` is the one of these still written as a rule, and structurally
+    // so: it *declares* `--tab-min-width` and reads it in the same block, and the
+    // only Tailwind syntax that sets a custom property is the arbitrary-property
+    // form the migration record bans outright (§3.4). Read from the sheet.
     assert.match(ruleBody(CSS, '.panel-tab'), /min-width:\s*var\(--tab-min-width\)/)
   })
 
@@ -778,7 +884,7 @@ describe('structure — where the gesture lives', () => {
     // The body is a pixel-virtualised grid, and the scroll subsystem is off
     // limits. A strip that appeared with the second tab would change the body's
     // height at runtime; occupying the existing bar keeps it constant.
-    assert.match(ruleBody(CSS, '.panel-head'), /height:\s*var\(--bar-h\)/)
+    paints(PANEL_TABS_TSX, 'panel-head', 'h-bar', /height:\s*var\(--spacing-bar\)/, 'PanelTabs.tsx')
     assert.ok(
       !PANEL_TABS_TSX.includes('viewIds.length > 1'),
       'the strip is hidden for a single tab somewhere',

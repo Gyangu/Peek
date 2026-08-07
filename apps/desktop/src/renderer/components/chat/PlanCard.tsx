@@ -20,27 +20,43 @@ export const PlanCard = memo(function PlanCard({ entries }: { entries: PlanEntry
   const done = entries.filter((e) => e.status === 'completed').length
 
   return (
-    <div className="chat-plan">
-      <div className="chat-plan-head">
-        <span className="chat-plan-title">{t('chat.plan.title')}</span>
-        <span className="chat-plan-count mono">
+    // Neutral chrome on purpose. A plan is the agent reporting where it is, not
+    // asking anything — so it stays --color-border and never borrows the amber
+    // the permission prompt uses to mean "answer me".
+    <div className="my-tight rounded-control bg-bg-1 border border-border">
+      <div className="flex items-center gap-snug px-snug py-tight border-b border-border">
+        <span className="text-micro uppercase tracking-wider text-fg-dim">{t('chat.plan.title')}</span>
+        <span className="font-mono tabular-nums text-micro text-fg-faint">
           {t('chat.plan.progress', { done, total: entries.length })}
         </span>
       </div>
-      <ul className="chat-plan-list">
+      <ul className="m-0 py-tight list-none">
         {entries.map((entry, i) => (
-          <li key={i} className={`chat-plan-item ${entry.status}`}>
-            <span className="chat-plan-mark" aria-hidden="true">
+          <li key={i} className="flex items-baseline gap-snug px-snug py-inset">
+            <span className={`flex-none w-2.5 ${MARK[entry.status]}`} aria-hidden="true">
               {entry.status === 'completed' ? '✔' : entry.status === 'in_progress' ? '▸' : '○'}
             </span>
-            <span className="chat-plan-text">{entry.content}</span>
-            <span className="chat-plan-status">{t(planStatusKey(entry.status))}</span>
+            <span
+              className={`flex-1 min-w-0 break-words${
+                entry.status === 'completed' ? ' text-fg-faint line-through' : ''
+              }`}
+            >
+              {entry.content}
+            </span>
+            <span className="flex-none text-micro text-fg-faint">{t(planStatusKey(entry.status))}</span>
           </li>
         ))}
       </ul>
     </div>
   )
 })
+
+/** The mark's colour, one per status — never two, which a class list cannot resolve. */
+const MARK: Record<PlanEntry['status'], string> = {
+  completed: 'text-ok',
+  in_progress: 'text-accent',
+  pending: 'text-fg-faint',
+}
 
 function planStatusKey(
   status: PlanEntry['status'],

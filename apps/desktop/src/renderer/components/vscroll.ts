@@ -12,7 +12,7 @@
  * or the next zoomFactor change.
  *
  * The fix: **no dimension anywhere in the DOM is derived from rowCount**.
- * - `.grid` becomes `overflow-x: auto; overflow-y: hidden`, so the horizontal
+ * - `.grid-scroll` becomes `overflow-x: auto; overflow-y: hidden`, so the horizontal
  *   axis stays native scrolling (total width tops out in the hundreds of
  *   thousands of pixels — two orders of magnitude below the cap — and colVirt
  *   and the sticky gutter need no changes at all);

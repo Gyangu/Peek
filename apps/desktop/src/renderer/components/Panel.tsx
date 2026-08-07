@@ -13,6 +13,19 @@ import { ViewHost } from './ViewHost'
 import { Button } from '../ui/Button'
 
 /**
+ * The panel's box, minus the border colour, which is a state.
+ *
+ * `group/panel` is **named**, and the name is load-bearing rather than tidy: the
+ * tab strip reads the panel's focus state through `group-data-focused/panel:`,
+ * and a bare `group` here would also answer the `group-hover:` variants the grid
+ * writes on its cells (`util/format.ts`) — every cell in the panel would light
+ * up the moment the pointer entered it. Verified by reading what those variants
+ * compile to, not by reasoning about them.
+ */
+const PANEL_BOX =
+  'panel group/panel relative m-inset flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden rounded-control border bg-bg-1'
+
+/**
  * A leaf of the tiled layout: one panel, holding a stack of views as tabs, of
  * which exactly one is visible.
  *
@@ -63,13 +76,56 @@ export function PanelView({ panel, index }: { panel: PanelNode; index: number })
     if (!focus.focused) void dispatch('layout.focus', { panelId: panel.id })
   }
 
-  const classes = ['panel']
-  if (focus.focused) classes.push('focused')
+  /*
+   * The panel's box, in three parts, and each part is somewhere different on
+   * purpose.
+   *
+   * 1. **`PANEL_BOX`** — the geometry and the resting paint, as utilities.
+   * 2. **`relative` and `overflow-hidden` inside `PANEL_BOX`** — the overlay
+   *    is positioned against this box, and the tab strip's horizontal scroll
+   *    must not leak out of it. Both were a `.panel` rule in the stylesheet
+   *    until §29.11.8; `view-drag.test.ts` pinned them there by reading the rule
+   *    body, and now pins them here by reading the class *and* checking what
+   *    that class compiles to in the shipped artifact. The `panel` name stays,
+   *    for the drop registry and for the tests.
+   * 3. **`base.css`'s `.layout-root .panel.focused`** — the focus emphasis.
+   *    That selector is three levels deep and unlayered, so it beats both the
+   *    `.panel.focused` rule that used to sit beside `.panel` *and* any utility
+   *    written here. It was already winning: measured in Electron, a focused
+   *    panel draws `--color-accent`, never the `--color-accent-dim` the app.css
+   *    rule named. So that rule was dead, and deleting it changes nothing on
+   *    screen — the `focused` class stays because it is what base.css selects.
+   *
+   * `border-accent` for a drop target is written as an alternative to
+   * `border-border` rather than stacked on it: two classes from one utility
+   * family on one element are resolved by Tailwind's emission order, not by the
+   * order they are pushed here. See `ui/CLAUDE.md`.
+   *
+   * The one rounding: 5px → `rounded-control` (4px). There is no 5px rung, and the
+   * record already took the same 1px on the crash box and the gallery row.
+   */
+  const classes = [
+    PANEL_BOX,
+    focus.focused || dropZone || tabCaret !== null ? 'border-accent' : 'border-border',
+  ]
+  // `focused` is still a name, and now it is *only* a name: the ring and the
+  // glow it used to trigger from `.layout-root .panel.focused` are the
+  // `shadow-panel-focused` beside it, and the head's leading bar reads the same
+  // state through `group-data-focused/panel`. What the class still does is mark
+  // the panel for `usePanelFocus` and for the drag tests.
+  if (focus.focused) classes.push('focused', 'shadow-panel-focused')
   // Dimmed while it is the panel a view is leaving — but not while the pointer
   // is in its own strip, where the gesture is a reorder and the user needs to
   // read the very tabs being dimmed.
-  if (dragSource && tabCaret === null) classes.push('drag-source')
-  if (dropZone || tabCaret !== null) classes.push('drop-target')
+  //
+  // 0.75, not the 0.55 this shipped with: only "dimmed" was ever argued for, the
+  // number was not, and at 0.55 the panel's own --color-fg-dim text composited
+  // to 3.23:1 against the desktop behind it. 0.75 keeps the intent and clears AA
+  // (--color-fg 7.10, --color-fg-dim 4.87) — legibility baseline §2.2.1. The
+  // alpha is under `theme-contrast.test.ts`'s ALPHA_SITES either way; the key is
+  // `components/Panel.tsx:opacity-75` now that it is a class rather than
+  // `styles.css:.panel.drag-source`.
+  if (dragSource && tabCaret === null) classes.push('drag-source', 'opacity-75')
 
   const label =
     title === null
@@ -88,13 +144,28 @@ export function PanelView({ panel, index }: { panel: PanelNode; index: number })
       aria-label={label}
       tabIndex={focus.panelTabIndex}
       onFocus={focus.onFocus}
+      /* The same boolean as the `focused` class above, in the spelling a
+         Tailwind variant can match: `group-data-focused/panel:` is an attribute
+         selector, and matching a bare class from a group variant needs the
+         arbitrary-value syntax the migration record bans. Two spellings, one
+         source — the class is what `base.css` selects, the attribute is what the
+         tab strip's variants read. */
+      data-focused={focus.focused ? '' : undefined}
       data-panel-id={panel.id}
       data-drop-zone={dropZone ?? undefined}
       onMouseDown={onMouseDown}
     >
       <PanelTabs panel={panel} focus={focus} />
       <div
-        className="panel-body"
+        /* `panel-body` is a name now and nothing else. It was a rule until
+           §29.11.8, held there by `view-drag.test.ts` matching the exact string
+           `className="panel-body"` — an assertion that could not survive the
+           attribute growing a single utility, which is a fence that forbids the
+           migration it was not written to have an opinion about. That test reads
+           the name now, so the geometry is here. The name still earns its keep:
+           the focus ring selects through it, and the drag test finds the element
+           by it. */
+        className="panel-body relative flex min-h-0 flex-1 flex-col"
         /* An empty panel is not a tab panel: with no tabs there is nothing to
            label it and nothing pointing `aria-controls` at it, so the role and
            the id would describe an orphan — a tab panel no tab controls,
@@ -157,21 +228,19 @@ function EmptyPanel({ panelId, tabIndex }: { panelId: PanelNode['id']; tabIndex:
 
   if (ready.length === 0) {
     return (
-      <div className="panel-empty">
+      <div className="flex flex-1 flex-col items-center justify-center gap-tight text-fg-faint">
         <div>{t('panel.empty')}</div>
-        <div style={{ color: 'var(--fg-faint)' }}>{t('panel.emptyHint')}</div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>{newChat}</div>
+        <div>{t('panel.emptyHint')}</div>
+        <div className="mt-tight flex gap-snug">{newChat}</div>
       </div>
     )
   }
 
   const first = ready[0]
   return (
-    <div className="panel-empty">
-      <div style={{ color: 'var(--fg-faint)' }}>
-        {t('panel.emptyWithConn', { label: first.label })}
-      </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+    <div className="flex flex-1 flex-col items-center justify-center gap-tight text-fg-faint">
+      <div>{t('panel.emptyWithConn', { label: first.label })}</div>
+      <div className="mt-tight flex gap-snug">
         <Button
           tabIndex={tabIndex}
           onClick={() => {

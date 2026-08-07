@@ -113,7 +113,7 @@ export interface ResizeUpdate {
 export class ColumnResizer {
   private drag: DragState | null = null
 
-  /** The column being dragged, or null. Drives `.col-resizer.active`. */
+  /** The column being dragged, or null. Drives the drag bar's accent in DataGrid. */
   get activeId(): string | null {
     return this.drag?.columnId ?? null
   }

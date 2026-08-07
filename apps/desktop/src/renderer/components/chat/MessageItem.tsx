@@ -7,6 +7,7 @@ import { Menu } from '../../ui/Menu'
 import { useContextMenu } from '../../ui/useContextMenu'
 import { detailFor } from '../context-actions/chipDetail'
 import { attachmentKindKey, attachmentLabel } from './attachments'
+import { chipClasses } from './AttachmentBar'
 import { Markdown } from './Markdown'
 import { ToolCallCard } from './ToolCallCard'
 
@@ -29,15 +30,27 @@ export const MessageItem = memo(function MessageItem({
 
   return (
     <article
-      className={`chat-msg ${message.role}${message.complete ? '' : ' streaming'}`}
+      // `chat-msg` and `streaming` carry no styles. They are the handles
+      // `scripts/verify-chat-restore.mjs` counts messages and waits for a turn to
+      // finish by, over CDP against the real window.
+      //
+      // A user turn is set on its own surface with an accent edge; an agent turn
+      // is drawn straight on the transcript. The whole distinction is that one
+      // side of the conversation is quoted back and the other is the panel's own
+      // voice, so only one of them needs a box.
+      className={`chat-msg${message.complete ? '' : ' streaming'} pt-tight px-snug pb-snug select-text${
+        isUser ? ' bg-bg-1 border-l-2 border-l-accent-dim' : ''
+      }`}
       onContextMenu={menu.open(null)}
     >
-      <div className="chat-msg-head">
-        <span className="chat-msg-role">{isUser ? t('chat.role.user') : t('chat.role.agent')}</span>
-        {message.complete ? null : <span className="chat-msg-live">{t('chat.writing')}</span>}
+      <div className="flex items-center gap-snug mb-inset">
+        <span className={`text-micro font-semibold tracking-wide ${isUser ? 'text-fg-dim' : 'text-accent'}`}>
+          {isUser ? t('chat.role.user') : t('chat.role.agent')}
+        </span>
+        {message.complete ? null : <span className="text-micro text-fg-faint">{t('chat.writing')}</span>}
       </div>
 
-      <div className="chat-msg-body">
+      <div className="leading-prose">
         {message.blocks.map((block, i) => {
           switch (block.type) {
             case 'text':
@@ -45,7 +58,7 @@ export const MessageItem = memo(function MessageItem({
               // wrote: rendering it as Markdown would mangle a pasted SQL
               // fragment or a value containing underscores.
               return isUser ? (
-                <div key={i} className="chat-user-text">
+                <div key={i} className="whitespace-pre-wrap break-words font-ui">
                   {block.text}
                 </div>
               ) : (
@@ -60,7 +73,7 @@ export const MessageItem = memo(function MessageItem({
       </div>
 
       {message.attachments && message.attachments.length > 0 ? (
-        <div className="chat-msg-attachments" title={t('chat.attach.sentWith')}>
+        <div className="flex flex-wrap gap-tight mt-tight" title={t('chat.attach.sentWith')}>
           {message.attachments.map((a) => (
             <AttachmentReceipt
               key={a.id}
@@ -72,15 +85,15 @@ export const MessageItem = memo(function MessageItem({
       ) : null}
 
       {errorText ? (
-        <div className="chat-msg-error">
+        <div className="mt-tight px-snug py-tight rounded-control bg-err-bg border border-err-border text-err">
           <strong>{t('chat.error.title')}</strong>
-          {message.error ? <span className="mono"> [{message.error.code}]</span> : null}
+          {message.error ? <span className="font-mono tabular-nums"> [{message.error.code}]</span> : null}
           <div>{errorText}</div>
         </div>
       ) : null}
 
       {message.stopReason && message.stopReason !== 'end_turn' && !errorText ? (
-        <div className="chat-msg-stop">{t(stopKey(message.stopReason))}</div>
+        <div className="mt-tight text-micro italic text-fg-faint">{t(stopKey(message.stopReason))}</div>
       ) : null}
 
       {/* A message had no actions at all — not even copy. What gets copied is
@@ -153,10 +166,14 @@ function ThoughtBlock({ text }: { text: string }): ReactElement {
   const t = useT()
   const [open, setOpen] = useState(false)
   return (
-    <div className={`chat-thought${open ? ' open' : ''}`}>
+    <div className="my-tight">
+      {/* `ghost` is `base.css`'s floor for a bare button that is deliberately not
+          a control (see NOT_CONTROLS) — it strips the background and the border.
+          Everything the utilities add sits above it: they are in
+          `@layer utilities` and that block is in `@layer base`. */}
       <button
         type="button"
-        className="chat-thought-head ghost"
+        className="ghost px-tight py-inset text-micro text-fg-faint"
         onClick={() => {
           setOpen((v) => !v)
         }}
@@ -165,7 +182,11 @@ function ThoughtBlock({ text }: { text: string }): ReactElement {
       >
         <span aria-hidden="true">{open ? '▾' : '▸'}</span> {t('chat.thought')}
       </button>
-      {open ? <div className="chat-thought-body">{text}</div> : null}
+      {open ? (
+        <div className="mt-inset ml-snug px-snug py-tight border-l-2 border-l-border-strong text-fg-dim italic whitespace-pre-wrap break-words">
+          {text}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -201,14 +222,16 @@ function AttachmentReceipt({
   )
   const menu = useContextMenu<null>()
   const label = attachmentLabel(attachment)
+  const chip = chipClasses({
+    receipt: true,
+    detail: detail !== null,
+    failed: receipt?.failed === true,
+  })
   return (
-    <span
-      className={`chat-chip receipt${receipt?.failed === true ? ' failed' : ''}`}
-      onContextMenu={menu.open(null)}
-    >
-      <span className="chat-chip-kind">{t(attachmentKindKey(attachment.kind))}</span>
-      <span className="chat-chip-label">{label}</span>
-      {detail === null ? null : <span className="chat-chip-detail">{detail}</span>}
+    <span className={chip.box} onContextMenu={menu.open(null)}>
+      <span className={chip.kind}>{t(attachmentKindKey(attachment.kind))}</span>
+      <span className={chip.label}>{label}</span>
+      {detail === null ? null : <span className={chip.detail}>{detail}</span>}
       {/* A receipt is a record of something already sent, so there is nothing to
           undo here — only the label, which is what someone reaches for when they
           want to find that table again. */}

@@ -40,6 +40,34 @@ export const chat = {
   'chat.empty.title': 'Ask about the data you are looking at',
   'chat.empty.hint':
     'Claude can read this workspace and open views, run queries and rearrange the layout for you.',
+  /*
+   * Shown while a conversation opened from the rail is being fetched. It exists
+   * because the empty state above used to stand in for it: a conversation with
+   * an hour of history in it would render "Ask about the data you are looking
+   * at" for the second and a half the load takes, which reads as *this is gone*
+   * rather than *this is coming*. See
+   * `design/2026-08-06-opening-a-stored-conversation.md` §1.2.
+   *
+   * The title line is the conversation's own when the rail passed one through,
+   * and this generic line when it did not — never a guess.
+   */
+  'chat.loading.title': 'Reading this conversation',
+  'chat.loading.hint':
+    'The agent keeps the history and is restoring it. Opening a conversation for the first time takes a moment.',
+
+  /* ---- The stored snapshot ------------------------------------------ */
+  /*
+   * Said while peek's own picture of a conversation stands in for the agent's
+   * copy. Both lines say "what peek last saw" rather than "this conversation",
+   * and that is not modesty: peek only ever saw the turns it was open for, so a
+   * conversation continued elsewhere is genuinely not what is on screen.
+   */
+  'chat.snapshot.loading': 'This is what peek last saw. The agent’s own copy is on its way.',
+  'chat.snapshot.failed.title': 'This is peek’s snapshot, not a live conversation',
+  'chat.snapshot.failed.detail':
+    'The agent could not load this conversation, so what you see is what peek last showed — which may also be out of date. Sending a message here is not possible: the agent would not have this history behind it.',
+  'chat.snapshot.retry': 'Try again',
+  'chat.snapshot.composer': 'This conversation could not be loaded',
   'chat.role.user': 'You',
   'chat.role.agent': 'Claude',
   'chat.writing': 'Writing…',

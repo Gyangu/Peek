@@ -6,6 +6,7 @@ import { copyText } from '../../util/clipboard'
 import { Menu } from '../../ui/Menu'
 import { useContextMenu } from '../../ui/useContextMenu'
 import { highlight } from './highlight'
+import { TOKEN_CLASS } from './Markdown'
 import { PlanCard } from './PlanCard'
 import {
   extractPlan,
@@ -54,11 +55,14 @@ export const ToolCallCard = memo(function ToolCallCard({
   if (plan) return <PlanCard entries={plan} />
 
   if (parsed.isToolSearch) {
+    // A folded step: no card, no border, no surface. It has to be in the
+    // transcript — dropping it would make the transcript disagree with what the
+    // agent did — but it is bookkeeping, so it is drawn as one muted line.
     return (
-      <div className="chat-tool lookup">
+      <div className="flex items-center gap-tight my-tight px-tight py-inset text-micro text-fg-faint">
         <StatusMark status={call.status} />
-        <span className="chat-tool-name">{t('chat.tool.lookup')}</span>
-        <span className="chat-tool-args mono">{summarizeToolInput(call.rawInput, 60)}</span>
+        <span className="flex-none whitespace-nowrap text-fg">{t('chat.tool.lookup')}</span>
+        <span className={`font-mono tabular-nums ${ARGS}`}>{summarizeToolInput(call.rawInput, 60)}</span>
       </div>
     )
   }
@@ -67,14 +71,25 @@ export const ToolCallCard = memo(function ToolCallCard({
   const result = toolResultText(call)
   const elapsed = call.endedAt === undefined ? null : Math.max(0, call.endedAt - call.startedAt)
 
+  const mutating = parsed.isPeek && parsed.mutatesWorkspace
+
   return (
     <div
-      className={`chat-tool${parsed.isPeek ? ' peek' : ' outside'}${parsed.mutatesWorkspace ? ' mutating' : ''} ${call.status}`}
+      className={`my-tight rounded-control overflow-hidden border bg-bg-1 ${cardEdge(parsed, call.status)}${
+        // A wash down the leading edge, on top of the card's own surface: the
+        // agent did not read this window, it changed it. `bg-bg-1` is the colour,
+        // `bg-linear-to-r` the image — two properties, so they compose rather
+        // than fight.
+        mutating ? ' bg-linear-to-r from-accent/10 to-transparent to-55%' : ''
+      }`}
       onContextMenu={menu.open(null)}
     >
       <button
         type="button"
-        className="chat-tool-head"
+        // A disclosure header, not a control (see NOT_CONTROLS): it spans the
+        // card and opens a region. These strip `base.css`'s button shape back off
+        // it and leave the hit height and the focus ring, which are floors.
+        className="flex items-center gap-snug w-full min-w-0 px-snug py-tight text-left rounded-none border-0 bg-transparent hover:not-disabled:bg-bg-hover"
         onClick={() => {
           setOpen((v) => !v)
         }}
@@ -82,10 +97,10 @@ export const ToolCallCard = memo(function ToolCallCard({
         title={open ? t('chat.tool.collapse') : t('chat.tool.expand')}
       >
         <StatusMark status={call.status} />
-        <span className="chat-tool-name">{displayName(parsed, t)}</span>
+        <span className="flex-none whitespace-nowrap text-fg">{displayName(parsed, t)}</span>
         {parsed.isPeek ? (
-          <span className={`chat-tool-badge${parsed.mutatesWorkspace ? ' mutating' : ''}`}>
-            {parsed.mutatesWorkspace ? t('chat.tool.actedOnWindow') : t('chat.tool.readWindow')}
+          <span className={`${BADGE} ${mutating ? 'bg-accent-dim text-fg' : 'bg-bg-3 text-fg-dim'}`}>
+            {mutating ? t('chat.tool.actedOnWindow') : t('chat.tool.readWindow')}
           </span>
         ) : (
           // Anything that is not peek's gets said so, loudly. peek's whole
@@ -95,18 +110,18 @@ export const ToolCallCard = memo(function ToolCallCard({
           // inversion of the truth. The session sandbox should now make this
           // branch unreachable; it stays because a badge that is never shown
           // costs nothing and a missing one cost the user their bearings.
-          <span className="chat-tool-badge outside" title={t('chat.tool.outsideTitle')}>
+          <span className={`${BADGE} bg-warn text-warn-ink font-semibold`} title={t('chat.tool.outsideTitle')}>
             {parsed.server === null
               ? t('chat.tool.outside')
               : t('chat.tool.via', { server: parsed.server })}
           </span>
         )}
-        {summary === '' ? null : <span className="chat-tool-args mono">{summary}</span>}
-        <span className="grow" />
+        {summary === '' ? null : <span className={`font-mono tabular-nums ${ARGS}`}>{summary}</span>}
+        <span className="flex-1" />
         {elapsed === null ? null : (
-          <span className="chat-tool-elapsed mono">{t('chat.tool.elapsed', { ms: elapsed })}</span>
+          <span className={`font-mono tabular-nums ${META}`}>{t('chat.tool.elapsed', { ms: elapsed })}</span>
         )}
-        <span className="chat-tool-chevron" aria-hidden="true">
+        <span className={META} aria-hidden="true">
           {open ? '▾' : '▸'}
         </span>
       </button>
@@ -143,25 +158,64 @@ export const ToolCallCard = memo(function ToolCallCard({
       ) : null}
 
       {open ? (
-        <div className="chat-tool-body">
+        <div className="px-snug pt-tight pb-snug bg-bg border-t border-border">
           {/* The raw identifier, always: the friendly label is for reading, this
               is what a bug report and the agent's own logs are keyed by. */}
-          <div className="chat-tool-raw mono">{call.title}</div>
+          <div className="font-mono tabular-nums mb-tight text-micro text-fg-faint break-all">{call.title}</div>
 
-          <div className="chat-tool-section">{t('chat.tool.arguments')}</div>
+          <div className={SECTION}>{t('chat.tool.arguments')}</div>
           <JsonBlock text={formatToolInput(call.rawInput)} />
 
-          <div className="chat-tool-section">{t('chat.tool.result')}</div>
+          <div className={SECTION}>{t('chat.tool.result')}</div>
           {result === '' ? (
-            <div className="chat-tool-empty">{t('chat.tool.noResult')}</div>
+            <div className={EMPTY}>{t('chat.tool.noResult')}</div>
           ) : (
-            <pre className="chat-tool-out mono">{result}</pre>
+            <pre className={`font-mono tabular-nums ${PAYLOAD}`}>{result}</pre>
           )}
         </div>
       ) : null}
     </div>
   )
 })
+
+/**
+ * The card's border, which is the only place its provenance is drawn.
+ *
+ * Written as a ladder rather than as four classes layered on one element,
+ * because a class list has no cascade: `border-accent border-warn` is resolved
+ * by Tailwind's emission order, not by the order here. In CSS this was four
+ * rules whose winner depended on specificity and file position — the same
+ * ordering, but readable only by reading the whole file in order. One colour,
+ * chosen once, and the reason for each rung is what the rung says.
+ */
+function cardEdge(parsed: ParsedToolTitle, status: ToolCallStatus): string {
+  // The window changed. Loudest, and it outranks a failure: a mutation that then
+  // failed is still the thing the reader has to go and look at.
+  if (parsed.isPeek && parsed.mutatesWorkspace) return 'border-accent'
+  // Not peek's, so it did something this window cannot account for. Marked more
+  // loudly than peek's own calls, not less.
+  if (!parsed.isPeek) return 'border-warn'
+  if (status === 'failed') return 'border-err-border'
+  // peek's, and it only read. The quiet end of the scale.
+  return 'border-accent-dim'
+}
+
+/** A pill, in one of three fills. Each fill states its own surface *and* its own ink. */
+const BADGE = 'flex-none px-tight rounded-dialog text-micro leading-ui whitespace-nowrap'
+
+/** The argument summary: takes the slack, ellipsizes rather than wraps. */
+const ARGS = 'flex-auto min-w-0 truncate text-micro text-fg-faint'
+
+/** The two readings pinned to the trailing edge — elapsed time, and the chevron. */
+const META = 'flex-none text-micro text-fg-faint'
+
+const SECTION = 'mt-tight mb-inset text-micro uppercase tracking-wider text-fg-faint'
+const EMPTY = 'text-micro text-fg-faint'
+
+/** Arguments and result: a scrolling box with a ceiling, so one cannot eat the transcript. */
+const PAYLOAD =
+  'm-0 px-snug py-tight max-h-65 overflow-auto rounded-control bg-bg-1 border border-border ' +
+  'text-micro leading-prose whitespace-pre-wrap break-words'
 
 /** Human label: peek's own tools get one, everything else shows its bare name. */
 function displayName(parsed: ParsedToolTitle, t: TFunction): string {
@@ -192,10 +246,29 @@ function displayName(parsed: ParsedToolTitle, t: TFunction): string {
   }
 }
 
+/**
+ * The mark's colour, and — for the one that is running — its turn.
+ *
+ * `motion-reduce:animate-none`: nothing is carried by the rotation. A running
+ * call still shows ◐ in --color-accent beside an elapsed-time readout that keeps
+ * counting, so stopping the spin costs the reader nothing. `@keyframes chat-spin`
+ * is in chat.css; `--animate-chat-spin` names it from theme.css.
+ */
+const TOOL_MARK: Record<ToolCallStatus, string> = {
+  completed: 'text-ok',
+  failed: 'text-err',
+  in_progress: 'text-accent animate-chat-spin motion-reduce:animate-none',
+  pending: 'text-fg-faint',
+}
+
 function StatusMark({ status }: { status: ToolCallStatus }): ReactElement {
   const t = useT()
   return (
-    <span className={`chat-tool-mark ${status}`} title={t(statusKey(status))} aria-hidden="true">
+    <span
+      className={`flex-none w-3 text-center ${TOOL_MARK[status]}`}
+      title={t(statusKey(status))}
+      aria-hidden="true"
+    >
       {status === 'completed' ? '✔' : status === 'failed' ? '✕' : status === 'in_progress' ? '◐' : '○'}
     </span>
   )
@@ -223,15 +296,15 @@ function statusKey(
 /** Arguments, coloured as JSON. Cheap: it only runs for an expanded card. */
 function JsonBlock({ text }: { text: string }): ReactElement {
   const tokens = useMemo(() => highlight(text, 'json'), [text])
-  if (text === '') return <div className="chat-tool-empty">—</div>
+  if (text === '') return <div className={EMPTY}>—</div>
   return (
-    <pre className="chat-tool-in mono">
+    <pre className={`font-mono tabular-nums ${PAYLOAD}`}>
       <code>
         {tokens.map((tok, i) =>
           tok.kind === 'plain' ? (
             <Fragment key={i}>{tok.text}</Fragment>
           ) : (
-            <span key={i} className={`tok-${tok.kind}`}>
+            <span key={i} className={TOKEN_CLASS[tok.kind]}>
               {tok.text}
             </span>
           ),

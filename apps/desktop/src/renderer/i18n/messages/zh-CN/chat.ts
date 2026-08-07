@@ -45,6 +45,16 @@ export const chat: CatalogFor<ChatMessages> = {
   /* ---- Transcript -------------------------------------------------- */
   'chat.empty.title': '问问你正在看的数据',
   'chat.empty.hint': 'Claude 可以读取这个工作区，也可以替你打开视图、执行查询、调整布局。',
+  'chat.loading.title': '正在读取这段对话',
+  'chat.loading.hint': '历史存在 agent 那边，正在恢复。每段对话第一次打开都要等一下。',
+
+  /* ---- The stored snapshot ------------------------------------------ */
+  'chat.snapshot.loading': '这是 peek 上次看到的样子，agent 那边的正本正在读取。',
+  'chat.snapshot.failed.title': '这是 peek 的快照，不是一段活的对话',
+  'chat.snapshot.failed.detail':
+    'agent 没能读回这段对话，屏幕上是 peek 上次显示的内容，也可能已经过时。这里不能继续发消息：agent 手上并没有这段历史。',
+  'chat.snapshot.retry': '重试',
+  'chat.snapshot.composer': '这段对话没能载入',
   'chat.role.user': '你',
   'chat.role.agent': 'Claude',
   'chat.writing': '正在输入…',

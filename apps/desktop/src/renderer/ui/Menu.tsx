@@ -11,8 +11,7 @@ import {
   type MenuNode,
   type Point,
 } from './menuModel'
-import { MENU_ITEM_CLASS, menuToneClass } from './spec'
-import './menu.css'
+import { MENU_ITEM_BASE, MENU_TONES } from './spec'
 
 /**
  * The one popup menu in peek.
@@ -49,6 +48,34 @@ import './menu.css'
  *
  * Design record: docs/design/2026-08-03-context-menu-primitive.md
  */
+/**
+ * The popup's own chrome — the parts that carry no tone.
+ *
+ * These are here rather than in `spec.ts` because none of them is a decision the
+ * spec makes: `MENU_TONES` says what a *line* can mean and the contract test
+ * holds it to all five states, while a backdrop's z-index and a box's shadow are
+ * this component's own markup. They were rules in `ui/menu.css` until it was
+ * deleted; nothing about them changed on the way.
+ */
+const CHROME = {
+  /* Above every panel and rail, below the modal mask: a dialog opened from a
+     menu item covers the menu, never the other way round. */
+  backdrop: 'fixed inset-0 z-600',
+  /* `focus:outline-none` and not `outline-none`: the box takes focus on open so
+     that Escape and the arrows reach it, and a ring around a popup nobody
+     navigated to reads as an error. The keyboard ring survives, and it is now
+     stated here rather than as `.menu:focus-visible` in the stylesheet — the two
+     variants are on the same element, so `:focus-visible` beating `:focus` is
+     decided by them being different pseudo-classes rather than by one of them
+     being unlayered. */
+  box: 'absolute min-w-50 max-w-80 p-tight bg-bg-2 border border-border-strong rounded-surface shadow-menu font-ui text-body focus:outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2',
+  head: 'px-snug pt-tight pb-tight text-fg-faint text-micro uppercase tracking-wider',
+  note: 'px-snug py-tight text-micro',
+  /* Between groups that answer different questions — one puts data on the
+     clipboard, the next sends it to Anthropic. That distinction is worth a line. */
+  sep: 'h-px my-tight mx-inset bg-border',
+} as const
+
 export interface MenuProps {
   /** Names the menu for the modal stack and for assistive technology. */
   label: string
@@ -133,10 +160,10 @@ export function Menu(props: MenuProps): ReactElement | null {
   }
 
   return (
-    <div className="menu-backdrop" onClick={onClose} onContextMenu={preventAndClose(onClose)}>
+    <div className={CHROME.backdrop} onClick={onClose} onContextMenu={preventAndClose(onClose)}>
       <div
         ref={mergeRefs(ref, boxRef)}
-        className="menu"
+        className={CHROME.box}
         role="menu"
         aria-label={label}
         tabIndex={-1}
@@ -148,16 +175,16 @@ export function Menu(props: MenuProps): ReactElement | null {
         onKeyDown={onKeyDown}
       >
         {shown.map((node) => {
-          if (node.kind === 'sep') return <div key={node.id} className="menu-sep" />
+          if (node.kind === 'sep') return <div key={node.id} className={CHROME.sep} />
           if (node.kind === 'head')
             return (
-              <div key={node.id} className="menu-head">
+              <div key={node.id} className={CHROME.head}>
                 {node.text}
               </div>
             )
           if (node.kind === 'note')
             return (
-              <div key={node.id} className={`menu-note ${menuToneClass(node.tone ?? 'default')}-note`}>
+              <div key={node.id} className={`${CHROME.note} ${MENU_TONES[node.tone ?? 'default'].noteClasses}`}>
                 {node.text}
               </div>
             )
@@ -166,7 +193,7 @@ export function Menu(props: MenuProps): ReactElement | null {
               key={node.id}
               type="button"
               role="menuitem"
-              className={`${MENU_ITEM_CLASS} ${menuToneClass(node.tone ?? 'default')}`}
+              className={`${MENU_ITEM_BASE} ${MENU_TONES[node.tone ?? 'default'].classes}`}
               data-menu-item={node.id}
               disabled={node.disabled === true}
               {...(node.title === undefined ? {} : { title: node.title })}

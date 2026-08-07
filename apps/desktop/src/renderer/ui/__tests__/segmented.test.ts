@@ -4,9 +4,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
 
-import { blankComments, decomment } from '../../__tests__/sourceScan'
+import { blankComments, decomment, stylesheets } from '../../__tests__/sourceScan'
 import { indexOfValue, wrapIndex } from '../../util/roving'
-import { CONTROL_SIZE_NAMES } from '../spec'
+import { CONTROL_SIZES, CONTROL_SIZE_NAMES, CONTROL_STATES, CONTROL_STATE_NAMES, SEGMENTED } from '../spec'
 
 /* ==================================================================
  * The segmented control.
@@ -93,7 +93,6 @@ const UI = join(dirname(fileURLToPath(import.meta.url)), '..')
  * it, which is why there are now two named ones.
  */
 const SOURCE = blankComments(readFileSync(join(UI, 'Segmented.tsx'), 'utf8'))
-const CSS = decomment(readFileSync(join(UI, 'segmented.css'), 'utf8'))
 
 describe('it says "one of these", not "N switches"', () => {
   test('the group is a radiogroup and the options are radios', () => {
@@ -125,48 +124,109 @@ describe('it says "one of these", not "N switches"', () => {
   })
 })
 
-describe('the stylesheet covers the states the old rules did not', () => {
-  const required = [
-    '.seg-item',
-    '.seg-item:hover:not(:disabled)',
-    '.seg-item:active:not(:disabled)',
-    '.seg-item:disabled',
-    '.seg-item:focus-visible',
-    '.seg-on',
-    '.seg-on:hover:not(:disabled)',
-    '.seg-on:active:not(:disabled)',
-  ]
+describe('the classes cover the states the old rules did not', () => {
+  /*
+   * This section read `ui/segmented.css` and looked for eight selectors. The
+   * stylesheet is gone — the control is `SEGMENTED` in `spec.ts` now — so it
+   * reads the class strings and asks the same eight questions of them.
+   * `hover:not-disabled:` is `:hover:not(:disabled)` compiled; nothing about the
+   * contract moved except where it is written.
+   */
+  const has = (spec: string, prefix: string): boolean =>
+    spec
+      .split(/\s+/)
+      .filter(Boolean)
+      .some((name) => (prefix === '' ? !name.includes(':') : name.startsWith(prefix)))
 
-  for (const selector of required) {
-    test(`${selector} is defined`, () => {
-      const found = [...CSS.matchAll(/([^{}]+)\{[^{}]*\}/g)].flatMap((m) =>
-        m[1].split(',').map((s) => s.trim()),
-      )
-      assert.ok(
-        found.includes(selector),
-        `ui/segmented.css has no rule for \`${selector}\`.\n` +
-          `This control is now driven by arrow keys inside a single tab stop, so a missing ` +
-          `:focus-visible is not a polish issue — it is a keyboard user unable to tell which ` +
-          `option they are on. The rules this replaced defined neither :active nor :focus-visible.`,
-      )
-    })
+  for (const [label, spec, states] of [
+    ['SEGMENTED.item', SEGMENTED.item, ['disabled', 'focus-visible']],
+    ['SEGMENTED.off', SEGMENTED.off, ['rest', 'hover', 'active']],
+    ['SEGMENTED.on', SEGMENTED.on, ['rest', 'hover', 'active']],
+  ] as const) {
+    for (const state of states) {
+      test(`${label} defines ${state}`, () => {
+        assert.ok(
+          has(spec, CONTROL_STATES[state].variant),
+          `${label} has nothing for \`${state}\`.\n` +
+            `This control is driven by arrow keys inside a single tab stop, so a missing ` +
+            `focus-visible is not a polish issue — it is a keyboard user unable to tell which ` +
+            `option they are on. The rules this replaced defined neither :active nor :focus-visible.`,
+        )
+      })
+    }
   }
 
-  test('both size rungs exist, and they come from the spec', () => {
+  test('the chosen and unchosen states are alternatives, never layered', () => {
+    /*
+     * `on` and `off` both paint a background and a border colour. If the
+     * component ever composes them as base-plus-override, the winner is whichever
+     * rule Tailwind emitted last — and it emits `border-accent` *before*
+     * `border-border-strong`, so the selected option would silently wear the
+     * unselected border. The component picks one; this is the assertion that it
+     * still has to.
+     */
+    for (const family of ['bg-', 'border-']) {
+      for (const [label, spec] of [
+        ['off', SEGMENTED.off],
+        ['on', SEGMENTED.on],
+      ] as const) {
+        const rest = spec
+          .split(/\s+/)
+          .filter((name) => !name.includes(':') && name.startsWith(family))
+        assert.equal(
+          rest.length,
+          1,
+          `SEGMENTED.${label} sets ${String(rest.length)} resting \`${family}*\` classes (${rest.join(', ')}). ` +
+            `One each, and never both strings on one element.`,
+        )
+      }
+    }
+    assert.doesNotMatch(
+      SEGMENTED.item,
+      /(^|\s)(bg-|border-[a-z])/,
+      'SEGMENTED.item must not paint: whatever it set would collide with `on` or `off`, and the ' +
+        'collision resolves in Tailwind\'s emission order rather than the author\'s.',
+    )
+  })
+
+  test('both size rungs exist, and they are the ones <Button> wears', () => {
+    // Not "a .seg-md rule exists" any more but the stronger fact the old class
+    // names could only approximate: the two primitives share the very strings.
+    assert.match(
+      SOURCE,
+      /CONTROL_SIZES\[size\]\.classes/,
+      '<Segmented> must take its geometry from CONTROL_SIZES; the rungs are shared with <Button>, ' +
+        'and two spellings of one rung is what the spec exists to prevent',
+    )
     for (const size of CONTROL_SIZE_NAMES) {
-      assert.match(
-        CSS,
-        new RegExp(`\\.seg-${size}\\s`),
-        `no .seg-${size} rule; the rungs are shared with <Button> and both primitives must offer both`,
+      assert.ok(
+        CONTROL_SIZES[size].classes.trim().length > 0,
+        `CONTROL_SIZES.${size}.classes is empty; both primitives must offer both rungs`,
       )
     }
+  })
+
+  test('the five states are still five', () => {
+    // The lists above are written out, so a sixth state added to the spec would
+    // not reach this file on its own. This is the line that says so out loud.
+    assert.equal(
+      CONTROL_STATE_NAMES.length,
+      5,
+      'CONTROL_STATES changed shape. The per-state lists in this file are written out by hand; ' +
+        'add the new one to them rather than leaving this control a state behind.',
+    )
   })
 })
 
 describe('the class it replaced is gone', () => {
   test('no .segmented or bare .seg survives anywhere', () => {
     const RENDERER = join(UI, '..')
-    for (const sheet of ['styles.css', join('ui', 'segmented.css')]) {
+    // Every sheet, discovered rather than listed. This named two files until the
+    // Tailwind split, and `styles.css` — where the old `.seg` lived — is a
+    // manifest of `@import`s now: reading it would have kept passing while
+    // checking nothing, which is the exact failure `stylesheets()` exists to
+    // stop. See __tests__/sourceScan.ts.
+    for (const sheet of stylesheets(RENDERER)) {
       const css = decomment(readFileSync(join(RENDERER, sheet), 'utf8'))
       assert.doesNotMatch(css, /\.segmented\b/, `${sheet} still defines .segmented`)
       // `.seg-item` and `.seg-group` are fine; a bare `.seg` is the name that

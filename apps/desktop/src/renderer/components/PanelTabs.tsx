@@ -115,11 +115,40 @@ export function PanelTabs({ panel, focus }: PanelTabsProps): ReactElement {
   }
 
   return (
-    <div className="panel-head" ref={headRef} data-tab-caret={caret ?? undefined}>
-      {empty ? <span className="panel-tabs-empty">{t('panel.empty')}</span> : null}
+    /*
+     * The head keeps a rule of its own for one declaration — its height, which
+     * `view-drag.test.ts` reads by selector because the virtualised grid below
+     * depends on the body's available height being the same at every tab count.
+     * Everything else it used to declare is here.
+     *
+     * `group-data-focused/panel:bg-bg-3` is the `.panel.focused .panel-head`
+     * descendant rule, as a variant. `base.css` states a stronger form of the
+     * same fact (`.layout-root .panel.focused .panel-head`, which adds the bar
+     * down the leading edge) and, being unlayered and three deep, wins on the
+     * background too — the two agree on the colour, so this class is what makes
+     * the intent readable here rather than only in a file two directories away.
+     *
+     * Tabs are the drag handle, so `select-none`: suppressing selection in CSS
+     * means the pointer handler does not have to call `preventDefault()`, which
+     * would also swallow the click that focuses the panel.
+     */
+    <div
+      className="panel-head h-bar flex flex-none items-stretch shadow-rule-b bg-bg-2 select-none group-data-focused/panel:bg-bg-3 group-data-focused/panel:shadow-head-focused"
+      ref={headRef}
+      data-tab-caret={caret ?? undefined}
+    >
+      {/* An empty panel has no tabs to label itself with, and a bare strip reads
+          as a rendering fault. */}
+      {empty ? <span className="flex flex-none items-center px-snug text-fg-faint">{t('panel.empty')}</span> : null}
       <div
         ref={listRef}
-        className="panel-tabs"
+        /* `panel-tabs` keeps three declarations and only three: both overflow
+           axes, which `view-drag.test.ts` pins (this is a horizontal scroll
+           container, it is emphatically not the grid's, and the scroll must not
+           reach the panel or the page), and `scrollbar-width: none`, which has
+           no utility. An 11px bar inside a 30px strip would eat a third of it,
+           so overflow is read from the clipped tab at the edge instead. */
+        className="panel-tabs flex min-w-0 flex-auto items-stretch overflow-x-auto overflow-y-hidden scrollbar-none"
         role={roles.tablist}
         aria-orientation={empty ? undefined : 'horizontal'}
         aria-label={empty ? undefined : t('panel.tabs.listLabel')}
@@ -144,7 +173,10 @@ export function PanelTabs({ panel, focus }: PanelTabsProps): ReactElement {
         a bare glyph plus a `title` would have a screen reader announce the
         glyph and never the title.
       */}
-      <div className="panel-actions">
+      {/* The fixed half: never scrolls away, however many tabs there are. The
+          `panel-actions` name stays because `view-drag.test.ts` slices this file
+          from it to check the three buttons carry accessible names. */}
+      <div className="panel-actions flex flex-none items-center gap-inset border-l border-border px-tight">
         <Button
           variant="ghost"
           icon
@@ -227,6 +259,28 @@ function TabMenu({ panel, viewId, at, onClose }: TabMenuProps): ReactElement {
 
 /* ------------------------------------------------------------------ */
 
+/**
+ * The tab's geometry, and the one declaration that is still a CSS rule.
+ *
+ * `panel-tab` keeps `--tab-min-width: 96px` and the `min-width` that reads it,
+ * because `view-drag.test.ts` asserts that pair by selector: tabs shrink towards
+ * it and then the strip scrolls, and a tab squeezed narrower than its own text
+ * is not a tab, it is a smear. Nothing else is left in that rule, so no utility
+ * below is silently outranked by it.
+ *
+ * `group/tab` is what the ✕ reads to know the tab is hovered. Named, for the
+ * same reason `group/panel` is.
+ */
+const TAB_BOX =
+  'panel-tab group/tab relative flex max-w-55 shrink grow-0 items-center gap-tight border-r border-border py-0 pr-tight pl-snug cursor-grab focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2'
+
+/** The visible tab: its own surface, and the 2px accent mark along its top. */
+const TAB_ACTIVE =
+  'bg-bg-1 text-fg before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-accent-dim group-data-focused/panel:before:bg-accent'
+
+/** Every other tab. The hover variant lives here and not on the active one. */
+const TAB_REST = 'text-fg-dim hover:bg-bg-hover hover:text-fg'
+
 interface PanelTabProps {
   panelId: PanelId
   viewId: ViewId
@@ -287,9 +341,30 @@ function PanelTab({ panelId, viewId, index, active, focus, roving, onContextMenu
     if (provisional) void dispatch('view.promote', { viewId })
   }
 
-  const classes = ['panel-tab']
-  if (active) classes.push('active')
-  if (provisional) classes.push('provisional')
+  /*
+   * One tab, in two states written as whole alternatives rather than as a base
+   * plus overrides.
+   *
+   * That is not neatness. The old rules got their answer from source order —
+   * `.panel-tab.active` is written after `.panel-tab:hover` and wins the
+   * specificity tie, so the active tab does *not* change under the pointer — and
+   * source order is exactly the fact a translation into a class list loses: a
+   * list has no cascade, and `bg-bg-1` beside `hover:bg-bg-hover` would be
+   * decided by Tailwind's emission order, where the variant wins. So the active
+   * tab simply carries no hover variant.
+   *
+   * The active tab's marker is a `::before`, and it replaces `box-shadow: inset
+   * 0 2px 0`. Same reason as the shadow had: an inset mark changes nothing's
+   * size, so the strip does not reflow when the active tab moves — a top border
+   * would push the label down two pixels. `before:` needs `relative` on the tab,
+   * which adds no stacking context (no `z-index`), checked against the built
+   * stylesheet and in Electron.
+   *
+   * `group-data-focused/panel:before:bg-accent` is `.panel.focused .panel-tab.
+   * active`, as a variant. The group is named `/panel` because the grid writes
+   * unnamed `group-hover:` variants on its cells; see `PANEL_BOX`.
+   */
+  const classes = [TAB_BOX, active ? TAB_ACTIVE : TAB_REST]
 
   return (
     <div
@@ -307,8 +382,21 @@ function PanelTab({ panelId, viewId, index, active, focus, roving, onContextMenu
       onAuxClick={onAuxClick}
       onContextMenu={onContextMenu}
     >
-      {view?.status === 'loading' ? <span className="tab-busy" /> : null}
-      <span className="tab-title">{title}</span>
+      {/* Still loading. A dot rather than a spinner: it sits in a 30px strip
+          next to eleven others, and eleven spinners is a disco. */}
+      {view?.status === 'loading' ? <span className="size-1.5 flex-none rounded-full bg-warn" /> : null}
+      {/* A tab opened to be looked at, not yet kept — `ViewBase.provisional`.
+          Italic is the editors' word for it and costs no layout: the strip must
+          not reflow at the moment a tab is promoted. It is never the *only*
+          signal — the tab's `title` says it in words, for anyone the slant does
+          not reach.
+
+          This was `.panel-tab.provisional .tab-title`, a descendant selector,
+          and a `group-data-provisional/tab:` variant would say the same thing.
+          It is a plain conditional instead because the state is a `const` three
+          lines up: reading it off the DOM to feed it back into the same
+          component is machinery, not expression. */}
+      <span className={provisional ? 'min-w-0 flex-1 truncate italic' : 'min-w-0 flex-1 truncate'}>{title}</span>
       {/* Not a tab stop of its own: a strip of twelve tabs would otherwise be
           twenty-four stops. The keyboard closes a tab with Delete/Backspace
           (see `useTabRoving`), the mouse clicks this. */}
@@ -317,11 +405,44 @@ function PanelTab({ panelId, viewId, index, active, focus, roving, onContextMenu
        * read. It is hidden on purpose — the keyboard closes a tab with
        * Delete/Backspace, and exposing this would double the strip's stops — so
        * `title` alone is right, and the `icon` prop deliberately not used.
+       *
+       * Hidden until the tab is hovered — **space reserved, not revealed**: a ✕
+       * that appears under the cursor shifts the title beside it, and a strip
+       * that reflows while being read is worse than a permanently visible glyph.
+       * That is `visibility`, and `LAYOUT_ONLY_PROPERTIES` has said so all
+       * along: whether the surrounding UI reveals a control at all is the
+       * caller's business, in exactly the way `position` is.
+       *
+       * `.panel-tab:hover .tab-close` and `.panel-tab.active .tab-close` were
+       * the migration record's stock example of something a class list cannot
+       * express — an *ancestor's* state deciding a descendant's appearance.
+       * `group-hover/tab:` is exactly that, and the active case needs no variant
+       * at all: this component already knows.
+       *
+       * Written out in full on both branches rather than pulled from a constant,
+       * because the className fence in `ui/__tests__/control-spec.test.ts` reads
+       * the attribute itself — a class reached through an identifier is a class
+       * no fence can attribute to an element.
+       *
+       * The `tab-close` name survives, and not for styling:
+       * `scripts/verify-chat-restore.mjs` finds this button over CDP as
+       * `.panel-tabs .tab-close` and clicks it, the same way it finds the chat
+       * panel by `.chat-view`. That is also why it is still on
+       * `CLASSNAME_LEDGER` — the ledger's contract is that a name passed to a
+       * `<Button>` be defined by some stylesheet and declare nothing outside
+       * `LAYOUT_ONLY_PROPERTIES`, and the one declaration that used to be on `.tab-close`
+       * is the `flex: 0 0 auto` this button needs anyway. Emptying the ledger
+       * would mean retiring the handle, which is an edit to a script this round
+       * does not own.
        */}
       <Button
         variant="ghost"
         size="sm"
-        className="tab-close"
+        className={
+          active
+            ? 'tab-close flex-none'
+            : 'tab-close flex-none invisible group-hover/tab:visible focus-visible:visible'
+        }
         tabIndex={-1}
         aria-hidden="true"
         title={t('panel.tab.close', { title })}

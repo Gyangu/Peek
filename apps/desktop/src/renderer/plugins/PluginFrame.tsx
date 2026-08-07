@@ -300,10 +300,20 @@ export function PluginFrame({ view, pluginId }: PluginFrameProps): ReactElement 
   }, [view.resultId])
 
   return (
-    <div className="plugin-frame">
+    /* The frame fills the panel and draws its own everything. peek contributes
+       no chrome around it on purpose: a plugin that is given a header it does
+       not control ends up drawing a second one inside, and the two disagree
+       about which view is which. See
+       docs/design/2026-08-03-plugin-architecture.md §2.6. */
+    <div className="relative flex min-h-0 flex-1">
       <iframe
         ref={frameRef}
-        className="plugin-frame-doc"
+        /* `bg-bg-1` because the frame's own document paints its background, and
+           without this the iframe's default white flashes through for one frame
+           on a dark window. `scheme-dark` is all peek can say about the inside:
+           it is cross-origin, so every visual decision in there is the
+           plugin's, and this element only decides how much room it gets. */
+        className="flex-1 border-0 bg-bg-1 scheme-dark"
         src={src}
         title={view.title ?? view.pluginKind}
         // No `allow`, so every permission-policy-gated feature (camera, geolocation,
@@ -313,7 +323,20 @@ export function PluginFrame({ view, pluginId }: PluginFrameProps): ReactElement 
         referrerPolicy="no-referrer"
       />
       {stalled && (
-        <div className="plugin-frame-stalled" role="status">
+        /* Shown only when the frame never answered `ready` — see
+           READY_TIMEOUT_MS. `absolute inset-0` covers the frame rather than
+           replacing it, so a plugin that recovers late is still visible
+           underneath rather than having been unmounted.
+
+           `text-center` as well as the flex centring: the flex pair places the
+           block, and this is what centres the second line once the sentence
+           wraps. It was the last rule in `app.css` held there by the type
+           scale's usage scan rejecting alignment classes, which it no longer
+           does. */
+        <div
+          className="absolute inset-0 flex items-center justify-center bg-bg-1 px-block text-center text-fg-faint"
+          role="status"
+        >
           {t('view.pluginUnbuilt', { kind: view.pluginKind })}
         </div>
       )}

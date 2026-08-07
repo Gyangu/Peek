@@ -66,15 +66,16 @@ export function AgentSection(): ReactElement {
       })
   }
 
-  if (!agent) return <div className="settings-intro">{t('settings.agent.intro')}</div>
+  if (!agent) return <div className="text-fg-dim mb-snug">{t('settings.agent.intro')}</div>
 
   return (
     <>
-      <div className="settings-intro">{t('settings.agent.intro')}</div>
+      <div className="text-fg-dim mb-snug">{t('settings.agent.intro')}</div>
 
       <div className="form-row">
         <span className="form-label">{t('settings.agent.backend')}</span>
         <Segmented
+          className="grow-0 shrink-0 basis-auto min-w-50"
           label={t('settings.agent.backend')}
           value={agent.backend}
           options={[
@@ -94,6 +95,7 @@ export function AgentSection(): ReactElement {
             here. Reaching for one on a conversation you are looking at is a
             decision; leaving one in a settings file is something you forget. */}
         <Segmented
+          className="grow-0 shrink-0 basis-auto min-w-50"
           label={t('settings.agent.permissionMode')}
           value={agent.permissionMode}
           options={AGENT_DEFAULT_PERMISSION_MODES.map((mode) => ({
@@ -138,6 +140,7 @@ function AcpForm({ agent, busy, onWrite }: FormProps): ReactElement {
       <div className="form-row">
         <span className="form-label">{t('settings.agent.which')}</span>
         <Segmented
+          className="grow-0 shrink-0 basis-auto min-w-50"
           label={t('settings.agent.which')}
           value={agent.acpProfile}
           options={agent.profiles.map((profile) => ({
@@ -154,8 +157,14 @@ function AcpForm({ agent, busy, onWrite }: FormProps): ReactElement {
         />
       </div>
 
+      {/* This line was written to stand out — `unverified` means peek has no
+          probe that its sandbox took — and it never has: `form-warn` was a class
+          no stylesheet ever defined, so it has always rendered as an ordinary
+          faint hint. Removing the name states the truth; making it amber is a
+          design decision, and it cannot be `text-warn` on a `.form-hint` in any
+          case, because app.css is unlayered and outranks every utility. */}
       {selected?.sandbox === 'unverified' ? (
-        <div className="form-hint form-warn">{t('settings.agent.unverified', { agent: selected.displayName })}</div>
+        <div className="form-hint">{t('settings.agent.unverified', { agent: selected.displayName })}</div>
       ) : (
         <div className="form-hint">{t('settings.agent.enforced')}</div>
       )}
@@ -166,7 +175,7 @@ function AcpForm({ agent, busy, onWrite }: FormProps): ReactElement {
         <label htmlFor="peek-agent-exe">{t('settings.agent.executable')}</label>
         <input
           id="peek-agent-exe"
-          className="mono"
+          className="font-mono tabular-nums"
           value={path}
           spellCheck={false}
           placeholder={t('settings.agent.executablePlaceholder')}
@@ -212,7 +221,7 @@ function EndpointForm({ agent, busy, onWrite }: FormProps): ReactElement {
         <label htmlFor="peek-agent-url">{t('settings.agent.baseUrl')}</label>
         <input
           id="peek-agent-url"
-          className="mono"
+          className="font-mono tabular-nums"
           value={baseUrl}
           spellCheck={false}
           placeholder="http://localhost:11434/v1"
@@ -226,7 +235,7 @@ function EndpointForm({ agent, busy, onWrite }: FormProps): ReactElement {
         <label htmlFor="peek-agent-model">{t('settings.agent.model')}</label>
         <input
           id="peek-agent-model"
-          className="mono"
+          className="font-mono tabular-nums"
           value={model}
           spellCheck={false}
           placeholder="qwen3-coder"
@@ -242,6 +251,7 @@ function EndpointForm({ agent, busy, onWrite }: FormProps): ReactElement {
         {/* Not inferred from the URL: a gateway can serve either shape from any
             path, and guessing wrong fails at the first token instead of here. */}
         <Segmented
+          className="grow-0 shrink-0 basis-auto min-w-50"
           label={t('settings.agent.api')}
           value={api}
           options={AGENT_ENDPOINT_APIS.map((id) => ({ value: id, label: t(`settings.agent.api.${id}`) }))}
@@ -254,7 +264,7 @@ function EndpointForm({ agent, busy, onWrite }: FormProps): ReactElement {
         <input
           id="peek-agent-key"
           type="password"
-          className="mono"
+          className="font-mono tabular-nums"
           value={apiKey}
           spellCheck={false}
           placeholder={agent.endpointApiKeySet ? t('settings.agent.apiKeyStored') : t('settings.agent.apiKeyNone')}

@@ -12,9 +12,22 @@ import { connectionMenuNodes, editableOf } from './connectionMenu'
 import { buildConnectionRows, type ConnectionRow } from './connectionRows'
 import { ConnectDialog } from './ConnectDialog'
 import { FirstRunGuide } from './FirstRunGuide'
+import { CONN_DOT, LIST_HEAD, LIST_HEAD_TITLE } from './shellClasses'
 import { Button } from '../ui/Button'
 import { Menu } from '../ui/Menu'
 import { useContextMenu } from '../ui/useContextMenu'
+
+/**
+ * The sidebar's box, minus its width.
+ *
+ * The two widths sit on the branches below rather than here: 240px expanded,
+ * and 28px collapsed, which is a strip rather than an absence — the toggle stays
+ * on the same pixel in both states, so collapsing and expanding are two clicks
+ * on one button rather than a button that moves elsewhere when you use it. See
+ * `design/2026-08-04-sidebar-collapse.md`, and `RAIL_BOX` in
+ * `components/chat/ChatSessionsRail.tsx` for the mirror of it on the other side.
+ */
+const SIDEBAR_BOX = 'flex min-h-0 flex-none flex-col border-r border-border bg-bg-1'
 
 /**
  * Connection list sidebar.
@@ -78,14 +91,27 @@ export function Sidebar(): ReactElement {
 
   if (collapsed) {
     return (
-      <div className="sidebar collapsed">
+      <div className={`${SIDEBAR_BOX} w-7`}>
         {/* The collapsed sidebar is 28px of chrome and this is all of it, so the
-            handle fills the width rather than sitting as a 24px square inside.
-            Layout only — `ghost` still says what it looks like. */}
+            handle is meant to fill the width rather than sit as a 24px square
+            inside. Layout only — `ghost` still says what it looks like, and the
+            height stays the size rung's: a rule that quietly made one control
+            30px while every other `md` is 24px is how a scale stops meaning
+            anything.
+
+            **Measured, and it does not currently work.** In Electron this button
+            comes out 24×24 inside the 28px strip: the width class here and the
+            one the icon size rung states are two classes from one utility family
+            on one element, so which wins is Tailwind's emission order and not
+            this file's — the rung wins. The conversation rail's handle is the
+            same shape and has the same gap. Recorded rather than fixed because
+            the fix is either a change to `ui/spec.ts` or a wrapper element, and
+            both are outside the round that found it. See the migration record's
+            §12.3. */}
         <Button
           variant="ghost"
           icon
-          className="sidebar-handle"
+          className="w-full"
           label={t('sidebar.expand')}
           aria-expanded={false}
           onClick={() => {
@@ -99,8 +125,8 @@ export function Sidebar(): ReactElement {
   }
 
   return (
-    <div className="sidebar">
-      <div className="sidebar-head">
+    <div className={`${SIDEBAR_BOX} w-60`}>
+      <div className={LIST_HEAD}>
         {/* First, not last — the mirror of the rail's trailing `›`. This panel
             closes leftwards, so its outer edge is the left one, and that is the
             only position where this button and the `›` that reopens it are the
@@ -117,7 +143,7 @@ export function Sidebar(): ReactElement {
         >
           ‹
         </Button>
-        <span className="sidebar-title">{t('sidebar.connections')}</span>
+        <span className={LIST_HEAD_TITLE}>{t('sidebar.connections')}</span>
         <Button
           variant="ghost"
           title={t('sidebar.newConnection')}
@@ -129,7 +155,7 @@ export function Sidebar(): ReactElement {
           ＋
         </Button>
       </div>
-      <div className="sidebar-list">
+      <div className="min-h-0 flex-1 overflow-auto p-tight">
         {rows.length === 0 ? (
           <FirstRunGuide
             onConnect={() => {
@@ -158,7 +184,7 @@ export function Sidebar(): ReactElement {
         {rows.length > 0 && !secretsAvailable ? (
           // Not a warning about this session: it explains why every saved
           // connection will ask for its password again.
-          <div className="empty-hint">{t('sidebar.noKeychain')}</div>
+          <div className="px-snug py-loose text-center leading-prose text-fg-faint">{t('sidebar.noKeychain')}</div>
         ) : null}
       </div>
 
@@ -242,8 +268,25 @@ function ConnectionRowItem({ row, active, onActivate, onEdit, onForgotten }: Row
   }
 
   return (
+    /*
+     * A connection is one line. The list is the sidebar's index, not its content
+     * — the object tree below it is what the user reads — so a row costs 24px
+     * and grows only for a row that has an error to report.
+     *
+     * Selected and hover are written as alternatives rather than stacked, and
+     * that is not a style choice. A class list has no cascade: `bg-bg-sel` and
+     * `hover:bg-bg-2` on one element are resolved by Tailwind's emission order,
+     * where the variant wins, so a selected row would go grey under the pointer.
+     * The CSS this replaces got the same answer from source order — `.conn-item.
+     * active` written after `.conn-item:hover` — which is exactly the kind of
+     * fact that does not survive a translation. See the migration record §7.2.
+     */
     <div
-      className={active ? 'conn-item active' : 'conn-item'}
+      className={
+        active
+          ? 'mb-px cursor-default rounded-control bg-bg-sel px-snug py-inset select-none'
+          : 'mb-px cursor-default rounded-control px-snug py-inset select-none hover:bg-bg-2'
+      }
       onClick={onActivate}
       onDoubleClick={connect}
       // Right-click selects the row as well: the menu acts on this connection,
@@ -254,16 +297,18 @@ function ConnectionRowItem({ row, active, onActivate, onEdit, onForgotten }: Row
       }}
       title={rowTitle(t, row)}
     >
-      <div className="conn-row">
-        <span className={`dot ${status}`} />
-        <span className="conn-name">{row.label}</span>
+      <div className="flex items-center gap-tight">
+        <span className={CONN_DOT[status]} />
+        {/* Gives up its own width first: the label is the long part of the row,
+            and everything after it is fixed-width. */}
+        <span className="min-w-0 flex-1 truncate">{row.label}</span>
         {entry?.hasSecret ? (
-          <span className="conn-key" title={t('sidebar.secretStored')}>
+          <span className="conn-key flex-none text-micro opacity-85" title={t('sidebar.secretStored')}>
             🔑
           </span>
         ) : null}
         {/* Driver id is an identifier and stays untranslated. */}
-        <span className="conn-driver">{config?.driverId ?? ''}</span>
+        <span className="flex-none text-micro text-fg-faint">{config?.driverId ?? ''}</span>
       </div>
       <SubLine conn={conn} />
       {menu.state ? (
@@ -307,11 +352,17 @@ function SubLine({ conn }: { conn: ConnectionState | undefined }): ReactElement 
   const t = useT()
   const errorText = useErrorText(conn?.error)
   if (conn === undefined) return null
-  if (conn.status === 'connecting') return <div className="conn-sub">{t('sidebar.status.connecting')}</div>
+  if (conn.status === 'connecting') {
+    return <div className="mt-px truncate text-micro text-fg-faint">{t('sidebar.status.connecting')}</div>
+  }
   if (conn.status === 'error') {
     // A failed connection usually carries the driver's own words: `useErrorText`
     // shows those verbatim and localizes only the errors peek itself wrote.
-    return <div className="conn-sub">{conn.error ? errorText : t('sidebar.status.error')}</div>
+    return (
+      <div className="mt-px truncate text-micro text-fg-faint">
+        {conn.error ? errorText : t('sidebar.status.error')}
+      </div>
+    )
   }
   return null
 }

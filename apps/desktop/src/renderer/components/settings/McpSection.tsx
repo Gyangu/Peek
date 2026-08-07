@@ -123,11 +123,11 @@ export function McpSection(): ReactElement {
 
   return (
     <>
-      <div className="settings-intro">{t('mcp.intro')}</div>
+      <div className="text-fg-dim mb-snug">{t('mcp.intro')}</div>
 
       <div className="form-row">
         <label>{t('mcp.state')}</label>
-        <span style={{ color: status?.listening === true ? 'var(--fg)' : 'var(--err)' }}>
+        <span className={status?.listening === true ? 'text-fg' : 'text-err'}>
           {status === null
             ? t('mcp.stateUnknown')
             : status.restarting
@@ -141,14 +141,14 @@ export function McpSection(): ReactElement {
       {/* The endpoint is an identifier; it is never translated. */}
       <div className="form-row">
         <label htmlFor="peek-mcp-url">{t('mcp.endpoint')}</label>
-        <input id="peek-mcp-url" className="mono" readOnly value={status?.url ?? ''} spellCheck={false} />
+        <input id="peek-mcp-url" className="font-mono tabular-nums" readOnly value={status?.url ?? ''} spellCheck={false} />
       </div>
 
       <div className="form-row">
         <label htmlFor="peek-mcp-token">{t('mcp.token')}</label>
         <input
           id="peek-mcp-token"
-          className="mono"
+          className="font-mono tabular-nums"
           readOnly
           value={reveal ? token : masked}
           spellCheck={false}
@@ -156,7 +156,12 @@ export function McpSection(): ReactElement {
           autoComplete="off"
         />
       </div>
-      <div className="conn-actions">
+      {/* Two shared names, composed rather than overridden: one is the window's
+          wrapping row of buttons, the other is the row's place in the label
+          gutter. The gutter arithmetic has to stay in a rule so that the pane's
+          wider label column reaches it, which is what the second name is; the
+          bottom margin below it is this section's own and is a utility. */}
+      <div className="flex flex-wrap gap-tight mt-tight form-actions mb-snug">
         <Button
           variant="ghost"
           disabled={token === ''}
@@ -185,7 +190,7 @@ export function McpSection(): ReactElement {
           {t('mcp.copyCommand')}
         </Button>
       </div>
-      <div className="form-hint mono" style={{ wordBreak: 'break-all' }}>
+      <div className="form-hint font-mono tabular-nums break-all">
         {status?.hint === '' ? t('mcp.noCommandYet') : status?.hint}
       </div>
 
@@ -205,16 +210,26 @@ export function McpSection(): ReactElement {
           }}
         />
       </div>
+      {/*
+       * These two keep their inline `color`, and it is not an oversight left
+       * over from the Tailwind migration. `.form-hint` lives in app.css, which
+       * is unlayered, and an unlayered declaration outranks every `@layer` —
+       * so `text-warn` beside `form-hint` compiles, applies to nothing, and
+       * leaves the warning reading as an ordinary faint hint. An inline style
+       * is the only thing that still wins. When app.css's form rules move into
+       * `@layer base` (see base.css's note on the `button` block), these two
+       * become `text-warn` and `text-err` and the styles come off.
+       */}
       {status !== null && status.listening && status.port !== status.preferredPort ? (
         // The fallback already warned once as a toast; a toast is gone by the
         // time someone opens this panel to find out where the endpoint went.
-        <div className="form-hint" style={{ color: 'var(--warn, var(--err))' }}>
+        <div className="form-hint" style={{ color: 'var(--color-warn)' }}>
           {t('mcp.portFallback', { preferred: String(status.preferredPort), actual: String(status.port) })}
         </div>
       ) : null}
-      {status?.error ? <div className="form-hint" style={{ color: 'var(--err)' }}>{status.error.message}</div> : null}
+      {status?.error ? <div className="form-hint" style={{ color: 'var(--color-err)' }}>{status.error.message}</div> : null}
 
-      <div className="conn-actions">
+      <div className="flex flex-wrap gap-tight mt-tight form-actions mb-snug">
         <Button disabled={busy} onClick={applyPort}>
           {t('mcp.applyPort')}
         </Button>

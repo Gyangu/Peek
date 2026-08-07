@@ -11,10 +11,43 @@ import { dispatch } from '../../state/dispatch'
 import { useViews } from '../../state/workspaceStore'
 import { setChatRailCollapsed, useChatRailStore } from './railStore'
 import { sessionCursorKey } from './sessionKeys'
+import { LIST_HEAD, LIST_HEAD_TITLE } from '../shellClasses'
 import { Button } from '../../ui/Button'
 import { Menu } from '../../ui/Menu'
 import type { MenuNode } from '../../ui/menuModel'
 import { useContextMenu } from '../../ui/useContextMenu'
+
+/**
+ * The rail's box, minus its width.
+ *
+ * Mirrors the connection sidebar deliberately — same border treatment, same
+ * head, same row shape — because it is the same kind of surface: a standing list
+ * you pick from repeatedly, not a question to be answered and dismissed. The
+ * head is literally the same string, `LIST_HEAD` in
+ * `components/shellClasses.ts`. It squeezes the work area rather than floating
+ * over it, so the panel tab strip underneath keeps its split and close buttons.
+ * See `design/2026-08-02-chat-sessions-side-rail.md`.
+ *
+ * The two widths sit on the branches below rather than here. Expanded is 260px,
+ * twenty more than the sidebar's 240, because these rows carry a timestamp line
+ * the connection rows do not. Collapsed is 28px, and it is a strip rather than
+ * an absence: the toggle stays on the same pixel in both states, so collapsing
+ * and expanding are two clicks on one button instead of a button that moves to
+ * the status bar the moment you use it.
+ *
+ * `chat-rail` is not a style — it declares nothing. It is the handle
+ * `scripts/verify-chat-restore.mjs` uses to find this rail over CDP
+ * (`.chat-rail .session-list`), exactly as `chat-view` and `chat-msg` survive in
+ * the panel next door. Dropping it as dead weight would break a check that only
+ * ever runs against a real window, and would break it silently.
+ *
+ * A constant rather than the string written out twice: the two branches are
+ * ninety lines apart, and the failure of writing it twice is that only one copy
+ * gets edited. Tailwind reads module constants — that was verified against a
+ * build during the audit-aperture pass, and is why the census sees this file at
+ * all. See the header of `__tests__/sourceScan.ts`.
+ */
+const RAIL_BOX = 'chat-rail flex min-h-0 flex-none flex-col border-l border-border bg-bg-1'
 
 /**
  * The conversation catalogue, as a rail down the right-hand side of the window.
@@ -101,14 +134,23 @@ export function ChatSessionsRail(): ReactElement {
 
   if (collapsed) {
     return (
-      <div className="chat-rail collapsed">
+      <div className={`${RAIL_BOX} w-7`}>
         {/* The collapsed rail is 28px of chrome and this is all of it, so the
-            handle fills it rather than sitting as a 24px square inside. Layout
-            only — `ghost` still says what it looks like. */}
+            handle is meant to fill it rather than sit as a 24px square inside.
+            Layout only — `ghost` still says what it looks like, and the height
+            stays the size rung's: a rule that quietly made one control 30px
+            while every other `md` is 24px is how a scale stops meaning anything.
+
+            **Measured, and it does not currently work** — 24×24 in a 28px strip,
+            because the width class here and the one the icon size rung states
+            are two classes from one utility family on one element and the rung
+            wins on emission order. Same on the connection sidebar's handle;
+            the note there carries the rest, and the migration record's §12.3
+            says why it was recorded rather than fixed. */}
         <Button
           variant="ghost"
           icon
-          className="chat-rail-handle"
+          className="w-full"
           label={t('chat.sessions.expand')}
           aria-expanded={false}
           onClick={() => {
@@ -149,7 +191,12 @@ export function ChatSessionsRail(): ReactElement {
    * A row that is already open never opens twice: it is shown instead. The user
    * asked to look at that conversation, and there is only one of it.
    */
-  const openRow = (sessionId: string, openViewId: ViewId | null, keep: boolean): void => {
+  const openRow = (
+    sessionId: string,
+    title: string | undefined,
+    openViewId: ViewId | null,
+    keep: boolean,
+  ): void => {
     if (openViewId) {
       void dispatch('view.activate', { viewId: openViewId, focusPanel: true })
       if (keep) void dispatch('view.promote', { viewId: openViewId })
@@ -163,7 +210,25 @@ export function ChatSessionsRail(): ReactElement {
       return
     }
     void dispatch('view.open', {
-      spec: { kind: 'chat', resumeSessionId: sessionId },
+      spec: {
+        kind: 'chat',
+        resumeSessionId: sessionId,
+        /*
+         * The title travels with the id, so the panel can name the conversation
+         * during the second and a half `session/load` takes — otherwise the
+         * loading state can only say "a conversation", which is one step better
+         * than the empty state it replaced and one step worse than it needs to
+         * be. It also gives the tab the conversation's name instead of the
+         * generic "Chat" `viewTitleOf` falls back to.
+         *
+         * Sanitised on the way out, exactly as the row below sanitises it for
+         * display: the agent wrote this string and it may have quoted a database
+         * cell verbatim. Doing it here rather than at every reader is the point
+         * — this value is about to be stored in the Workspace, and the Workspace
+         * is read by the tab strip, the drag label, the status bar and MCP.
+         */
+        ...(title ? { title: metaText(title, { maxLen: 120, truncationMark: '…' }) } : {}),
+      },
       provisional: !keep,
     }).then((result) => {
       justOpened.current = result ? { sessionId, viewId: result.viewId } : null
@@ -186,11 +251,18 @@ export function ChatSessionsRail(): ReactElement {
   }
 
   return (
-    <div className="chat-rail">
-      <div className="sidebar-head">
-        {/* `.sidebar-title`, shared with the connection sidebar: both heads are a
-            title that gives up its width plus buttons grouped at the end. */}
-        <span className="sidebar-title">{t('chat.sessions.title')}</span>
+    <div className={`${RAIL_BOX} w-65`}>
+      {/* This head and the connection sidebar's are one shape worn twice — a
+          title that gives up its width plus buttons grouped at the end — and
+          that is exactly why they were `.sidebar-head` / `.sidebar-title` in
+          `components/app.css` for two rounds: whichever module migrated first
+          would either delete a rule the other one needs or restate it here and
+          leave one visual fact with two sources. They are `LIST_HEAD` and
+          `LIST_HEAD_TITLE` in `components/shellClasses.ts` now, which is the
+          third answer and was only available once both files landed in one
+          hand. */}
+      <div className={LIST_HEAD}>
+        <span className={LIST_HEAD_TITLE}>{t('chat.sessions.title')}</span>
         <Button
           variant="ghost"
           title={t('chat.sessions.new')}
@@ -226,10 +298,15 @@ export function ChatSessionsRail(): ReactElement {
       {/* `listbox` and not a list of buttons: a row has two acts of different
           strength (open, keep) plus a menu, which no single button expresses,
           and twenty-seven buttons would be twenty-seven tab stops in front of
-          the workspace. One stop, arrows inside — see `sessionListKeys`. */}
+          the workspace. One stop, arrows inside — see `sessionListKeys`.
+
+          It takes the height the window gives it rather than a number chosen
+          here: the list is as long as the user's history. `session-list` itself
+          declares nothing — it is the other half of the CDP handle described on
+          `RAIL_BOX`. */}
       <div
         ref={listRef}
-        className="session-list"
+        className="session-list min-h-0 flex-1 overflow-y-auto p-tight"
         role={rows.length > 0 ? 'listbox' : undefined}
         aria-label={rows.length > 0 ? t('chat.sessions.title') : undefined}
         onKeyDown={(e) => {
@@ -241,19 +318,24 @@ export function ChatSessionsRail(): ReactElement {
           if (el instanceof HTMLElement) el.focus()
         }}
       >
+        {/* `.empty-hint` stays a named rule for the same reason `.sidebar-head`
+            does, one rung weaker: it is what an empty list says, and three
+            modules draw one — the connection sidebar, this rail, and the object
+            tree. Two of the three are somebody else's files. It goes when the
+            last of them migrates, not when the first does. */}
         {failed ? (
-          <div className="empty-hint">{t('chat.sessions.failed')}</div>
+          <div className="px-snug py-loose text-center leading-prose text-fg-faint">{t('chat.sessions.failed')}</div>
         ) : state === null ? (
-          <div className="empty-hint">{t('chat.sessions.loading')}</div>
+          <div className="px-snug py-loose text-center leading-prose text-fg-faint">{t('chat.sessions.loading')}</div>
         ) : !state.supported ? (
           <>
             <div>{t('chat.sessions.unsupported')}</div>
-            <div className="empty-hint">{t('chat.sessions.unsupportedHint')}</div>
+            <div className="px-snug py-loose text-center leading-prose text-fg-faint">{t('chat.sessions.unsupportedHint')}</div>
           </>
         ) : state.sessions.length === 0 ? (
           <>
             <div>{t('chat.sessions.empty')}</div>
-            <div className="empty-hint">{t('chat.sessions.emptyHint')}</div>
+            <div className="px-snug py-loose text-center leading-prose text-fg-faint">{t('chat.sessions.emptyHint')}</div>
           </>
         ) : (
           rows.map((session, index) => (
@@ -269,7 +351,7 @@ export function ChatSessionsRail(): ReactElement {
               onOpen={(keep) => {
                 // The rail stays put: reopening a conversation is exactly the
                 // moment a user is most likely to reach for a second one.
-                openRow(session.sessionId, open.get(session.sessionId) ?? null, keep)
+                openRow(session.sessionId, session.title, open.get(session.sessionId) ?? null, keep)
               }}
               onDelete={() => {
                 remove(session.sessionId)
@@ -364,10 +446,27 @@ function SessionRow(props: RowProps): ReactElement {
     }
   }
 
+  /*
+   * `session-item` is the third CDP handle (see `RAIL_BOX`): the restore check
+   * counts rows and clicks the first one by this name. It declares nothing.
+   *
+   * Selected and hovered are the same surface on purpose — the keyboard cursor
+   * and the pointer are two ways of pointing at one row, and giving them two
+   * shades would say they were two different states. Being *open* is said in
+   * words on the second line instead, because a colour cannot say which
+   * conversation is already in a tab.
+   *
+   * The focus ring is stated here rather than inherited: `base.css` puts one on
+   * `button:focus-visible` and on `[role='tab']`, and a row is neither.
+   */
   return (
     <div
       ref={el}
-      className="session-item"
+      className={
+        'session-item mb-inset rounded-control border-b border-border px-snug py-tight ' +
+        'hover:bg-bg-2 focus-visible:outline-2 focus-visible:outline-accent ' +
+        'focus-visible:-outline-offset-2 aria-selected:bg-bg-2'
+      }
       role="option"
       data-row={index}
       aria-selected={index === cursor}
@@ -386,26 +485,44 @@ function SessionRow(props: RowProps): ReactElement {
       onContextMenu={menu.open(null)}
       title={busy ? t('chat.sessions.revealTitle') : t('chat.sessions.rowHint')}
     >
-      <div className="session-row">
+      <div className="flex items-baseline gap-snug">
         {/* The title is the agent's summary of a conversation, which may have
             quoted a database cell verbatim — so it is untrusted text and gets the
             same treatment as any other: one line, no control characters, bounded
             length. React escapes the markup; `metaText` is what stops a title
             from forging a second line of this list. */}
-        <span className="session-name">
+        <span className="min-w-0 flex-1 truncate">
           {session.title
             ? metaText(session.title, { maxLen: 120, truncationMark: '…' })
             : t('chat.sessions.untitled')}
         </span>
       </div>
-      <div className="session-row">
-        <span className="session-when">{formatWhen(session.updatedAt, locale)}</span>
+      <div className="flex items-baseline gap-snug">
+        {/* `text-micro`, and the rung is the whole point of this line. This
+            timestamp used to set its own size inline on the element, at ten
+            pixels — under the text floor, and invisible to an audit that only
+            read stylesheets. It is the bug `type-scale.test.ts` grew its
+            inline-size scan for, and that test's header still names this
+            element. The rung below the floor is not available here: it is for
+            glyphs read by shape, and this reads `2026-08-04 15:32`, which is
+            words.
+
+            Written in prose rather than naming the inline property, and the
+            evasiveness is the point: that scan matches the property name on raw
+            lines, so a comment about it counts as one. Spelled out, this
+            sentence turns the file it explains red. Same trap as the class names
+            in `ui/spec.ts` — see `__tests__/sourceScan.ts` — with the causes
+            reversed: Tailwind really does compile a class out of a comment,
+            whereas a comment has never set an inline style, so that one is the
+            scan's aperture rather than a real hazard. Fixing it means blanking
+            comments there, which is that test's file to change. */}
+        <span className="text-micro text-fg-faint">{formatWhen(session.updatedAt, locale)}</span>
         {/* "Already open" survives the strip's removal as a *reading* rather
             than a disabled button. It was never an action — it was the reason
             the action was unavailable — and this list is scanned, so it has to
             be visible without a gesture. */}
         {busy ? (
-          <span className="session-when" id={`${session.sessionId}-state`}>
+          <span className="text-micro text-fg-faint" id={`${session.sessionId}-state`}>
             {t('chat.sessions.inUse')}
           </span>
         ) : null}

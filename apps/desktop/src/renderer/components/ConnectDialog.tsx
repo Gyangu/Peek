@@ -9,6 +9,15 @@ import { Segmented } from '../ui/Segmented'
 import { useT, type TFunction } from '../i18n'
 import { dispatch } from '../state/dispatch'
 import {
+  MODAL_BODY,
+  MODAL_FOOT,
+  MODAL_HEAD,
+  MODAL_MASK,
+  MODAL_SHELL,
+  MODAL_SIZE,
+  MODAL_TITLE,
+} from './modalClasses'
+import {
   buildConnectionConfig,
   connectFields,
   connectFormSpec,
@@ -124,24 +133,31 @@ export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactEl
      * dismissed by clicking away; a form cannot. Escape and Cancel are the ways
      * out, and both are deliberate acts.
      */
-    <div className="modal-mask">
+    <div className={MODAL_MASK}>
       <div
-        className="modal"
+        className={MODAL_SHELL}
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={initial ? t('connect.editTitle') : t('connect.title')}
-        style={{ width: 520 }}
+        /* Narrower than the shared dialog: a form of short labelled fields does
+           not want a 760px measure. It was already an inline width, with a note
+           saying it had to be one because the shared rule was unlayered and beat
+           every utility on this element. The rule is gone; the width stays
+           inline for the reason `modalClasses.ts` gives, and it now states the
+           height ceiling it used to inherit from that rule. Flat pixels rather
+           than a viewport clamp, which is what it has always shipped. */
+        style={{ ...MODAL_SIZE, width: 520 }}
         onMouseDown={stop}
       >
-        <div className="modal-head">
-          <span className="t">{initial ? t('connect.editTitle') : t('connect.title')}</span>
-          <span style={{ flex: 1 }} />
+        <div className={MODAL_HEAD}>
+          <span className={MODAL_TITLE}>{initial ? t('connect.editTitle') : t('connect.title')}</span>
+          <span className="flex-1" />
           <Button variant="ghost" icon label={t('app.errors.close')} onClick={onClose}>
             ✕
           </Button>
         </div>
-        <div className="modal-body">
+        <div className={MODAL_BODY}>
           <div className="form-row">
             <label htmlFor="peek-driver">{t('connect.driver')}</label>
             <select
@@ -221,14 +237,18 @@ export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactEl
           ) : null}
 
           {issue ? (
-            // The rejected field, named — evidence, not prose.
-            <div className="form-hint" style={{ color: 'var(--err)' }}>
+            // The rejected field, named — evidence, not prose. The colour is an
+            // inline style for the same cascade reason the dialog's width is:
+            // `.form-hint` is unlayered and already sets `color`, so a
+            // `text-err` utility on this element would lose to it and the one
+            // hint that has to stand out would read like the four around it.
+            <div className="form-hint" style={{ color: 'var(--color-err)' }}>
               {t('connect.invalid', { issue })}
             </div>
           ) : null}
           <div className="form-hint">{t('connect.privacyNote')}</div>
         </div>
-        <div className="modal-foot">
+        <div className={MODAL_FOOT}>
           <Button onClick={onClose}>{t('connect.cancel')}</Button>
           <Button variant="primary" action="conn.open" disabled={busy || missing.length > 0} onClick={submit}>
             {busy ? t('connect.connecting') : t('connect.submit')}
@@ -272,7 +292,7 @@ function FieldRow({ t, field, value, autoFocus, onChange, onSubmit }: FieldRowPr
       <label htmlFor={id}>{t(field.labelKey)}</label>
       <input
         id={id}
-        className={field.mono === true ? 'mono' : undefined}
+        className={field.mono === true ? 'font-mono tabular-nums' : undefined}
         type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'}
         value={typeof value === 'string' ? value : ''}
         placeholder={field.placeholder}

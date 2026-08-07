@@ -12,6 +12,7 @@ import { AcpManager, chatRootDir, defaultAcpConfig, type McpEndpointInfo } from 
 import { DEFAULT_DELTA_BUDGET } from './agent'
 import { EndpointManager } from './agent/endpoint/loop'
 import { ENDPOINT_THREAD_DIR, EndpointThreadStore } from './agent/endpoint/thread-store'
+import { ACP_SNAPSHOT_DIR, AcpSnapshotStore } from './acp/snapshot-store'
 import { SessionIndex } from './agent/session-index'
 import {
   createConfigHandlers,
@@ -862,6 +863,14 @@ function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
       notify,
       resolveMcpEndpoint: () => mcpEndpoint,
       sessionIndex,
+      // Pictures of ACP conversations, so opening one from the rail draws
+      // immediately instead of waiting out `session/load`. A sibling of the
+      // endpoint backend's `endpoint/` directory rather than a tenant of it:
+      // that one holds conversations peek owns, this one holds pictures of
+      // conversations it does not. See `AcpSnapshotStore`.
+      snapshots: new AcpSnapshotStore(
+        join(chatRootDir(process.env['PEEK_CONFIG_DIR']), ACP_SNAPSHOT_DIR),
+      ),
     },
     { ...acpConfig, clientVersion: app.getVersion() },
   )

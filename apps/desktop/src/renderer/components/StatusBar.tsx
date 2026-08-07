@@ -8,6 +8,7 @@ import { useCacheStats, useResult } from '../state/useResult'
 import { useWorkspace, useWorkspaceStore } from '../state/workspaceStore'
 import { formatBytes, formatCount, formatMs } from '../util/format'
 import { toggleChatRail, useChatRailStore } from './chat'
+import { CONN_DOT } from './shellClasses'
 import { Button } from '../ui/Button'
 import { ErrorCenterButton } from './error-center/ErrorCenter'
 import { lookupViewKind } from '../plugins/viewKinds'
@@ -46,9 +47,27 @@ export function StatusBar(): ReactElement {
   const cachePct = Math.round((stats.bytes / RESULT_CACHE_MAX_BYTES) * 100)
 
   return (
-    <div className="statusbar">
-      <span className="cell">
-        <span className={`dot ${readyCount > 0 ? 'ready' : ''}`} />
+    /*
+     * 26px, not 22px. The bar carries real buttons (new conversation, the rail
+     * toggle, the error centre), a button is 25.4px tall, and `overflow-hidden`
+     * on a 22px bar was quietly clipping every one of them.
+     *
+     * `statusbar` carries no box any more, but it stays: `app.css` colours the
+     * error centre's unseen count through `.statusbar .err`, on a span that
+     * belongs to another module.
+     */
+    <div className="statusbar flex h-head flex-none items-center gap-snug overflow-hidden shadow-rule-t bg-bg-1 px-snug text-micro whitespace-nowrap text-fg-dim">
+      {/* The bar's cells — the connection dot, the view description, the row
+          count, the cache watermark — are all this shape: a row of things that
+          line up on one baseline. It was `.statusbar .cell`, and `.seg` before
+          that, which was also the connect dialog's segmented-control class; two
+          unrelated rules wearing one name is what made the control layer block
+          this file for a reason belonging to another one. */}
+      <span className="flex items-center gap-tight">
+        {/* The summary light, not a connection's own: `none` is the faint solid
+            circle the bare `.dot` rule used to draw, and it means "nothing is
+            ready" rather than "this one is idle". See `shellClasses.ts`. */}
+        <span className={readyCount > 0 ? CONN_DOT.ready : CONN_DOT.none} />
         {t('status.connected', { ready: readyCount, total: conns.length })}
       </span>
 
@@ -57,8 +76,8 @@ export function StatusBar(): ReactElement {
 
       {view ? (
         <>
-          <span className="sep" />
-          <span className="cell" title={describeView(view)}>
+          <span className="h-divider w-px flex-none bg-border-strong" />
+          <span className="flex items-center gap-tight" title={describeView(view)}>
             {describeViewLocalized(t, view)}
           </span>
         </>
@@ -66,8 +85,8 @@ export function StatusBar(): ReactElement {
 
       {resultId ? (
         <>
-          <span className="sep" />
-          <span className="cell mono">
+          <span className="h-divider w-px flex-none bg-border-strong" />
+          <span className="font-mono tabular-nums flex items-center gap-tight">
             {t('status.rows', { count: snap.rowCount, rows: formatCount(snap.rowCount) })}
             {meta?.elapsedMs !== undefined ? ` · ${formatMs(meta.elapsedMs)}` : ''}
             {snap.status === 'running' ? ` · ${t('status.receiving')}` : ''}
@@ -75,38 +94,51 @@ export function StatusBar(): ReactElement {
         </>
       ) : null}
 
-      <span className="grow" />
+      <span className="flex-1" />
 
       {/* The window's only always-reachable way into a conversation. Everything
           else that opens one needs an *empty* panel to put it in, which is a
           state a user stops having about a minute after they start working. */}
       <ChatEntry />
 
-      {inflight > 0 ? <span className="cell">{t('status.inflight', { count: inflight })}</span> : null}
+      {inflight > 0 ? (
+        <span className="flex items-center gap-tight">{t('status.inflight', { count: inflight })}</span>
+      ) : null}
 
-      <span className={cachePct > 85 ? 'cell warn' : 'cell'} title={t('status.cacheTitle')}>
+      <span
+        className={
+          cachePct > 85
+            ? 'flex items-center gap-tight text-warn'
+            : 'flex items-center gap-tight'
+        }
+        title={t('status.cacheTitle')}
+      >
         {t('status.cache', { size: formatBytes(stats.bytes), pct: cachePct })}
       </span>
 
       {resyncCount > 0 ? (
-        <span className="cell warn" title={t('status.resyncTitle')}>
+        <span className="flex items-center gap-tight text-warn" title={t('status.resyncTitle')}>
           {t('status.resync', { count: resyncCount })}
         </span>
       ) : null}
 
-      {bridgeMissing ? <span className="cell err">{t('status.preloadMissing')}</span> : null}
+      {bridgeMissing ? (
+        <span className="flex items-center gap-tight text-err">{t('status.preloadMissing')}</span>
+      ) : null}
 
       {/* Until the first snapshot lands. It used to sit in the title bar, next to
           a *second* copy of the bridge line above — the bar had become a place
           for state that belongs down here. Suppressed when the bridge is missing:
           then "syncing" is not what is happening, it is never going to sync. */}
-      {!ready && !bridgeMissing ? <span className="cell">{t('app.syncing')}</span> : null}
+      {!ready && !bridgeMissing ? (
+        <span className="flex items-center gap-tight">{t('app.syncing')}</span>
+      ) : null}
 
       {/* The one place in the window that remembers a failure past the toast that
           announced it. Silent until something has actually gone wrong. */}
       <ErrorCenterButton />
 
-      <span className="cell mono" title={t('status.revTitle')}>
+      <span className="font-mono tabular-nums flex items-center gap-tight" title={t('status.revTitle')}>
         rev {ws?.rev ?? '—'}
       </span>
     </div>
@@ -138,9 +170,9 @@ function PanelPosition(): ReactElement | null {
   const hints = shortcutHints(isMacPlatform())
   return (
     <>
-      <span className="sep" />
+      <span className="h-divider w-px flex-none bg-border-strong" />
       <span
-        className="cell"
+        className="flex items-center gap-tight"
         title={t('keyboard.panelPositionTitle', {
           focusKeys: hints.focus,
           panelDigitKeys: hints.panelDigit,
@@ -177,9 +209,9 @@ function TabPosition(): ReactElement | null {
   const hints = shortcutHints(isMacPlatform())
   return (
     <>
-      <span className="sep" />
+      <span className="h-divider w-px flex-none bg-border-strong" />
       <span
-        className="cell"
+        className="flex items-center gap-tight"
         title={t('keyboard.tabPositionTitle', {
           tabDigitKeys: hints.tabDigit,
           lastTabKey: hints.lastTab,
@@ -287,9 +319,10 @@ function ChatEntry(): ReactElement {
       {/*
        * These carried `ghost seg` until the control layer arrived. `seg` on a button
        * resolved to `.statusbar .seg` — `display: flex; align-items: center; gap:
-       * 5px` — which is exactly what `.btn` already sets, so the class simply had
-       * nothing left to say here. The rule itself stays: the eight `<span
-       * className="cell">` cells in this bar are its real subject.
+       * 5px` — which is exactly what a control already sets, so the class simply had
+       * nothing left to say here. It went on meaning something for the eight cells
+       * in this bar, and after the Tailwind migration it is what those cells spell
+       * out in place: `flex items-center gap-tight`.
        *
        * `md`, not `sm`, even though 20px would fit a 26px bar more comfortably.
        * The bar is 26px *because* the legibility baseline (§2.3) raised it from 22

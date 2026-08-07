@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import type { Plugin } from 'vite'
 
 const rootDir = __dirname
@@ -279,6 +280,13 @@ const require = __cjs_mod__.createRequire(import.meta.url);
  *   main index            327,010 → 175,091 B  (-46%)
  *   main driver-host    3,886,332 → 2,192,870 B (-44%)
  *
+ * Those are the M6 figures, kept as they were measured: what they are here to
+ * argue is that minifying is worth switching on, and a ratio does not go stale
+ * the way a size does. Current sizes live in PLAN §8.2, which has a re-measured
+ * column beside them. One ratio there did move and it is worth knowing about:
+ * the renderer CSS now compresses by -31% rather than -44%, because Tailwind's
+ * output is utility rules with almost no whitespace or repetition left in it.
+ *
  * `esbuild` (not `terser`) because it is already in the dependency tree and the
  * marginal gain from terser does not pay for a second minifier.
  */
@@ -371,7 +379,32 @@ export default defineConfig({
   // renderer: the React UI. root points at the app package root, where index.html lives.
   renderer: {
     root: rootDir,
-    plugins: [react()],
+    /*
+     * `tailwindcss()` is on this target and only this target. It is a CSS
+     * pipeline, and the other two produce no CSS at all — main and preload are
+     * Node bundles, and handing them a plugin that scans source files for class
+     * names would cost build time to emit nothing. The renderer is also the only
+     * place the theme exists: `src/renderer/styles.css` holds the `@theme` block
+     * (it was `theme.css` until the eight sheets were merged back into one —
+     * migration record §11.1), and the plugin's job is to turn it into custom
+     * properties plus the handful of utilities the TSX actually names.
+     *
+     * "Into custom properties" is load-bearing rather than descriptive, and it
+     * is the reason there is no `tailwind.config.js` beside this file. A JS
+     * config is honoured here — `@config` resolves and its theme compiles real
+     * utilities — but the compatibility layer registers those values inline: the
+     * utility carries the literal and **no custom property is emitted**. The 74
+     * declarations in `styles.css` that read the theme through `var()` have
+     * nothing left to read once the block moves: the measured result is a build
+     * that exits 0 while shipping 86 dangling references. Measured on the real
+     * tree rather than reasoned about; the numbers are over the `@theme` block.
+     *
+     * Deliberately *not* extended to the plugin UI: `packages/driver-neo4j/ui/`
+     * is built by `scripts/build-plugin-ui.mjs` into an iframe with its own CSP,
+     * and it keeps its own stylesheet. See
+     * docs/design/2026-08-04-tailwind-migration.md §4.4.
+     */
+    plugins: [react(), tailwindcss()],
     resolve: { alias: peekAlias },
     build: {
       outDir: 'out/renderer',

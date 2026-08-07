@@ -80,6 +80,8 @@ import {
   type StopReason,
 } from '@agentclientprotocol/sdk'
 import {
+  applyChatDeltaToMessages,
+  transcriptToDeltas,
   peekError,
   type ChatDelta,
   type ChatId,
@@ -103,6 +105,7 @@ import {
 } from './errors'
 import { PermissionBroker, type PermissionDecision } from '../agent/permissions'
 import { buildAttachmentReceipts } from '../agent/context'
+import { lastMessagePreview } from '../agent/preview'
 import { buildPeekMcpServer, ensureChatWorkdir } from './session-config'
 import { TranscriptTranslator, type ChatStateDelta, type TranslationOutput } from './translate'
 import {
@@ -161,6 +164,20 @@ interface ChatSession {
   resumeSessionId: string | null
   translator: TranscriptTranslator
   batcher: DeltaBatcher
+  /**
+   * What the window has been shown, folded from the deltas this session emitted.
+   *
+   * **Not a second history.** It holds `ChatMessage[]` — the projection — and
+   * never the model's context, which stays with the agent where it belongs. It
+   * exists so `AcpSnapshotStore` has something to write, and that file's header
+   * carries the full argument for why this is allowed to exist at all.
+   *
+   * Folded in `#emit`, which is the one place every delta passes through, using
+   * the same `applyChatDeltaToMessages` the renderer's mirror and the endpoint
+   * backend both use. Three implementations of "apply a delta" would be three
+   * chances to disagree about what the window is showing.
+   */
+  transcript: ChatMessage[]
   /** A turn is in flight. */
   streaming: boolean
   /** Reset by every session update; the idle watchdog reads it. */
@@ -431,7 +448,50 @@ export class AcpManager {
     // replay the transcript a second time on top of itself.
     if (session.agentSessionId === resumeSessionId) return
     session.resumeSessionId = resumeSessionId
+    this.#drawSnapshot(session, resumeSessionId)
     await this.#ensureSession(chatId)
+  }
+
+  /**
+   * Put the last known picture of a conversation on screen, now.
+   *
+   * `session/load` takes ~1.5s and spends effectively all of it building a live
+   * session — the history itself replays in 3ms. Nothing can make that shorter
+   * (`design/2026-08-06-opening-a-stored-conversation.md` §1.1 has the
+   * measurements and the protocol methods that do not exist), so this removes
+   * the *waiting* instead: the user reads while the session is built behind them.
+   *
+   * The deltas are ordinary ones down the ordinary channel. The window cannot
+   * tell this from a replay and does not need to — one channel, one projection,
+   * no snapshot-only format. `#replay` clears it before the agent's own copy
+   * arrives, so nothing here can survive into the live conversation.
+   *
+   * Deliberately not awaited and deliberately not fallible: no snapshot, an
+   * unreadable one, or a version this build does not know all end the same way —
+   * the panel shows its loading state and the load proceeds exactly as it did
+   * before this existed.
+   */
+  #drawSnapshot(session: ChatSession, sessionId: string): void {
+    const stored = this.#deps.snapshots?.read(sessionId)
+    if (!stored || stored.transcript.length === 0) return
+    // Straight to `emitDeltas`, around `#emit` and its batcher: this is not the
+    // session's own output and must not touch `session.transcript`. That field
+    // is what the *agent* said, and seeding it from a picture would mean the
+    // next `#saveSnapshot` could write a snapshot of a snapshot — each one a
+    // generation further from anything the agent ever sent.
+    this.#deps.emitDeltas(session.chatId, [
+      { type: 'reset', chatId: session.chatId },
+      ...transcriptToDeltas(session.chatId, stored.transcript),
+    ])
+    // What is on screen is now a picture, and the panel has to know. If the load
+    // that follows succeeds this is cleared moments later and nobody ever sees
+    // the difference; if it fails, this is what stops the panel from treating a
+    // picture as a conversation. See `ChatViewState.showingSnapshot`.
+    this.#patch(session.chatId, {
+      showingSnapshot: true,
+      messageCount: stored.transcript.length,
+      lastMessagePreview: lastMessagePreview(stored.transcript),
+    })
   }
 
   /**
@@ -439,22 +499,18 @@ export class AcpManager {
    *
    * The renderer reloaded: main still holds the session, so nothing here is
    * broken and nothing re-opens. What is gone is the transcript mirror on the
-   * other side of the IPC boundary, and this backend keeps no copy of its own to
-   * hand back — the history belongs to the agent, so the agent is asked again.
+   * other side of the IPC boundary, and the history belongs to the agent, so the
+   * agent is asked again. (peek's snapshot is not consulted here on purpose: the
+   * live session is right there, and its copy is better than any picture of it.)
    *
    * `openChat` cannot serve. Its "already up on the right session" short-circuit
    * returns immediately in exactly this case, and that guard is right: it is
    * what stops a tab opened twice from stacking a conversation on itself. This
    * is the deliberate other door, not a hole in that one.
    *
-   * Two things have to happen before the request that do not happen on bringup:
-   *
-   *  - `reset()` on the translator, because it is stateful (the open message,
-   *    the tool-call table, the message count). Replaying onto a used translator
-   *    continues the old numbering and mis-addresses every delta;
-   *  - the `reset` delta reaching the window, so a mirror that is *not* empty —
-   *    a second restore, a renderer that reconnected with something already in
-   *    it — is cleared rather than doubled.
+   * Clearing the translator and the window before the request used to be done
+   * here, and is now inside `#replay` — both call sites need it, and the one
+   * that did not need it before does now that `openChat` draws a snapshot first.
    *
    * `false` when there is nothing to replay: no session, no agent session id, or
    * an agent with no history to give. Not an error — the caller falls back to
@@ -463,20 +519,34 @@ export class AcpManager {
   async reloadChat(chatId: ChatId): Promise<boolean> {
     if (this.#disposed) return false
     const session = this.#sessions.get(chatId)
-    const resumeId = session?.agentSessionId ?? null
-    if (!session || resumeId === null) return false
+    if (!session) return false
     // Mid-turn, the live stream and the replay would interleave into one
     // transcript. The turn is still running and will still land; the window just
     // does not get its history back until it finishes.
     if (session.streaming) return false
+
+    /*
+     * No live session, but a conversation this view was opened to read: the
+     * bringup load failed, and this is the retry behind the button §2.4 puts
+     * under a snapshot that could not be replaced.
+     *
+     * It goes through `#ensureSession` rather than the replay path below,
+     * because there is nothing to replay *onto* — the session has to be built
+     * first, which is the whole 1.5s and the whole thing that failed. Failure
+     * lands on the conversation exactly as it did the first time.
+     */
+    if (session.agentSessionId === null) {
+      if (session.resumeSessionId === null) return false
+      await this.#ensureSession(chatId)
+      return true
+    }
+
+    const resumeId = session.agentSessionId
     if (this.#agentCaps?.loadSession !== true) return false
 
     await this.#ensureAgent()
     const connection = this.#connection
     if (!connection) return false
-
-    const out = session.translator.reset()
-    this.#emit(session, out.deltas, out.state, { flush: true })
 
     const endpoint = this.#deps.resolveMcpEndpoint()
     const peekMcp = buildPeekMcpServer(endpoint)
@@ -548,6 +618,11 @@ export class AcpManager {
     // the route first would leave an orphaned conversation nobody can attribute
     // if the delete then failed.
     this.#deps.sessionIndex?.remove(sessionId)
+    // And the picture of it. A snapshot that outlived the conversation it
+    // pictures is the one way this store could show a user something that no
+    // longer exists anywhere — which is the failure the whole design is arranged
+    // to avoid.
+    this.#deps.snapshots?.remove(sessionId)
   }
 
   /** Both halves have to be there: a catalogue you cannot open is not a catalogue. */
@@ -566,7 +641,12 @@ export class AcpManager {
     if (!session) return
     if (session.streaming) void this.cancel(chatId)
     const out = session.translator.reset()
+    // The `reset` in there empties `session.transcript` on its way through
+    // `#emit`, so this writes an empty snapshot — which `write` turns into a
+    // delete. Leaving the old file would redraw, on the next open, a
+    // conversation the user just threw away.
     this.#emit(session, out.deltas, out.state, { flush: true })
+    this.#saveSnapshot(session)
   }
 
   /**
@@ -876,6 +956,7 @@ export class AcpManager {
       batcher: new DeltaBatcher(chatId, this.#config.batch, (id, deltas) => {
         this.#deps.emitDeltas(id, deltas)
       }),
+      transcript: [],
       streaming: false,
       idleTimer: null,
       maxTimer: null,
@@ -999,6 +1080,33 @@ export class AcpManager {
     const wasRegistered = session.agentSessionId === resumeId
     session.agentSessionId = resumeId
     this.#byAgentSession.set(resumeId, session)
+
+    /*
+     * Clear whatever is on screen, and reset the translator, before a single
+     * replayed update arrives. Both halves are load-bearing and neither is
+     * optional at any call site, which is why this lives here rather than in the
+     * two callers:
+     *
+     *  - the **translator** is stateful (the open message, the tool-call table,
+     *    the message count). Replaying onto a used one continues the old
+     *    numbering and mis-addresses every delta it produces;
+     *  - the **window** may already be showing something — a snapshot drawn by
+     *    `openChat` moments ago, or a transcript that survived a renderer
+     *    reconnect. `message.start` is idempotent by id, but only against
+     *    messages that are *there*, and the replay's ids come from a translator
+     *    that just went back to zero. Without the reset the agent's copy lands
+     *    underneath the snapshot instead of replacing it.
+     *
+     * `reloadChat` used to do this itself. It no longer does: one of the two
+     * paths into a replay would eventually be edited and the other forgotten,
+     * which is the failure this whole method was extracted to prevent.
+     */
+    const cleared = session.translator.reset()
+    // `showingSnapshot` clears with the picture it describes, in the same patch
+    // that empties the counts — the window must never be in a state where the
+    // flag says "picture" and the transcript is the agent's, or the reverse.
+    this.#emit(session, cleared.deltas, { ...cleared.state, showingSnapshot: false }, { flush: true })
+
     // Bracketing the request, for the same reason the registration precedes it:
     // every replayed update arrives while it is open. Inside the bracket the
     // translator keeps the user's own turns, which it drops during a live turn
@@ -1029,6 +1137,11 @@ export class AcpManager {
     // transcript look finished rather than perpetually mid-answer.
     const tail = session.translator.finishTurn('end_turn')
     this.#emit(session, tail.deltas, tail.state, { flush: true })
+    // The most accurate moment a snapshot can be taken: this transcript came
+    // from the agent itself, seconds ago. Every other write is peek's own record
+    // of a turn it watched; this one is the authority's copy, so it corrects any
+    // drift the previous writes accumulated.
+    this.#saveSnapshot(session)
   }
 
   /**
@@ -1131,6 +1244,10 @@ export class AcpManager {
     session.permissionIds.clear()
     const out = session.translator.finishTurn(stopReason, error)
     this.#emit(session, out.deltas, out.state, { flush: true })
+    // After the emit, so the turn that just ended is in the picture. Also on the
+    // error path: a turn that failed still happened, and the half of it that
+    // reached the window is exactly what the next open should show.
+    this.#saveSnapshot(session)
     this.#patch(session.chatId, {
       status: error ? 'error' : 'ready',
       streamingMessageId: null,
@@ -1453,9 +1570,38 @@ export class AcpManager {
 
   /** Queue deltas, and commit any control-plane movement they implied. */
   #emit(session: ChatSession, deltas: readonly ChatDelta[], state: ChatStateDelta, opts: { flush: boolean }): void {
-    for (const delta of deltas) session.batcher.push(delta)
+    for (const delta of deltas) {
+      // Folded before the batcher, not after: the batcher merges and drops
+      // deltas on its way to the window (consecutive appends concatenate, a
+      // superseded tool row is overwritten in place), and folding the merged
+      // output would be folding a different sequence than the renderer applies.
+      // The two projections have to be built from the same input to be the same
+      // picture — `chat.test.ts` compares them delta by delta for this reason.
+      session.transcript = applyChatDeltaToMessages(session.transcript, delta)
+      session.batcher.push(delta)
+    }
     if (opts.flush) session.batcher.flush()
     if (Object.keys(state).length > 0) this.#patch(session.chatId, state)
+  }
+
+  /**
+   * Write the snapshot, if there is anywhere to write it.
+   *
+   * Called at the end of a turn and at the end of a replay — the two moments the
+   * transcript is complete and at rest. Never per delta: a write per streamed
+   * token is the cost that kept transcripts out of the Workspace in the first
+   * place, and a snapshot exists to save a wait, not to be current to the token.
+   *
+   * Silent about failure by design. `AcpSnapshotStore.write` already logs, and a
+   * snapshot that did not land costs the *next* open its head start and nothing
+   * else — putting that on the conversation would be reporting peek's internal
+   * bookkeeping as if the user's conversation had a problem.
+   */
+  #saveSnapshot(session: ChatSession): void {
+    const store = this.#deps.snapshots
+    const sessionId = session.agentSessionId
+    if (!store || sessionId === null) return
+    store.write(sessionId, session.transcript, Date.now())
   }
 
   /**
