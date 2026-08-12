@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
+import '../../../drivers/__tests__/in-repo-registry'
 import {
   asPanelId,
   createEmptyWorkspace,
@@ -18,6 +19,7 @@ import { createSeqIdFactory } from '../ids'
 import type { CommandDeps } from '../deps'
 import type { ToolContext, ToolOutput } from '../../mcp/types'
 import runQueryTool from '../../mcp/tools/run-query'
+import { redactRulesFor } from '../../../drivers/manifests'
 
 /**
  * `query.run` used to accept a viewId and a connId that disagreed, and answer
@@ -96,7 +98,7 @@ async function queryViewOn(h: Harness, connId: ConnId): Promise<ViewId> {
 function toolCtx(h: Harness): ToolContext {
   return {
     dispatch: (name, input, source) => h.bus.dispatch(name, input, source),
-    getSnapshot: () => snapshotWorkspace(h.store.getState()),
+    getSnapshot: () => snapshotWorkspace(h.store.getState(), redactRulesFor),
     now: () => Date.now(),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     logger: { log: () => {} },

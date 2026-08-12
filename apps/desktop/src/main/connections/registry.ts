@@ -1,11 +1,11 @@
 import type { Capability, DriverId } from '@peek/core'
-import { DRIVER_MANIFESTS } from '../../drivers/manifests'
+import { driverManifests, lookupManifest } from '../../drivers/manifests'
 
 /**
  * The driver registry.
  *
  * What a database *is* — its name, what it can do, how it is addressed — is
- * declared by the driver package itself (`@peek/driver-x/manifest`) and reaches
+ * declared by the driver package itself (`@peek/db-x/manifest`) and reaches
  * every process through `src/drivers/manifests.ts`. What is left here is the one
  * thing only the **main process** cares about: which build output to spawn when
  * a connection opens.
@@ -50,25 +50,32 @@ const DRIVER_HOST_ENTRY = 'driver-host.js'
  * and TypeScript will therefore never point out a driver nobody registered —
  * `driver-registry.test.ts` is what does. `PLAN.md` §10 records why that
  * partiality is deliberate rather than an oversight.
+ *
+ * **A function, since the manifests came off disk.** It was a module constant
+ * built at import, which is exactly as long as the manifest list was one; now
+ * that `installPackages` fills the list during startup, a constant here would be
+ * frozen empty — every `connect` answering `Driver … is not registered`, which is
+ * the symptom acceptance 11 hit before this step (§4undecies(b)).
  */
-export const DRIVER_REGISTRY: Readonly<Partial<Record<DriverId, DriverRegistration>>> =
-  Object.fromEntries(
-    DRIVER_MANIFESTS.map((m) => [
-      m.driverId,
-      {
-        driverId: m.driverId,
-        displayName: m.displayName,
-        entryFile: DRIVER_HOST_ENTRY,
-        capabilities: m.capabilities,
-      } satisfies DriverRegistration,
-    ]),
-  )
+export function driverRegistry(): Readonly<Partial<Record<DriverId, DriverRegistration>>> {
+  return Object.fromEntries(driverManifests().map((m) => [m.driverId, registrationOf(m.driverId, m.displayName, m.capabilities)]))
+}
 
 export function lookupDriver(driverId: DriverId): DriverRegistration | null {
-  return DRIVER_REGISTRY[driverId] ?? null
+  const manifest = lookupManifest(driverId)
+  if (manifest === null) return null
+  return registrationOf(manifest.driverId, manifest.displayName, manifest.capabilities)
 }
 
 /** The registered driver ids, for the connection dialog's driver picker. */
 export function registeredDriverIds(): DriverId[] {
-  return Object.keys(DRIVER_REGISTRY) as DriverId[]
+  return driverManifests().map((m) => m.driverId)
+}
+
+function registrationOf(
+  driverId: DriverId,
+  displayName: string,
+  capabilities: readonly Capability[],
+): DriverRegistration {
+  return { driverId, displayName, entryFile: DRIVER_HOST_ENTRY, capabilities }
 }

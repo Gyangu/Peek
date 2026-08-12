@@ -11,9 +11,9 @@ import { postgresDriver } from '../driver'
  *
  * **A file rather than a stanza in the build script**, because the question it
  * answers — which databases does this package open — is the package's to answer.
- * A table in the app would be the fourth copy of it (`driver-host/entry.ts`,
- * `drivers/packages.ts`, `manifest.ts`), and the first three are what Phase C is
- * deleting.
+ * A table in the app would be a third copy of it (`driver-host/entry.ts` and
+ * `manifest.ts` are the other two), and the app's — `drivers/packages.ts` — is
+ * what Phase C deleted.
  *
  * Imported relatively rather than through `@peek/db-postgres`: the index
  * also exports the introspector, the cursor and `startDriverHost`, and a host

@@ -24,7 +24,6 @@ import {
   type ViewSummary,
   type WorkspaceSnapshot,
 } from '@peek/core'
-import { endpointSummary } from '../../drivers/manifests'
 import { metaText } from './wait'
 
 /* ================================================================== */
@@ -69,7 +68,7 @@ export interface ResultBrief {
 export interface ViewBrief {
   viewId: string
   /**
-   * `string`, not `ViewSummary['kind']`: a plugin view reports the kind it
+   * `string`, not `ViewSummary['kind']`: a package view reports the kind it
    * contributed (`graph`), which is by construction not a member of the closed
    * seven-literal union. Narrowing it here would be narrowing to the wrong set.
    */
@@ -167,18 +166,23 @@ export type BriefSection = 'layout' | 'views' | 'connections' | 'results'
 /* ================================================================== */
 
 /**
- * Readable description of a connection target. The config has already been
- * through `redactConnectionConfig`, so this only assembles the pieces.
+ * Readable description of a connection target.
  *
- * The assembling itself is the driver's, not this file's: which of host / port /
- * database / file / index actually names a server, and what each one's default
- * is, is a fact about that database. It used to be a five-branch switch here,
- * which meant a new driver's address line was written by whoever was editing the
- * MCP layer that week — and a missing branch degraded to a blank target rather
- * than to a compile error.
+ * A field read, and it has been three different things: a five-branch switch
+ * here (a new driver's address line written by whoever was editing the MCP layer
+ * that week, a missing branch degrading to a blank target rather than to a
+ * compile error), then `DriverDisplay.endpoint` called on read, and now the
+ * answer the owning package gave once when the connection opened.
+ *
+ * The last step was not about this file. `label` and `detail` were already
+ * stored because a window may not execute a package's code, while this string
+ * never leaves main — so calling the display here was still legal. It stopped
+ * being legal when **main** stopped running package code (§2.4bis): the display
+ * lives in another process, reaching it is asynchronous, and this sits on the
+ * receipt path where nothing may await.
  */
-export function connTarget(cfg: ConnectionSummary['config']): string {
-  return endpointSummary(cfg)
+export function connTarget(conn: Pick<ConnectionSummary, 'endpoint'>): string {
+  return conn.endpoint
 }
 
 export function briefConnection(c: ConnectionSummary): ConnBrief {
@@ -188,7 +192,7 @@ export function briefConnection(c: ConnectionSummary): ConnBrief {
     driverId: c.driverId,
     status: c.status,
     capabilities: [...c.capabilities],
-    target: connTarget(c.config),
+    target: connTarget(c),
     ...(c.serverInfo === undefined
       ? {}
       : { serverVersion: [c.serverInfo.flavor, c.serverInfo.version].filter(Boolean).join(' ') }),
@@ -277,9 +281,9 @@ function briefView(
   const result = v.resultId === undefined ? undefined : resultById.get(String(v.resultId))
   return {
     viewId: String(v.id),
-    // A plugin view reports its own kind, not the word `plugin` — see
+    // A package view reports its own kind, not the word `package` — see
     // `displayViewKind`. This is the reader that makes `expand_node` usable at
-    // all: a model cannot pick the graph view out of a list where every plugin
+    // all: a model cannot pick the graph view out of a list where every package
     // view looks identical.
     kind: displayViewKind(v),
     title: v.title,

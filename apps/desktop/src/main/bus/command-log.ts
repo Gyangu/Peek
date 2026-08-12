@@ -1,4 +1,5 @@
-import { ConnectionConfigSchema, redactConnectionConfig } from '@peek/core'
+import { redactConnectionConfig } from '@peek/core'
+import { parseConnectionConfig, redactRulesFor } from '../../drivers/manifests'
 import type { CommandName, CommandSource, PeekErrorCode } from '@peek/core'
 
 /**
@@ -95,17 +96,21 @@ const MAX_LOGGED_PROMPT_CHARS = 500
  * ring held in memory — so it is truncated rather than removed, because knowing
  * *what was asked* is most of the value of having the entry.
  *
- * Parsing through core's schema rather than casting also drops malformed input for
- * free.
+ * Parsing through the registry rather than casting also drops malformed input for
+ * free — and a config whose driver peek has no manifest for, which core's schema
+ * alone cannot recognise and whose redaction rules would therefore be empty.
  */
 export function redactCommandInput(name: CommandName, input: unknown): unknown {
   if (typeof input !== 'object' || input === null) return input
 
   if (name === 'conn.open') {
     const record: Record<string, unknown> = { ...(input as Record<string, unknown>) }
-    const parsed = ConnectionConfigSchema.safeParse(record['config'])
-    if (parsed.success) record['config'] = redactConnectionConfig(parsed.data)
-    else delete record['config']
+    const config = parseConnectionConfig(record['config'], 'keep')
+    if (config !== null) {
+      record['config'] = redactConnectionConfig(config, redactRulesFor(config.driverId))
+    } else {
+      delete record['config']
+    }
     return record
   }
 

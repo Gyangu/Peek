@@ -15,7 +15,8 @@ next read.
 > drag-and-drop plus the `set_layout` / `move_view` tools), M3 (Redis), M4 (Qdrant), M5
 > (MySQL / SQLite) and M6 (cancel and timeouts, error panel, connection persistence, a settable
 > MCP port, and the capability-model gaps closed) are complete, and the layout has since grown
-> panel tabs and keyboard accessibility. All five databases connect, introspect and stream rows;
+> panel tabs and keyboard accessibility. All six databases connect, introspect and stream rows, each
+> from a package loaded off disk rather than compiled in ([Packages and trust](#packages-and-trust));
 > all data access is read-only. peek has also grown a **chat panel**: Claude Code runs embedded
 > over ACP as a sixth kind of view, connected back to peek's own MCP server, so the agent you are
 > talking to drives the window it is sitting in. Everything under [Roadmap](#roadmap) is a plan,
@@ -27,7 +28,7 @@ next read.
 
 | Area | State |
 | --- | --- |
-| Databases | PostgreSQL, Redis, Qdrant, MySQL and SQLite, each behind its own driver package. The connect dialog renders a different form per driver, because the five do not describe a connection the same way — a numeric database index for Redis, a base URL and API key for Qdrant, a path on disk for SQLite. |
+| Databases | PostgreSQL, Redis, Qdrant, MySQL, SQLite and Neo4j, each behind its own package. The packages are **loaded from disk** — `~/.peek/packages/<id>/` — rather than compiled into the app; the ones peek ships with are copied there on first start and can be uninstalled like any other. The connect dialog renders a different form per driver, because they do not describe a connection the same way — a numeric database index for Redis, a base URL and API key for Qdrant, a path on disk for SQLite. Adding a database peek has never heard of is installing a directory, not editing this repository. See [Packages and trust](#packages-and-trust) for what that costs. |
 | Data access | Read-only, and enforced by the server wherever a server can enforce it: PostgreSQL and MySQL run inside a read-only transaction, SQLite is opened with the read-only flag plus `PRAGMA query_only`. Redis and Qdrant have no such switch, so their drivers simply issue no write command. No client-side keyword allowlist anywhere. The one gap is a stored procedure that opens its own read-write transaction — see [Known limitations](#known-limitations). |
 | Views | All six kinds are implemented: `table`, `query`, `inspector`, `tree`, `vector`, `chat`. Which ones a connection offers follows its capabilities — Redis and Qdrant have no `tabularQuery`, so no SQL editor is drawn for them; the typed key inspector appears only on Redis, and vector search only on Qdrant. `chat` is the odd one out: it is the only kind that may exist without a connection. |
 | Chat / ACP | Claude Code runs as a child process behind the [Agent Client Protocol](https://agentclientprotocol.com), rendered as a chat view like any other tab — streamed assistant text, tool-call cards, plan cards, and a permission prompt the human answers. The agent is launched lazily on first use, and is handed peek's own MCP endpoint, so it drives the window it lives in. Result rows reach it only as an explicit **attachment** the human stages (a cell, a row selection, a view), never as ambient context. |
@@ -37,7 +38,7 @@ next read.
 | Cancel / timeouts | Every query, scan and vector search runs under a deadline (120s / 120s / 60s by default; `0` means none). A deadline that expires and an explicit `cancel_query` take the same escalation path — ask the driver, then kill its process — so a wedged connection cannot outlive either. All three result views draw the same cancel control; a driver without the `cancel` capability shows it disabled with the reason, rather than silently omitting it. |
 | Errors | A status-bar badge counts what went wrong and opens a panel holding the last 100 entries, each copyable with its code and detail. Errors that used to exist only as a toast that had already faded are now recoverable after the fact. |
 | MCP | 13 tools over Streamable HTTP on loopback, bearer-token authenticated. Port 7332 by default, settable and persisted; if it is taken, the next 8 are tried and the window says where it landed. |
-| Persistence | Three files under `~/.peek`: `mcp.json` (endpoint + token), `connections.json` (the connection book), `settings.json` (the MCP port). Credentials never land in plaintext — they are encrypted by the OS keychain through Electron's `safeStorage` and stored apart from the config that names the server. Layout, open views, query text and results are still memory-only and start empty every launch. |
+| Persistence | Three files and two subtrees under `~/.peek`: `mcp.json` (endpoint + token), `connections.json` (the connection book), `settings.json` (the MCP port), `chat/`, and `packages/` — the installed database packages, one directory each. Credentials never land in plaintext **on disk** — they are encrypted by the OS keychain through Electron's `safeStorage` and stored apart from the config that names the server; what a loaded package is handed at connect time is a different question, answered under [Packages and trust](#packages-and-trust). Layout, open views, query text and results are still memory-only and start empty every launch. |
 | Packaging | `pnpm build` emits minified bundles under `apps/desktop/out` (~3.2MB total), not an installer. `apps/desktop/scripts/package-mac.mjs` produces a macOS `.app`. |
 | i18n | English is the default and is never auto-detected from the OS; a `zh-CN` catalog ships alongside it, switchable from the status bar. |
 
@@ -112,9 +113,13 @@ the REST client offers no per-request abort, so the driver can only stop between
 is a promise about what the UI may offer, which is why "can stop at a page boundary" is not allowed
 to pass as the same thing.
 
-Adding a database is a package plus a line — one entry in `connections/registry.ts` and one in the
-`drivers` array of `driver-host/entry.ts`. Nothing in `packages/core` changed to admit Redis, Qdrant,
-MySQL or SQLite; the known gaps that surfaced while proving that are listed under
+Adding a database is a package and **no** line of peek: the driver id, the connect form, the
+capability set, the view kinds and the MCP tools all come out of the package's own
+`peek-package.json` at load time, so a database peek has never heard of reaches the picker by being
+copied into `~/.peek/packages/`. It used to be "a package plus a line" — one entry in
+`connections/registry.ts`, one in the `drivers` array of `driver-host/entry.ts`, and five more
+elsewhere — and those tables are gone. Nothing in `packages/core` changed to admit Redis, Qdrant,
+MySQL, SQLite or Neo4j; the known gaps that surfaced while proving that are listed under
 [Known limitations](#known-limitations).
 
 The per-driver table is what the UI predicts *before* a connection exists; once connected, the
@@ -245,7 +250,7 @@ docker exec peek-test-neo4j cypher-shell -u neo4j -p peektest123 \
   "CREATE (a:PeekSmoke {name:'Ada'})-[:PEEK_SMOKE_KNOWS]->(b:PeekSmoke {name:'Bob'})"
 ```
 
-Neo4j is also the only row that opens a **second** view — a `graph`, the one plugin-contributed view
+Neo4j is also the only row that opens a **second** view — a `graph`, the one package-contributed view
 kind in the tree. That step is what exercises the Tier C seam end to end: `view.open` accepting a
 spec the kernel has no schema for, the registration composing Cypher inside the main process, and
 the result arriving through the same machinery a table's scan uses.
@@ -355,7 +360,7 @@ panel.
 | Tool | Kind | Purpose |
 | --- | --- | --- |
 | `read_workspace` | read | See the current UI: layout tree, every tab of every panel in tab order with the visible one marked, per-result row counts and status, connections. Mounted is not the same as on screen — a panel shows one of its tabs. Never returns row data. |
-| `list_connections` | read | Every connection with its id, driver, status, actual capability set, and redacted target. |
+| `list_connections` | read | Every connection with its id, driver, status, actual capability set, and its target masked by the rules that connection's package declares — see [Packages and trust](#packages-and-trust). |
 | `connect` | command | Open a connection (`conn.open`); optionally opens a namespace tree view at the same time. |
 | `introspect` | read | Expand the namespace tree (db → schema → table), up to 3 levels at a time. Returns the `ref` values `open_view` needs. Not a Command — it is a read-only driver-host RPC. |
 | `open_view` | command | Put a view on screen (`view.open`): `table`, `query`, `inspector`, `tree`, `vector`. Appends it to the target panel as a new tab and shows it; `replace: true` closes that panel's visible view and takes its tab position instead. Opening in a *new panel* is `set_layout`, or `move_view` onto an edge. |
@@ -398,6 +403,61 @@ Two rules the panel does not bend:
   resolved under a size budget at send time, not a blob pasted into the prompt.
 - **Permissions are answered by the human.** A tool call the agent is not pre-authorized for
   renders as a prompt in the panel and blocks until someone answers it.
+
+---
+
+## Packages and trust
+
+Every database peek can open is a directory under `~/.peek/packages/<id>/`: a `peek-package.json`
+manifest, a `driver.mjs` the connection process imports, a `contrib.mjs` holding the MCP tools and
+view kinds a package contributes, and an optional `ui/` for a view it draws itself. The six
+databases listed at the top of this README are exactly that — copied out of the app bundle into that
+directory the first time peek starts, loaded through the same code path as anything else there, and
+removable from the settings panel like anything else there.
+
+**peek checks the shape of a package, never its contents.** The loader refuses a manifest with a
+malformed id, missing English copy, a view kind that does not say how it fetches, or a tool without
+a description or an object schema — and it names what is wrong rather than skipping the package
+quietly. That is the whole of it. There is no signature check, no hash check, no permissions
+manifest, no sandbox around the driver, and no confirmation dialog at install time.
+
+So the boundary is a trust boundary, not a technical one: **what you install is what you trust**, the
+same deal a VS Code extension or an MCP server offers. Concretely, at the moment a connection opens:
+
+- **`driver.mjs`** runs in a driver-host child process — one per connection — with full Node and your
+  own privileges. It is handed the connection config **as you typed it, password included**, because
+  connecting is its job. Its environment is an allowlist (`PATH`, `HOME`, `TMPDIR`, `LANG`, `TZ` and
+  a Windows block), not your shell's: `AWS_*`, `GITHUB_TOKEN`, `npm_config_*` and a proxy URL with
+  credentials in it are not passed on.
+- **`contrib.mjs`** runs in a package host `utilityProcess`, one per package, started on first use
+  and not before. It is not given `safeStorage` — that is a main-process API, which is why the last
+  bullet below is the one holding this up — and no credential-shaped variable is in its environment.
+  A package cannot ask peek to decrypt the passwords of connections it does not serve.
+- **`ui/`** runs in an iframe on `peek-package://<id>`, which is its own origin with its own storage,
+  under a CSP whose `connect-src` is `'none'`. It cannot reach the network and cannot compose a
+  statement: the only thing it may put on its one `MessagePort` is a bounded state patch.
+- **The main process runs no package code at all.** That is why the second bullet is true.
+
+None of that is a sandbox, and describing it as one would be the lie worth avoiding here. A driver
+host is an ordinary Node process: it can read your files, open sockets and start programs. The split
+bounds what a *mistake* reaches; it does not stop a package that means harm.
+
+Two consequences are worth stating outright, because both used to be handled for you:
+
+- **Masking a password in the UI is now the package's job.** Which config fields are secret is a
+  `redact` block in the manifest, and peek applies it everywhere a config is shown — `list_connections`
+  and `read_workspace`, the sidebar, the command log. A package that declares **no** `redact` block
+  loads anyway and raises a warning in the error panel; until it declares one, its config travels to
+  MCP clients and to the window verbatim, password field and all. (An explicit `{}` is a different
+  statement — SQLite saying it holds no secret — and is not warned about.) This used to be an
+  exhaustive `switch` in `packages/core` that could not compile with a database missing from it; a
+  closed set of databases is precisely what packages ended.
+- **There is no kill switch.** peek has no registry, no update channel and no revocation list, so
+  nobody — including this project — can withdraw a package that turns out to be hostile from the
+  machines it is already on. Vendors of comparable tools lean on centralized distribution for that
+  backstop. peek's answer is local and manual: uninstall it. That closes the connections, kills the
+  package's host process and deletes the directory; what the package wrote elsewhere while it ran is
+  outside anything that button can speak for.
 
 ---
 
@@ -547,10 +607,10 @@ peek/
 ├─ packages/
 │  ├─ core/               # Command schemas, workspace types, capability + chunk protocol,
 │  │                      # errors, and the driver-host runtime every driver shares
-│  ├─ driver-postgres/    # introspect · tabularQuery · collectionScan · valuePeek · cancel
-│  ├─ driver-redis/       # introspect · collectionScan · keyValue · valuePeek · cancel
-│  ├─ driver-qdrant/      # introspect · collectionScan · vectorSearch · valuePeek
-│  └─ driver-sql/         # MySQL + SQLite behind one dialect layer; same set as postgres
+│  ├─ db-postgres/    # introspect · tabularQuery · collectionScan · valuePeek · cancel
+│  ├─ db-redis/       # introspect · collectionScan · keyValue · valuePeek · cancel
+│  ├─ db-qdrant/      # introspect · collectionScan · vectorSearch · valuePeek
+│  └─ db-sql/         # MySQL + SQLite behind one dialect layer; same set as postgres
 ├─ apps/desktop/          # electron-vite: main / preload / renderer
 │  ├─ scripts/           # smoke-drivers.mjs, verify-chat-security.mjs, the two bench-*.mjs,
 │  │                      # macOS packaging

@@ -32,7 +32,7 @@ const REFUSING_KINDS = VIEW_KINDS.filter((k) => !isRefreshableViewKind(k))
 
 describe('which view patches accept an interval', () => {
   test('the four fetching kinds do', () => {
-    assert.deepEqual([...REFRESHABLE_VIEW_KINDS], ['table', 'query', 'vector', 'plugin'])
+    assert.deepEqual([...REFRESHABLE_VIEW_KINDS], ['table', 'query', 'vector', 'package'])
     for (const kind of REFRESHABLE_VIEW_KINDS) {
       const parsed = ViewPatchSchema.safeParse({ kind, autoRefreshMs: 5_000 })
       assert.equal(parsed.success, true, `${kind} accepts an interval`)

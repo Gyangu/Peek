@@ -11,7 +11,7 @@ import { toggleChatRail, useChatRailStore } from './chat'
 import { CONN_DOT } from './shellClasses'
 import { Button } from '../ui/Button'
 import { ErrorCenterButton } from './error-center/ErrorCenter'
-import { lookupViewKind } from '../plugins/viewKinds'
+import { lookupViewKind } from '../packages/viewKinds'
 
 /**
  * Bottom status bar: connection state, current view, query time and row count,
@@ -281,12 +281,12 @@ function describeViewLocalized(t: TFunction, view: ViewState): string {
     // agent's status is already a light in the panel's own toolbar.
     case 'chat':
       return t('view.describe.chat', { kind: t('view.kind.chat'), count: view.messageCount })
-    // English, unlike every branch above: a plugin's own `describe` is fixed to
+    // English, unlike every branch above: a package's own `describe` is fixed to
     // English by the same contract that fixes core's (MCP reads it), and the
     // catalog cannot hold messages for a kind it has never seen.
-    case 'plugin':
-      return lookupViewKind(view.pluginKind)?.contract.describe(view)
-        ?? t('view.pluginMissing', { kind: view.pluginKind })
+    case 'package':
+      return lookupViewKind(view.packageKind)?.contract.describe(view)
+        ?? t('view.packageMissing', { kind: view.packageKind })
   }
 }
 

@@ -4,24 +4,27 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
 import {
-  PACKAGE_MANIFEST_FILE,
   asPanelId,
   createEmptyWorkspace,
+  type CommandName,
   type CommandResultFor,
   type ConnId,
   type ConnectionConfig,
   type NotifyMessage,
 } from '@peek/core'
-import { clearInstalledPackages, installPackages, installedDriver } from '../../../drivers/installed'
+import { PACKAGE_MANIFEST_FILE } from '@peek/core/package-manifest'
+import { clearInstalledPackages, installedDriver, installedDrivers } from '../../../drivers/installed'
 import { CommandBus } from '../../bus/command-bus'
 import type { CommandDeps } from '../../bus/deps'
 import { coreHandlers } from '../../bus/handlers'
 import { createSeqIdFactory } from '../../bus/ids'
 import { WorkspaceStore } from '../../store/workspace-store'
+import { adoptPackageScan } from '../adopt'
+import { createPackageAdmin } from '../admin'
 import { TOMBSTONE_FILE, bundledCatalog, readTombstones } from '../bundled'
 import { createPackageHandlers } from '../commands'
-import { installedFrom } from '../installed'
 import { loadPackages } from '../loader'
+import { clearPackageLocations, packageEntryPaths } from '../locations'
 import { uninstallPackage } from '../manage'
 
 /* ==================================================================
@@ -42,11 +45,20 @@ import { uninstallPackage } from '../manage'
  * ## What is stubbed, and what is not
  *
  * The disk, the loader, the registry, the reducer and the effect phase are all
- * the real ones. Two things are counted rather than performed: the broadcast to
- * the windows (there is no window) and the MCP notification (there is no
- * endpoint). Both are one call from `main/index.ts`, and what these tests assert
- * about them is that they happen, once, after the registry has changed — which
- * is the ordering a client hearing `tools/list_changed` depends on.
+ * the real ones, and so is the uninstall service — `createPackageAdmin` lives in
+ * `packages/admin.ts` rather than in main precisely so this file can drive the
+ * shipped one instead of a copy that agrees with itself. `packages/adopt.ts` is
+ * there for the same reason, and "the registry" above means *both* of the ones
+ * it fills: the manifests the window reads and the paths that never leave main.
+ * The tests below assert each of them, because a harness holding one of the two
+ * is how this file was green for a year while nothing could be forked.
+ *
+ * Three things are counted rather than performed: the broadcast to the windows
+ * (there is no window), the MCP notification (there is no endpoint) and the kill
+ * of the package's host (there is no Electron to fork one). All three are one
+ * call from `main/index.ts`, and what these tests assert about them is that they
+ * happen, once, after the registry has changed — which is the ordering a client
+ * hearing `tools/list_changed` depends on.
  * ================================================================== */
 
 const roots: string[] = []
@@ -109,6 +121,8 @@ interface Harness {
   notices: NotifyMessage[]
   /** Package ids whose host process was asked to exit, in order. */
   disposed: string[]
+  /** For each of those, whether the package was still on disk at that moment. */
+  killedWhileOnDisk: boolean[]
 }
 
 /**
@@ -136,14 +150,32 @@ function harness(seed: (dirs: { packagesRoot: string; bundledRoot: string }) => 
   const toolNotifications: string[][] = []
   const notices: NotifyMessage[] = []
   const disposed: string[] = []
+  const killedWhileOnDisk: boolean[] = []
 
+  // Both halves of the registry, because `adoptPackageScan` fills both: a
+  // harness that cleared one would start with the other holding the previous
+  // test's temporary directory, and the paths below would be asserted against a
+  // root that has already been deleted.
   clearInstalledPackages()
+  clearPackageLocations()
 
   const scan = (): ReturnType<typeof loadPackages> => loadPackages(packagesRoot)
   const adopt = (report: ReturnType<typeof loadPackages>): void => {
-    const installed = installedFrom(report)
-    installPackages(installed)
-    broadcasts.push(installed.drivers.map((driver) => driver.manifest.driverId))
+    // `adoptPackageScan` rather than the two lines it contains: this used to be
+    // a copy of `main/index.ts` that installed the manifests and forgot the
+    // paths, so every assertion below passed while no package in the registry
+    // could actually be forked. The broadcast stays here because it is the half
+    // main does with a `BrowserWindow`.
+    broadcasts.push(adoptPackageScan(report).drivers.map((driver) => driver.manifest.driverId))
+  }
+
+  // One function, handed to both verbs that kill, exactly as `main/index.ts`
+  // hands the same wrapper to `createPackageAdmin` and `createPackageHandlers`.
+  // Two recorders would let the install path be wired to something the shipped
+  // assembly never passes it, which is the wiring these tests are about.
+  const disposeHost = async (packageId: string): Promise<void> => {
+    disposed.push(packageId)
+    killedWhileOnDisk.push(existsSync(join(packagesRoot, packageId)))
   }
 
   const options = {
@@ -153,8 +185,12 @@ function harness(seed: (dirs: { packagesRoot: string; bundledRoot: string }) => 
     catalog: bundledCatalog(bundledRoot),
     scan,
     adopt,
+    // Recorded off the registry a re-listing client would be answered from,
+    // never off the disk: by the time an effect notifies, the disk has already
+    // moved, so a disk read here would report the same thing whichever side of
+    // `adopt` the notification went out on — and "after `adopt`" is the claim.
     toolsChanged: () => {
-      toolNotifications.push(loadPackages(packagesRoot).loaded.flatMap((pkg) => pkg.manifest.drivers.map((d) => d.driverId)))
+      toolNotifications.push(installedDrivers().map((driver) => driver.manifest.driverId))
     },
     notify: (message: NotifyMessage) => notices.push(message),
   }
@@ -174,28 +210,21 @@ function harness(seed: (dirs: { packagesRoot: string; bundledRoot: string }) => 
         return true
       },
     },
-    // The same three steps `createPackageAdmin` performs in main, minus the
-    // Electron process registry: the host is recorded rather than killed.
-    packages: {
-      async uninstall({ packageId, version }) {
-        disposed.push(packageId)
-        const outcome = uninstallPackage({
-          id: packageId,
-          packagesRoot,
-          catalog: options.catalog,
-          version,
-        })
-        if (!outcome.ok) throw new Error(outcome.issue)
-        adopt(scan())
-        options.toolsChanged()
-      },
-    },
+    // The one main assembles, with the Electron process registry standing in:
+    // the host is recorded rather than killed, and everything the assertions
+    // below are about — the kill/remove order, the re-scan, the notification —
+    // is the shipped code.
+    packages: createPackageAdmin(options, disposeHost),
   }
 
   const store = new WorkspaceStore(createEmptyWorkspace(asPanelId('panel_root')))
   const bus = new CommandBus({ store, deps, ids: createSeqIdFactory(), now: () => 1_000 })
   bus.registerAll(coreHandlers)
-  bus.registerAll(createPackageHandlers(options))
+  // The same wrapper to both, because that is what `main/index.ts` hands them:
+  // install evicts before it replaces a directory, uninstall kills before it
+  // removes one, and two stand-ins here would let the two orders be recorded
+  // against two different registries.
+  bus.registerAll(createPackageHandlers(options, disposeHost))
 
   // The startup scan, so every test begins where a launched peek would.
   adopt(scan())
@@ -211,6 +240,7 @@ function harness(seed: (dirs: { packagesRoot: string; bundledRoot: string }) => 
     toolNotifications,
     notices,
     disposed,
+    killedWhileOnDisk,
   }
 }
 
@@ -240,7 +270,8 @@ describe('packages.read', () => {
     writePackage(packagesRoot, 'gamma', manifestOf('gamma'))
 
     clearInstalledPackages()
-    installPackages(installedFrom(loadPackages(packagesRoot)))
+    clearPackageLocations()
+    adoptPackageScan(loadPackages(packagesRoot))
     const store = new WorkspaceStore(createEmptyWorkspace(asPanelId('panel_root')))
     const bus = new CommandBus({
       store,
@@ -258,15 +289,22 @@ describe('packages.read', () => {
     })
     bus.registerAll(coreHandlers)
     bus.registerAll(
-      createPackageHandlers({
-        packagesRoot,
-        bundledRoot,
-        catalog: bundledCatalog(bundledRoot),
-        scan: () => loadPackages(packagesRoot),
-        adopt: (report) => installPackages(installedFrom(report)),
-        toolsChanged: () => {},
-        notify: () => {},
-      }),
+      createPackageHandlers(
+        {
+          packagesRoot,
+          bundledRoot,
+          catalog: bundledCatalog(bundledRoot),
+          scan: () => loadPackages(packagesRoot),
+          // The shipped pair, not the manifest half of it: `packages.read` never
+          // adopts, so this is only here to be a complete assembly — and a
+          // hand-written one is how the harness above came to be missing a line.
+          adopt: adoptPackageScan,
+          toolsChanged: () => {},
+          notify: () => {},
+        },
+        // Nothing this verb does can kill a host.
+        async () => {},
+      ),
     )
 
     const res = await bus.dispatch('packages.read', {}, 'ui')
@@ -316,11 +354,30 @@ describe('packages.install', () => {
     // connect dialog offer it and `conn.open` accept it.
     assert.equal(installedDriver('echo')?.packageId, 'echo')
 
+    // And the main-only half of the same scan, which is what "connectable" in
+    // this test's name actually costs: the line above travels to the window and
+    // fills the dialog, this one never leaves main and is the path a driver host
+    // is forked on. It has to be asserted rather than inferred, because dropping
+    // it is invisible from everywhere else — the database stays listed, stays
+    // offered, stays in `tools/list`, and every `conn.open` dies with "No
+    // installed package was found for driver 'echo'" about a directory that is
+    // sitting right there.
+    assert.equal(packageEntryPaths('echo')?.driver, join(h.packagesRoot, 'echo', 'driver.mjs'))
+
     // Exactly one of each, and both after the registry moved: a client that asks
     // for the tool list on hearing the notification must be answered from the
     // registry that includes the package.
     assert.deepEqual(h.broadcasts, [['echo']])
     assert.deepEqual(h.toolNotifications, [['echo']])
+
+    // Killed even though nothing was running under this id: a host can outlive
+    // the directory it was forked from — a hand-deleted package, an install that
+    // died at the rename — and re-forking one that was not running costs a
+    // process nobody was using. The `false` is the ordering: the kill was asked
+    // for while this id was still absent, which is the side of the copy it has
+    // to be on.
+    assert.deepEqual(h.disposed, ['echo'])
+    assert.deepEqual(h.killedWhileOnDisk, [false])
   })
 
   test('an entry point that is not there is refused before anything is written', async () => {
@@ -368,6 +425,7 @@ describe('packages.install', () => {
     writePackage(h.packagesRoot, 'echo', manifestOf('echo'))
     await install(h, writePackage(h.stagingRoot, 'first', manifestOf('other')))
     h.broadcasts.length = 0
+    h.disposed.length = 0
 
     // `intruder` ships a driver called `echo`, which the installed `echo` owns.
     const source = writePackage(
@@ -382,6 +440,11 @@ describe('packages.install', () => {
     assert.match(res.error.message, /already provided by the package 'echo'/)
     assert.equal(existsSync(join(h.packagesRoot, 'intruder')), false)
     assert.equal(installedDriver('echo')?.packageId, 'echo')
+    // "Untouched" reaches the process too, which is the half the disk cannot
+    // show: the kill sits on the far side of every check that can refuse, so an
+    // install that never happened costs nobody their running host. Moving it
+    // ahead of the checks would tear down a working package for a refusal.
+    assert.deepEqual(h.disposed, [])
   })
 
   test('installing over an id replaces it, and does not collide with the copy it replaces', async () => {
@@ -391,6 +454,8 @@ describe('packages.install', () => {
     // level with the disk the way a launch would.
     await install(h, writePackage(h.stagingRoot, 'unrelated', manifestOf('unrelated')))
     h.broadcasts.length = 0
+    h.disposed.length = 0
+    h.killedWhileOnDisk.length = 0
 
     const source = writePackage(h.stagingRoot, 'echo-next', manifestOf('echo', { version: '2.5.0' }))
     const res = await install(h, source)
@@ -404,6 +469,15 @@ describe('packages.install', () => {
       res.data.packages.find((entry) => entry.id === 'echo')?.version,
       '2.5.0',
     )
+
+    // §2.4bis(f) from the install side, and the only assertion that separates a
+    // replaced package from a replaced *directory*: the host holding the old
+    // `contrib.mjs` is killed, under the manifest's id rather than the source
+    // directory's `echo-next`, and while the copy it was forked from is still
+    // the one on disk. Drop it and every number above still reads 2.5.0 while
+    // every tool call and every package view is computed by 1.0.0.
+    assert.deepEqual(h.disposed, ['echo'])
+    assert.deepEqual(h.killedWhileOnDisk, [true])
   })
 
   test('a relative path is refused rather than resolved against whatever the cwd is', async () => {
@@ -453,6 +527,15 @@ describe('packages.uninstall', () => {
     const h = harness()
     const res = await install(h, writePackage(h.stagingRoot, 'echo', manifestOf('echo')))
     assert.equal(res.ok, true)
+    // Asserted before it is cleared, because it is the install side of
+    // §2.4bis(f) and nothing else in this file sees it: `installPackage` evicts
+    // unconditionally, so a first install of an id kills a host too — a host can
+    // outlive the directory it was forked from. The three recorders are then
+    // reset for the same reason `broadcasts` is: what every test below asserts
+    // is what the *uninstall* did.
+    assert.deepEqual(h.disposed, ['echo'])
+    h.disposed.length = 0
+    h.killedWhileOnDisk.length = 0
     h.broadcasts.length = 0
     h.toolNotifications.length = 0
 
@@ -466,6 +549,9 @@ describe('packages.uninstall', () => {
     const { h, connId } = await withEchoInstalled()
     const viewOpened = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
     assert.equal(viewOpened.ok, true)
+    // Stated before the removal so the `null` below is a change and not a value
+    // this file never filled in.
+    assert.ok(packageEntryPaths('echo'))
 
     const res = await h.bus.dispatch('packages.uninstall', { id: 'echo' }, 'ui')
     assert.equal(res.ok, true)
@@ -481,10 +567,20 @@ describe('packages.uninstall', () => {
     assert.deepEqual(Object.keys(h.store.getState().views), [])
     assert.equal(existsSync(join(h.packagesRoot, 'echo')), false)
     assert.equal(installedDriver('echo'), null)
+    // Both halves move together or the pair is not a pair: a location surviving
+    // the manifest is a path main would still fork on for a package the registry
+    // says is gone.
+    assert.equal(packageEntryPaths('echo'), null)
     // The host is killed before the files go: §2.4bis(f) is the difference
-    // between "uninstalled" and "the code is gone".
+    // between "uninstalled" and "the code is gone". Asserted as "the directory
+    // was still there when the kill was asked for", because the other order
+    // leaves a process serving calls out of a `contrib.mjs` nobody can see.
     assert.deepEqual(h.disposed, ['echo'])
+    assert.deepEqual(h.killedWhileOnDisk, [true])
     assert.deepEqual(h.broadcasts, [[]])
+    // Read off the registry at notification time (see the harness): an empty
+    // list here is the statement that the notification went out *after* the
+    // re-scan, which is what a client re-listing on it depends on.
     assert.deepEqual(h.toolNotifications, [[]])
   })
 
@@ -580,6 +676,15 @@ describe('packages.install by bundled id', () => {
     // Nothing left to offer, which is how the button disappears.
     assert.equal(res.data.packages[0]?.upgradeVersion, undefined)
     assert.equal(installedDriver('alpha')?.manifest.version, '2.0.0')
+
+    // The button's other half, and the one nothing on screen would ever show:
+    // whoever pressed it may have a package view of `alpha` open, which means a
+    // host with 1.0.0's `contrib.mjs` already in memory. Killed while 1.0.0 is
+    // still the directory on disk — otherwise the three lines above all say
+    // 2.0.0 and every answer that view draws is still 1.0.0's, until the app
+    // restarts, with nothing said.
+    assert.deepEqual(h.disposed, ['alpha'])
+    assert.deepEqual(h.killedWhileOnDisk, [true])
   })
 
   test('an id this build does not ship is refused, with the id in the message', async () => {
@@ -671,6 +776,64 @@ describe('packages.restore', () => {
     assert.equal(installedDriver('alpha')?.manifest.version, '1.0.0')
     assert.equal(res.data.packages[0]?.upgradeVersion, '9.0.0')
   })
+
+  test('a package the re-scan then refused is said out loud, not just left out of the list', async () => {
+    const h = harness(({ bundledRoot }) => {
+      writePackage(bundledRoot, 'alpha', manifestOf('alpha'))
+      // Two shipped packages claiming one driver, and the collision only the
+      // scan can see: `layOutBundledPackages` checks each against what was
+      // *installed* when the pass began — nothing — so both are copied, and the
+      // loader afterwards keeps whichever comes first by directory name.
+      writePackage(bundledRoot, 'beta', manifestOf('beta', { drivers: [driverOf('alpha')] }))
+    })
+
+    const res = await h.bus.dispatch('packages.restore', {}, 'ui')
+    assert.equal(res.ok, true)
+    if (!res.ok) throw new Error('unreachable')
+    // The receipt names both, because both directories really were written...
+    assert.deepEqual(res.data.restored, ['alpha', 'beta'])
+    // ...and one of them is not in the list printed beside it.
+    assert.deepEqual(
+      res.data.packages.map((entry) => entry.id),
+      ['alpha'],
+    )
+
+    // §4.2 item 10, in the one way it is not allowed to fail: silently. Without
+    // this the user is told 'beta' was restored, cannot find it in the list on
+    // the same screen, and the only other trace is a directory on disk that
+    // nothing will ever load.
+    const refusal = h.notices.find((notice) => notice.message.includes("'beta'"))
+    assert.ok(
+      refusal,
+      `nothing was said about 'beta'; got ${h.notices.map((notice) => notice.message).join(' | ') || 'no notices'}`,
+    )
+    assert.equal(refusal.level, 'error')
+    // The reasons, not just the name: the person reading this is about to go and
+    // decide which of the two packages to keep.
+    assert.match(refusal.detail ?? '', /already provided by the package 'alpha'/)
+  })
+
+  test('a packages directory peek cannot use fails the press, rather than answering “nothing was missing”', async () => {
+    const h = harness(({ bundledRoot }) => {
+      writePackage(bundledRoot, 'alpha', manifestOf('alpha'))
+    })
+    // A peek once started under `sudo`, reduced to its observable half: the path
+    // is there and is not a directory, so nothing under it can be written.
+    rmSync(h.packagesRoot, { recursive: true, force: true })
+    writeFileSync(h.packagesRoot, 'not a directory')
+
+    const res = await h.bus.dispatch('packages.restore', {}, 'ui')
+    // `{restored: []}` is what this used to answer, and it is byte-for-byte the
+    // reply a working peek gives when nothing was missing — the two mean
+    // opposite things, and the settings panel would have shown the reassuring
+    // one over a directory it cannot write to.
+    assert.equal(res.ok, false)
+    if (res.ok) throw new Error('unreachable')
+    assert.equal(res.error.code, 'INTERNAL')
+    // The path, because no id is at fault and it is the only thing there is to
+    // go and fix.
+    assert.ok(res.error.message.includes(h.packagesRoot), res.error.message)
+  })
 })
 
 describe('a bus with no packages root', () => {
@@ -703,18 +866,18 @@ describe('a bus with no packages root', () => {
 
   test('every writing verb refuses rather than answering something plausible', async () => {
     const bus = unassembled()
-    for (const [name, input] of [
-      ['packages.install', { dir: '/tmp/whatever' }],
-      ['packages.uninstall', { id: 'alpha' }],
-      ['packages.restore', {}],
-    ] as const) {
-      const res = await bus.dispatch(name, input, 'ui')
-      assert.equal(res.ok, false, `${name} answered instead of refusing`)
-      if (res.ok) throw new Error('unreachable')
-      assert.equal(res.error.code, 'INTERNAL')
+    /** Spelled out per verb rather than looped over a tuple, which would need a cast. */
+    const refused = async (result: CommandResultFor<CommandName>, what: string): Promise<void> => {
+      assert.equal(result.ok, false, `${what} answered instead of refusing`)
+      if (result.ok) throw new Error('unreachable')
+      assert.equal(result.error.code, 'INTERNAL', what)
     }
-    // `packages.restore` is the one that could most easily have been written as
-    // a harmless `{restored: []}` — which is byte-for-byte the reply a working
-    // peek gives when nothing was missing, and means the opposite.
+
+    await refused(await bus.dispatch('packages.install', { dir: '/tmp/whatever' }, 'ui'), 'packages.install')
+    await refused(await bus.dispatch('packages.uninstall', { id: 'alpha' }, 'ui'), 'packages.uninstall')
+    // The one that could most easily have been written as a harmless
+    // `{restored: []}` — byte-for-byte the reply a working peek gives when
+    // nothing was missing, and the opposite statement.
+    await refused(await bus.dispatch('packages.restore', {}, 'ui'), 'packages.restore')
   })
 })

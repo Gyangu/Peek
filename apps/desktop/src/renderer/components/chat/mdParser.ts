@@ -5,7 +5,7 @@
  *
  * peek's rule is "no new UI library", and the renderer bundle is held to a cold
  * start under 1.5s (PLAN §8). `react-markdown` + `remark` + `rehype` is ~120KB
- * gzipped and brings a plugin architecture peek would use none of. What an agent
+ * gzipped and brings a package architecture peek would use none of. What an agent
  * actually emits is a narrow slice of CommonMark — paragraphs, fenced code,
  * lists, headings, tables, inline emphasis and code spans — and that slice fits
  * in one readable file.

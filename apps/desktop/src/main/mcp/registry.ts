@@ -12,7 +12,9 @@
  * *specs* from `drivers/mcpTools.ts` rather than as modules under `tools/`, and
  * `collectTools()` is where the two lists become one. They go through the same
  * `defineCommandTool` on the way — see `toPeekTool` — so there is exactly one
- * execution path however a tool was declared.
+ * execution path however a tool was declared, and now however far away a tool
+ * runs: a package's mapping executes in that package's host process, wrapped by
+ * the same constructor (`mcp/package-tools.ts`).
  *
  * The duplicate-name check spans both, and that is the interesting half: a
  * package shadowing `run_query` would otherwise be a silent takeover of a kernel
@@ -20,11 +22,11 @@
  * registration.
  */
 
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { McpServer, RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { toPeekError } from '@peek/core'
-import { DRIVER_TOOL_SPECS } from '../../drivers/mcpTools'
-import { errorOutput, toPeekTool } from './executor'
+import { errorOutput } from './executor'
+import { packageTools, type PackageToolCaller } from './package-tools'
 import { toJson } from './summary'
 import type { PeekTool, ToolContext, ToolOutput } from './types'
 
@@ -52,7 +54,8 @@ function isPeekTool(value: unknown): value is PeekTool {
  *
  * Still named "builtin" because that is now a meaningful distinction rather than
  * a synonym for "all": these are the kernel's verbs, and a package's tools are
- * `DRIVER_TOOL_SPECS`. `collectTools()` is what anyone serving MCP wants.
+ * every package's, assembled by `packageTools`. `collectTools()` is what anyone
+ * serving MCP wants.
  */
 export function collectBuiltinTools(): PeekTool[] {
   const modules = import.meta.glob<ToolModule>('./tools/*.ts', { eager: true })
@@ -69,6 +72,15 @@ export function collectBuiltinTools(): PeekTool[] {
   return tools
 }
 
+export interface CollectToolsOptions {
+  /**
+   * How a package tool reaches its host. Omitted, the tools still list and only
+   * calling one fails — see `mcp/package-tools.ts` for why that is the right
+   * degradation rather than hiding them.
+   */
+  callPackageTool?: PackageToolCaller
+}
+
 /**
  * The whole tool surface: the kernel's, plus every driver package's.
  *
@@ -76,18 +88,20 @@ export function collectBuiltinTools(): PeekTool[] {
  * `registerTool` would accept both and the last registration would take the
  * name, so a package that declared `run_query` would replace the kernel's — a
  * takeover that produces no error, no log line, and a tool that does something
- * other than what its description says. Refusing to start is the only honest
- * answer, and in Phase B it is a build-time mistake by definition: both lists
- * are compiled in.
+ * other than what its description says.
  *
- * Phase C makes the second list come off disk, and the same throw becomes a
- * *runtime* refusal to load one plugin — at which point it must degrade to
- * skipping that plugin and reporting it, the way a bad view-kind registration
- * already does (`registerViewKind`). That change belongs with the loader, not
- * here, because only the loader knows which plugin to blame.
+ * The second list now comes off disk, so this throw is no longer where that is
+ * caught: it would take down the MCP endpoint's `bind`, every new session and
+ * the chat host's wiring, none of which can name the package at fault. The
+ * refusal moved to `packages/loader.ts`, which compares each manifest against
+ * `KERNEL_TOOL_NAMES` and against the packages already accepted, and skips the
+ * offender with a report line — the degradation a bad view-kind registration
+ * already gets from `registerViewKind`. What is left here is the assertion
+ * behind it: reaching this throw means a tool surface was assembled from
+ * something the loader never screened.
  */
-export function collectTools(): PeekTool[] {
-  const tools = [...collectBuiltinTools(), ...DRIVER_TOOL_SPECS.map(toPeekTool)]
+export function collectTools(options: CollectToolsOptions = {}): PeekTool[] {
+  const tools = [...collectBuiltinTools(), ...packageTools(options.callPackageTool ?? null)]
   const seen = new Set<string>()
   for (const tool of tools) {
     if (seen.has(tool.name)) {
@@ -131,9 +145,14 @@ export function toCallToolResult(out: ToolOutput): CallToolResult {
  * Register a set of tools on one McpServer instance.
  * There is one McpServer per HTTP session, but the tool definitions are shared (they are stateless).
  */
-export function registerTools(server: McpServer, tools: readonly PeekTool[], ctx: ToolContext): void {
+export function registerTools(
+  server: McpServer,
+  tools: readonly PeekTool[],
+  ctx: ToolContext,
+): RegisteredPeekTool[] {
+  const registered: RegisteredPeekTool[] = []
   for (const tool of tools) {
-    server.registerTool(
+    const handle = server.registerTool(
       tool.name,
       {
         ...(tool.title === undefined ? {} : { title: tool.title }),
@@ -153,5 +172,85 @@ export function registerTools(server: McpServer, tools: readonly PeekTool[], ctx
         }
       },
     )
+    registered.push({ tool, registered: handle })
   }
+  return registered
+}
+
+/** One tool as this session registered it, paired with the peek tool it came from. */
+export interface RegisteredPeekTool {
+  readonly tool: PeekTool
+  readonly registered: RegisteredTool
+}
+
+/**
+ * Re-read every description and write it back into the session's tool table.
+ *
+ * **Without this, `tools/list_changed` would be a notification about nothing.**
+ * Three descriptions are computed from the installed registry — `connect`'s
+ * per-driver config examples above all (§4terdecies e) — and they are *lazy on
+ * the peek side*: `PeekTool.description` is a getter, so it answers correctly
+ * whenever it is read. But `registerTool` reads it **once**, when the session is
+ * created, and the SDK stores the string. So a session that was open when a
+ * package arrived would keep telling its model that peek cannot connect to it,
+ * and re-listing on the notification would return the same stale sentence.
+ *
+ * The field is assigned rather than put through `RegisteredTool.update`, which
+ * does the identical assignment and then sends a `tools/list_changed` of its own
+ * — fourteen tools would mean fourteen notifications for one install. The caller
+ * sends exactly one afterwards.
+ */
+export function refreshToolDescriptions(registered: readonly RegisteredPeekTool[]): void {
+  for (const entry of registered) entry.registered.description = entry.tool.description
+}
+
+/**
+ * Bring one live session's tool table in line with a freshly collected set.
+ *
+ * **This is the half of `tools/list_changed` that makes the notification about
+ * something.** `refreshToolDescriptions` above answers the case where the *same*
+ * tools describe themselves differently now; this one answers the case where the
+ * tools themselves moved, which is what installing or uninstalling a package is.
+ * Without it, a session opened before an uninstall goes on offering the gone
+ * package's tools for as long as it lives — the first sentence of acceptance 13,
+ * measured in §4sedecies(b) and answered by §4duodevicies.
+ *
+ * Matched by name, because a name is what the session registered under and the
+ * only thing a model has to call with. A tool whose name survives keeps its
+ * registration rather than being removed and registered again: re-registering
+ * would leave the SDK holding a second closure over this session's context for
+ * no gain, and refreshing the description is exactly the update that was wanted.
+ *
+ * The SDK sends a `tools/list_changed` of its own from inside `registerTool` and
+ * from `RegisteredTool.remove()`, so swapping a package's tools produces more
+ * than one notification. The caller still sends its own afterwards — that is the
+ * one covering "nothing was added or removed, but a description moved" — and a
+ * client re-listing twice is idempotent.
+ */
+export function reconcileSessionTools(
+  server: McpServer,
+  registered: readonly RegisteredPeekTool[],
+  tools: readonly PeekTool[],
+  ctx: ToolContext,
+): RegisteredPeekTool[] {
+  const wanted = new Map(tools.map((tool) => [tool.name, tool]))
+  const kept: RegisteredPeekTool[] = []
+
+  for (const entry of registered) {
+    const replacement = wanted.get(entry.tool.name)
+    if (replacement === undefined) {
+      entry.registered.remove()
+      continue
+    }
+    // The name is the identity, so the *tool* comes from the new set: a package
+    // reinstalled at another version keeps its tool names, and everything else
+    // about them may have moved.
+    kept.push({ tool: replacement, registered: entry.registered })
+    wanted.delete(entry.tool.name)
+  }
+
+  // Whatever is left never had a registration in this session.
+  kept.push(...registerTools(server, [...wanted.values()], ctx))
+  refreshToolDescriptions(kept)
+  return kept
 }

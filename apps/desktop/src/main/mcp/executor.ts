@@ -96,13 +96,28 @@ export function errorOutput(error: PeekError): ToolOutput {
 /* 3. defineTool: erase the generic spec down to a uniform PeekTool     */
 /* ================================================================== */
 
+/**
+ * Everything a tool declares except its description.
+ *
+ * `description` is left out and re-declared as a **getter** by each caller
+ * below, and the omission is the whole point: two of the kernel's tools build
+ * their description out of the installed packages (`connect` lists a config
+ * example per driver, `list_connections` names one in its empty state), and
+ * every tool module is evaluated when `collectBuiltinTools`' eager glob is
+ * imported — which is while main is still loading, before anything has read
+ * `~/.peek/packages/`. A copied string would be the string those two had at
+ * that moment, which is empty. Spreading the result of this function is what
+ * would flatten a getter back into one, so it does not travel through here.
+ *
+ * The cost is that a lazy description is recomputed per read. It is read once
+ * per MCP session, when the tools are registered on a fresh `McpServer`.
+ */
 function baseFields<S extends z.ZodType>(
   spec: CommandToolSpec<S> | ReadToolSpec<S>,
-): Pick<PeekTool, 'name' | 'title' | 'description' | 'inputSchema' | 'annotations'> {
+): Pick<PeekTool, 'name' | 'title' | 'inputSchema' | 'annotations'> {
   return {
     name: spec.name,
     ...(spec.title === undefined ? {} : { title: spec.title }),
-    description: spec.description,
     inputSchema: spec.inputSchema,
     ...(spec.annotations === undefined ? {} : { annotations: spec.annotations }),
   }
@@ -128,6 +143,11 @@ function parseInput<S extends z.ZodType>(
 export function defineCommandTool<S extends z.ZodType>(spec: CommandToolSpec<S>): PeekTool {
   return {
     ...baseFields(spec),
+    // Declared here rather than inside `baseFields`, because a spread reads a
+    // getter and stores the value it returned. See that function.
+    get description() {
+      return spec.description
+    },
     readOnly: spec.annotations?.readOnlyHint === true,
     async run(rawInput, ctx) {
       const parsed = parseInput(spec, rawInput)
@@ -195,6 +215,9 @@ export function defineCommandTool<S extends z.ZodType>(spec: CommandToolSpec<S>)
 export function defineReadTool<S extends z.ZodType>(spec: ReadToolSpec<S>): PeekTool {
   return {
     ...baseFields(spec),
+    get description() {
+      return spec.description
+    },
     annotations: { readOnlyHint: true, ...spec.annotations },
     readOnly: true,
     async run(rawInput, ctx) {

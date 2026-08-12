@@ -71,6 +71,16 @@ export interface McpController {
     tokenRotated: boolean
     previousPort: number | null
   }
+  /**
+   * Forward `notifications/tools/list_changed` to every live session.
+   *
+   * Here rather than reached for through a handle because the handle is replaced
+   * on every rebind (a spent one cannot be reused) and the caller — the package
+   * commands — holds a reference for the life of the app. A notification while
+   * the endpoint is down is a no-op, which is correct: there are no sessions to
+   * tell, and the one that connects next reads the tool list fresh.
+   */
+  notifyToolsChanged(): void
   close(): Promise<void>
 }
 
@@ -223,6 +233,10 @@ export function createMcpController(options: McpControllerOptions): McpControlle
       })
 
       return { status: status(), tokenRotated, previousPort }
+    },
+
+    notifyToolsChanged() {
+      handle?.notifyToolsChanged()
     },
 
     async close() {

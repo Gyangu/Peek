@@ -3,6 +3,7 @@ import {
   peekErrorMsg,
   type CollectionRef,
   type KeyPatternRef,
+  type NamespaceElision,
   type NamespaceNode,
 } from '@peek/core'
 
@@ -20,8 +21,15 @@ import {
  * each key on the delimiter, group by the first segment. That is honest and
  * fast, but it is a sample, and the UI has to be told: a prefix node's `detail`
  * carries `~n keys (sampled)`, never a bare count that reads as a fact.
- * `PREFIX_SAMPLE_KEYS` is the ceiling; past it, sampling stops and the node set
- * is what it is.
+ * `PREFIX_SAMPLE_KEYS` is the ceiling; past it, sampling stops.
+ *
+ * Stopping is where this used to lie. A prefix the sample *reached* said it was
+ * sampled, but keys the SCAN never got to were simply absent, and a level whose
+ * cut-off tail happened to be all leaf keys looked complete. So a truncated
+ * level now ends in an elision node of its own, and every folded tail on it
+ * drops its count: within the sample those numbers are exact, about the level
+ * they are lower bounds, and a precise number over a truncated read is a
+ * falsehood with a decimal point on it.
  *
  * Expanding a prefix node does **not** re-sample. It opens a table view scoped
  * to `prefix:*`, which is a real, complete, cursor-driven scan. The tree is for
@@ -272,9 +280,15 @@ export class RedisKeyspace {
       })
     }
     if (heads.length > shownHeads.length) {
-      nodes.push(foldedNode(
+      // The count is over `groups`, which is over the sample. When the sample ran
+      // to the end of the level the two are the same set and the number is a
+      // fact; when it did not, the prefixes hiding past the ceiling are not in it
+      // and never will be, so the number goes away rather than understating.
+      const folded = heads.length - shownHeads.length
+      nodes.push(elidedNode(
         `${keyspaceNodeId.prefix(db, base)}#more-prefixes`,
-        `${heads.length - shownHeads.length} more prefixes`,
+        sample.partial ? {} : { remaining: folded },
+        sample.partial ? 'more prefixes' : `${folded} more prefixes`,
       ))
     }
 
@@ -294,9 +308,25 @@ export class RedisKeyspace {
       nodes.push(node)
     }
     if (sample.leaves.length > leafKeys.length) {
-      nodes.push(foldedNode(
+      // `sampleLevel` stops collecting leaves at the cap, so not even the sample
+      // knows how many it dropped — `remaining` has nothing to hold either way.
+      nodes.push(elidedNode(
         `${keyspaceNodeId.prefix(db, base)}#more-keys`,
+        {},
         'more keys (open the prefix as a table to scan them all)',
+      ))
+    }
+
+    // Last, and separate from the two above on purpose. Those say "seen but not
+    // drawn"; this says "never read at all", which is the only one of the three
+    // that means the level in front of the user is missing keys outright.
+    // Folding them into one row would dilute exactly the sentence worth reading.
+    if (sample.partial) {
+      nodes.push(elidedNode(
+        `${keyspaceNodeId.prefix(db, base)}#truncated`,
+        {},
+        'the scan stopped early, so this level is incomplete '
+        + '(open it as a table to walk the whole keyspace under it)',
       ))
     }
 
@@ -326,12 +356,16 @@ export class RedisKeyspace {
 }
 
 /**
- * The tail of an over-long level.
+ * The tail of a level: what was left out of it, and whether it could be counted.
  *
  * Deliberately has no `ref`: there is no single pattern that stands for "the
  * prefixes I did not show", and inventing one would open a table view whose
  * contents do not match its label.
+ *
+ * `name` and `detail` stay English because MCP reads them; the sidebar words
+ * these rows from `elision` instead, in the reader's own language — a row whose
+ * whole job is to say "do not trust what you see above" has to be readable.
  */
-function foldedNode(id: string, detail: string): NamespaceNode {
-  return { id, name: '…', kind: 'folder', hasChildren: false, detail }
+function elidedNode(id: string, elision: NamespaceElision, detail: string): NamespaceNode {
+  return { id, name: '…', kind: 'folder', hasChildren: false, elision, detail }
 }

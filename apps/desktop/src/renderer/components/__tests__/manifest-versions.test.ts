@@ -3,12 +3,13 @@ import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, test } from 'node:test'
 import type { DriverManifest } from '@peek/core'
-import { neo4jManifest } from '@peek/driver-neo4j/manifest'
-import { postgresManifest } from '@peek/driver-postgres/manifest'
-import { qdrantManifest } from '@peek/driver-qdrant/manifest'
-import { redisManifest } from '@peek/driver-redis/manifest'
-import { sqlManifests } from '@peek/driver-sql/manifest'
-import { DRIVER_MANIFESTS } from '../../../drivers/manifests'
+import { neo4jManifest } from '@peek/db-neo4j/manifest'
+import { postgresManifest } from '@peek/db-postgres/manifest'
+import { qdrantManifest } from '@peek/db-qdrant/manifest'
+import { redisManifest } from '@peek/db-redis/manifest'
+import { sqlManifests } from '@peek/db-sql/manifest'
+import '../../../drivers/__tests__/in-repo-registry'
+import { driverManifests } from '../../../drivers/manifests'
 
 /* ==================================================================
  * `DriverManifest.version` says what it claims to say.
@@ -27,7 +28,7 @@ import { DRIVER_MANIFESTS } from '../../../drivers/manifests'
  * ## Why the packages are named here rather than derived
  *
  * A manifest carries a `driverId`, not a package name, and the two are not one
- * to one — `@peek/driver-sql` ships **both** MySQL and SQLite. Deriving the
+ * to one — `@peek/db-sql` ships **both** MySQL and SQLite. Deriving the
  * directory from the id would therefore have to guess, and would guess wrong for
  * exactly the package that has more than one. The list below is the mapping,
  * written out; `covers every manifest` is what stops it from going stale.
@@ -41,11 +42,11 @@ interface PackageUnderTest {
 }
 
 const PACKAGES: readonly PackageUnderTest[] = [
-  { dir: 'driver-postgres', manifests: [postgresManifest] },
-  { dir: 'driver-redis', manifests: [redisManifest] },
-  { dir: 'driver-qdrant', manifests: [qdrantManifest] },
-  { dir: 'driver-neo4j', manifests: [neo4jManifest] },
-  { dir: 'driver-sql', manifests: sqlManifests },
+  { dir: 'db-postgres', manifests: [postgresManifest] },
+  { dir: 'db-redis', manifests: [redisManifest] },
+  { dir: 'db-qdrant', manifests: [qdrantManifest] },
+  { dir: 'db-neo4j', manifests: [neo4jManifest] },
+  { dir: 'db-sql', manifests: sqlManifests },
 ]
 
 function packageVersion(dir: string): string {
@@ -74,7 +75,7 @@ describe('driver manifest versions', () => {
     // nobody checks — and it would be the newest one, i.e. the one most likely
     // to be wrong.
     const covered = new Set(PACKAGES.flatMap((p) => p.manifests).map((m) => m.driverId))
-    for (const manifest of DRIVER_MANIFESTS) {
+    for (const manifest of driverManifests()) {
       assert.ok(
         covered.has(manifest.driverId),
         `${manifest.driverId} is collected by the app but no package in this test claims it`,
@@ -85,7 +86,7 @@ describe('driver manifest versions', () => {
   test('every version is a plausible semver, not a placeholder', () => {
     // Not a full semver grammar — the point is to reject the two ways this field
     // goes wrong in practice: left empty, or filled with a name.
-    for (const manifest of DRIVER_MANIFESTS) {
+    for (const manifest of driverManifests()) {
       assert.match(
         manifest.version,
         /^\d+\.\d+\.\d+(?:[-+].+)?$/,

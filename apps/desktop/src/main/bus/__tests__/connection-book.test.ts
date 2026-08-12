@@ -23,7 +23,11 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
-import { connectionIdentity, createEmptyWorkspace, type ConnectionConfig } from '@peek/core'
+import '../../../drivers/__tests__/in-repo-registry'
+import { createEmptyWorkspace, type ConnectionConfig } from '@peek/core'
+import { connectionIdentityOf } from '../../../drivers/manifests'
+import { DRIVER_DISPLAYS } from '../../../drivers/__tests__/in-repo-displays'
+import { labelOf } from '../../packages/display'
 import { WorkspaceStore } from '../../store/workspace-store'
 import { createConnectionBook, MAX_BOOK_ENTRIES } from '../../config/connection-book'
 import { createConfigHandlers } from '../../config/handlers'
@@ -88,13 +92,42 @@ const pg = (overrides: Partial<Record<string, unknown>> = {}): ConnectionConfig 
     ...overrides,
   }) as ConnectionConfig
 
+/**
+ * The package host's answer, which the book is handed rather than deriving.
+ *
+ * These tests stand in for it by producing the same pair synchronously — the
+ * strings a real `describeConnection` produces for this config, so every
+ * expectation below still reads as "the name this connection has". Main itself
+ * may not do this (design §2.3(b-2): naming is package code, and package code
+ * does not run in main); a test that is not the main bundle may, and the
+ * alternative is hand-written names that agree with nothing.
+ *
+ * Assembled from its two halves rather than from one function, because that is
+ * what the answer *is* (§4nonies): the package derives, and the kernel's
+ * `config.label ||` rule sits on top — which is why `label` here is `labelOf`
+ * itself, the same one `main/packages/display.ts` applies to a host's reply, and
+ * not a copy of it. Two cases below turn on that rule (`a label is not part of
+ * the identity`, and the `ssl: true` reconnect), so a copy that drifted from the
+ * kernel would keep them green while the shipped path had changed.
+ */
+function named(config: ConnectionConfig): { label: string; detail: string } {
+  const display = DRIVER_DISPLAYS[config.driverId]
+  assert.ok(display, `no display is collected for driverId=${config.driverId}`)
+  return { label: labelOf(config, () => display.label(config)), detail: display.detail(config) }
+}
+
+/** `book.remember` as `main/index.ts` calls it: the config, plus what it is called. */
+function remember(book: ReturnType<typeof createConnectionBook>, config: ConnectionConfig): void {
+  book.remember(config, named(config))
+}
+
 /* ------------------------------------------------------------------ */
 
 describe('what reaches the disk', () => {
   test('a saved connection keeps its shape but loses its password', () => {
     const dir = tempConfigDir()
     const book = bookAt(dir)
-    book.remember(pg())
+    remember(book, pg())
 
     const text = fileText(dir)
     assert.equal(text.includes('hunter2'), false, 'the password reached the file in the clear')
@@ -113,24 +146,40 @@ describe('what reaches the disk', () => {
     // is sent back as a config to open, and `***` is a password a driver sends.
     const dir = tempConfigDir()
     const book = bookAt(dir)
-    book.remember({ driverId: 'postgres', url: 'postgresql://app:hunter2@localhost:5432/orders' })
+    remember(book, { driverId: 'postgres', url: 'postgresql://app:hunter2@localhost:5432/orders' })
 
     const text = fileText(dir)
     assert.equal(text.includes('hunter2'), false)
-    assert.equal(text.includes('***'), false, 'a mask would be dialled as a password')
     assert.ok(text.includes('postgresql://app@localhost:5432/orders'))
+
+    /*
+     * The mask is checked against the **config**, and no longer against the whole
+     * file, because since §2.3(b-2) the file also holds the row's tooltip — and a
+     * tooltip is a thing being *displayed*, which is exactly what `***` is for.
+     * The claim has not moved: what a driver dials is `config`, and `config` has
+     * no mask anywhere in it.
+     *
+     * The two spellings sitting side by side is the point rather than an
+     * oversight, so it is asserted rather than tolerated: removal for the copy
+     * that will be re-opened, substitution for the copy that will be read.
+     */
+    const stored = JSON.parse(text) as { entries: { config: unknown; display: { detail: string } }[] }
+    const entry = stored.entries[0]
+    assert.ok(entry)
+    assert.equal(JSON.stringify(entry.config).includes('***'), false, 'a mask would be dialled as a password')
+    assert.equal(entry.display.detail, 'postgresql://app:***@localhost:5432/orders')
   })
 
   test('the file is 0600 inside a 0700 directory', () => {
     const dir = tempConfigDir()
-    bookAt(dir).remember(pg())
+    remember(bookAt(dir), pg())
     assert.equal(statSync(join(dir, CONNECTIONS_FILE_NAME)).mode & 0o777, 0o600)
   })
 
   test('qdrant stores its API key the same way a password is stored', () => {
     const dir = tempConfigDir()
     const book = bookAt(dir)
-    book.remember({ driverId: 'qdrant', url: 'http://localhost:6333', apiKey: 'peek-test-key' })
+    remember(book, { driverId: 'qdrant', url: 'http://localhost:6333', apiKey: 'peek-test-key' })
     assert.equal(fileText(dir).includes('peek-test-key'), false)
     assert.equal(book.list()[0]?.hasSecret, true)
   })
@@ -138,8 +187,75 @@ describe('what reaches the disk', () => {
   test('a connection with nothing to hide is stored without a secret', () => {
     const dir = tempConfigDir()
     const book = bookAt(dir)
-    book.remember({ driverId: 'sqlite', file: '/tmp/peek.sqlite', readOnly: true })
+    remember(book, { driverId: 'sqlite', file: '/tmp/peek.sqlite', readOnly: true })
     assert.equal(book.list()[0]?.hasSecret, false)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* What the row is called                                              */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Design §2.3(b-2). The two strings are *stored* rather than derived on read,
+ * because deriving them means running the owning package's code, that code runs
+ * in a host process of its own, and `list()` answers on the launch path with the
+ * sidebar waiting and no host started.
+ *
+ * Everything below is about the consequence: a name now has to survive a file,
+ * and a name that never arrived must not overwrite one that did.
+ */
+describe('the name a saved connection carries', () => {
+  test('it is written to the file and read back, not recomputed', () => {
+    const dir = tempConfigDir()
+    remember(bookAt(dir), pg())
+
+    // A string the config cannot produce by being read: the fields are stored
+    // separately, so finding this assembled form proves it was written down.
+    assert.ok(fileText(dir).includes('postgres://app@localhost:5432/orders'))
+    const reloaded = bookAt(dir).list()[0]
+    assert.equal(reloaded?.label, 'orders')
+    assert.equal(reloaded?.detail, 'postgres://app@localhost:5432/orders')
+  })
+
+  test('a connection that could not be named keeps the name it already had', () => {
+    // `describeConnection` is a soft intent: a package host that was slow leaves
+    // a working connection unnamed, and the connect it was planned in front of
+    // succeeds anyway. Writing that blank through would make a display hiccup a
+    // permanent downgrade of a row that outlives the process.
+    const dir = tempConfigDir()
+    const book = bookAt(dir)
+    remember(book, pg())
+    book.remember(pg(), { label: '', detail: '' })
+
+    const entry = book.list()[0]
+    assert.equal(entry?.label, 'orders')
+    assert.equal(entry?.detail, 'postgres://app@localhost:5432/orders')
+  })
+
+  test('a name that never arrived falls back rather than showing an empty row', () => {
+    const dir = tempConfigDir()
+    const book = bookAt(dir)
+    book.remember(pg(), { label: '', detail: '' })
+    book.remember(pg({ database: 'ledger', label: 'the user typed this' }), { label: '', detail: '' })
+
+    const [ledger, orders] = book.list()
+    assert.equal(orders?.label, 'postgres', 'with nothing else to go on, the driver id names the row')
+    assert.equal(orders?.detail, '', 'inventing a long form for a guessed short form would look authoritative')
+    assert.equal(ledger?.label, 'the user typed this', 'a name the user typed needs nothing computed')
+  })
+
+  test('editing the connection renames the row, through the same one write path', () => {
+    // Rule 3: there is no separate "rename" — a changed config is a changed
+    // connection, and it goes through `remember` like every other one.
+    const dir = tempConfigDir()
+    const book = bookAt(dir)
+    remember(book, pg({ port: 5433 }))
+    assert.equal(book.list()[0]?.detail, 'postgres://app@localhost:5433/orders')
+
+    remember(book, pg({ port: 5433, label: 'staging' }))
+    assert.equal(book.list().length, 1, 'a label is not part of the identity')
+    assert.equal(book.list()[0]?.label, 'staging')
   })
 })
 
@@ -147,7 +263,7 @@ describe('putting the credential back', () => {
   test('a config that arrives without a password gets the saved one', () => {
     const dir = tempConfigDir()
     const book = bookAt(dir)
-    book.remember(pg())
+    remember(book, pg())
 
     const fromBook = book.list()[0]?.config
     assert.ok(fromBook)
@@ -158,7 +274,7 @@ describe('putting the credential back', () => {
   test('a URL connection is dialable again after a round trip through the file', () => {
     const dir = tempConfigDir()
     const book = bookAt(dir)
-    book.remember({ driverId: 'postgres', url: 'postgresql://app:hunter2@localhost:5432/orders' })
+    remember(book, { driverId: 'postgres', url: 'postgresql://app:hunter2@localhost:5432/orders' })
 
     const reloaded = bookAt(dir)
     const fromBook = reloaded.list()[0]?.config
@@ -170,7 +286,7 @@ describe('putting the credential back', () => {
   test('a typed password wins over the stored one', () => {
     const dir = tempConfigDir()
     const book = bookAt(dir)
-    book.remember(pg())
+    remember(book, pg())
     const hydrated = book.hydrate(pg({ password: 'typed-instead' })) as Record<string, unknown>
     assert.equal(hydrated['password'], 'typed-instead')
   })
@@ -181,7 +297,7 @@ describe('putting the credential back', () => {
     // by identity rather than by a row number.
     const dir = tempConfigDir()
     const book = bookAt(dir)
-    book.remember(pg())
+    remember(book, pg())
 
     for (const elsewhere of [
       pg({ password: undefined, host: 'db.example.com' }),
@@ -190,7 +306,7 @@ describe('putting the credential back', () => {
       pg({ password: undefined, database: 'other' }),
     ]) {
       const hydrated = book.hydrate(elsewhere) as Record<string, unknown>
-      assert.equal(hydrated['password'], undefined, `${connectionIdentity(elsewhere)} was handed a saved password`)
+      assert.equal(hydrated['password'], undefined, `${connectionIdentityOf(elsewhere)} was handed a saved password`)
     }
   })
 
@@ -198,8 +314,8 @@ describe('putting the credential back', () => {
     // Ticking TLS is editing a saved connection, not describing a new one.
     const dir = tempConfigDir()
     const book = bookAt(dir)
-    book.remember(pg())
-    book.remember(pg({ ssl: true, label: 'prod' }))
+    remember(book, pg())
+    remember(book, pg({ ssl: true, label: 'prod' }))
 
     assert.equal(book.list().length, 1)
     const [entry] = book.list()
@@ -212,11 +328,11 @@ describe('putting the credential back', () => {
     // "overwrite the secret on every save" would empty the vault on first reuse.
     const dir = tempConfigDir()
     const book = bookAt(dir)
-    book.remember(pg())
+    remember(book, pg())
     const fromBook = book.list()[0]?.config
     assert.ok(fromBook)
 
-    book.remember(fromBook)
+    remember(book, fromBook)
     assert.equal(book.list()[0]?.hasSecret, true)
     assert.equal((book.hydrate(fromBook) as Record<string, unknown>)['password'], 'hunter2')
   })
@@ -226,7 +342,7 @@ describe('when the keychain is not there', () => {
   test('the connection is still saved, and the password is simply not', () => {
     const dir = tempConfigDir()
     const book = bookAt(dir, fakeVault(false))
-    book.remember(pg())
+    remember(book, pg())
 
     assert.equal(book.secretsAvailable, false)
     assert.equal(fileText(dir).includes('hunter2'), false, 'no keychain must never mean plaintext')
@@ -237,7 +353,7 @@ describe('when the keychain is not there', () => {
 
   test('a secret sealed by another machine reads as no secret, not as an error', () => {
     const dir = tempConfigDir()
-    bookAt(dir).remember(pg())
+    remember(bookAt(dir), pg())
     // A keychain reset, a different OS user, a copied dotfile: all land here.
     const reader = bookAt(dir, {
       available: true,
@@ -269,10 +385,11 @@ describe('the file is hand-editable, so it is also breakable', () => {
     )
     const entries = bookAt(dir).list()
     assert.equal(entries.length, 1)
-    // The name comes from the config, not from the `label` key next to it: the
-    // display name is derived, and a copy on disk would freeze it at whatever
-    // the version that wrote the file happened to derive.
-    assert.equal(entries[0]?.label, 'a.db')
+    assert.equal((entries[0]?.config as Record<string, unknown>)['file'], '/tmp/a.db', 'the wrong row survived')
+    // And not `fine`: a top-level `label` next to a row is a key an older peek
+    // may have written, and this file has always ignored it. The name it stores
+    // now lives under `display` — see `StoredEntry`.
+    assert.equal(entries[0]?.label, 'sqlite')
   })
 
   test('a name is only the user’s when it is in the config', () => {
@@ -287,12 +404,43 @@ describe('the file is hand-editable, so it is also breakable', () => {
         ],
       }),
     )
+    // Neither row has ever been named — `display` is what a name is written
+    // under, and no version that wrote these had one. So the first falls all the
+    // way back to its driver id (§2.3(b-2) rule 2: no migration pass, no naming
+    // at launch, it is named the next time it connects) and the second shows what
+    // the user typed, which was never derived and needs nothing computed.
     assert.deepEqual(
       bookAt(dir)
         .list()
         .map((entry) => entry.label),
-      ['a.db', 'scratch'],
+      ['sqlite', 'scratch'],
     )
+  })
+
+  test('a display written into the file is what the row shows', () => {
+    const dir = tempConfigDir()
+    writeFileSync(
+      join(dir, CONNECTIONS_FILE_NAME),
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            id: 'x',
+            config: { driverId: 'sqlite', file: '/tmp/a.db' },
+            display: { label: 'named when it last connected', detail: '/tmp/a.db' },
+          },
+          { id: 'y', config: { driverId: 'sqlite', file: '/tmp/b.db' }, display: { label: 42 } },
+        ],
+      }),
+    )
+    const entries = bookAt(dir).list()
+    assert.equal(entries[0]?.label, 'named when it last connected')
+    assert.equal(entries[0]?.detail, '/tmp/a.db')
+    // Half a display is still hand-editable: a non-string is dropped and the
+    // fallback takes over, one field at a time, the way one bad row does not
+    // cost the other ninety-nine.
+    assert.equal(entries[1]?.label, 'sqlite')
+    assert.equal(entries[1]?.detail, '')
   })
 
   test('an id edited to point at another host does not inherit that host password', () => {
@@ -301,7 +449,7 @@ describe('the file is hand-editable, so it is also breakable', () => {
     // editing a text file.
     const dir = tempConfigDir()
     const book = bookAt(dir)
-    book.remember(pg())
+    remember(book, pg())
     const saved = JSON.parse(fileText(dir)) as { entries: Record<string, unknown>[] }
     const stolen = saved.entries[0]
     assert.ok(stolen)
@@ -319,7 +467,7 @@ describe('the file is hand-editable, so it is also breakable', () => {
     const dir = tempConfigDir()
     const book = bookAt(dir)
     for (let i = 0; i < MAX_BOOK_ENTRIES + 5; i += 1) {
-      book.remember({ driverId: 'sqlite', file: `/tmp/peek-${String(i)}.db` })
+      remember(book, { driverId: 'sqlite', file: `/tmp/peek-${String(i)}.db` })
     }
     const entries = book.list()
     assert.equal(entries.length, MAX_BOOK_ENTRIES)
@@ -369,7 +517,7 @@ describe('conn.book.* over the Command Bus', () => {
   test('list answers the file, and never the credential', async () => {
     const dir = tempConfigDir()
     const { bus, book } = busWith(dir)
-    book.remember(pg())
+    remember(book, pg())
 
     const res = await bus.dispatch('conn.book.list', {}, 'ui')
     assert.ok(res.ok)
@@ -381,8 +529,8 @@ describe('conn.book.* over the Command Bus', () => {
   test('forget removes the entry and hands back what is left', async () => {
     const dir = tempConfigDir()
     const { bus, book } = busWith(dir)
-    book.remember(pg())
-    book.remember({ driverId: 'sqlite', file: '/tmp/keep.db' })
+    remember(book, pg())
+    remember(book, { driverId: 'sqlite', file: '/tmp/keep.db' })
     const target = book.list().find((entry) => entry.driverId === 'postgres')
     assert.ok(target)
 
@@ -405,7 +553,7 @@ describe('conn.book.* over the Command Bus', () => {
   test('reading the book bumps no revision — it is not Workspace state', async () => {
     const dir = tempConfigDir()
     const { bus, book } = busWith(dir)
-    book.remember(pg())
+    remember(book, pg())
     const before = bus.store.rev
     await bus.dispatch('conn.book.list', {}, 'ui')
     await bus.dispatch('conn.book.forget', { id: book.list()[0]?.id ?? 'x' }, 'ui')

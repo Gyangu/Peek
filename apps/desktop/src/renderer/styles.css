@@ -1294,8 +1294,8 @@ body {
    * controls one at a time.
    *
    * **Why `styles.css` and not the utility.** Tailwind's `scheme-dark` is
-   * already in this codebase, on exactly one element: the plugin `<iframe>` in
-   * `plugins/PluginFrame.tsx`, where it is the right tool because it is a
+   * already in this codebase, on exactly one element: the package `<iframe>` in
+   * `packages/PackageFrame.tsx`, where it is the right tool because it is a
    * statement about a *foreign document* made from the one element that owns
    * it. The main window is the opposite case on three counts. It is a property
    * of the document, and the element it belongs on is `<html>`, which no

@@ -49,6 +49,19 @@ export interface ConnectionService {
   close(connId: ConnId): Promise<void>
 }
 
+/**
+ * The three strings that name a connection, as the owning package computes them.
+ *
+ * The same triple `DriverDisplay` declares, and the reason it is a service here
+ * rather than a function call is process boundaries: the package's code runs in
+ * its own host now (design §2.4bis), so naming a connection is asynchronous, and
+ * the bus reaches it the way it reaches every other side effect.
+ */
+export interface ConnectionDisplayService {
+  /** The config must already be redacted; see `EffectIntent['describeConnection']`. */
+  describe(req: { config: ConnectionConfig }): Promise<{ label: string; detail: string; endpoint: string }>
+}
+
 export interface RunQueryRequest {
   connId: ConnId
   viewId: ViewId
@@ -94,9 +107,45 @@ export interface ResultService {
   cancel(req: { connId: ConnId; resultId: ResultId }): Promise<boolean>
 }
 
+/**
+ * The disk side of `packages.uninstall`.
+ *
+ * Narrow on purpose — one method, and not the install path. Installing changes
+ * no Workspace state, so its handler does the work directly (a `read` handler
+ * may do I/O, as every `config/handlers.ts` entry does); uninstalling closes
+ * connections first, which means a reducer, which means the rest has to arrive
+ * here as an intent like every other side effect.
+ */
+export interface PackageAdminService {
+  /**
+   * Kill the package's host, delete its directory, tombstone it if peek ships
+   * one under that id, then re-read the packages root and tell everybody.
+   *
+   * Rejects when the directory could not be removed. That is not a courtesy
+   * failure: reporting success would tell the caller a database is gone while
+   * its `driver.mjs` is still on disk and will be registered again at the next
+   * launch.
+   */
+  uninstall(req: { packageId: string; version: string }): Promise<void>
+}
+
 export interface CommandDeps {
   connections: ConnectionService
   results: ResultService
+  /**
+   * Optional, unlike the two above, because a peek with no package hosts is still
+   * a working peek: every connection keeps the placeholder the reducer seeded and
+   * nothing else degrades. The two above have no such fallback — without them a
+   * connection cannot be opened at all.
+   */
+  display?: ConnectionDisplayService
+  /**
+   * Optional for the same reason `display` is: a bus assembled without one is a
+   * peek that cannot uninstall a package, which is a smaller thing than a peek
+   * that cannot open a connection. Unlike `display`, its absence is **not**
+   * degraded silently — see the `uninstallPackage` case in effects.ts.
+   */
+  packages?: PackageAdminService
   /** Non-state notifications (toasts, warnings about best-effort side effects that failed) */
   notify?(msg: NotifyMessage): void
 }

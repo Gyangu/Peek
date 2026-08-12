@@ -1207,7 +1207,10 @@ function workspaceOf(layout: LayoutNode, openViewIds: string[], focused?: string
       [CONN]: {
         id: CONN,
         driverId: 'postgres',
+        identity: 'postgres\u0000postgresql://localhost:5432/test',
         label: 'test',
+        detail: 'postgresql://localhost:5432/test',
+        endpoint: 'localhost:5432/test',
         config: { driverId: 'postgres', url: 'postgresql://localhost:5432/test' },
         status: 'ready',
         capabilities: ['tabularQuery'],

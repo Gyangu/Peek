@@ -15,9 +15,10 @@ import { blankNonCode } from '../../../renderer/__tests__/sourceScan'
  * package host it forks:
  *
  *   `/view`            `autoFetch` is planned while a Command is reducing
- *   `/mcp-tool-meta`   the tool declarations main registers at startup
+ *   `/mcp-tool-meta`   the tool declarations, read by the build that writes
+ *                      each `peek-package.json`
  *   `/mcp-tools`       the mappings behind them, in the package host
- *   `/display`         every one of them, through `drivers/manifests.ts`
+ *   `/display`         every package's, in that package's own host
  *
  * None had a guard. The consequence is smaller than the renderer's — main is
  * allowed to reach a database client, in the sense that nothing breaks — but it
@@ -62,7 +63,7 @@ const SUBPATHS: readonly { pkg: string; subpath: string; file: string; why: stri
     pkg: 'db-neo4j',
     subpath: './mcp-tool-meta',
     file: 'src/mcp-tool-meta.ts',
-    why: "the package's tool declarations are registered on the server that runs in main",
+    why: "build-packages.mjs reads the package's tool declarations to write peek-package.json",
   },
   {
     pkg: 'db-neo4j',
@@ -73,21 +74,24 @@ const SUBPATHS: readonly { pkg: string; subpath: string; file: string; why: stri
 
   /*
    * `/display` is listed once per package, where the two above are neo4j's
-   * alone. `drivers/manifests.ts` imports all five statically and main calls
-   * into the table on paths nothing can defer — `connection-book.ts` derives a
-   * label and a detail for every stored entry, `mcp/summary.ts` an endpoint line
-   * per receipt — so all five load in main on the way to the first window.
+   * alone: every package names its own connections, and every one of them does
+   * it in a package host — `src/entry/contrib.ts` imports this subpath and
+   * nothing else of its package, which is what makes a `contrib.mjs` a bundle
+   * with no database client in it.
    *
-   * The renderer imports the same module and is clean today only because
-   * tree-shaking drops `DRIVER_DISPLAYS` while nothing in the window calls it.
-   * That is a property of the current call graph, not a boundary, and the day a
-   * component asks for a label back the same leak lands in both processes.
+   * It was on this list for a different reason once, and the reason is worth
+   * keeping. `drivers/manifests.ts` imported all five statically, for a
+   * `DRIVER_DISPLAYS` main called into on paths nothing could defer, so all five
+   * loaded in main on the way to the first window; the renderer imported the
+   * same module and was clean only because tree-shaking dropped the table. Both
+   * are gone — the app derives no display at all now — and the guard stays,
+   * because what it is about is the file, not who happens to import it.
    */
   ...['postgres', 'redis', 'qdrant', 'sql', 'neo4j'].map((db) => ({
     pkg: `db-${db}`,
     subpath: './display',
     file: 'src/display.ts',
-    why: 'main names every saved connection through drivers/manifests.ts',
+    why: "the three strings a connection is named with, assembled in that package's host",
   })),
 ]
 

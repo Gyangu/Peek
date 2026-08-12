@@ -22,6 +22,14 @@
  *   280 MB Electron runtime, so an archive buys nothing measurable. A plain
  *   directory makes the forked path an ordinary file path.
  *
+ *   **It also means this build has no application-integrity check.** The two
+ *   asar fuses (`OnlyLoadAppFromAsar`, `EnableEmbeddedAsarIntegrityValidation`)
+ *   are the mechanism for that and neither applies without an archive, so
+ *   `flipSecurityFuses` below turns off only the three that stop the *binary*
+ *   from being reused as a Node interpreter. Nothing here detects an edited
+ *   `out/main/index.js`. Read that function's comment before concluding that
+ *   fuses closed this.
+ *
  * - ad-hoc code signing. On Apple Silicon macOS refuses to execute unsigned
  *   binaries outright, so this is not a Gatekeeper nicety — an unsigned build
  *   simply will not launch. Packager renames the helper bundles, which breaks
@@ -32,6 +40,7 @@ import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { FuseV1Options, FuseVersion, flipFuses } from '@electron/fuses'
 import { packager } from '@electron/packager'
 import { stageNodeModules } from './stage-node-modules.mjs'
 
@@ -71,8 +80,26 @@ const BUNDLE_ID = 'io.github.gyangu.peek'
 const ARCH = 'arm64'
 
 const outDir = join(packageDir, 'out')
+const packagesOutDir = join(outDir, 'packages')
 const releaseDir = join(packageDir, 'release')
 const stageDir = join(releaseDir, 'stage')
+/**
+ * The name the shipped packages wear inside `Contents/Resources`.
+ *
+ * The same string as `BUNDLED_PACKAGES_DIR_NAME` in
+ * `src/main/packages/bundled.ts`, which is what main resolves against
+ * `process.resourcesPath` at startup. Spelled twice rather than imported,
+ * because that module reaches `@peek/core` and this script runs under plain
+ * node with no resolver hooks; `bundled.test.ts` reads this file and fails if
+ * the two ever stop agreeing. Renaming one alone ships an app that lays out no
+ * packages at all — and it does that silently, since an empty packages
+ * directory is also what a first run legitimately starts from.
+ */
+const BUNDLED_PACKAGES_DIR_NAME = 'bundled-packages'
+// Staged under its final name, because @electron/packager copies an extra
+// resource in as the directory it already is — `out/packages` would land in
+// Contents/Resources as `packages`.
+const bundledStageDir = join(releaseDir, BUNDLED_PACKAGES_DIR_NAME)
 const icnsPath = join(packageDir, 'build', 'icon.icns')
 const runtimeIconPath = join(packageDir, 'resources', 'icon.png')
 
@@ -90,22 +117,58 @@ const REQUIRED_FILES = [
   'out/main/index.js',
   // The utilityProcess entry; ConnectionManager forks it from out/main
   'out/main/driver-host.js',
+  // The other utilityProcess entry, in a directory of its own because it is
+  // built by a Rollup graph of its own (electron.vite.package-host.config.ts).
+  // Same argument as the package UI below: a separate pass is a pass that can be
+  // skipped, and skipping it ships an app where every package view and every
+  // package tool fails at first use rather than at build time.
+  'out/package-host/package-host.js',
   // Loaded through existsSync in createWindow; without it the window degrades to read-only
   'out/preload/index.cjs',
   'out/renderer/index.html',
-  // A Tier C plugin view's document, served over `peek-plugin://` by
-  // main/plugins/protocol.ts. It is built by a Vite pass of its own
-  // (`scripts/build-plugin-ui.mjs`), which is a step that can be skipped —
-  // `electron-vite build` on its own does not run it — and the failure it
-  // produces is a blank frame in a shipped app rather than a build error. This
-  // line is what turns that into a packaging failure instead.
-  'out/plugin-ui/neo4j/index.html',
+]
+
+/**
+ * A database package, as it is laid out on disk (design 2026-08-07 §2.2): three
+ * files beside a document root, built by a Vite pass of its own
+ * (`scripts/build-packages.mjs`).
+ *
+ * Relative to the **bundled-packages root**, not to the app: these do not travel
+ * inside `out/`. §2.5 puts the shipped copies in `Contents/Resources` on their
+ * own, because they are not code this app loads — they are the originals it
+ * copies into `~/.peek/packages/` on first start, and everything after that
+ * reads the copy. Leaving them in `out/` would put two identical trees in the
+ * bundle with nothing saying which one runs.
+ *
+ * neo4j is named rather than "whatever was built" for the same reason the list
+ * above names files: the pass can be skipped — `electron-vite build` on its own
+ * does not run it — and each of these fails differently and quietly when it is.
+ * No manifest and the package does not load at all; no `driver.mjs` and every
+ * connection to that database fails at connect time; no `ui/index.html` and a
+ * Tier C view is a blank frame in a shipped app. An empty `bundled-packages`
+ * would satisfy a check that only asked whether the directory was there.
+ */
+const REQUIRED_BUNDLED_FILES = [
+  'neo4j/peek-package.json',
+  'neo4j/driver.mjs',
+  'neo4j/contrib.mjs',
+  'neo4j/ui/index.html',
 ]
 
 function assertContains(root, label, extraFiles = []) {
   const missing = [...REQUIRED_FILES, ...extraFiles].filter((rel) => !existsSync(join(root, rel)))
   if (missing.length > 0) {
     throw new Error(`${label} is missing required files:\n  ${missing.join('\n  ')}`)
+  }
+}
+
+function assertBundledPackages(root, label) {
+  const missing = REQUIRED_BUNDLED_FILES.filter((rel) => !existsSync(join(root, rel)))
+  if (missing.length > 0) {
+    throw new Error(
+      `${label} is missing bundled database packages:\n  ${missing.join('\n  ')}\n` +
+        'Run "pnpm build:packages" (it is part of "pnpm build").',
+    )
   }
 }
 
@@ -125,8 +188,18 @@ function assertContains(root, label, extraFiles = []) {
 function stage(version) {
   rmSync(stageDir, { recursive: true, force: true })
   mkdirSync(stageDir, { recursive: true })
+  rmSync(bundledStageDir, { recursive: true, force: true })
 
-  cpSync(outDir, join(stageDir, 'out'), { recursive: true })
+  // `out/packages` is the one part of the build that is not the app's own code,
+  // so it is lifted out of the copy and staged as a resource of its own (see
+  // `REQUIRED_BUNDLED_FILES`). Excluded rather than copied twice: two identical
+  // trees in one bundle is an invitation to load the wrong one.
+  cpSync(outDir, join(stageDir, 'out'), {
+    recursive: true,
+    filter: (src) => src !== packagesOutDir,
+  })
+  cpSync(packagesOutDir, bundledStageDir, { recursive: true })
+  assertBundledPackages(bundledStageDir, 'The bundled-packages staging directory')
 
   writeFileSync(
     join(stageDir, 'package.json'),
@@ -150,7 +223,7 @@ function stage(version) {
   // The bundles inline every workspace package, so a leftover external may be a
   // dependency of any of them rather than of the app. Under pnpm's strict layout
   // those are not visible from the app directory — mysql2 belongs to
-  // @peek/driver-sql — so each workspace package is offered as a starting point.
+  // @peek/db-sql — so each workspace package is offered as a starting point.
   const externals = stageNodeModules({
     buildDir: join(stageDir, 'out'),
     resolveFrom: [packageDir, ...workspacePackageDirs()],
@@ -164,6 +237,60 @@ function stage(version) {
 
 /** Each staged package must at least have its manifest, or resolution fails at launch. */
 const manifestPathsOf = (externals) => externals.map((name) => `node_modules/${name}/package.json`)
+
+/**
+ * Turn off the Electron fuses that let a signed binary be used as something
+ * other than this app.
+ *
+ * ## What a fuse is, and why signing does not cover this
+ *
+ * A fuse is a bit flipped in the Electron binary itself. Ad-hoc signing (below)
+ * proves the bundle has not been modified *since we signed it* — it says nothing
+ * about what the binary is willing to do when asked nicely. `RunAsNode` is the
+ * sharp one: with it on, `ELECTRON_RUN_AS_NODE=1 /path/to/peek script.js` runs
+ * arbitrary JavaScript under peek's own signature and TCC permissions. Every
+ * check that trusts "this is the signed peek binary" is then trusting an
+ * interpreter.
+ *
+ * The three below are the ones that apply here:
+ *
+ * - `RunAsNode` — the above.
+ * - `EnableNodeOptionsEnvironmentVariable` — `NODE_OPTIONS=--require evil.js`
+ *   injects a module into the app's own processes.
+ * - `EnableNodeCliInspectArguments` — `--inspect-brk` attaches a debugger with
+ *   full access to main-process memory, which includes decrypted credentials.
+ *
+ * ## The two that are deliberately not here
+ *
+ * `OnlyLoadAppFromAsar` and `EnableEmbeddedAsarIntegrityValidation` both require
+ * an asar archive, and this build sets `asar: false` (see the header comment for
+ * why: the driver host is forked as a utilityProcess entry, and forking an entry
+ * inside an asar is exactly the kind of thing that works in one Electron version
+ * and not the next).
+ *
+ * **So this build has no application-integrity check at all**, and that limit
+ * belongs in the open: flipping these fuses stops the peek binary from being
+ * *reused* as a Node interpreter; it does not stop someone who can write to
+ * `out/main/index.js` from changing what peek does. Under
+ * `docs/design/2026-08-07-database-packages-from-disk.md` decision 6 that gap is
+ * not the pressing one — anyone who can write into the app bundle can equally
+ * drop a package into `~/.peek/packages/`, which is loaded with nothing checked
+ * about it by design.
+ *
+ * Must run **before** signing: flipping a fuse rewrites the binary and would
+ * invalidate a signature applied first.
+ */
+async function flipSecurityFuses(appBundle) {
+  await flipFuses(appBundle, {
+    version: FuseVersion.V1,
+    [FuseV1Options.RunAsNode]: false,
+    [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
+    [FuseV1Options.EnableNodeCliInspectArguments]: false,
+    // The signature is applied by `signAdHoc` immediately after this, so there
+    // is no point paying for a second one here.
+    resetAdHocDarwinSignature: false,
+  })
+}
 
 /** Ad-hoc sign the bundle in place, innermost first (what --deep does for us). */
 function signAdHoc(appPath) {
@@ -206,8 +333,9 @@ async function main() {
     appVersion: manifest.version,
     buildVersion: manifest.version,
     icon: icnsPath,
-    // createWindow reads process.resourcesPath/icon.png in a packaged app.
-    extraResource: runtimeIconPath,
+    // createWindow reads process.resourcesPath/icon.png in a packaged app, and
+    // `bundledPackagesRoot` reads process.resourcesPath/bundled-packages.
+    extraResource: [runtimeIconPath, bundledStageDir],
     appCategoryType: 'public.app-category.developer-tools',
     appCopyright: `Copyright © ${new Date().getFullYear()} peek`,
     darwinDarkModeSupport: true,
@@ -233,6 +361,10 @@ async function main() {
     'The packaged bundle',
     manifestPathsOf(externals),
   )
+  assertBundledPackages(
+    join(appBundle, 'Contents', 'Resources', BUNDLED_PACKAGES_DIR_NAME),
+    'The packaged bundle',
+  )
   const packagedRuntimeIconPath = join(appBundle, 'Contents', 'Resources', 'icon.png')
   if (!existsSync(packagedRuntimeIconPath)) {
     throw new Error(`The packaged bundle is missing its runtime icon: ${packagedRuntimeIconPath}`)
@@ -241,12 +373,17 @@ async function main() {
     throw new Error('The packaged runtime icon does not match resources/icon.png')
   }
 
+  // Before signing, not after: flipping a fuse rewrites the binary.
+  console.log('[package] flipping security fuses')
+  await flipSecurityFuses(appBundle)
+
   console.log('[package] ad-hoc signing')
   signAdHoc(appBundle)
 
-  // The staging copy has served its purpose; leaving it behind just confuses
-  // anyone looking at release/ for the actual product.
+  // The staging copies have served their purpose; leaving them behind just
+  // confuses anyone looking at release/ for the actual product.
   rmSync(stageDir, { recursive: true, force: true })
+  rmSync(bundledStageDir, { recursive: true, force: true })
 
   console.log(`[package] ${appBundle}`)
   console.log('[package] install it with: pnpm install:local')

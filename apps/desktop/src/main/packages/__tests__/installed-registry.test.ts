@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
-import { PACKAGE_MANIFEST_FILE } from '@peek/core'
+import { PACKAGE_MANIFEST_FILE } from '@peek/core/package-manifest'
 import { installedFrom, packageLoadNotices } from '../installed'
 import { loadPackages } from '../loader'
 
@@ -98,7 +98,7 @@ describe('the loader’s report, as a registry', () => {
     const withExtras = manifestOf('crosser')
     Object.assign(withExtras, {
       viewKinds: [{ kind: 'graph', driverIds: ['crosser'], title: { en: 'Graph' } }],
-      tools: [{ name: 'do_it', description: 'do', inputSchema: { type: 'object' } }],
+      tools: [{ kind: 'command', hasRenderer: false, name: 'do_it', description: 'do', inputSchema: { type: 'object' } }],
     })
     const installed = installedFrom(loadPackages(packagesRoot({ crosser: withExtras })))
 
@@ -117,6 +117,8 @@ describe('the loader’s report, as a registry', () => {
       viewKinds: [{ kind: 'graph', driverIds: ['graphy'], title: { en: 'Graph' } }],
       tools: [
         {
+          kind: 'command',
+          hasRenderer: true,
           name: 'expand_it',
           description: 'expand something',
           inputSchema: { type: 'object', properties: { id: { type: 'string' } } },

@@ -68,6 +68,17 @@ export const views = {
   'tree.vectorSearch': 'Search',
   'tree.vectorSearchTitle': 'Open a vector search on this collection',
   'tree.loadFailed': 'Load failed: {error}',
+  /* The two things a "…" row can mean. They are separate keys because only one
+   * of them has a number, and the wording of the other must never acquire one:
+   * a driver reaches `tree.elision.unknown` precisely when it stopped reading
+   * before the level ended, so any figure it could offer would be a count of
+   * what it happened to see, printed where the reader would take it for a count
+   * of what is left. */
+  /* Not a plural: "more" does not inflect, and one/other spelled identically
+   * reads as an oversight rather than a decision. */
+  'tree.elision.more': '{count} more, not shown',
+  'tree.elision.unknown':
+    'More here than this tree read — open this level as a table to see everything',
   'tree.unavailable': 'The namespace tree is unavailable.',
   'tree.unavailableDetail':
     'The Command Bus has no introspect command, and preload exposes no introspect extension channel, so the renderer cannot reach the child nodes.',

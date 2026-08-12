@@ -1,6 +1,6 @@
-import type { ConnectionState, PluginViewKind, SavedConnection } from '@peek/core'
+import type { ConnectionState, PackageViewKindName, SavedConnection } from '@peek/core'
 import type { TFunction } from '../i18n'
-import { viewKindsForDriver } from '../plugins/viewKinds'
+import { viewKindsForDriver } from '../packages/viewKinds'
 import { connCanUse, connHas } from '../state/capabilities'
 import type { MenuNode } from '../ui/menuModel'
 import type { ConnectionRow } from './connectionRows'
@@ -29,8 +29,8 @@ export interface ConnectionMenuHandlers {
   disconnect: () => void
   openTree: () => void
   openQuery: () => void
-  /** Open a view kind contributed by a package — see `plugins/viewKinds`. */
-  openPluginView: (kind: PluginViewKind) => void
+  /** Open a view kind contributed by a package — see `packages/viewKinds`. */
+  openPackageView: (kind: PackageViewKindName) => void
   edit: () => void
   forget: () => void
 }
@@ -118,23 +118,23 @@ function liveNodes(conn: ConnectionState, t: TFunction, on: ConnectionMenuHandle
      *
      * Position is the claim being made: a `graph` is another way to look at this
      * connection, not a different class of thing, so it sits with Browse and
-     * Query rather than in a "Plugins" submenu of its own. DataGrip's own answer
+     * Query rather than in a "Packages" submenu of its own. DataGrip's own answer
      * to the same question is the opposite one, and §1.6b records what that cost
-     * it — a plugin ghetto is where features go to be undiscoverable.
+     * it — a package ghetto is where features go to be undiscoverable.
      *
      * The label is the kind's own `titleKey`, checked against the catalog when
      * the kind registered, so a package cannot put an unlocalized string here. */
     for (const entry of viewKindsForDriver(conn.driverId)) {
       nodes.push({
         kind: 'item',
-        id: `conn.plugin.${entry.contract.kind}`,
+        id: `conn.package.${entry.contract.kind}`,
         label: t(entry.titleKey),
         // `connCanUse` and not `connHas`: the driver declared this kind for
         // itself, so "this database cannot do it" is not a case that exists —
         // only "not connected yet".
         disabled: !connCanUse(conn, 'introspect'),
         onSelect: () => {
-          on.openPluginView(entry.contract.kind)
+          on.openPackageView(entry.contract.kind)
         },
       })
     }
@@ -166,7 +166,12 @@ export function editableOf(row: ConnectionRow): SavedConnection | undefined {
   return {
     id: conn.id,
     driverId: conn.driverId,
+    // Both are copied off the live connection rather than re-derived: they are
+    // the same two strings a book entry carries, and main is the only side that
+    // can produce them (see `ConnectionState.identity` / `.detail`).
+    identity: conn.identity,
     label: row.label,
+    detail: conn.detail,
     config: conn.config,
     hasSecret: false,
     createdAt: '',

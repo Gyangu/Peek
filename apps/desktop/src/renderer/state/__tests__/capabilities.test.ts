@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
+import '../../../drivers/__tests__/in-repo-registry'
 import type {
   Capability,
   ConnId,
@@ -24,7 +25,10 @@ import { connCanUse, connCapabilities, connHas } from '../capabilities'
 function conn(overrides: Partial<ConnectionState> & { driverId: DriverId }): ConnectionState {
   return {
     id: 'conn_test' as ConnId,
+    identity: 'test',
     label: 'test',
+    detail: 'test',
+    endpoint: 'test',
     config: { driverId: overrides.driverId } as ConnectionState['config'],
     status: 'ready' as ConnStatus,
     capabilities: [],

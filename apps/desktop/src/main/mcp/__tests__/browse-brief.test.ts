@@ -11,6 +11,7 @@ import {
   type Workspace,
 } from '@peek/core'
 import { briefViews, renderPanelBrief } from '../summary'
+import { redactRulesFor } from '../../../drivers/manifests'
 
 /**
  * What `read_workspace` says about a collection's browse style.
@@ -46,7 +47,7 @@ function workspaceWith(ref: CollectionRef): Workspace {
 
 describe('read_workspace reports how a collection can be browsed', () => {
   test('a relation offers ordering and both pagers', () => {
-    const snap = snapshotWorkspace(workspaceWith({ kind: 'relation', schema: 'public', name: 't' }))
+    const snap = snapshotWorkspace(workspaceWith({ kind: 'relation', schema: 'public', name: 't' }), redactRulesFor)
     assert.deepEqual(snap.views[0]?.browse, collectionBrowseStyle({
       kind: 'relation', schema: 'public', name: 't',
     }))
@@ -59,13 +60,13 @@ describe('read_workspace reports how a collection can be browsed', () => {
    * has to say so before a sort is attempted, not after.
    */
   test('a redis keyspace offers neither ordering nor an offset', () => {
-    const snap = snapshotWorkspace(workspaceWith({ kind: 'keyPattern', pattern: 'user:*' }))
+    const snap = snapshotWorkspace(workspaceWith({ kind: 'keyPattern', pattern: 'user:*' }), redactRulesFor)
     assert.deepEqual(briefViews(snap)[0]?.browse, ['cursorPaging'])
     assert.match(renderPanelBrief(snap), /browse=cursorPaging/)
   })
 
   test('a vector collection warns that ordering ends the paging', () => {
-    const snap = snapshotWorkspace(workspaceWith({ kind: 'vectorCollection', collection: 'docs' }))
+    const snap = snapshotWorkspace(workspaceWith({ kind: 'vectorCollection', collection: 'docs' }), redactRulesFor)
     assert.deepEqual(briefViews(snap)[0]?.browse, ['sort', 'cursorPaging', 'sortEndsPaging'])
   })
 
@@ -73,7 +74,7 @@ describe('read_workspace reports how a collection can be browsed', () => {
     const ws = workspaceWith({ kind: 'relation', schema: '', name: 't' })
     const viewId = asViewId('v_2')
     ws.views[viewId] = { id: viewId, kind: 'query', connId: CONN, text: 'select 1', status: 'idle' }
-    const snap = snapshotWorkspace(ws)
+    const snap = snapshotWorkspace(ws, redactRulesFor)
     const query = snap.views.find((v) => v.kind === 'query')
     assert.equal(query?.browse, undefined, 'a free-form query browses nothing')
     assert.equal(briefViews(snap).find((v) => v.kind === 'query')?.browse, undefined)

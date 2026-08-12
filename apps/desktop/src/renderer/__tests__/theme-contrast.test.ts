@@ -653,7 +653,7 @@ describe('nothing paints with a literal colour', () => {
    * *syntax*, which is the mistake §10.2 named and undid: a property list caused
    * the border hole, and a spelling list caused the `rebeccapurple` hole. A
    * colour handed to a `<canvas>` context, written into a CSS custom property
-   * with `setProperty`, passed to a charting call, or posted into the plugin
+   * with `setProperty`, passed to a charting call, or posted into the package
    * iframe is the same failure with no `style={{` anywhere near it. So the
    * subject stays the *value*: **no colour literal anywhere in the renderer's
    * own `.ts` / `.tsx`.** On a clean tree that is zero matches across all 154 of
@@ -685,7 +685,7 @@ describe('nothing paints with a literal colour', () => {
    *     the pattern, but `'#' + hex`, `String.fromCharCode`, or a channel
    *     arithmetic function is not;
    *   - a colour that arrives as a value — imported from a package, read from a
-   *     driver's response, sent by a plugin, or typed by the user;
+   *     driver's response, sent by a package, or typed by the user;
    *   - a colour with no literal anywhere, which is the sharpest case and the
    *     one this round was opened by: `accent-color: auto` under an unset
    *     `color-scheme` had Chromium painting rgb(1, 117, 255) at 4.18:1 on nine

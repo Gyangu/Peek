@@ -24,12 +24,11 @@ import type { PackageHostRegistry } from './registry'
  *
  * The one that ships the driver the view is connected to. That is not a shortcut
  * around "which package registered this kind" — it is the same rule read from
- * the same table: `entry.ts` gives a host the view kinds whose `driverIds`
- * intersect the drivers its package ships, so a view on a neo4j connection is
- * served by exactly the hosts `packageIdForDriver('neo4j')` names. Deriving both
- * ends from `PACKAGE_DRIVER_IDS` is what keeps them from disagreeing; in Phase C
- * both come from the manifest the loader read, and this function's body is the
- * only thing that changes.
+ * the same place: a host is `import()`ed its own `contrib.mjs`, whose view kinds
+ * declare the `driverIds` they serve, so a view on a neo4j connection is served
+ * by exactly the hosts `packageIdForDriver('neo4j')` names. Both ends are the
+ * manifest the loader read, which is what keeps them from disagreeing — there is
+ * no compiled-in ownership table left for either to drift from.
  * ================================================================== */
 
 export interface PackageViewOptions {

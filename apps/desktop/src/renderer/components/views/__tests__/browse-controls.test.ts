@@ -19,8 +19,8 @@ import { tableControls } from '../browseControls'
  * Redis keyspace dispatched a scan the driver rejects — the view emptied and the
  * user got an error panel from an affordance the UI itself had offered. These
  * tests are the consumer side of that; the driver side is asserted in
- * `driver-redis` ("refuses a native filter and a sort instead of quietly ignoring
- * them") and `driver-qdrant` ("orders a scroll by one payload key, and refuses
+ * `db-redis` ("refuses a native filter and a sort instead of quietly ignoring
+ * them") and `db-qdrant` ("orders a scroll by one payload key, and refuses
  * what the server cannot do").
  * ================================================================== */
 

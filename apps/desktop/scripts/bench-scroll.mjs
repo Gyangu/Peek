@@ -74,6 +74,12 @@ const QUERY_TIMEOUT_MS = 120_000
 const APP_LIFETIME_MS = 600_000
 /** Pixels of wheel delta per frame — roughly a fast but not absurd trackpad fling. */
 const WHEEL_DELTA_PX = 120
+/**
+ * How long to wait for the first animation frame before calling the window
+ * invisible. Three orders of magnitude above a healthy frame so that it can only
+ * ever mean "rAF is not running at all", never "this machine is slow today".
+ */
+const RAF_STALL_MS = 5_000
 
 /* ------------------------------------------------------------------ */
 /* Arguments                                                           */
@@ -369,6 +375,23 @@ function scrollPassExpression({ frames, deltaPx }) {
   // Rows arrive by stream, so the surface is briefly empty even on a healthy run.
   for (let i = 0; i < 200 && surface.children.length === 0; i++) await sleep(50);
   if (surface.children.length === 0) return { error: 'the grid rendered no rows' };
+
+  // rAF is the clock every await below runs on, and macOS stops it outright for
+  // an occluded or minimised window. When that happens nothing throws and
+  // nothing prints: the pass simply never returns, and the run ends whenever the
+  // app's own deadline kills it, with no line saying why. So bound the *entry*
+  // into the loop — and only the entry. A long frame once the loop is running is
+  // a dropped frame, which is the number this script exists to report; putting a
+  // bound on each frame would turn the finding into an error.
+  const entered = await Promise.race([
+    nextFrame().then(() => true),
+    sleep(${String(RAF_STALL_MS)}).then(() => false),
+  ]);
+  if (!entered) return {
+    error: 'requestAnimationFrame did not fire in ${String(RAF_STALL_MS)}ms; document.visibilityState is "'
+      + document.visibilityState + '". An occluded or minimised window stops rAF, so the frame figures '
+      + 'cannot be measured against one — bring the benchmark window to the front and run it again.',
+  };
 
   // Idle baseline: the refresh period, needed to say what "a dropped frame" is.
   const baseline = [];

@@ -710,7 +710,7 @@ assert.deepEqual(
     `\n\n` +
     `  Each of these says "this rule targets a DOM we do not write", but there is no such rule any\n` +
     `  more. Delete the entry. If the rule moved rather than went away — into an\n` +
-    `  \`EditorView.theme\`, a plugin stylesheet, anywhere outside this artifact — say so where it\n` +
+    `  \`EditorView.theme\`, a package stylesheet, anywhere outside this artifact — say so where it\n` +
     `  went, because this audit no longer covers it and something else has to.\n`,
 )
 

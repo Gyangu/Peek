@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { ConnectionState, SavedConnection } from '@peek/core'
-import { connectionDetail } from '@peek/core'
+import { manifestDriverIds } from '../../drivers/manifests'
 import { useErrorText, useT, type TFunction } from '../i18n'
 import { dispatch } from '../state/dispatch'
 import { invalidateConnection } from '../state/namespaceStore'
+import { usePackagesRevision } from '../state/packagesStore'
 import { openSettings } from '../state/settingsDialogStore'
 import { setSidebarCollapsed, useSidebarStore } from '../state/sidebarStore'
 import { useConnections } from '../state/workspaceStore'
@@ -63,6 +64,11 @@ const SIDEBAR_BOX = 'flex min-h-0 flex-none flex-col border-r border-border bg-b
 export function Sidebar(): ReactElement {
   const t = useT()
   const conns = useConnections()
+  // The new-connection controls below are drawn from what is installed, so this
+  // subscription is what makes installing or uninstalling a package while the
+  // window is open change them. Same reason `ConnectDialog` takes it; the value
+  // is deliberately unused.
+  usePackagesRevision()
   const collapsed = useSidebarStore((s) => s.collapsed)
   const [dialog, setDialog] = useState<{ initial?: SavedConnection } | null>(null)
   const [active, setActive] = useState<string | null>(null)
@@ -88,6 +94,20 @@ export function Sidebar(): ReactElement {
   }, [])
 
   const rows = buildConnectionRows(conns, saved)
+  /**
+   * Whether there is any database to start a connection *to*.
+   *
+   * False is a legal state since Phase C made every package uninstallable
+   * (design 2026-08-07 decision 1), and both entrances below are disabled in it
+   * rather than opening a dialog with an empty picker and no fields — which is
+   * what a rendering fault looks like (design 2026-08-11 §2.2).
+   *
+   * This says *what*; the *why and where* is already on the error centre, where
+   * `packageLoadNotices` puts "No database packages are installed" with the
+   * directory it read. Two surfaces, one fact, and no second judgement about it
+   * implemented here.
+   */
+  const canConnect = manifestDriverIds().length > 0
 
   if (collapsed) {
     return (
@@ -146,8 +166,9 @@ export function Sidebar(): ReactElement {
         <span className={LIST_HEAD_TITLE}>{t('sidebar.connections')}</span>
         <Button
           variant="ghost"
-          title={t('sidebar.newConnection')}
+          title={canConnect ? t('sidebar.newConnection') : t('connect.noPackages')}
           aria-label={t('sidebar.newConnection')}
+          disabled={!canConnect}
           onClick={() => {
             openConnectDialog()
           }}
@@ -158,6 +179,7 @@ export function Sidebar(): ReactElement {
       <div className="min-h-0 flex-1 overflow-auto p-tight">
         {rows.length === 0 ? (
           <FirstRunGuide
+            canConnect={canConnect}
             onConnect={() => {
               openConnectDialog()
             }}
@@ -191,6 +213,7 @@ export function Sidebar(): ReactElement {
       {dialog ? (
         <ConnectDialog
           {...(dialog.initial === undefined ? {} : { initial: dialog.initial })}
+          saved={saved}
           onClose={() => {
             setDialog(null)
             reloadBook()
@@ -327,11 +350,11 @@ function ConnectionRowItem({ row, active, onActivate, onEdit, onForgotten }: Row
               openQuery: () => {
                 if (conn) void dispatch('view.open', { spec: { kind: 'query', connId: conn.id } })
               },
-              // No initial state: every field a plugin view needs has a default
+              // No initial state: every field a package view needs has a default
               // in its own `readGraphState`-style reader, and seeding one here
               // would be the window guessing at a shape only the package knows.
-              openPluginView: (pluginKind) => {
-                if (conn) void dispatch('view.open', { spec: { kind: 'plugin', pluginKind, connId: conn.id } })
+              openPackageView: (packageKind) => {
+                if (conn) void dispatch('view.open', { spec: { kind: 'package', packageKind, connId: conn.id } })
               },
               edit: () => {
                 if (editable) onEdit(editable)
@@ -373,11 +396,23 @@ function SubLine({ conn }: { conn: ConnectionState | undefined }): ReactElement 
  * The name is the part that tells connections apart — a file name, a database, a
  * host — so the full path or address, and the server it turned out to be, live
  * here instead of on a second line nobody needs most of the time.
+ *
+ * The long form is **read**, not derived. This used to be `connectionDetail(config)`
+ * — a `switch` in core over the six databases peek compiled in — and spelling an
+ * address is the package's job now (`DriverDisplay.detail`), which runs in the
+ * package host because the window may never execute a package's code. A config
+ * does not change once a connection exists, so the string is computed once when
+ * it opens and travels with it.
+ *
+ * The fallback to the label is the same unreachable arm the `config === undefined`
+ * branch was: a row always has a live side or a saved side, and both carry a
+ * detail. It stays for the same reason — a tooltip whose first line is blank says
+ * less than one that repeats the row.
  */
 function rowTitle(t: TFunction, row: ConnectionRow): string {
   const { conn, entry } = row
-  const config = conn?.config ?? entry?.config
-  const lines = [config === undefined ? row.label : connectionDetail(config)]
+  const detail = conn?.detail ?? entry?.detail
+  const lines = [detail === undefined || detail === '' ? row.label : detail]
   if (conn?.serverInfo) lines.push(`${conn.serverInfo.flavor ?? conn.driverId} ${conn.serverInfo.version}`)
   else if (conn === undefined) lines.push(t('sidebar.connectHint'))
   // The only place the row admits it has a menu. A hover-revealed "⋯" would say

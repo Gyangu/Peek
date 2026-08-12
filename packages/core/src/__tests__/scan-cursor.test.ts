@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
   DRIVER_IDS,
+  PACKAGE_ID_PATTERN,
   decodeRowOffsetCursor,
   decodeScanCursor,
   encodeScanCursor,
@@ -44,6 +45,25 @@ describe('scan cursor', () => {
       tryDecodeScanCursor(encodeScanCursor({ driverId: 'postgres', boundary: '', skip: 3 }))?.boundary,
       '',
     )
+  })
+
+  test('every id the package pattern admits survives a round trip', () => {
+    // The id class inside a cursor token is `PACKAGE_ID_PATTERN` written out, and
+    // the two have drifted before: it was `[a-z]+` when every id happened to be
+    // pure letters, so `neo4j` minted `neo4j:0:7` and then refused its own
+    // output — a scan that silently could not continue past its first page, on
+    // that driver only. A package installed from disk can be called `my-db`, so
+    // the sample is drawn from the pattern rather than from the six that ship.
+    const ids = [...DRIVER_IDS, 'my-db', 'mongo-db-2', '2fast', 'x']
+    for (const driverId of ids) {
+      assert.ok(PACKAGE_ID_PATTERN.test(driverId), `${driverId} is not a servable id, so it proves nothing`)
+      const token = encodeScanCursor({ driverId, boundary: 'a:b', skip: 4 })
+      assert.deepEqual(
+        tryDecodeScanCursor(token),
+        { driverId, boundary: 'a:b', skip: 4 },
+        `${driverId} minted a cursor it cannot read back`,
+      )
+    }
   })
 
   test('a token names the driver that minted it, so no other driver accepts it', () => {

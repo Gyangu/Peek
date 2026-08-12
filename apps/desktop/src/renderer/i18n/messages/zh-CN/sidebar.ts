@@ -45,20 +45,10 @@ export const sidebar: CatalogFor<SidebarMessages> = {
   'connect.mode.url': '连接串',
   'connect.mode.fields': '分项填写',
 
-  'connect.field.url': '连接串',
-  'connect.field.host': '主机',
-  'connect.field.port': '端口',
-  'connect.field.database': '数据库',
-  'connect.field.user': '用户名',
-  'connect.field.username': '用户名',
-  'connect.field.password': '密码',
-  'connect.field.ssl': '使用 TLS',
-  'connect.field.tls': '使用 TLS',
-  'connect.field.db': '库编号',
-  'connect.field.file': '数据库文件',
-  'connect.field.readOnly': '只读打开',
-  'connect.field.qdrantUrl': '服务地址',
-  'connect.field.apiKey': 'API Key',
+  /* ---------------- 包不在的时候 ---------------- */
+  'connect.noPackages': '没有安装任何数据库包，所以没有可以连接的东西。到「设置 → 数据库」里装一个，或者恢复自带包。',
+  'connect.driverGone':
+    '没有任何已安装的数据库包提供 "{driverId}"，在「设置 → 数据库」里把它重新装上之前，这条连接打不开。',
 
   /* ---------------- 首次运行 ---------------- */
   'firstRun.title': '还没有连接任何数据库',

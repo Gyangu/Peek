@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 
+import { Cdp } from './cdp.mjs'
+
 const DESKTOP_DIR = fileURLToPath(new URL('..', import.meta.url))
 
 const DEFAULT_ROWS = 1_000_000
@@ -170,90 +172,6 @@ async function waitForEndpoint(configDir, child) {
     await delay(200)
   }
   throw new Error(`the MCP endpoint file never appeared at ${path}`)
-}
-
-/* ------------------------------------------------------------------ */
-/* CDP                                                                 */
-/* ------------------------------------------------------------------ */
-
-/**
- * The narrowest CDP client that can do the job: one WebSocket, `Runtime.evaluate`
- * with `awaitPromise`. No dependency, and nothing to keep in sync with a
- * protocol version.
- */
-class Cdp {
-  #ws
-  #next = 1
-  #pending = new Map()
-
-  static async attach(port, timeoutMs = 30_000) {
-    const deadline = Date.now() + timeoutMs
-    let lastError = null
-    while (Date.now() < deadline) {
-      try {
-        const res = await fetch(`http://127.0.0.1:${String(port)}/json/list`)
-        const targets = await res.json()
-        // The renderer is the only `page` target the app opens; DevTools itself
-        // would show up as `other`.
-        const page = targets.find((t) => t.type === 'page' && typeof t.webSocketDebuggerUrl === 'string')
-        if (page) return await new Cdp().#open(page.webSocketDebuggerUrl)
-      } catch (error) {
-        lastError = error
-      }
-      await delay(250)
-    }
-    throw new Error(`no CDP page target on port ${String(port)}: ${String(lastError?.message ?? lastError)}`)
-  }
-
-  async #open(url) {
-    this.#ws = new WebSocket(url)
-    await new Promise((resolve, reject) => {
-      this.#ws.addEventListener('open', resolve, { once: true })
-      this.#ws.addEventListener('error', () => {
-        reject(new Error(`CDP websocket failed to open: ${url}`))
-      }, { once: true })
-    })
-    this.#ws.addEventListener('message', (event) => {
-      const msg = JSON.parse(typeof event.data === 'string' ? event.data : '')
-      const entry = this.#pending.get(msg.id)
-      if (!entry) return // an event, not a reply
-      this.#pending.delete(msg.id)
-      if (msg.error) entry.reject(new Error(`${msg.error.message} (${String(msg.error.code)})`))
-      else entry.resolve(msg.result)
-    })
-    return this
-  }
-
-  send(method, params = {}) {
-    const id = this.#next++
-    return new Promise((resolve, reject) => {
-      this.#pending.set(id, { resolve, reject })
-      this.#ws.send(JSON.stringify({ id, method, params }))
-    })
-  }
-
-  /** Evaluate an async expression in the page and return its resolved value. */
-  async evaluate(expression, timeoutMs = 120_000) {
-    const result = await this.send('Runtime.evaluate', {
-      expression,
-      awaitPromise: true,
-      returnByValue: true,
-      timeout: timeoutMs,
-    })
-    if (result.exceptionDetails) {
-      const text = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text
-      throw new Error(`page evaluation threw: ${String(text)}`)
-    }
-    return result.result?.value
-  }
-
-  close() {
-    try {
-      this.#ws?.close()
-    } catch {
-      /* already gone */
-    }
-  }
 }
 
 /* ------------------------------------------------------------------ */

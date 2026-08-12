@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { after, afterEach, describe, it } from 'node:test'
 import '../../../drivers/__tests__/in-repo-registry'
 import type { PostgresConnectionConfig } from '@peek/core'
-import { PACKAGE_DRIVER_IDS } from '../../../drivers/packages'
+import { installedDrivers } from '../../../drivers/installed'
 import { packageTools } from '../../mcp/package-tools'
 import './install-stubs'
 import { stubElectron } from './stub-electron'
@@ -64,8 +64,12 @@ function registry(): InstanceType<typeof PackageHostRegistry> {
 
 describe('a package host starts on first use and not before', () => {
   it('registers every package and forks none of them', async () => {
-    const packageIds = Object.keys(PACKAGE_DRIVER_IDS)
-    assert.ok(packageIds.length >= 5, 'the point of the count is that N is not 1')
+    // Counted off the registry the scan filled, not a table in the app: item 20
+    // is about *twenty* packages, and an enumeration compiled into peek could
+    // only ever count the ones it was compiled with — it froze N at five and
+    // would have gone on reporting five with fifteen more on disk.
+    const packageIds = new Set(installedDrivers().map((driver) => driver.packageId))
+    assert.ok(packageIds.size >= 5, 'the point of the count is that N is not 1')
 
     const hosts = registry()
 
@@ -77,7 +81,11 @@ describe('a package host starts on first use and not before', () => {
     assert.ok(tools.length > 0, 'the tools are listed from manifest data in main (§2.4bis d)')
     assert.equal(hosts.runningCount, 0)
     assert.deepEqual(hosts.runningPackageIds(), [])
-    assert.equal(stubElectron.forks.length, 0, 'N packages registered, zero processes')
+    assert.equal(
+      stubElectron.forks.length,
+      0,
+      `${String(packageIds.size)} packages registered, zero processes`,
+    )
   })
 
   it('forks exactly the one package that was asked a question', async () => {

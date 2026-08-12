@@ -31,6 +31,13 @@
 import { createRoot } from 'react-dom/client'
 import type { ReactElement } from 'react'
 
+// Side-effect import, and it has to come first: the connect dialog draws the
+// fields of whatever is installed, and nothing is installed in a page with no
+// preload behind it (`drivers/installed.ts`). This is the same stand-in the
+// suite uses — the five in-repo packages, as the loader would have parsed them —
+// so what the probe measures is still the product's own form for a real driver
+// rather than a fixture's idea of one.
+import '../../src/drivers/__tests__/in-repo-registry'
 import { ConnectDialog } from '../../src/renderer/components/ConnectDialog'
 import { ConsentDialog } from '../../src/renderer/components/context-actions/ConsentDialog'
 import { CONN_DOT } from '../../src/renderer/components/shellClasses'

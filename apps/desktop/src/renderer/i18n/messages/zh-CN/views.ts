@@ -51,6 +51,8 @@ export const views: CatalogFor<ViewsMessages> = {
   'tree.vectorSearch': '检索',
   'tree.vectorSearchTitle': '对该 collection 打开向量检索',
   'tree.loadFailed': '加载失败：{error}',
+  'tree.elision.more': '还有 {count} 项未显示',
+  'tree.elision.unknown': '这一层没有读完，还有内容没显示——把这一层当表格打开才能看全',
   'tree.unavailable': '命名空间树不可用。',
   'tree.unavailableDetail':
     'Command Bus 目前没有 introspect 命令，preload 也没有提供 introspect 扩展通道，renderer 拿不到子节点。',

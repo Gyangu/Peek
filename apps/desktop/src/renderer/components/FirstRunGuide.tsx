@@ -25,9 +25,17 @@ import { Button } from '../ui/Button'
  * dismissed and re-found; it is what the empty list looks like.
  */
 export function FirstRunGuide({
+  canConnect,
   onConnect,
   onOpenSettings,
 }: {
+  /**
+   * Whether any database package is installed. False disables step 1 and says
+   * why — the guide is the *most* likely place to meet that state, because a
+   * peek with no packages also has no connections and this is what an empty list
+   * draws. See design 2026-08-11 §2.2.
+   */
+  canConnect: boolean
   onConnect: () => void
   onOpenSettings: () => void
 }): ReactElement {
@@ -91,9 +99,19 @@ export function FirstRunGuide({
          * statically (nothing can tell what a callback eventually reaches), so it
          * is written here and in spec.ts rather than pretended into CI.
          */}
-        <Button variant="primary" action="conn.openDialog" onClick={onConnect}>
+        <Button
+          variant="primary"
+          action="conn.openDialog"
+          disabled={!canConnect}
+          title={canConnect ? undefined : t('connect.noPackages')}
+          onClick={onConnect}
+        >
           {t('firstRun.connectAction')}
         </Button>
+        {/* Written out rather than left to the button's tooltip. This is the one
+            surface with room for a sentence, and a greyed-out primary button is
+            exactly where a user stops and wonders whether peek is broken. */}
+        {canConnect ? null : <div className="text-err">{t('connect.noPackages')}</div>}
       </Step>
 
       <Step index={2} title={t('firstRun.mcpTitle')} body={t('firstRun.mcpBody')}>

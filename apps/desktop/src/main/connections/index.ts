@@ -32,7 +32,7 @@ export { DriverHostProcess } from './host-process'
 export { DataPlaneLink } from './port-broker'
 export { TypedEmitter } from './emitter'
 export {
-  DRIVER_REGISTRY,
+  driverRegistry,
   lookupDriver,
   registeredDriverIds,
   type DriverRegistration,

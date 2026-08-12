@@ -163,6 +163,27 @@ function safeStringify(value: unknown): string {
   }
 }
 
+/**
+ * A zod failure as one line per issue: `path: message`.
+ *
+ * One wording for every parse peek reports on, because they are all read the
+ * same way — someone looking for the field they got wrong. A command's input
+ * (`parseCommandInput`), a connect draft (`validateConnectionConfig`), and a
+ * package manifest read off disk (`parsePackageManifest`) had three near-copies
+ * of this between them, and the manifest one is the one that has to be good: a
+ * loader refusing a package is a sentence the user reads instead of an
+ * installed database, so "which key, and what was wrong with it" is the whole
+ * message.
+ *
+ * Never translated. A path is a path, and the message names types.
+ */
+export function zodIssueLines(error: z.ZodError): string[] {
+  return error.issues.map((issue) => {
+    const path = issue.path.length > 0 ? issue.path.join('.') : '(root)'
+    return `${path}: ${issue.message}`
+  })
+}
+
 /* ================================================================== */
 /* Transport classification, shared by every driver                    */
 /* ================================================================== */

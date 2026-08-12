@@ -1,16 +1,43 @@
-import type { ToolSpec } from '@peek/core'
-import { neo4jMcpTools } from '@peek/driver-neo4j/mcp-tools'
+import type { InstalledTool } from '@peek/core'
+import { definePackageContribution, type PackageContribution } from './contribution'
+import { installedTools } from './installed'
 
 /* ==================================================================
- * Every MCP tool a driver package contributes.
+ * MCP tools, as one of the kinds of thing a package contributes.
  *
  * The third sibling of `manifests.ts` and `viewKinds.ts` — read the first of
- * those headers for why this file is in neither `main/` nor `renderer/`, and why
- * the list lives in the app rather than in core. Both arguments apply verbatim.
- * The subpath rule applies verbatim too: `@peek/driver-neo4j` reaches
- * `neo4j-driver`; `@peek/driver-neo4j/mcp-tools` reaches `@peek/core` and `zod`
- * and stops. These load in **main**, so going through `index.ts` would put a Bolt
- * client in the main-process chunk.
+ * those headers for why this file is in neither `main/` nor `renderer/`. It is
+ * the only one of the three that is a descriptor and nothing else, because both
+ * of the tables it used to hold have gone.
+ *
+ * ## What was here, and where each half went
+ *
+ * `PACKAGE_TOOL_META` — the declarations, tagged with the package that runs
+ * each name — was what main registered on the MCP server, and that was the bug
+ * §4duodevicies fixed: a compile-time constant cannot describe what is
+ * installed, so uninstalling neo4j left `expand_node` in `tools/list` across a
+ * fresh session and across a restart (§4sedecies(b), acceptance 13). A tool's
+ * whole declaration is a key of `peek-package.json` now, `installedTools()` in
+ * `drivers/installed.ts` is the loader's reading of it, and
+ * `main/mcp/package-tools.ts` builds its stand-ins from that.
+ *
+ * `mcpToolSpecs.ts` beside it — the mappings, reached through
+ * `@peek/db-neo4j/mcp-tools` — was the package host's half, sliced by package id
+ * out of one compiled-in array. §4quaterdecies took it: `main/packages/entry.ts`
+ * `import()`s the package's own `contrib.mjs`, so the host is handed its
+ * mappings rather than filtering everyone's, and a package this build never
+ * compiled anything for is no longer a package that cannot be loaded.
+ *
+ * ## The pairing between them is checked over the artifacts now
+ *
+ * A name declared on one side and forgotten on the other still fails silently in
+ * both directions — a declaration with no mapping lists fine and fails only when
+ * a model calls it, a mapping with no declaration is never reachable — so the
+ * question survived the tables. `build-packages.mjs` asks it of the two files
+ * that ship: the built `contrib.mjs`'s `tools` export against the `tools` key it
+ * just wrote into that package's `peek-package.json`, per package, at build
+ * time. Deleting a mapping now changes bytes and fails the build, which is the
+ * property the two arrays could not have.
  *
  * ## What a package tool is, and what it is not
  *
@@ -25,26 +52,29 @@ import { neo4jMcpTools } from '@peek/driver-neo4j/mcp-tools'
  * thirteen tools in `main/mcp/tools/`, a package contributes the fourteenth, and
  * neither list is the other's subset. Anyone reading design §2.6ter as "the
  * thirteen should move into packages" should read §2.4bis(a) first: moving
- * `set_layout` into `driver-postgres` would be asserting that arranging panes is
+ * `set_layout` into `db-postgres` would be asserting that arranging panes is
  * a property of PostgreSQL.
- *
- * ## Phase C
- *
- * This array is static and compiled in, which is the whole point of Phase B.
- * Phase C replaces it with a scan of `~/.peek/plugins/` and changes nothing else
- * — `collectTools()` already treats it as an opaque list, and
- * `verify-chat-security.mjs` already asks "does every tool on the wire come from
- * a registered source" rather than "from this repository".
  * ================================================================== */
 
 /**
- * Order is not meaningful; the registry sorts nothing and the MCP SDK is asked
- * to register each by name. It is, however, the order a duplicate name would be
- * reported in, so keeping it stable keeps that message stable.
+ * The gate for the `tools` half of the registry.
+ *
+ * The gate is an identity, and which list it is an identity *over* is the whole
+ * content of this descriptor: `compiled()` is `installedTools()`, the loader's
+ * reading of `~/.peek/packages/`, and there is no second list left for it to
+ * disagree with. That is the same statement `manifests.ts` makes — the
+ * declaration *is* the live list, there is nothing an uninstall can leave
+ * behind — and the guard is what keeps it from being a comment nobody rechecks.
+ *
+ * An identity over a *compiled-in* table is the thing this must not become. It
+ * would look like the stricter answer and be a false one: a package peek never
+ * compiled anything for is listed by main and would be missing here, so the
+ * descriptor would claim peek offers fewer tools than it does.
  */
-export const DRIVER_TOOL_SPECS: readonly ToolSpec[] = [...neo4jMcpTools]
-
-/** The names packages contribute, for diagnostics and for the tests that assert this list is reachable. */
-export function driverToolNames(): string[] {
-  return DRIVER_TOOL_SPECS.map((spec) => spec.name)
-}
+export const toolContribution: PackageContribution<InstalledTool> = definePackageContribution({
+  declaredIn: 'tools',
+  what: 'MCP tool',
+  declaredKeys: () => installedTools().map((tool) => tool.name),
+  compiled: () => installedTools(),
+  keyOf: (tool) => tool.name,
+})

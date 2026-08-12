@@ -1,11 +1,11 @@
 import type { Patch } from 'immer'
 import {
-  ConnectionConfigSchema,
   REDACTED,
   redactConnectionConfig,
   type ConnectionState,
   type Workspace,
 } from '@peek/core'
+import { parseConnectionConfig, redactRulesFor } from '../../drivers/manifests'
 
 /**
  * The redaction layer for everything leaving the main process.
@@ -27,7 +27,7 @@ export function redactWorkspace(ws: Workspace): Workspace {
 }
 
 export function redactConnectionState(conn: ConnectionState): ConnectionState {
-  return { ...conn, config: redactConnectionConfig(conn.config) }
+  return { ...conn, config: redactConnectionConfig(conn.config, redactRulesFor(conn.driverId)) }
 }
 
 /** Redact broadcast patches (used by STATE_PATCH) */
@@ -56,6 +56,29 @@ function redactPatch(patch: Patch): Patch {
   return isSecretField(path[3]) ? { ...patch, value: REDACTED } : patch
 }
 
+/**
+ * The one scrubbing decision in peek that is **not** taken from a driver's
+ * `redact` rules. Said plainly so nobody reads the rest of this file and assumes
+ * otherwise.
+ *
+ * It cannot be: a patch is a path and a value, and `['connections', id, 'config',
+ * field]` carries no `driverId` to look the rules up by. Answering it would mean
+ * handing `redactPatches` the post-change workspace so it could read
+ * `connections[id].driverId` back out — a second argument, threaded from
+ * `ipc-main.ts`, for a branch nothing reaches.
+ *
+ * Nothing reaches it today, and that is what makes leaving it safe rather than
+ * merely convenient: a config is only ever written whole (`conn.open` replaces
+ * the `ConnectionState`), and `store/mutations.ts` never touches `config` at all,
+ * so immer has no way to emit a patch this deep. Everything that does arrive is
+ * caught one level up by `redactMaybeConfig`, which *is* rules-driven. The list
+ * below is a backstop for a shape the store cannot currently produce.
+ *
+ * **What breaks it**: the first mutation that assigns a single config field.
+ * Whoever writes it has to either come back here or take the workspace argument —
+ * because from that moment a package's own secret field, whatever it is called,
+ * would broadcast in the clear while the three names below still pass.
+ */
 const SECRET_FIELDS = new Set(['password', 'apiKey', 'url'])
 
 function isSecretField(field: string | number): boolean {
@@ -79,7 +102,12 @@ function redactMaybeConnection(value: unknown): unknown {
 }
 
 function redactMaybeConfig(value: unknown): unknown {
-  const parsed = ConnectionConfigSchema.safeParse(value)
+  // Through the registry, not core's open schema: that one accepts any record
+  // with a servable `driverId`, so a config for a driver peek does not have
+  // would parse, answer `{}` rules, and travel verbatim. Refusing it here is
+  // what keeps this branch meaning what it says.
+  const config = parseConnectionConfig(value, 'keep')
   // Anything unparseable is wiped wholesale: better to under-report than to leak a password
-  return parsed.success ? redactConnectionConfig(parsed.data) : REDACTED
+  if (config === null) return REDACTED
+  return redactConnectionConfig(config, redactRulesFor(config.driverId))
 }

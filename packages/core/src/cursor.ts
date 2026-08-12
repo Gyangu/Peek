@@ -75,22 +75,27 @@ export interface ScanCursor {
 }
 
 /**
- * `<driverId>:<skip>:<boundary>`. The driver id is lowercase alphanumerics (see
- * `DRIVER_IDS`) and the skip is digits, so neither can swallow a colon that
- * belongs to the boundary.
+ * `<driverId>:<skip>:<boundary>`. The skip is digits and the id cannot contain a
+ * colon, so neither can swallow one that belongs to the boundary.
  *
- * **The id class must stay in step with `DRIVER_IDS`.** It was `[a-z]+` while
- * every id happened to be pure letters, and `neo4j` — the first one with a digit
- * in it — did not match: `encodeScanCursor` minted `neo4j:0:7` and
- * `decodeScanCursor` refused its own output as malformed. The visible failure is
- * a scan that silently cannot continue past its first page, on that driver only.
- * `scan-cursor.test.ts` catches it because it loops over `DRIVER_IDS` rather than
- * over a hand-written list.
+ * **The id class here is `PACKAGE_ID_PATTERN`, spelled out.** It has to be: a
+ * driver id peek refuses to decode is a scan that silently cannot continue past
+ * its first page, on that driver only. The class was `[a-z]+` while every id
+ * happened to be pure letters, and `neo4j` — the first with a digit — minted
+ * `neo4j:0:7` and then refused its own output. The hyphen is the same bug
+ * waiting for the first package called `my-db`, which is now something a user
+ * can install rather than something only this repository could add.
  *
- * Digits are safe to admit here: the skip group is anchored between two colons
- * and is matched greedily after the id, so a numeric id cannot swallow it.
+ * It is written out rather than composed from `PACKAGE_ID_PATTERN.source`
+ * because the class is a fragment of a larger pattern and gluing anchored
+ * sources together is harder to read than to check —`scan-cursor.test.ts` checks
+ * it, by round-tripping ids drawn from that pattern rather than from a
+ * hand-written list.
+ *
+ * Digits and hyphens are safe to admit: the skip group is anchored between two
+ * colons and matched after the id, so neither can be read as part of it.
  */
-const CURSOR_TOKEN_RE = /^([a-z][a-z0-9]*):(\d+):([\s\S]*)$/
+const CURSOR_TOKEN_RE = /^([a-z0-9][a-z0-9-]*):(\d+):([\s\S]*)$/
 
 export function encodeScanCursor(cursor: ScanCursor): string {
   const skip = Number.isFinite(cursor.skip) ? Math.max(0, Math.trunc(cursor.skip)) : 0
@@ -105,7 +110,10 @@ export function tryDecodeScanCursor(token: string): ScanCursor | null {
   if (driverId === undefined || skip === undefined || boundary === undefined) return null
   const n = Number(skip)
   if (!Number.isSafeInteger(n)) return null
-  return { driverId: driverId as DriverId, boundary, skip: n }
+  // No cast: a `DriverId` is a string of the class this regex just matched, so
+  // the match itself is the narrowing. It used to need one, back when the type
+  // was a union of six literals a regex could not produce.
+  return { driverId, boundary, skip: n }
 }
 
 /**

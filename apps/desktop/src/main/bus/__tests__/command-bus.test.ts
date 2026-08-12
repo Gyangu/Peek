@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import '../../../drivers/__tests__/in-repo-registry'
 import {
   collectPanels,
   createEmptyWorkspace,
@@ -104,6 +105,51 @@ test('invalid input yields a structured error: nothing thrown, nothing changed',
   if (res.ok) return
   assert.equal(res.error.code, 'BAD_REQUEST')
   assert.equal(h.store.rev, before, 'a validation failure does not bump rev')
+})
+
+test('conn.open refuses a driver no package provides, instead of reaching a driver host', async () => {
+  // The gate the config union used to be. `ConnOpenInputSchema` now accepts any
+  // record with a servable `driverId` — core cannot look a package up — so
+  // without this the id would travel past `connectionIdentityOf`, which throws
+  // rather than guessing which fields identify a connection, and surface as an
+  // INTERNAL error from inside a reducer.
+  const h = harness()
+  const before = h.store.rev
+  const res = await h.bus.dispatch('conn.open', { config: { driverId: 'oracle', url: 'x' } }, 'mcp')
+  assert.equal(res.ok, false)
+  if (res.ok) return
+  assert.equal(res.error.code, 'BAD_REQUEST')
+  assert.match(res.error.message, /oracle/)
+  assert.equal(h.store.rev, before, 'a refused connection leaves no state behind')
+  assert.deepEqual(h.calls.open, [], 'nothing was handed to a driver host')
+})
+
+test('conn.open refuses a field its driver never declared the type of, and names it', async () => {
+  // The other half of what the union checked: `port` was `z.number()` in the
+  // postgres branch, and is now the `number`-typed box that driver's own connect
+  // form draws. A string reaching a driver host is a connection to nowhere.
+  const h = harness()
+  const res = await h.bus.dispatch('conn.open', { config: { driverId: 'postgres', port: 'nope' } }, 'mcp')
+  assert.equal(res.ok, false)
+  if (res.ok) return
+  assert.equal(res.error.code, 'BAD_REQUEST')
+  assert.match(res.error.message, /port/)
+  assert.deepEqual(h.calls.open, [])
+})
+
+test('conn.open keeps a key no form draws — an MCP caller who knows the database meant it', () => {
+  // `'keep'`, not `'drop'`: `connectTimeoutMs` is in no connect form and is read
+  // by the connect path itself, so a parse that stripped undeclared keys would
+  // silently rewrite the caller's request.
+  const h = harness()
+  return h.bus
+    .dispatch('conn.open', { config: { ...PG_CONFIG, connectTimeoutMs: 1234 } }, 'mcp')
+    .then((res) => {
+      assert.equal(res.ok, true)
+      if (!res.ok) return
+      const conn = h.store.getState().connections[res.data.connId]
+      assert.equal(conn?.config['connectTimeoutMs'], 1234)
+    })
 })
 
 test('a missing target yields NOT_FOUND, and the half-applied reduce is discarded wholesale', async () => {
@@ -677,8 +723,14 @@ test('state.read: read-only, no rev bump, config already redacted', async () => 
 
   const conn = res.data.snapshot.connections[0]
   assert.equal(conn.id, connId)
-  assert.equal(conn.config.driverId === 'postgres' && conn.config.password, '***')
-  assert.equal(conn.config.driverId === 'postgres' && conn.config.url?.includes('example-password'), false)
+  // The `driverId === 'postgres' &&` prefix these two carried was the config
+  // union's narrowing, not part of what is being asserted; a config is an open
+  // record now, so the id is checked on its own line and the fields are read as
+  // the unknowns they are.
+  assert.equal(conn.config.driverId, 'postgres')
+  assert.equal(conn.config.password, '***')
+  assert.equal(typeof conn.config.url, 'string')
+  assert.equal(String(conn.config.url).includes('example-password'), false)
 })
 
 test('state.read: include and viewId narrow what comes back', async () => {

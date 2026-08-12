@@ -8,6 +8,7 @@ import {
   type WorkspaceReader,
   type WorkspaceSnapshot,
 } from '@peek/core'
+import { redactRulesFor } from '../../drivers/manifests'
 
 // immer's patch plugin has to be enabled explicitly, or produceWithPatches yields no patches
 enablePatches()
@@ -66,7 +67,7 @@ export class WorkspaceStore implements WorkspaceReader {
 
   /** Read-only snapshot for the outside world: configs redacted, views flattened (used by both state.read and MCP's read_workspace) */
   getSnapshot(): WorkspaceSnapshot {
-    return snapshotWorkspace(this.#state)
+    return snapshotWorkspace(this.#state, redactRulesFor)
   }
 
   get rev(): number {

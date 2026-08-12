@@ -27,8 +27,9 @@ import {
   type CommandSource,
   type WorkspaceSnapshot,
 } from '@peek/core'
-import { MCP_INSTRUCTIONS } from './instructions'
-import { collectTools, registerTools } from './registry'
+import { mcpInstructions } from './instructions'
+import { collectTools, reconcileSessionTools, registerTools, type RegisteredPeekTool } from './registry'
+import type { PackageToolCaller } from './package-tools'
 import {
   defaultConfigDir,
   generateToken,
@@ -118,6 +119,14 @@ export interface CreateMcpServerOptions {
   logger?: McpLogger
   /** Supply an explicit tool set; otherwise tools/*.ts are collected automatically. */
   tools?: PeekTool[]
+  /**
+   * How a package tool reaches its host, for the tools collected here.
+   *
+   * Separate from `tools` so that supplying the caller does not also pin the
+   * set: the list has to be re-collected whenever a package is installed or
+   * uninstalled, and it is re-collected *with* this.
+   */
+  callPackageTool?: PackageToolCaller
 }
 
 export interface McpServerHandle {
@@ -131,6 +140,20 @@ export interface McpServerHandle {
   readonly toolNames: readonly string[]
   readonly sessionCount: number
   readonly listening: boolean
+  /**
+   * Tell every live session that `tools/list` would now answer differently.
+   *
+   * Called after a package is installed or uninstalled. Synchronous and
+   * best-effort: a session whose transport has gone is a session that will not
+   * be asking again, so a failure to reach one is logged and not raised — the
+   * caller has already changed the registry and cannot un-change it because a
+   * dead socket did not accept a notification.
+   *
+   * Each session's descriptions are recomputed first — see
+   * `refreshToolDescriptions`, which is what stops this from being a
+   * notification about nothing.
+   */
+  notifyToolsChanged(): void
   /** Start listening and write ~/.peek/mcp.json; rejects with a PeekError on failure. */
   start(): Promise<McpEndpointFile>
   /** Graceful shutdown. */
@@ -147,6 +170,17 @@ interface SessionEntry {
   id: string
   transport: StreamableHTTPServerTransport
   server: McpServer
+  /**
+   * This session's tool table, so it can be reconciled and its descriptions
+   * recomputed in place. Reassigned by `notifyToolsChanged`, never mutated.
+   */
+  tools: readonly RegisteredPeekTool[]
+  /**
+   * Who this session authenticated as, kept because reconciling needs to build a
+   * `ToolContext` for tools registered after the session opened — and `source`
+   * is a property of who connected, settled once at `initialize`.
+   */
+  source: CommandSource
   lastSeenAt: number
 }
 
@@ -159,7 +193,32 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
   const serverInfo = options.serverInfo ?? { name: 'peek', version: '0.0.1' }
   const token = options.token ?? readExistingToken(configDir) ?? generateToken()
 
-  const tools = options.tools ?? collectTools()
+  /**
+   * The tool surface, as of the last time anything asked for it.
+   *
+   * A slot rather than a constant, and that is the second half of acceptance 13
+   * (§4duodevicies(d)). `collectTools()` reads `installedTools()` through
+   * `packageTools`, so its answer moves when a package is installed or
+   * uninstalled — but this was computed once when the server was built, which is
+   * why §4sedecies(b) found an uninstalled package's tool still listed *in a
+   * brand-new session*: every session was handed the same array.
+   *
+   * An explicit `options.tools` pins it. That is what a test supplying its own
+   * set means, and rebuilding over it would throw the set away.
+   *
+   * Which is exactly why the caller travels as `options.callPackageTool` and not
+   * as a pre-collected array. Main used to pass `tools: collectTools({ callPackageTool })`
+   * — it had no other way to hand the package-host caller in — and that silently
+   * took the pin meant for tests, leaving the shipped app's list frozen at
+   * startup however the registry moved. Acceptance 13 stayed false through two
+   * rounds of fixes aimed one layer lower; `smoke-drivers.mjs` is what found it,
+   * and is still the only thing guarding this line (§4vicies(c)).
+   */
+  const collectOptions = options.callPackageTool === undefined ? {} : { callPackageTool: options.callPackageTool }
+  let tools = options.tools ?? collectTools(collectOptions)
+  const rebuildTools = (): void => {
+    if (options.tools === undefined) tools = collectTools(collectOptions)
+  }
 
   const agentToken = options.agentToken ?? null
   const externalSource: CommandSource = options.source ?? 'mcp'
@@ -219,11 +278,23 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
 
   async function createSession(source: CommandSource): Promise<StreamableHTTPServerTransport> {
     await evictIfNeeded()
+    // Here rather than only on `notifyToolsChanged`, so that a new session is
+    // right because it read the registry and not because a notification happened
+    // to have fired. §4sedecies(b) measured the difference: re-handshaking was
+    // the first thing tried against the stale list, and it did not help.
+    rebuildTools()
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (sessionId) => {
-        sessions.set(sessionId, { id: sessionId, transport, server, lastSeenAt: Date.now() })
+        sessions.set(sessionId, {
+          id: sessionId,
+          transport,
+          server,
+          tools: registered,
+          source,
+          lastSeenAt: Date.now(),
+        })
         logger.log('info', `MCP session established: ${sessionId}`)
       },
       onsessionclosed: (sessionId) => {
@@ -239,10 +310,22 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
     }
 
     const server = new McpServer(serverInfo, {
-      capabilities: { tools: { listChanged: false } },
-      instructions: MCP_INSTRUCTIONS,
+      // True since packages can be installed and uninstalled without a restart
+      // (design 2026-08-07 §2.7). Declaring `false` while the tool list moves is
+      // lying to the protocol — a client that trusted the declaration would cache
+      // a list that no longer matches what peek will accept, and the failure
+      // surfaces as a tool call for a database that is gone.
+      capabilities: { tools: { listChanged: true } },
+      // Fixed for the life of this session, and there is no notification that can
+      // correct it — the protocol has `tools/list_changed` and nothing for
+      // instructions. So a package installed after this line runs contributes its
+      // tools to this session and its **skill only to sessions opened later**.
+      // §2.7 records this as one of the two things hot loading cannot do; it is a
+      // protocol limit, not a shortcut, and `mcpInstructions()` being lazy is
+      // what makes the *next* session correct.
+      instructions: mcpInstructions(),
     })
-    registerTools(server, tools, contextFor(source))
+    const registered = registerTools(server, tools, contextFor(source))
     await server.connect(transport)
     return transport
   }
@@ -525,6 +608,31 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
     logger.log('info', 'MCP server closed')
   }
 
+  /**
+   * One notification per live session, and one failure does not cost the others.
+   *
+   * Per session rather than once on a shared server because there is no shared
+   * server: `createSession` builds an `McpServer` per transport (see the comment
+   * on `contextFor` — `source` is a property of who connected), so the
+   * notification has to be sent down each one.
+   */
+  function notifyToolsChanged(): void {
+    rebuildTools()
+    for (const entry of sessions.values()) {
+      try {
+        // Before the notification, not after: a client that re-lists the instant
+        // it hears must be answered with the new list, and this is the only thing
+        // that puts it there. The SDK stored a table of tools when the session was
+        // created — both which tools and how each describes itself — so both have
+        // to be brought forward, and `reconcileSessionTools` does both.
+        entry.tools = reconcileSessionTools(entry.server, entry.tools, tools, contextFor(entry.source))
+        entry.server.sendToolListChanged()
+      } catch (err) {
+        logger.log('warn', `Could not tell MCP session ${entry.id} that the tool list changed`, err)
+      }
+    }
+  }
+
   return {
     host,
     port,
@@ -532,13 +640,16 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
     url: `http://${host}:${port}${path}`,
     token,
     agentToken,
-    toolNames: tools.map((t) => t.name),
+    get toolNames() {
+      return tools.map((t) => t.name)
+    },
     get sessionCount() {
       return sessions.size
     },
     get listening() {
       return listening
     },
+    notifyToolsChanged,
     start,
     close,
   }

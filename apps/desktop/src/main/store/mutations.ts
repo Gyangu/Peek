@@ -38,6 +38,30 @@ export function putConnection(draft: Draft<Workspace>, conn: ConnectionState): v
   draft.connections[conn.id] = conn as Draft<ConnectionState>
 }
 
+/**
+ * Write in the three strings the owning package computed for a connection.
+ *
+ * A second write to a connection the reducer already created, because the
+ * reducer cannot wait for them: naming a connection runs in the package's host
+ * process now, and a Command reduction is synchronous (design §2.3(b)). The
+ * reducer seeds placeholders, this lands the answer, and both changes reach the
+ * renderer as ordinary patches.
+ *
+ * A connection that has gone away in between is not an error — the user may have
+ * closed it while the host was still thinking, and there is nothing left to name.
+ */
+export function setConnectionDisplay(
+  draft: Draft<Workspace>,
+  connId: ConnId,
+  display: { label: string; detail: string; endpoint: string },
+): void {
+  const conn = draft.connections[connId]
+  if (!conn) return
+  conn.label = display.label
+  conn.detail = display.detail
+  conn.endpoint = display.endpoint
+}
+
 export interface ConnectionReadyPatch {
   capabilities?: Capability[]
   serverInfo?: ServerInfo

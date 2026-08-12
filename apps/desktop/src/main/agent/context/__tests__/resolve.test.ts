@@ -22,6 +22,7 @@ import { buildPromptBlocks, toContentBlock } from '../blocks'
 import { defaultAttachmentLabel, resolveAttachment, resolveAttachments, summarizeIndexes } from '../resolve'
 import { createAttachmentStore } from '../store'
 import type { ContextSource, TabularSlice } from '../types'
+import { redactRulesFor } from '../../../../drivers/manifests'
 
 /* ==================================================================
  * Resolution is where a descriptor meets reality — and reality is
@@ -78,7 +79,7 @@ function stubSource(o: StubOptions = {}): ContextSource {
       return o.views?.[viewId] ?? null
     },
     getSnapshot() {
-      return snapshotWorkspace(ws)
+      return snapshotWorkspace(ws, redactRulesFor)
     },
   }
 }
@@ -282,7 +283,10 @@ describe('resolveAttachment · workspace and credentials', () => {
     ws.connections[CONN] = {
       id: CONN,
       driverId: 'postgres',
+      identity: 'postgres\u0000postgresql://admin@db.internal:5432/app',
       label: 'prod',
+      detail: 'postgresql://admin:***@db.internal:5432/app',
+      endpoint: 'db.internal:5432/app',
       config: {
         driverId: 'postgres',
         url: 'postgresql://admin:hunter2@db.internal:5432/app',

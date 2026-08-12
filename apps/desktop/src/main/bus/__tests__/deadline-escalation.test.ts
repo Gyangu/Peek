@@ -3,6 +3,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
+import '../../../drivers/__tests__/in-repo-registry'
+// This file is the one that actually forks a driver host, so it needs the other
+// half of the registry too: which package a driver belongs to is the first
+// lookup `manager.connect` makes, where that package keeps its `driver.mjs` is
+// the second.
+import '../../packages/__tests__/in-repo-locations'
 import {
   newResultId,
   type Capability,

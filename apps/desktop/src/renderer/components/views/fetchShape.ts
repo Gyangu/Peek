@@ -56,8 +56,8 @@ export function fetchShapeKey(view: ViewState): string {
         view.scoreThreshold ?? null,
         view.filter ?? null,
       ])
-    case 'plugin':
-      return JSON.stringify(['plugin', view.pluginKind, view.state])
+    case 'package':
+      return JSON.stringify(['package', view.packageKind, view.state])
     default:
       return JSON.stringify(['view', view.id])
   }

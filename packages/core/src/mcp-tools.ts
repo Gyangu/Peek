@@ -21,7 +21,7 @@ import type { WorkspaceSnapshot } from './workspace'
  * tools the kernel ships. That was right while the kernel was the only author. A
  * driver package cannot import the app — the dependency runs the other way, and
  * closing it into a cycle is the one thing the whole package boundary exists to
- * prevent — so the moment `@peek/driver-neo4j` wants to contribute `expand_node`,
+ * prevent — so the moment `@peek/db-neo4j` wants to contribute `expand_node`,
  * the *shape* of a tool has to be reachable from a package.
  *
  * Nothing here is new; every type is the one that was there, moved. The app's
@@ -43,7 +43,7 @@ import type { WorkspaceSnapshot } from './workspace'
  * misreport, the catch that stops one tool's exception from taking the server
  * down — lives in that one function. A package that built its own `PeekTool`
  * would be a second execution path with none of it, and the drift would show up
- * as a plugin tool that quietly reports a window it did not change.
+ * as a package tool that quietly reports a window it did not change.
  *
  * ## The tool layer is a thin shell
  *
@@ -303,13 +303,119 @@ export interface PeekTool {
  * object rather than a contextual type imposed on an unchecked one.
  *
  * (The widening is sound because `toCommands` and `render` are declared with
- * method syntax, so their parameters are bivariant — the same reason a manifest
- * can declare `endpointSummary` over its own config branch. `defineManifest`
- * exists for the mirror-image reason; see `manifest.ts`.)
+ * method syntax, so their parameters are bivariant — the same reason a package's
+ * `DriverDisplay` can declare `endpoint` over its own config branch.
+ * `DriverManifest` records the mirror-image case; see `manifest.ts`.)
  *
  * The app's `defineCommandTool` is what turns the result into a runnable
  * `PeekTool`, and a package must not do that itself — see this module's header.
  */
 export function defineToolSpec<S extends z.ZodType>(spec: ToolSpec<S>): ToolSpec<S> {
   return spec
+}
+
+/* ================================================================== */
+/* 6. The declarative half of a package tool                            */
+/* ================================================================== */
+
+/**
+ * A tool's declaration with none of the code that runs it.
+ *
+ * The split is a process boundary, not tidiness. A package's mappings run in
+ * that package's host (design 2026-08-07 §2.4bis), and main still has to list
+ * the tools: `tools/list` answers without waking a single host, or twenty
+ * installed packages would fork twenty processes to say twenty names. So main
+ * reads this — a name, a description, a schema, nothing callable — and the
+ * mappings stay on the far side with the package.
+ *
+ * Which is also why the two halves must not share a module. Bundlers assign
+ * whole modules to chunks, so a file exporting both a declaration and a mapping
+ * puts the mapping in every chunk that wanted the declaration, and main grows
+ * back the package code the boundary exists to keep out — silently, because
+ * nothing about it fails.
+ *
+ * In Phase C these fields are read off the package's manifest and no package
+ * code produces them at all. This is that manifest's shape, arrived at early.
+ */
+export interface CommandToolMeta<S extends z.ZodType = z.ZodType> extends ToolSpecBase<S> {
+  kind: 'command'
+  /**
+   * Whether the package declares its own receipt renderer.
+   *
+   * Main has to know before it can ask: `defineCommandTool` reads a missing
+   * `render` as "use the default receipt", and a stand-in cannot decide that
+   * from an answer it has not received yet. Whether a tool writes its own
+   * receipt is part of its declaration rather than of its behaviour, which is
+   * what makes it knowable here at all.
+   */
+  hasRenderer: boolean
+}
+
+/** The read-only half of `ToolMeta`; see `ReadToolSpec` for what it declares. */
+export interface ReadToolMeta<S extends z.ZodType = z.ZodType> extends ToolSpecBase<S> {
+  kind: 'read'
+}
+
+export type ToolMeta<S extends z.ZodType = z.ZodType> = CommandToolMeta<S> | ReadToolMeta<S>
+
+/**
+ * A `ToolMeta` tagged with the package that has to run it.
+ *
+ * The tag is not the package's to declare: a `ToolSpec` names no package, so
+ * ownership is stated once by whoever assembled the list — the app's
+ * `drivers/mcpTools.ts` today, the directory a manifest was found in in Phase C.
+ */
+export type PackageToolMeta = ToolMeta & { readonly packageId: string }
+
+/** The half of a tool that is code — what a package's host process runs. */
+export type ToolCode<S extends z.ZodType = z.ZodType> =
+  | Pick<CommandToolSpec<S>, 'toCommands' | 'render'>
+  | Pick<ReadToolSpec<S>, 'read'>
+
+/**
+ * Declare a tool's metadata in a driver package. Identity at runtime; the work
+ * is in the type parameter, for the reason `defineToolSpec` spells out.
+ */
+export function defineToolMeta<S extends z.ZodType>(meta: ToolMeta<S>): ToolMeta<S> {
+  return meta
+}
+
+/**
+ * Join a declaration to the code that runs it.
+ *
+ * The single place the two halves meet, so that the pair cannot drift into
+ * disagreement — which is the failure this whole split would otherwise buy: a
+ * declaration promising a receipt renderer and a host that has none reaches the
+ * model as a package that looks broken, and nothing on either side would have
+ * noticed. Here it is a module-load throw, in the process that owns both.
+ */
+export function toolFromMeta<S extends z.ZodType>(meta: ToolMeta<S>, code: ToolCode<S>): ToolSpec<S> {
+  const base = {
+    name: meta.name,
+    ...(meta.title === undefined ? {} : { title: meta.title }),
+    description: meta.description,
+    inputSchema: meta.inputSchema,
+    ...(meta.annotations === undefined ? {} : { annotations: meta.annotations }),
+  }
+  if (meta.kind === 'read') {
+    if (!('read' in code)) {
+      throw new Error(`Tool ${meta.name} is declared read-only but was given a mapping onto Commands.`)
+    }
+    return { ...base, kind: 'read', read: code.read }
+  }
+  if (!('toCommands' in code)) {
+    throw new Error(`Tool ${meta.name} is declared a command tool but was given no mapping onto Commands.`)
+  }
+  if (meta.hasRenderer !== (code.render !== undefined)) {
+    throw new Error(
+      `Tool ${meta.name} declares hasRenderer=${String(meta.hasRenderer)} and ` +
+        `${code.render === undefined ? 'has no renderer' : 'has one'}.`,
+    )
+  }
+  return {
+    ...base,
+    kind: 'command',
+    toCommands: code.toCommands,
+    ...(code.render === undefined ? {} : { render: code.render }),
+  }
 }

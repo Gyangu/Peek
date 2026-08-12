@@ -19,12 +19,12 @@ import { join } from 'node:path'
  *  - **In Phase B, nothing.** Both sources are directories in this repository,
  *    compiled into the same build. The set of names is exactly as pinned as it
  *    was; it is merely spelled in two places.
- *  - **In Phase C, a lot.** The second source becomes `~/.peek/plugins/`, and
+ *  - **In Phase C, a lot.** The second source becomes `~/.peek/packages/`, and
  *    "registered" comes to mean "the user installed it". The trust root goes from
  *    *this repository* to *this repository plus whatever the user put in a
  *    directory*, with no signature, manifest check or sandbox in between
  *    (decision 1, §2.7). That is not a weakness in this file — it is the price of
- *    plugins, and this comment exists so that nobody has to rediscover it by
+ *    packages, and this comment exists so that nobody has to rediscover it by
  *    reading a green check.
  *
  * Shared by the script and by `mcp/__tests__/tool-surface.test.ts` so the two
@@ -51,10 +51,10 @@ function kernelToolFiles(repoRoot) {
  *
  * Discovered by looking, not by a hand-kept list: a package that adds the file
  * is registered by having it, which is the same rule `main/mcp/tools/` follows
- * and the same rule `~/.peek/plugins/` will follow. A hand-kept list here would
+ * and the same rule `~/.peek/packages/` will follow. A hand-kept list here would
  * be a third place to forget.
  *
- * **`driver-` prefixed only, and that word is doing work.** `@peek/core` has a
+ * **`db-` prefixed only, and that word is doing work.** `@peek/core` has a
  * `src/mcp-tools.ts` of its own — the *contract* a tool is declared in, not a
  * tool — and a bare `packages/*` glob swept it up as a source. It declares no
  * name today, so nothing was wrong on the wire; what was wrong is that a
@@ -66,7 +66,7 @@ function kernelToolFiles(repoRoot) {
 function packageToolFiles(repoRoot) {
   const packagesDir = join(repoRoot, 'packages')
   return readdirSync(packagesDir)
-    .filter((pkg) => pkg.startsWith('driver-'))
+    .filter((pkg) => pkg.startsWith('db-'))
     .sort()
     .map((pkg) => join(packagesDir, pkg, 'src', 'mcp-tools.ts'))
     .filter((path) => existsSync(path))

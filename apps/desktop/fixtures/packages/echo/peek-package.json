@@ -1,0 +1,60 @@
+{
+  "id": "echo",
+  "version": "0.1.0",
+  "peek": "^0.0.1",
+  "drivers": [
+    {
+      "driverId": "echo",
+      "displayName": "Echo",
+      "capabilities": ["introspect", "collectionScan"],
+      "connectForm": {
+        "modes": ["fields"],
+        "fields": {
+          "url": [],
+          "fields": [
+            {
+              "name": "url",
+              "type": "text",
+              "label": { "en": "Server address", "zh-CN": "服务地址" },
+              "placeholder": "echo://localhost",
+              "defaultValue": "echo://localhost",
+              "required": true,
+              "mono": true,
+              "always": true
+            },
+            {
+              "name": "password",
+              "type": "password",
+              "label": { "en": "Password", "zh-CN": "密码" }
+            }
+          ]
+        }
+      },
+      "redact": { "password": "value" },
+      "identity": ["url"],
+      "mcpConnectExample": "{\"driverId\":\"echo\",\"url\":\"echo://localhost\"}",
+      "skill": "A fixture, not a database. One collection named 'rows' holding two constant rows; scanning it always returns the same answer and there is nothing to query."
+    }
+  ],
+  "tools": [
+    {
+      "kind": "command",
+      "hasRenderer": false,
+      "name": "echo_ping",
+      "description": "A fixture tool, and deliberately one with no mapping behind it. It is here so that installing and uninstalling this package moves the MCP tool list; calling it fails, which is the asymmetry design §2.4bis(d) is built on — listing reads this file, calling would need a package host.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "text": { "type": "string" } },
+        "required": ["text"],
+        "additionalProperties": false
+      },
+      "title": "Echo something back",
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true }
+    }
+  ],
+  "entry": {
+    "driver": "driver.mjs",
+    "contrib": "contrib.mjs",
+    "ui": "ui"
+  }
+}

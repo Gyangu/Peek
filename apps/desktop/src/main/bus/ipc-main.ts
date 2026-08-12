@@ -7,6 +7,7 @@ import {
   type ChatId,
   type CommandName,
   type CommandSource,
+  type InstalledPackages,
   type NotifyMessage,
   type StatePatchMessage,
   type StateSnapshotMessage,
@@ -108,6 +109,28 @@ function readInvokeMessage(raw: unknown): InvokeMessage | null {
 export function sendNotify(renderers: readonly WebContents[], message: NotifyMessage): void {
   for (const wc of renderers) {
     if (!wc.isDestroyed()) wc.send(IPC.NOTIFY, message)
+  }
+}
+
+/**
+ * Tell every window what is installed now.
+ *
+ * A fan-out beside `sendNotify` rather than a patch: what is installed is not
+ * Workspace state — no `rev`, no continuity check, nothing for MCP's
+ * `read_workspace` to return — and `IPC.PACKAGES_CHANGED` records why it is also
+ * not an answer on the synchronous read channel.
+ *
+ * The whole registry travels, not a delta. It is three small lists that change
+ * when a person clicks a button, and the window replaces its copy wholesale
+ * (`installPackages` refuses to merge, so that a package cannot survive its own
+ * uninstall).
+ */
+export function sendPackagesChanged(
+  renderers: readonly WebContents[],
+  installed: InstalledPackages,
+): void {
+  for (const wc of renderers) {
+    if (!wc.isDestroyed()) wc.send(IPC.PACKAGES_CHANGED, installed)
   }
 }
 

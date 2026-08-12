@@ -46,7 +46,7 @@ import {
   type ViewState,
 } from '@peek/core'
 import type { TFunction } from '../../i18n'
-import { lookupViewKind } from '../../plugins/viewKinds'
+import { lookupViewKind } from '../../packages/viewKinds'
 
 /**
  * Rows to request for a whole-result attachment.
@@ -242,11 +242,11 @@ export function collectionRefOf(view: ViewState): CollectionRef | null {
     case 'tree':
     case 'chat':
       return null
-    // A plugin view may or may not browse something core models. Asking its
+    // A package view may or may not browse something core models. Asking its
     // registration is the only way to know — and `null` from an unregistered
-    // kind is the right answer, not a guess: without the plugin there is
+    // kind is the right answer, not a guess: without the package there is
     // nothing that can say what its state addresses.
-    case 'plugin':
-      return lookupViewKind(view.pluginKind)?.contract.collectionRef(view) ?? null
+    case 'package':
+      return lookupViewKind(view.packageKind)?.contract.collectionRef(view) ?? null
   }
 }

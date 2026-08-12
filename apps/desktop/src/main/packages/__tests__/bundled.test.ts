@@ -48,7 +48,7 @@ function tempRoot(prefix: string): string {
 }
 
 /** A manifest the schema accepts, since anything less reads as "no version at all". */
-function manifest(id: string, version: string): string {
+function manifest(id: string, version: string, driverId: string = id): string {
   return JSON.stringify(
     {
       id,
@@ -57,7 +57,7 @@ function manifest(id: string, version: string): string {
       entry: { driver: 'driver.mjs' },
       drivers: [
         {
-          driverId: id,
+          driverId,
           displayName: id,
           capabilities: ['introspect'],
           connectForm: {
@@ -81,6 +81,8 @@ interface Fixture {
   extra?: Readonly<Record<string, string>>
   /** Bytes for `peek-package.json`, when the point is that they are not a manifest. */
   raw?: string
+  /** The driver it provides, when the point is that two packages claim one. Defaults to the id. */
+  driverId?: string
 }
 
 function writePackage(root: string, id: string, fixture: Fixture = {}): string {
@@ -88,7 +90,10 @@ function writePackage(root: string, id: string, fixture: Fixture = {}): string {
   mkdirSync(join(dir, 'ui'), { recursive: true })
   writeFileSync(join(dir, 'driver.mjs'), '')
   writeFileSync(join(dir, 'ui', 'index.html'), '')
-  writeFileSync(join(dir, 'peek-package.json'), fixture.raw ?? manifest(id, fixture.version ?? '0.0.1'))
+  writeFileSync(
+    join(dir, 'peek-package.json'),
+    fixture.raw ?? manifest(id, fixture.version ?? '0.0.1', fixture.driverId),
+  )
   for (const [name, body] of Object.entries(fixture.extra ?? {})) writeFileSync(join(dir, name), body)
   return dir
 }
@@ -325,6 +330,33 @@ describe('what it refuses to guess', () => {
 
     assertOutcome(statuses, 'redis', 'laid-out')
     assert.equal(statuses.length, 2, 'every shipped id is accounted for')
+  })
+
+  test('a shipped copy whose driver an installed package already claims is refused, not copied', () => {
+    const bundled = tempRoot('peek-bundled-')
+    const packages = tempRoot('peek-packages-')
+    writePackage(bundled, 'postgres')
+    // The user's own package, under a name of its own, providing the driver the
+    // shipped `postgres` provides. Rule 1 asks whether the *id* is absent, and
+    // absent is not the same as free.
+    writePackage(packages, 'my-postgres', { driverId: 'postgres' })
+
+    const { statuses } = layOutBundledPackages({ bundledRoot: bundled, packagesRoot: packages })
+
+    assertOutcome(statuses, 'postgres', 'failed')
+    assert.match(
+      statusOf(statuses, 'postgres').detail ?? '',
+      /already provided by the package 'my-postgres'/,
+    )
+    // The copy is what would make this silent: the directory would sit there,
+    // be refused by every scan for the rest of the install's life, and — through
+    // `packages.restore` — be reported as restored on the way in.
+    assert.equal(existsSync(join(packages, 'postgres')), false)
+    // And the package that was there first is still the one that answers.
+    assert.deepEqual(
+      loadPackages(packages).loaded.map((pkg) => pkg.id),
+      ['my-postgres'],
+    )
   })
 
   test('no bundled directory at all is an empty report, not a boot failure', () => {

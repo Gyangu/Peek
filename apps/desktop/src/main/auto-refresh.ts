@@ -252,7 +252,7 @@ interface RefreshCommand {
 /**
  * The command that re-runs one view, by kind.
  *
- * The vector and plugin patches are empty on purpose: `applyViewPatch` changes
+ * The vector and package patches are empty on purpose: `applyViewPatch` changes
  * nothing, and `refresh: true` is what asks for the fetch — the same shape the
  * table view's Next-page button has always used. A table goes through
  * `refreshPatch` instead, because on a cursor-paged collection "refresh" has to
@@ -266,8 +266,8 @@ function refreshCommand(view: RefreshableView): RefreshCommand {
       return { name: 'query.run', input: { viewId: view.id, text: view.text } }
     case 'vector':
       return { name: 'view.update', input: { viewId: view.id, patch: { kind: 'vector' }, refresh: true } }
-    case 'plugin':
-      return { name: 'view.update', input: { viewId: view.id, patch: { kind: 'plugin' }, refresh: true } }
+    case 'package':
+      return { name: 'view.update', input: { viewId: view.id, patch: { kind: 'package' }, refresh: true } }
   }
 }
 

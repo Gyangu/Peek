@@ -12,6 +12,7 @@ import { installedPackages } from '../../drivers/installed'
 import { fail } from '../bus/failure'
 import type { CommandHandlerMap } from '../bus/types'
 import { removeConnection } from '../store/mutations'
+import { packageLoadNotices } from './installed'
 import type { PackageLoadReport } from './loader'
 import {
   driverIdsOfPackage,
@@ -34,11 +35,12 @@ import {
  * §2.7 spells the first two out. What it does not say, because it predates
  * decision 7, is that **none of them loads a line of the package's code**:
  *
- *     install    manifest → full check → replace the directory → re-scan
- *                → tell the windows → MCP `tools/list_changed`
- *     uninstall  close its connections → close their views → remove the
- *                directory (+ tombstone) → re-scan → tell the windows
+ *     install    manifest → full check → kill its package host → replace the
+ *                directory → re-scan → tell the windows
  *                → MCP `tools/list_changed`
+ *     uninstall  close its connections → close their views → kill its package
+ *                host → remove the directory (+ tombstone) → re-scan → tell the
+ *                windows → MCP `tools/list_changed`
  *     restore    clear the tombstones → lay the missing bundled ones back out
  *                → re-scan → tell the windows → MCP `tools/list_changed`
  *
@@ -47,6 +49,15 @@ import {
  * is opened. Both are separate processes, both lazy, and that is why an install
  * can take effect immediately and an uninstall can be complete: there is nothing
  * in main to import and nothing in main to forget (§2.4bis f).
+ *
+ * **What is lazy still has to be killed.** §2.4bis(f)'s "kill it and it is
+ * really gone" was written about uninstall and holds for install word for word:
+ * a package host that has already imported `contrib.mjs` keeps answering out of
+ * it, so an install that only replaced the files would move the version number
+ * everywhere it is *reported* — settings, `packages.read`, `tools/list` — and
+ * nowhere it is *computed*. That is why both paths above have the kill in them,
+ * and why it sits ahead of the directory in each. Restore has none: it writes
+ * only ids that are absent, and nothing absent is running.
  *
  * ## Install and restore are `read`s, uninstall is a `reduce`
  *
@@ -104,11 +115,52 @@ export interface PackageCommandOptions {
   notify(message: NotifyMessage): void
 }
 
-export function createPackageHandlers(options: PackageCommandOptions): CommandHandlerMap {
+/**
+ * @param disposeHost Kill one package's host process. A second parameter rather
+ * than a `PackageCommandOptions` field for the reason the 2026-08-11 design gave
+ * about `createPackageAdmin`, which takes the identical one: `options` is the
+ * assembly the four verbs share, and killing a process is something only two of
+ * them ever do. Main hands both functions the same wrapper.
+ */
+export function createPackageHandlers(
+  options: PackageCommandOptions,
+  disposeHost: (packageId: string) => Promise<void>,
+): CommandHandlerMap {
   const { catalog } = options
 
   function listing(): PackageListing[] {
     return packageListing(installedPackages(), catalog)
+  }
+
+  /**
+   * Say, in `packageLoadNotices`'s words, what the scan made of what this
+   * command just wrote.
+   *
+   * `adopt` alone is not enough: a package can be copied in successfully and
+   * still be refused by the scan that follows — two packages laid out in one
+   * pass that claim the same driver, or a directory that appeared beside this
+   * one since the check ran — and until this existed that refusal went into a
+   * `PackageLoadReport` nobody read. The command then answered with a success
+   * receipt naming a package that is not in the list beside it, which is design
+   * §4.2 item 10 failing in the one way it is not allowed to: silently.
+   *
+   * Filtered to `ids` on the same grounds the install path already applied to
+   * warnings — re-announcing every pre-existing one would bury the one that
+   * belongs to what just happened — but by filtering the *report* rather than
+   * the messages, so the wording of a refusal stays in the single place that
+   * owns it. `loaded` is passed through whole: the "nothing is installed" line
+   * is a statement about the directory, and after a verb that claims to have
+   * added something to it, it is exactly the line worth having.
+   */
+  function noticesFor(report: PackageLoadReport, ids: ReadonlySet<string>): NotifyMessage[] {
+    return packageLoadNotices(
+      {
+        loaded: report.loaded,
+        refused: report.refused.filter((entry) => ids.has(entry.id)),
+        warnings: report.warnings.filter((entry) => ids.has(entry.id)),
+      },
+      options.packagesRoot,
+    )
   }
 
   return {
@@ -117,7 +169,7 @@ export function createPackageHandlers(options: PackageCommandOptions): CommandHa
     },
 
     'packages.install': {
-      read: (_state, input): PackagesInstallResult => {
+      read: async (_state, input): Promise<PackagesInstallResult> => {
         // Measured against the disk rather than against the registry: the
         // registry is what the *last* scan found, and the collision checks below
         // are about what is there now. A package hand-copied into the directory
@@ -125,7 +177,7 @@ export function createPackageHandlers(options: PackageCommandOptions): CommandHa
         // a rare one — it is how this fixture-driven verification works.
         const before = options.scan()
 
-        const outcome = installPackage({
+        const outcome = await installPackage({
           // The one place the two spellings of "which directory" become one.
           // `bundledId` is resolved here rather than in `manage.ts` because the
           // bundle root is a fact about this process, and `installPackage` is
@@ -134,6 +186,10 @@ export function createPackageHandlers(options: PackageCommandOptions): CommandHa
           sourceDir: 'dir' in input ? input.dir : join(options.bundledRoot, input.bundledId),
           packagesRoot: options.packagesRoot,
           loaded: before.loaded,
+          // The id is the manifest's, which only `installPackage` has resolved
+          // by the time this is called — a directory named `echo-1.0.0`
+          // installs, and has to be killed, as `echo`.
+          evict: disposeHost,
         })
         if (!outcome.ok) {
           // Every issue, not the first: `loader.ts` collects them precisely so a
@@ -152,9 +208,7 @@ export function createPackageHandlers(options: PackageCommandOptions): CommandHa
         // is answered from the registry that now includes the package.
         options.toolsChanged()
 
-        for (const warning of after.warnings.filter((entry) => entry.id === outcome.id)) {
-          options.notify({ level: 'warn', message: `Package '${warning.id}': ${warning.message}` })
-        }
+        for (const notice of noticesFor(after, new Set([outcome.id]))) options.notify(notice)
 
         return {
           id: outcome.id,
@@ -226,6 +280,15 @@ export function createPackageHandlers(options: PackageCommandOptions): CommandHa
           packagesRoot: options.packagesRoot,
           bundledRoot: options.bundledRoot,
         })
+        // Before the re-scan, because this is the one failure with no package to
+        // blame: `~/.peek/packages` is a regular file, or peek was once started
+        // under `sudo` and cannot write there now. Nothing was laid out, so the
+        // registry cannot have moved, and the sentence `restoreBundledPackages`
+        // wrote is the whole of what there is to say. Reported as the command's
+        // failure rather than as `{restored: []}` for the reason
+        // `unavailablePackageHandlers` gives: that reply is byte-for-byte the one
+        // a working peek gives when nothing was missing.
+        if (!outcome.ok) fail('INTERNAL', outcome.issue)
 
         // Unconditionally, even when nothing was laid out. The tombstone file
         // changed on every press — that is what makes the *next* start behave —
@@ -237,13 +300,11 @@ export function createPackageHandlers(options: PackageCommandOptions): CommandHa
         options.adopt(after)
         options.toolsChanged()
 
-        // Only the packages this press brought back, on the same grounds as the
-        // install path: re-announcing every pre-existing warning would bury the
-        // one that belongs to what just happened.
-        const brought = new Set(outcome.restored)
-        for (const warning of after.warnings.filter((entry) => brought.has(entry.id))) {
-          options.notify({ level: 'warn', message: `Package '${warning.id}': ${warning.message}` })
-        }
+        // Only the packages this press brought back — see `noticesFor`. The
+        // refusals matter more here than anywhere: `restored` names a directory
+        // that was written, and a package the scan then refused is a name in a
+        // success receipt with nothing behind it.
+        for (const notice of noticesFor(after, new Set(outcome.restored))) options.notify(notice)
 
         return {
           restored: [...outcome.restored],

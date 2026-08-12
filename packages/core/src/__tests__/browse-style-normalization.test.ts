@@ -15,7 +15,7 @@ import {
  *
  * They did not. `resolveCollectionBrowseStyle` folded an empty `sortableColumns`
  * into `sortable: false`, but every driver calls `assertBrowseSupported` with the
- * declaration it built itself — `driver-qdrant/src/session.ts` passes
+ * declaration it built itself — `db-qdrant/src/session.ts` passes
  * `browseStyleOf(...)` straight in — and that function read `sortable` on its
  * own. So a qdrant collection with no payload index (the list is built from the
  * indexes, so it comes out empty) went past the "cannot order this collection"

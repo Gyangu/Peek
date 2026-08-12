@@ -7,11 +7,20 @@ import {
   keyValueAddressing,
   keyValueReadOptions,
   type KeyValueWindow,
+  type NamespaceNode,
 } from '@peek/core'
 import { redisDriver, requireRedisConfig } from '../driver'
 import { isRedisCommandRefusal, mapRedisError, redisErrorPrefix } from '../errors'
 import { redisManifest } from '../manifest'
-import { keyspaceNodeId, parseKeyspaceNodeId, splitKeyPrefix } from '../keyspace'
+import {
+  MAX_PREFIX_NODES,
+  PREFIX_SAMPLE_KEYS,
+  RedisKeyspace,
+  keyspaceNodeId,
+  parseKeyspaceNodeId,
+  splitKeyPrefix,
+  type KeyspaceDeps,
+} from '../keyspace'
 import { isRedisResumeToken, parseRedisResumeToken, redisResumeToken } from '../scan'
 import { REDIS_TYPE_TO_SHAPE, redisTypeShape } from '../values'
 
@@ -253,5 +262,111 @@ describe('db-redis contract', () => {
       ['key', 'type', 'ttlMs', 'size', 'bytes', 'encoding'],
     )
     assert.equal(KEYSPACE_SCAN_SCHEMA[0]?.primaryKey, true)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * A SCAN over a synthetic keyspace, so the sample ceiling can be crossed without
+ * a server and without redis bucket order deciding the outcome.
+ *
+ * The cursor is a plain offset and MATCH is ignored, which is only sound because
+ * every test below lists the database level (`base === ''`, MATCH `*`). A test
+ * that expands a prefix node would need the filter.
+ */
+function fakeDeps(keys: readonly string[]): KeyspaceDeps {
+  return {
+    scanPage: async (_db, cursor, _match, count) => {
+      const at = Number(cursor)
+      const end = Math.min(at + count, keys.length)
+      return { cursor: end >= keys.length ? '0' : String(end), keys: keys.slice(at, end) }
+    },
+    keyCounts: async () => new Map([[0, keys.length]]),
+    databaseCount: async () => 16,
+  }
+}
+
+function elisions(nodes: readonly NamespaceNode[]): NamespaceNode[] {
+  return nodes.filter((n) => n.elision !== undefined)
+}
+
+/* ==================================================================
+ * A level the sample could not finish has to say so.
+ *
+ * The tree stops at PREFIX_SAMPLE_KEYS, which is the design (see keyspace.ts:
+ * the tree is orientation, the scan is truth). What was a defect is that
+ * stopping was silent: prefixes the sample *reached* carried `(sampled)`, keys
+ * it never reached were absent with nothing standing in for them, and the two
+ * folded nodes keyed off MAX_PREFIX_NODES — a presentation cap — rather than off
+ * the read having been cut short.
+ * ================================================================== */
+
+describe('db-redis namespace tree, truncated levels', () => {
+  it('says nothing about truncation when the scan reached the end', async () => {
+    const tree = new RedisKeyspace(fakeDeps(['user:1', 'user:2', 'tags', 'queue:jobs']))
+    const level = await tree.listChildren('db:0')
+
+    assert.deepEqual(level.map((n) => n.name).sort(), ['queue', 'tags', 'user'])
+    assert.deepEqual(elisions(level), [], 'a complete level must not claim to be missing anything')
+    // The counts on a complete level are facts, and keep saying so
+    assert.equal(level.find((n) => n.name === 'user')?.detail, '2 keys')
+  })
+
+  it('ends a cut-short level with an elision that carries no number', async () => {
+    // 3_000 keys under one prefix, then a single leaf key. The SCAN stops at
+    // 2_000, so `tags` is never read — this is the shape that used to render as
+    // a level with one confident-looking node and no hint that anything is
+    // missing.
+    const keys = [...Array(3_000).keys()].map((i) => `bulk:${i}`).concat('tags')
+    const level = await new RedisKeyspace(fakeDeps(keys)).listChildren('db:0')
+
+    assert.equal(level.find((n) => n.name === 'bulk')?.kind, 'keyPrefix')
+    assert.equal(
+      level.find((n) => n.name === 'tags'),
+      undefined,
+      'the premise: a key past the ceiling is absent from the level, not folded into it',
+    )
+
+    const marked = elisions(level)
+    assert.equal(marked.length, 1, 'exactly one row stands for the unread remainder')
+    const [truncated] = marked
+    assert.ok(truncated?.id.endsWith('#truncated'))
+    assert.equal(truncated.ref, undefined, 'there is no pattern that means "what I did not read"')
+    assert.equal(truncated.hasChildren, false)
+    assert.equal(
+      truncated.elision?.remaining,
+      undefined,
+      'the driver stopped reading, so it has no honest count of what is left',
+    )
+    // Pinned as a shape, not as wording: whatever this row is reworded to, it
+    // must not acquire a figure. A number here would be a count of what the
+    // sample happened to see, printed where it reads as the whole remainder.
+    assert.doesNotMatch(String(truncated.detail), /\d/)
+  })
+
+  it('counts a folded prefix tail only when the sample saw the whole level', async () => {
+    // Complete: every distinct head is in `groups`, so the leftover is exact
+    const heads = MAX_PREFIX_NODES + 100
+    const whole = [...Array(heads).keys()].map((i) => `p${String(i).padStart(4, '0')}:x`)
+    const completeLevel = await new RedisKeyspace(fakeDeps(whole)).listChildren('db:0')
+    const counted = completeLevel.find((n) => n.id.endsWith('#more-prefixes'))
+    assert.equal(counted?.elision?.remaining, heads - MAX_PREFIX_NODES)
+    assert.equal(counted?.detail, `${heads - MAX_PREFIX_NODES} more prefixes`)
+
+    // Cut short: the same arithmetic now counts only the heads the sample
+    // reached, so the number goes away rather than understating the level
+    const cycled = [...Array(PREFIX_SAMPLE_KEYS * 2).keys()].map(
+      (i) => `p${String(i % heads).padStart(4, '0')}:${i}`,
+    )
+    const cutLevel = await new RedisKeyspace(fakeDeps(cycled)).listChildren('db:0')
+    const uncounted = cutLevel.find((n) => n.id.endsWith('#more-prefixes'))
+    assert.ok(uncounted, 'the level still has more prefixes than it draws')
+    assert.equal(uncounted.elision?.remaining, undefined)
+    assert.doesNotMatch(String(uncounted.detail), /\d/)
+    assert.ok(
+      cutLevel.some((n) => n.id.endsWith('#truncated')),
+      'the unread remainder gets its own row even when a folded tail is already there',
+    )
   })
 })

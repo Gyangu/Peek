@@ -47,19 +47,29 @@ const repoRoot = resolve(appDir, '../..')
  * fails the build on it. It cannot silently resolve to something else.
  */
 const peekAlias = {
-  '@peek/driver-postgres/manifest': resolve(repoRoot, 'packages/driver-postgres/src/manifest.ts'),
-  '@peek/driver-redis/manifest': resolve(repoRoot, 'packages/driver-redis/src/manifest.ts'),
-  '@peek/driver-qdrant/manifest': resolve(repoRoot, 'packages/driver-qdrant/src/manifest.ts'),
-  '@peek/driver-sql/manifest': resolve(repoRoot, 'packages/driver-sql/src/manifest.ts'),
-  '@peek/driver-neo4j/manifest': resolve(repoRoot, 'packages/driver-neo4j/src/manifest.ts'),
-  '@peek/driver-neo4j/view': resolve(repoRoot, 'packages/driver-neo4j/src/view.ts'),
-  '@peek/driver-neo4j/mcp-tools': resolve(repoRoot, 'packages/driver-neo4j/src/mcp-tools.ts'),
+  '@peek/db-postgres/manifest': resolve(repoRoot, 'packages/db-postgres/src/manifest.ts'),
+  '@peek/db-redis/manifest': resolve(repoRoot, 'packages/db-redis/src/manifest.ts'),
+  '@peek/db-qdrant/manifest': resolve(repoRoot, 'packages/db-qdrant/src/manifest.ts'),
+  '@peek/db-sql/manifest': resolve(repoRoot, 'packages/db-sql/src/manifest.ts'),
+  '@peek/db-neo4j/manifest': resolve(repoRoot, 'packages/db-neo4j/src/manifest.ts'),
+  '@peek/db-postgres/display': resolve(repoRoot, 'packages/db-postgres/src/display.ts'),
+  '@peek/db-redis/display': resolve(repoRoot, 'packages/db-redis/src/display.ts'),
+  '@peek/db-qdrant/display': resolve(repoRoot, 'packages/db-qdrant/src/display.ts'),
+  '@peek/db-sql/display': resolve(repoRoot, 'packages/db-sql/src/display.ts'),
+  '@peek/db-neo4j/display': resolve(repoRoot, 'packages/db-neo4j/src/display.ts'),
+  '@peek/db-neo4j/view': resolve(repoRoot, 'packages/db-neo4j/src/view.ts'),
+  '@peek/db-neo4j/mcp-tools': resolve(repoRoot, 'packages/db-neo4j/src/mcp-tools.ts'),
+  // The declarative half. Reached by `drivers/__tests__/in-repo-packages.ts`,
+  // which the fixture below installs as its registry: since §4duodevicies the
+  // tool list is part of a registry, and the probe fills the same slot the
+  // window fills from `IPC.PACKAGES_READ`.
+  '@peek/db-neo4j/mcp-tool-meta': resolve(repoRoot, 'packages/db-neo4j/src/mcp-tool-meta.ts'),
   '@peek/core': resolve(repoRoot, 'packages/core/src/index.ts'),
-  '@peek/driver-postgres': resolve(repoRoot, 'packages/driver-postgres/src/index.ts'),
-  '@peek/driver-redis': resolve(repoRoot, 'packages/driver-redis/src/index.ts'),
-  '@peek/driver-qdrant': resolve(repoRoot, 'packages/driver-qdrant/src/index.ts'),
-  '@peek/driver-sql': resolve(repoRoot, 'packages/driver-sql/src/index.ts'),
-  '@peek/driver-neo4j': resolve(repoRoot, 'packages/driver-neo4j/src/index.ts'),
+  '@peek/db-postgres': resolve(repoRoot, 'packages/db-postgres/src/index.ts'),
+  '@peek/db-redis': resolve(repoRoot, 'packages/db-redis/src/index.ts'),
+  '@peek/db-qdrant': resolve(repoRoot, 'packages/db-qdrant/src/index.ts'),
+  '@peek/db-sql': resolve(repoRoot, 'packages/db-sql/src/index.ts'),
+  '@peek/db-neo4j': resolve(repoRoot, 'packages/db-neo4j/src/index.ts'),
 }
 
 /**

@@ -29,9 +29,9 @@ export const panel: CatalogFor<PanelMessages> = {
   'a11y.panel.empty': '空面板 {index}',
 
   'view.gone': '视图 {viewId} 已不存在',
-  'view.pluginMissing': '没有插件提供「{kind}」这种视图',
-  'view.pluginUnbuilt': '「{kind}」视图的界面没有构建 —— 执行 pnpm build:plugin-ui',
-  'view.pluginError': '「{kind}」视图报告了一个问题',
+  'view.packageMissing': '没有数据库包提供「{kind}」这种视图',
+  'view.packageUnbuilt': '「{kind}」视图的界面没有构建 —— 执行 pnpm build:packages',
+  'view.packageError': '「{kind}」视图报告了一个问题',
 
   'view.kind.table': '表格',
   'view.kind.query': '查询',

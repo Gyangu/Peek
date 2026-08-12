@@ -107,6 +107,25 @@ export interface InstallRequest {
   readonly packagesRoot: string
   /** What is loaded right now, for the collision checks one manifest cannot make. */
   readonly loaded: readonly LoadedPackage[]
+  /**
+   * Stop whatever is already running under this package's id.
+   *
+   * Awaited **after every check has passed and before the first byte moves**,
+   * which is `admin.ts`'s kill-then-remove ordering seen from the other side. A
+   * package host has the old `contrib.mjs` in memory, and replacing files under
+   * a live one does not replace what it answers with: `packages.read`, the
+   * settings panel and `tools/list` all move to the new version while every
+   * call — every tool, every package view — is still computed by the old code,
+   * until the app restarts or the package is uninstalled, with nothing said.
+   * Killing after the copy would narrow that window rather than close it, and
+   * would leave the old process serving calls out of a directory that is
+   * already the new one.
+   *
+   * A callback rather than a `PackageHostRegistry` for the reason `admin.ts`
+   * gives: that registry forks Electron utility processes, and this module has
+   * to stay reachable by `node --test`.
+   */
+  readonly evict: (id: string) => Promise<void>
 }
 
 export type InstallOutcome =
@@ -136,8 +155,16 @@ export type InstallOutcome =
  * across devices `renameSync` degrades to a copy and stops being atomic, which
  * is the property being bought. Same reasoning as `copyIn` in `bundled.ts`, and
  * the same `STAGING_PREFIX`, so the litter sweep there covers a crash here.
+ *
+ * ## What is being replaced stops running before it is replaced
+ *
+ * Hence `async`: `evict` is awaited between the last check that can refuse and
+ * the first statement that writes, and an install that skipped it would move the
+ * files and change nothing anybody can observe through the package (see the
+ * field). It is the only await here, and it is deliberately on the side of the
+ * disk work where nothing has happened yet.
  */
-export function installPackage(request: InstallRequest): InstallOutcome {
+export async function installPackage(request: InstallRequest): Promise<InstallOutcome> {
   const { packagesRoot } = request
 
   if (!isAbsolute(request.sourceDir)) {
@@ -176,14 +203,31 @@ export function installPackage(request: InstallRequest): InstallOutcome {
   const staging = join(packagesRoot, `${STAGING_PREFIX}${id}`)
   const replaced = statSync(target, { throwIfNoEntry: false })?.isDirectory() === true
 
-  mkdirSync(packagesRoot, { recursive: true, mode: CONFIG_DIR_MODE })
+  // Here and nowhere else: after the last check that can refuse, before the
+  // first statement that writes. See `evict` for what the other two orders cost.
+  // Unconditional rather than `if (replaced)`, because a host can outlive the
+  // directory it was forked from — a hand-deleted package, an earlier install
+  // that died at the rename — and re-forking one that was not running costs a
+  // process nobody was using.
+  await request.evict(id)
+
   try {
+    mkdirSync(packagesRoot, { recursive: true, mode: CONFIG_DIR_MODE })
     rmSync(staging, { recursive: true, force: true })
     cpSync(source, staging, { recursive: true })
     rmSync(target, { recursive: true, force: true })
     renameSync(staging, target)
   } catch (error) {
-    rmSync(staging, { recursive: true, force: true })
+    // The cleanup is not allowed to become the reported failure: `force: true`
+    // only swallows ENOENT, so on the filesystems this path fails on at all —
+    // full, read-only, ACL'd — the removal raises its own error and the user is
+    // told about `.installing-<id>` instead of about their install. Same rule as
+    // `discardStaging` in `bundled.ts`; the litter sweep collects it later.
+    try {
+      rmSync(staging, { recursive: true, force: true })
+    } catch {
+      // See above.
+    }
     return {
       ok: false,
       id,
@@ -229,8 +273,26 @@ export function uninstallPackage(request: UninstallRequest): UninstallOutcome {
   const { id, packagesRoot } = request
   const tombstoned = request.catalog.has(id)
 
+  // The two steps report separately, because "could not be removed" was a lie in
+  // the first one's mouth: a tombstone that fails to write names a `.tmp` file
+  // inside the packages directory and the package's own directory has not been
+  // touched yet, so the user was told peek could not delete something it had not
+  // tried to delete.
+  if (tombstoned) {
+    try {
+      writeTombstone(packagesRoot, id, request.version)
+    } catch (error) {
+      return {
+        ok: false,
+        issue:
+          `'${id}' is a package peek ships, and the note that it was uninstalled could not be written ` +
+          `to ${packagesRoot} — ${messageOf(error)}. The package is still installed: removing it ` +
+          'without that note would only bring it back on the next start.',
+      }
+    }
+  }
+
   try {
-    if (tombstoned) writeTombstone(packagesRoot, id, request.version)
     rmSync(join(packagesRoot, id), { recursive: true, force: true })
   } catch (error) {
     return { ok: false, issue: `'${id}' could not be removed: ${messageOf(error)}` }
@@ -248,11 +310,15 @@ export interface RestoreRequest {
   readonly bundledRoot: string
 }
 
-export interface RestoreOutcome {
-  /** Ids that were absent and are now installed, in lay-out order. */
-  readonly restored: readonly string[]
-  readonly failed: readonly { readonly id: string; readonly detail: string | null }[]
-}
+export type RestoreOutcome =
+  | {
+      readonly ok: true
+      /** Ids that were absent and are now installed, in lay-out order. */
+      readonly restored: readonly string[]
+      readonly failed: readonly { readonly id: string; readonly detail: string | null }[]
+    }
+  /** Nothing was restored, and the reason is about the packages directory rather than any one package. */
+  | { readonly ok: false; readonly issue: string }
 
 /**
  * Forget every uninstall of a bundled package, then lay the missing ones back out.
@@ -273,10 +339,34 @@ export interface RestoreOutcome {
  *
  * So "restore" restores what is *missing*, and `restored` is the honest report
  * of that: on the common press it is empty, and that is not a failure.
+ *
+ * ## Both steps can fail before any package is reached
+ *
+ * `clearTombstones` writes a file and `layOutBundledPackages` needs the
+ * directory that file lives in, so on a read-only `~/.peek` this function used
+ * to throw a raw `EACCES` out of `writeFileSync` — which the command bus turned
+ * into an INTERNAL carrying an `fs` stack trace and the name of a `.tmp` file,
+ * with the words "restore bundled packages" nowhere in it. The failure is
+ * reported instead, in one sentence about the directory, because that is the
+ * only actionable thing there is to say: no id is at fault.
  */
 export function restoreBundledPackages(request: RestoreRequest): RestoreOutcome {
-  clearTombstones(request.packagesRoot)
+  try {
+    clearTombstones(request.packagesRoot)
+  } catch (error) {
+    return {
+      ok: false,
+      issue:
+        `the bundled packages could not be restored: peek could not clear the record of uninstalled ` +
+        `packages in ${request.packagesRoot} — ${messageOf(error)}`,
+    }
+  }
+
   const report = layOutBundledPackages(request)
+  // The tombstones are gone by now, so a failure here still leaves the *next*
+  // start restoring them. That is the same asymmetry `uninstallPackage` documents
+  // for the other direction, and it fails in the direction the user asked for.
+  if (report.issue !== null) return { ok: false, issue: report.issue }
 
   const restored: string[] = []
   const failed: { id: string; detail: string | null }[] = []
@@ -284,7 +374,7 @@ export function restoreBundledPackages(request: RestoreRequest): RestoreOutcome 
     if (status.outcome === 'laid-out') restored.push(status.id)
     else if (status.outcome === 'failed') failed.push({ id: status.id, detail: status.detail })
   }
-  return { restored, failed }
+  return { ok: true, restored, failed }
 }
 
 /** Every driver id a package provides, out of the registry rather than off the disk. */

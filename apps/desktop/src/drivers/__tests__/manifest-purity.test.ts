@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, test } from 'node:test'
 
-import { blankNonCode } from '../../__tests__/sourceScan'
+import { blankNonCode } from '../../renderer/__tests__/sourceScan'
 
 /* ==================================================================
  * The manifest subpath is a wall. This is what holds it up.
@@ -17,7 +17,7 @@ import { blankNonCode } from '../../__tests__/sourceScan'
  * cold start, inside a process that is not allowed to open a socket to a
  * database in the first place.
  *
- * `@peek/driver-x/manifest` exists precisely so the window can *describe* a
+ * `@peek/db-x/manifest` exists precisely so the window can *describe* a
  * database without carrying one. The subpath bypasses `index.ts` — and so
  * `./driver`, and so the client — but only for as long as `manifest.ts` imports
  * nothing that reaches back. Nothing in the type system says that. The build
@@ -55,15 +55,16 @@ import { blankNonCode } from '../../__tests__/sourceScan'
  * thing must not count as the thing.
  * ================================================================== */
 
-/** `…/apps/desktop/src/renderer/components/__tests__` → the workspace root. */
-const REPO_ROOT = resolve(import.meta.dirname, '../../../../../..')
+/** `…/apps/desktop/src/drivers/__tests__` → the workspace root. */
+const REPO_ROOT = resolve(import.meta.dirname, '../../../../..')
 
-/** The four packages that expose a client-free `/manifest` subpath. */
+/** The five packages that expose a client-free `/manifest` subpath. */
 const MANIFEST_PACKAGES = [
-  'driver-postgres',
-  'driver-redis',
-  'driver-qdrant',
-  'driver-sql',
+  'db-postgres',
+  'db-redis',
+  'db-qdrant',
+  'db-sql',
+  'db-neo4j',
 ] as const
 
 /** Where the subpath must point, in every table that resolves it. */
@@ -199,7 +200,7 @@ describe('manifest purity', () => {
       )
       assert.ok(
         modules.includes('@peek/core'),
-        `${manifestPath(pkg)} must import @peek/core — every manifest is built with defineManifest. ` +
+        `${manifestPath(pkg)} must import @peek/core — every manifest is typed by DriverManifest. ` +
           `Not finding it means the specifier patterns no longer match how imports are written here.`,
       )
     }

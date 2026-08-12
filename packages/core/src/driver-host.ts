@@ -36,7 +36,7 @@ import type { NotifyLevel } from './ipc'
  *
  * ## Why this lives in core
  *
- * It did not, at first. M1 put the host runtime inside `@peek/driver-postgres`,
+ * It did not, at first. M1 put the host runtime inside `@peek/db-postgres`,
  * where it was 95% driver-agnostic and 5% hard-wired: it defaulted to
  * `postgresDriver`, called `requirePostgresConfig` on connect, and answered
  * `vector.search` and `keyvalue.get` with UNSUPPORTED_CAPABILITY unconditionally.
@@ -51,7 +51,7 @@ import type { NotifyLevel } from './ipc'
  * runtime moved here, next to the protocol it implements, and the driver packages
  * shrank back to what a driver actually is: connect, introspect, produce cursors.
  *
- * `@peek/driver-postgres` keeps its own copy for now (its 50 tests pin that
+ * `@peek/db-postgres` keeps its own copy for now (its 50 tests pin that
  * implementation); it is a straight substitution whenever someone wants to make
  * it.
  *

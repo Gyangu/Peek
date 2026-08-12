@@ -9,11 +9,11 @@ import {
   readErrno,
   type PeekError,
 } from '@peek/core'
-import { mapPgError } from '@peek/driver-postgres'
-import { mapQdrantError } from '@peek/driver-qdrant'
-import { mapRedisError } from '@peek/driver-redis'
-import { mapSqlError } from '@peek/driver-sql'
-import { MYSQL_DIALECT } from '@peek/driver-sql'
+import { mapPgError } from '@peek/db-postgres'
+import { mapQdrantError } from '@peek/db-qdrant'
+import { mapRedisError } from '@peek/db-redis'
+import { mapSqlError } from '@peek/db-sql'
+import { MYSQL_DIALECT } from '@peek/db-sql'
 
 /**
  * Cross-driver agreement on the part of error mapping that is not about any

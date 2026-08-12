@@ -1,10 +1,12 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { installPackages } from '../drivers/installed'
+import { tryBridge } from './bridge'
 import { App } from './components/App'
 import { startChat } from './components/chat'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { initLocale } from './i18n'
-import { startPlugins } from './plugins/register'
+import { startPackages } from './packages/register'
 import { startRenderer } from './state/sync'
 import './styles.css'
 
@@ -21,17 +23,36 @@ import './styles.css'
  * button and a blank window that keeps quietly applying patches nobody renders.
  */
 
+/*
+ * First, ahead of the three `start*` calls and ahead of React — earlier than
+ * anything else in this file, because it is what the rest reads.
+ *
+ * The window holds no compiled-in list of databases any more (design §1.4): the
+ * connect dialog's fields, the capability prediction behind every greyed-out
+ * button and the package registration below are all projections of what main
+ * found under `~/.peek/packages/`. Preload fetched it synchronously as this
+ * document loaded (`IPC.PACKAGES_READ`), so there is nothing to await — but there
+ * is an order, and getting it wrong would not throw. It would draw an empty
+ * database picker once and never correct itself, because nothing here re-renders
+ * on a registry that only ever fills in once.
+ *
+ * A missing bridge leaves the registry empty rather than throwing: preload can
+ * fail (see its own fallback path), and a window that reports "no databases" is
+ * one a person can act on. Main has already put the reason on the error centre.
+ */
+installPackages(tryBridge()?.installedPackages ?? { drivers: [], viewKinds: [], tools: [] })
+
 // Before the first render, so the window never paints English and then swaps.
 initLocale()
 
 startRenderer()
 
 // Before the first render, and at module scope for the same reason as the two
-// calls around it. A restored workspace can contain a plugin view, and a view
-// whose kind is not registered yet renders as `view.pluginMissing` — a wrong
+// calls around it. A restored workspace can contain a package view, and a view
+// whose kind is not registered yet renders as `view.packageMissing` — a wrong
 // answer that would correct itself a frame later, which is worse than either
 // being right or staying blank.
-startPlugins()
+startPackages()
 
 // Two subscriptions in one call, and at module scope for the same reason
 // `startRenderer` is: StrictMode double-invokes effects, and this must not

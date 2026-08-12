@@ -22,6 +22,18 @@ import type {
  */
 export type EffectIntent =
   | { type: 'connect'; connId: ConnId; config: ConnectionConfig; timeoutMs?: number; soft?: boolean }
+  | {
+      type: 'describeConnection'
+      connId: ConnId
+      /**
+       * **Already redacted.** The three display strings are derived from the
+       * redacted config (a label built from a raw URL carries the password into
+       * the sidebar), and this intent is also the one that leaves main: it is
+       * answered by the package's own code in another process.
+       */
+      config: ConnectionConfig
+      soft?: boolean
+    }
   | { type: 'disconnect'; connId: ConnId; soft?: boolean }
   | {
       type: 'runQuery'
@@ -64,6 +76,22 @@ export type EffectIntent =
       soft?: boolean
     }
   | { type: 'cancel'; connId: ConnId; resultId: ResultId; soft?: boolean }
+  /**
+   * Take a package off the disk, after `packages.uninstall` has closed
+   * everything that was pointing at it.
+   *
+   * An intent rather than work the reducer does, for the ordinary reason: a
+   * reducer runs inside `produce` and this deletes a directory, kills a host
+   * process and re-reads the packages root. It is planned **after** the
+   * `disconnect` intents for that package's connections, and intents run in
+   * order — so every driver-host process is already winding down before the
+   * `driver.mjs` it loaded is removed from underneath it.
+   *
+   * `version` travels with it because the tombstone records which build of a
+   * bundled package the user threw away (§2.5), and by the time the effect runs
+   * the registry that knew it has been asked to forget it.
+   */
+  | { type: 'uninstallPackage'; packageId: string; version: string; soft?: boolean }
 
 export type EffectIntentType = EffectIntent['type']
 

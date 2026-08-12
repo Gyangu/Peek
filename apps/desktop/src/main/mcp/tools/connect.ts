@@ -7,7 +7,7 @@
 
 import { z } from 'zod'
 import { commandSchemas } from '@peek/core'
-import { DRIVER_MANIFESTS } from '../../../drivers/manifests'
+import { driverManifests } from '../../../drivers/manifests'
 import { defineCommandTool, outcomeData } from '../executor'
 import { briefConnection, renderPanelBrief, toJson } from '../summary'
 
@@ -25,8 +25,15 @@ const InputSchema = commandSchemas['conn.open']
  * `instructions.ts` already fixed this exact bug for the MCP preamble in
  * 2026-08-02 and this call site was missed. Same source, same reason: a database
  * arrives here documented, or it does not arrive here at all.
+ *
+ * A function, and read through a getter below, because the manifests come off
+ * disk now: this module is evaluated by the eager glob in `mcp/registry.ts`
+ * while main is still loading, and a constant here would be the empty list that
+ * was installed at that moment. `executor.ts`'s `baseFields` has the mechanism.
  */
-const CONNECT_EXAMPLES = DRIVER_MANIFESTS.map((m) => `${m.displayName} ${m.mcpConnectExample}`).join('; ')
+function connectExamples(): string {
+  return driverManifests().map((m) => `${m.displayName} ${m.mcpConnectExample}`).join('; ')
+}
 
 /** Only these fields of the conn.open result are read; a loose schema narrows it without `any`. */
 const ConnOpenResultShape = z.object({
@@ -38,11 +45,14 @@ export default defineCommandTool({
   kind: 'command',
   name: 'connect',
   title: 'Connect to a database',
-  description:
-    'Open a database connection and register it in peek. The shape of `config` depends on driverId — ' +
-    `a minimal example for each: ${CONNECT_EXAMPLES}. ` +
-    'Passing openTree=true also opens a namespace tree view in the UI. ' +
-    'Returns the connId and the capabilities the connection actually has.',
+  get description() {
+    return (
+      'Open a database connection and register it in peek. The shape of `config` depends on driverId — ' +
+      `a minimal example for each: ${connectExamples()}. ` +
+      'Passing openTree=true also opens a namespace tree view in the UI. ' +
+      'Returns the connId and the capabilities the connection actually has.'
+    )
+  },
   inputSchema: InputSchema,
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   toCommands(input) {

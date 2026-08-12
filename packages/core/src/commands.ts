@@ -3,6 +3,7 @@ import {
   CollectionRefSchema,
   ConnectionConfigSchema,
   FilterSpecSchema,
+  PACKAGE_ID_PATTERN,
   SortSpecSchema,
   ValueRefSchema,
   collectionBrowseStyle,
@@ -20,7 +21,7 @@ import {
   type ChatSessionInfo,
 } from './chat'
 import { MAX_PAGE_LIMIT } from './chunk'
-import { peekErrorMsg, type PeekError } from './errors'
+import { peekErrorMsg, zodIssueLines, type PeekError } from './errors'
 import {
   AttachmentIdSchema,
   ConnIdSchema,
@@ -77,6 +78,10 @@ export const COMMAND_NAMES = [
   'mcp.configure',
   'settings.read',
   'settings.write',
+  'packages.read',
+  'packages.install',
+  'packages.uninstall',
+  'packages.restore',
 ] as const
 
 export type CommandName = (typeof COMMAND_NAMES)[number]
@@ -316,14 +321,14 @@ export const ChatViewSpecSchema = z.object({
 })
 
 /**
- * Opening a view a plugin contributed.
+ * Opening a view a package contributed.
  *
  * ## Why this is the only thing the Command contract had to open
  *
  * The plan called for turning `COMMAND_NAMES` into a runtime registry so a
- * plugin could add commands. Reading the list makes that unnecessary: all 32
+ * package could add commands. Reading the list makes that unnecessary: all 32
  * names are kernel-generic — connections, layout, chat, settings — and not one
- * of them belongs to a particular database. What a plugin actually needs is not
+ * of them belongs to a particular database. What a package actually needs is not
  * a new verb but for two existing ones, `view.open` and `view.update`, to accept
  * its `kind`.
  *
@@ -337,16 +342,16 @@ export const ChatViewSpecSchema = z.object({
  *
  * ## `state` is opaque here on purpose
  *
- * The kernel cannot know a plugin's state shape at compile time, so it checks
- * what it can — that this is a record — and the plugin's own declared schema
+ * The kernel cannot know a package's state shape at compile time, so it checks
+ * what it can — that this is a record — and the package's own declared schema
  * checks the rest, exactly once, at the boundary. That is the same division
  * `keyValueReadOptions` makes for a window arriving as JSON from another
  * process: a flat bag on the wire, validated into meaning at one known place.
  */
-export const PluginViewSpecSchema = z.object({
-  kind: z.literal('plugin'),
-  /** Which plugin view to open — must match a registered kind, or main answers BAD_REQUEST. */
-  pluginKind: z.string().min(1),
+export const PackageViewSpecSchema = z.object({
+  kind: z.literal('package'),
+  /** Which package view to open — must match a registered kind, or main answers BAD_REQUEST. */
+  packageKind: z.string().min(1),
   connId: ConnIdSchema,
   state: z.record(z.string(), z.unknown()).optional(),
   title: viewTitle,
@@ -360,7 +365,7 @@ export const ViewOpenSpecSchema = z.discriminatedUnion('kind', [
   TreeViewSpecSchema,
   VectorViewSpecSchema,
   ChatViewSpecSchema,
-  PluginViewSpecSchema,
+  PackageViewSpecSchema,
 ])
 export type ViewOpenSpec = z.infer<typeof ViewOpenSpecSchema>
 
@@ -473,11 +478,11 @@ export const ViewPatchSchema = z.discriminatedUnion('kind', [
     title: viewTitle,
   }),
   /**
-   * A plugin view's patch: a shallow merge into its `state`, plus the title.
+   * A package view's patch: a shallow merge into its `state`, plus the title.
    *
    * **Merge, not replace.** Every built-in patch above is a per-field optional,
    * so `{kind:'table', offset: 40}` moves the page and leaves the filter alone.
-   * A plugin patch has to mean the same thing or the two would behave
+   * A package patch has to mean the same thing or the two would behave
    * differently for no reason a caller could see — and an MCP client that had to
    * resend the whole state to change one field would race with the user doing
    * the same.
@@ -486,7 +491,7 @@ export const ViewPatchSchema = z.discriminatedUnion('kind', [
    * fields in the vector patch above.
    */
   z.object({
-    kind: z.literal('plugin'),
+    kind: z.literal('package'),
     state: z.record(z.string(), z.unknown()).optional(),
     autoRefreshMs,
     title: viewTitle,
@@ -1369,6 +1374,103 @@ export const SettingsWriteInputSchema = z
     { message: 'settings.write needs at least one setting to change' },
   )
 
+/* ------------------------------------------------------------------ */
+/* The installed packages                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The three verbs that manage `~/.peek/packages/`.
+ *
+ * **Kernel verbs, and they belong to no database** — the same conclusion
+ * plugin-architecture §2.3bis(c) reached about the other thirty-two names in
+ * this list. A package contributes tools, view kinds and drivers; it does not
+ * contribute the ability to install a package, because the thing being installed
+ * has by definition not been read yet.
+ *
+ * Design 2026-08-07 §2.4 fixes the set at four: read, install, uninstall,
+ * restore. There is no `packages.upgrade` — an upgrade is an install over an id
+ * that is already there, and a second verb for it would be a second copy of the
+ * same validate-then-replace path with one extra opinion in it (which of the two
+ * versions wins). `PackageListing.upgradeVersion` is what tells a caller that
+ * running `packages.install` on the bundled copy would move it forward.
+ */
+export const PackagesReadInputSchema = z.object({})
+
+/**
+ * Install from a **local directory**, and only from one.
+ *
+ * §1.5 draws "install from a URL" outside this design on purpose: fetching
+ * arbitrary executable code from the network is a distribution problem, and
+ * peek's answer to it — decision 6, no signature and no hash check — is only
+ * defensible while the bytes come from somewhere the user already chose. So the
+ * parameter is a path, and the download, if there is ever to be one, is
+ * somebody else's step that ends in a directory.
+ *
+ * ## Two ways to name the directory, one install
+ *
+ * The second member is what makes §2.5 rule 2's "upgrade" button possible from a
+ * window. Rule 2 says peek never takes a shipped upgrade on its own — the user
+ * clicks — and §2.4 says there is no `packages.upgrade`, because an upgrade *is*
+ * an install over an id that is already there. Put together, the settings panel
+ * has to run this command against a directory inside the app bundle, and
+ * `PackageListing` deliberately carries no filesystem path: the window is not
+ * given home-directory or bundle paths for values it does not need.
+ *
+ * So the caller names the directory the only way it honestly can — by the id of
+ * the package this build ships — and main resolves it. Everything after that is
+ * the same code: the same full manifest check, the same staged copy, the same
+ * replace, the same receipt. What differs is who spells the path, not what an
+ * install means.
+ */
+export const PackagesInstallInputSchema = z.union([
+  z.object({
+    /**
+     * Absolute path of the package directory — the one holding
+     * `peek-package.json`, not its parent.
+     *
+     * Relative is refused rather than resolved: main's cwd is wherever the app
+     * was launched from, which for a double-clicked bundle is `/`. A path that
+     * resolved against it would mean something different depending on how peek
+     * was started, and the failure would be "no manifest there" rather than
+     * "that is not what you meant".
+     */
+    dir: z.string().min(1),
+  }),
+  z.object({
+    /**
+     * Install this build's own copy of a package, by id.
+     *
+     * The id of the *shipped* directory, which is `<bundled root>/<id>` — not a
+     * promise that anything is installed under it today. A build that ships no
+     * such package fails like any other bad path, with the id in the message.
+     */
+    bundledId: z.string().regex(PACKAGE_ID_PATTERN, 'must be lowercase letters, digits and hyphens'),
+  }),
+])
+
+export const PackagesUninstallInputSchema = z.object({
+  /** The directory name under `~/.peek/packages/`, which is also the manifest's `id`. */
+  id: z.string().regex(PACKAGE_ID_PATTERN, 'must be lowercase letters, digits and hyphens'),
+})
+
+/**
+ * Undo every uninstall of a package this build ships — decision 1's safety net.
+ *
+ * **No parameters, and specifically no id.** The thing being restored is not a
+ * directory the caller chose but whatever sits in the app bundle, and the caller
+ * has no business knowing that path. A per-id variant was considered and is
+ * worse than useless: an id that has been uninstalled is absent from
+ * `packages.read`, so the caller would have to name a package it cannot see.
+ *
+ * Why it is a fourth verb rather than a flag on `packages.install`: the input is
+ * not a path, it clears tombstones (which install must never do — installing
+ * your own PostgreSQL should not silently revoke "I do not want the shipped
+ * one"), and it is plural, while an install result names one id and one version.
+ * §2.4 records the reasoning; what it reuses is `layOutBundledPackages`, the
+ * same call a first start makes, not a second copy of it.
+ */
+export const PackagesRestoreInputSchema = z.object({})
+
 /* ================================================================== */
 /* 3. Registry: command name → input schema                            */
 /* ================================================================== */
@@ -1411,6 +1513,10 @@ export const commandSchemas = {
   'mcp.configure': McpConfigureInputSchema,
   'settings.read': SettingsReadInputSchema,
   'settings.write': SettingsWriteInputSchema,
+  'packages.read': PackagesReadInputSchema,
+  'packages.install': PackagesInstallInputSchema,
+  'packages.uninstall': PackagesUninstallInputSchema,
+  'packages.restore': PackagesRestoreInputSchema,
 } as const satisfies Record<CommandName, z.ZodType>
 
 export type CommandSchemas = typeof commandSchemas
@@ -1703,8 +1809,37 @@ export interface SavedConnection {
   /** Stable id of the entry; the address `conn.book.forget` takes. */
   id: string
   driverId: DriverId
-  /** What to show in a list. Derived from the config when the user gave no label. */
+  /**
+   * Which server and account this entry names — the string, not the hash `id`.
+   *
+   * Sent rather than left to be recomputed because the fields that make it up are
+   * the driver package's declaration (`DriverManifest.identity`) and the joining
+   * is the kernel's, so a window pairing a saved entry with a live connection has
+   * no way to derive one that is guaranteed to agree. It carries no password:
+   * `connectionIdentity` strips a URL's credentials before joining.
+   */
+  identity: string
+  /**
+   * What to show in a list.
+   *
+   * Read from the file, not derived on the way out: naming a connection is the
+   * owning package's code and a package runs in its own host process, while this
+   * list is answered on the launch path with no host started. So the pair below
+   * is computed once, when the connection opens, and stored — design 2026-08-07
+   * §2.3(b-2), and `StoredDisplay` in `config/connection-book.ts` has the long
+   * version.
+   *
+   * An entry saved before that, or one whose naming did not come back, falls back
+   * to the user's own `config.label` and finally to the driver id. It is named
+   * properly the next time it connects.
+   */
   label: string
+  /**
+   * The long form, for a tooltip — the same string a live connection carries in
+   * `ConnectionState.detail`, stored alongside `label` and empty for the same
+   * reasons it can be a fallback.
+   */
+  detail: string
   /** Redacted, and safe to display. */
   config: ConnectionConfig
   /**
@@ -1870,6 +2005,108 @@ export interface SettingsWriteResult {
   agent: AgentSettingsReadResult
 }
 
+/**
+ * One installed package, as everything outside main sees it.
+ *
+ * A per-package row, unlike `InstalledPackages`, which is three flat lists. The
+ * two shapes answer different questions and neither is derivable from the other
+ * without a loss: the flat lists are read by everything that asks "which drivers
+ * exist", and this is read by the one surface that asks "what is installed, and
+ * where did it come from" — the settings panel, and whoever is about to
+ * uninstall something.
+ *
+ * No filesystem path. The directory is `<configDir>/packages/<id>` by
+ * construction and the id is here; sending the absolute path would put a
+ * home-directory path in the window for a value it can rebuild, which is the
+ * line `packages/locations.ts` draws.
+ */
+export interface PackageListing {
+  /** Directory name, manifest `id`, and the host of its `peek-package://` URLs — one string. */
+  id: string
+  version: string
+  /**
+   * Whether **this build ships a package under this id**, which is the question
+   * both consumers actually ask.
+   *
+   * It is deliberately not "who put this copy here", because peek cannot answer
+   * that: §2.5 rule 2 keeps a user's newer install under a bundled id, and the
+   * two are the same directory afterwards. What this field decides is whether an
+   * uninstall leaves a tombstone (`bundled` does, or the next launch lays the
+   * package straight back out) and whether "restore bundled packages" would
+   * bring it back.
+   */
+  source: 'bundled' | 'user'
+  /**
+   * The version this build ships, when it is newer than the one installed.
+   *
+   * Absent for a `user` package (peek ships nothing to compare against) and for a
+   * bundled one that is already current. §2.5 rule 2 is why it is reported rather
+   * than taken: the installed copy may be the user's own, and this build merely
+   * happens to outrank it.
+   */
+  upgradeVersion?: string
+  /** The databases this package provides, in manifest order. */
+  driverIds: DriverId[]
+  /** The view kinds it declares (data half — the functions live in its `contrib.mjs`). */
+  viewKinds: string[]
+  /** The MCP tool names it declares. */
+  toolNames: string[]
+}
+
+export interface PackagesReadResult {
+  /** Sorted by id, which is the order the loader scans in. */
+  packages: PackageListing[]
+}
+
+export interface PackagesInstallResult {
+  /** The id read out of the installed manifest — not derived from the source directory's name. */
+  id: string
+  version: string
+  /** True when something was already installed under this id and has been replaced. */
+  replaced: boolean
+  /** The whole list afterwards, so a caller that just changed it need not re-read it. */
+  packages: PackageListing[]
+}
+
+export interface PackagesUninstallResult {
+  id: string
+  /** Connections that were closed because their driver went away with the package. */
+  closedConnIds: ConnId[]
+  /** Views that closed with those connections. */
+  closedViewIds: ViewId[]
+  /** True when the id was one this build ships, so a tombstone was written (§2.5 rule 3). */
+  tombstoned: boolean
+  packages: PackageListing[]
+}
+
+export interface PackagesRestoreResult {
+  /**
+   * The ids that were copied back out of the app bundle, in the order the
+   * lay-out reports them.
+   *
+   * Empty is the ordinary answer and not a failure: it means nothing this build
+   * ships was missing. The caller distinguishes "restored PostgreSQL" from
+   * "there was nothing to restore" by reading the length, which is why the ids
+   * are here rather than a count — a settings panel that has just been clicked
+   * owes the user the names.
+   */
+  restored: string[]
+  /**
+   * Bundled ids whose copy failed, with whatever the lay-out had to say.
+   *
+   * Reported rather than thrown, on the same grounds as the loader's per-package
+   * refusals (§4.2 item 10): one unreadable directory in the app bundle must not
+   * cost the four packages that copied fine.
+   *
+   * `detail` is nullable because the report it is copied from types it that way
+   * — a status carries English "whenever a human should be told", and restore
+   * has no better information than the step that did the work. A caller shows
+   * the id alone rather than a sentence peek did not observe.
+   */
+  failed: { id: string; detail: string | null }[]
+  packages: PackageListing[]
+}
+
 export interface CommandResultMap {
   'conn.open': ConnOpenResult
   'conn.close': ConnCloseResult
@@ -1903,6 +2140,10 @@ export interface CommandResultMap {
   'mcp.configure': McpConfigureResult
   'settings.read': SettingsReadResult
   'settings.write': SettingsWriteResult
+  'packages.read': PackagesReadResult
+  'packages.install': PackagesInstallResult
+  'packages.uninstall': PackagesUninstallResult
+  'packages.restore': PackagesRestoreResult
 }
 
 /** Compile-time assertion: every command needs a result type — miss one and this line goes red */
@@ -1982,18 +2223,9 @@ export function parseCommandInput<K extends CommandName>(name: K, raw: unknown):
     ok: false,
     // The summary is localizable; the zod issue list in `detail` never is.
     error: peekErrorMsg('BAD_REQUEST', 'error.command.badInput', { name }, {
-      detail: formatZodIssues(result.error),
+      detail: zodIssueLines(result.error).join('\n'),
     }),
   }
-}
-
-function formatZodIssues(error: z.ZodError): string {
-  return error.issues
-    .map((issue) => {
-      const path = issue.path.length > 0 ? issue.path.join('.') : '(root)'
-      return `${path}: ${issue.message}`
-    })
-    .join('\n')
 }
 
 /**

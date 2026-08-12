@@ -63,7 +63,10 @@ function conn(id: ConnId, status: ConnStatus): ConnectionState {
   return {
     id,
     driverId: 'postgres',
+    identity: id,
     label: id,
+    detail: id,
+    endpoint: id,
     config: { driverId: 'postgres' } as ConnectionState['config'],
     status,
     capabilities: [],

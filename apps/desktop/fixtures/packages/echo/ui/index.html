@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Echo fixture</title>
+    <!--
+      Served at `peek-package://echo/index.html`, out of `~/.peek/packages/echo/ui/`.
+
+      Self-contained down to the last byte: two files in this directory and
+      nothing else — no font, no CDN, no stylesheet outside the `<style>` below.
+      The protocol handler serves this directory and refuses everything outside
+      it, so an asset reference that resolved elsewhere would be a 404 that looks
+      like a rendering bug — and this file exists to prove the *root* is right,
+      which it cannot do if it also depends on the root being wrong.
+
+      The script is `./main.js` rather than an inline block because the response
+      CSP is `script-src 'self'`: an inline block is refused outright and the
+      frame comes up as an empty `<svg>`. The `<style>` may stay inline —
+      `style-src` carries `'unsafe-inline'`, and that asymmetry is the policy's,
+      not this file's.
+
+      ## Why it draws a fixed number of things
+
+      The other self-drawn view peek carries is neo4j's `graph`, and its size is
+      decided by how much data happens to sit on the server it connected to. A
+      benchmark built on that cannot be compared against its own previous run,
+      let alone against a baseline — which is why acceptance 21's frame half has
+      never had a carrier.
+
+      So the counts below are constants of *this file*. They are deliberately not
+      derived from the rows the host sends: the host sends whatever the echo
+      driver returns, and a size that tracks the data is the property being
+      removed. Incoming rows change the labels and nothing else, so the element
+      count is the same on a cold frame, on a frame that has received `data`, and
+      on the thousandth animated frame.
+
+      `spin` is the positive control. A benchmark that cannot see the difference
+      between an idle frame and one rewriting 300 positions every frame is too
+      blunt to conclude anything from the idle case, so the fixture has to be
+      able to produce the loud case on demand. It is off unless the view's state
+      asks for it, and it changes no element count when it is on.
+    -->
+    <style>
+      body {
+        margin: 0;
+        font: 14px/1.5 system-ui, sans-serif;
+        color-scheme: light dark;
+      }
+      #stage {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+      line {
+        stroke: currentColor;
+        stroke-width: 0.4;
+        opacity: 0.35;
+      }
+      circle {
+        fill: currentColor;
+      }
+      #caption {
+        position: fixed;
+        left: 8px;
+        bottom: 6px;
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+        opacity: 0.7;
+      }
+    </style>
+  </head>
+  <body>
+    <svg id="stage" viewBox="0 0 1000 1000" aria-hidden="true"></svg>
+    <p id="caption">echo fixture</p>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

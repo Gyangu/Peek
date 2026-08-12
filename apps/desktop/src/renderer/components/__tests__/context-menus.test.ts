@@ -134,7 +134,7 @@ const CONN_HANDLERS = {
   disconnect: () => {},
   openTree: () => {},
   openQuery: () => {},
-  openPluginView: () => {},
+  openPackageView: () => {},
   edit: () => {},
   forget: () => {},
 }

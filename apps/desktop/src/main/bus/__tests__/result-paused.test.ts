@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import '../../../drivers/__tests__/in-repo-registry'
 import {
   MCP_DEFAULT_MAX_ROWS,
   asPanelId,
@@ -24,6 +25,7 @@ import type { ToolContext, ToolOutput } from '../../mcp/types'
 import runQueryTool from '../../mcp/tools/run-query'
 import readWorkspaceTool from '../../mcp/tools/read-workspace'
 import { briefResult } from '../../mcp/summary'
+import { redactRulesFor } from '../../../drivers/manifests'
 
 /* ==================================================================
  * Regression net: "paused by design" has to stay completely separate from
@@ -39,7 +41,7 @@ import { briefResult } from '../../mcp/summary'
 
 /**
  * The backpressure pause reason, worded exactly as the postgres driver words it
- * (see StreamPump in @peek/driver-postgres). It is driver text, so it travels
+ * (see StreamPump in @peek/db-postgres). It is driver text, so it travels
  * untranslated all the way to the UI and to MCP.
  */
 const PAUSE_REASON =
@@ -185,7 +187,7 @@ test('a result set already in a terminal state is not rewritten by a late pause 
 function toolCtx(h: Harness): ToolContext {
   return {
     dispatch: (name, input, source) => h.bus.dispatch(name, input, source),
-    getSnapshot: () => snapshotWorkspace(h.store.getState()),
+    getSnapshot: () => snapshotWorkspace(h.store.getState(), redactRulesFor),
     now: () => Date.now(),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     logger: { log: () => {} },

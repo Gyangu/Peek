@@ -53,6 +53,8 @@ interface Harness {
   endpoints: (McpEndpointInfo | null)[]
   /** Everything the controller wrote to the process log, which is stdout in the real app. */
   logs: string[]
+  /** One entry per `notifyToolsChanged` the controller forwarded to a bound handle. */
+  toolListChanges: number[]
   dir: string
 }
 
@@ -66,6 +68,7 @@ function harness(options: { busy?: number[]; fatalOn?: number; forcedPort?: numb
   const notices: { level: string; message: string }[] = []
   const endpoints: (McpEndpointInfo | null)[] = []
   const logs: string[] = []
+  const toolListChanges: number[] = []
   let issued = 0
 
   const controller = createMcpController({
@@ -91,6 +94,10 @@ function harness(options: { busy?: number[]; fatalOn?: number; forcedPort?: numb
         get listening() {
           return listening
         },
+        // Which port heard about it, so the test can tell "the controller
+        // forwarded to the handle that is currently bound" from "it forwarded to
+        // a handle it was still holding after a rebind".
+        notifyToolsChanged: () => toolListChanges.push(port),
         start: async () => {
           if (options.fatalOn === port) throw asError(peekError('INTERNAL', 'the socket layer said no'))
           if (options.busy?.includes(port) === true) {
@@ -122,7 +129,7 @@ function harness(options: { busy?: number[]; fatalOn?: number; forcedPort?: numb
     onEndpoint: (endpoint) => endpoints.push(endpoint),
   })
 
-  return { controller, attempts, notices, endpoints, logs, dir }
+  return { controller, attempts, notices, endpoints, logs, toolListChanges, dir }
 }
 
 function asError(error: PeekError): Error {
@@ -283,6 +290,36 @@ describe('changing the port', () => {
   })
 })
 
+describe('telling live sessions the tool list moved', () => {
+  test('it reaches the handle that is bound right now, not the one it replaced', async () => {
+    const h = harness()
+    await h.controller.start()
+
+    h.controller.notifyToolsChanged()
+    assert.deepEqual(h.toolListChanges, [7332])
+
+    // A rebind spends the old handle and mints a new one. The controller must
+    // notify the new one — a captured handle would be notifying sessions that
+    // closed with the endpoint they belonged to.
+    h.controller.configure({ port: 7400 })
+    await settle(h.controller)
+    h.controller.notifyToolsChanged()
+    assert.deepEqual(h.toolListChanges, [7332, 7400])
+  })
+
+  test('nothing is bound, nothing is notified, and it does not throw', async () => {
+    // Every port refused, so `start` leaves the controller with no handle at all.
+    // A package installed in that state has no session to tell, and saying so by
+    // throwing would fail the install over an endpoint the user is not using.
+    const h = harness({ busy: [7332, 7333, 7334, 7335] })
+    await h.controller.start()
+    assert.equal(h.controller.status().listening, false)
+
+    h.controller.notifyToolsChanged()
+    assert.deepEqual(h.toolListChanges, [])
+  })
+})
+
 describe('rotating the token', () => {
   test('a rotation mints a new token and takes the live sessions with it', async () => {
     const h = harness()
@@ -327,6 +364,9 @@ function stubHandle(port: number): McpServerHandle {
     agentToken: null,
     toolNames: [],
     sessionCount: 0,
+    notifyToolsChanged: () => {
+      // This stub is used by the tests that never install a package.
+    },
     get listening() {
       return listening
     },

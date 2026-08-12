@@ -1,4 +1,5 @@
 import { unavailableConfigHandlers } from '../../config/handlers'
+import { unavailablePackageHandlers } from '../../packages/commands'
 import { createChatHandlers, createUnavailableChatRuntime } from './chat'
 import { connHandlers } from './conn'
 import { layoutHandlers } from './layout'
@@ -27,7 +28,14 @@ export { connHandlers } from './conn'
 export { layoutHandlers } from './layout'
 export { queryHandlers } from './query'
 export { stateHandlers } from './state'
-export { viewHandlers } from './view'
+export {
+  createUnavailablePackageViews,
+  createViewHandlers,
+  viewHandlers,
+  type PackageViewQuestion,
+  type PackageViewSource,
+  type ViewHandlerMap,
+} from './view'
 export * from './shared'
 
 /**
@@ -46,6 +54,7 @@ export * from './shared'
  * same way, by `bus.registerAll(createConfigHandlers({ book, mcp }))` — until
  * then the connection book reads as empty and the MCP endpoint as not listening,
  * both of which are true of a process that has assembled neither.
+ * `unavailablePackageHandlers` is the third of the same kind.
  */
 export const coreHandlers = {
   ...connHandlers,
@@ -54,5 +63,6 @@ export const coreHandlers = {
   ...layoutHandlers,
   ...createChatHandlers(createUnavailableChatRuntime()),
   ...unavailableConfigHandlers,
+  ...unavailablePackageHandlers,
   ...stateHandlers,
 } satisfies Required<CommandHandlerMap>

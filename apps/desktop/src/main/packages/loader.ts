@@ -1,6 +1,11 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
-import { PACKAGE_ID_PATTERN, PACKAGE_MANIFEST_FILE, parsePackageManifest, type PackageManifest } from '@peek/core'
+import { PACKAGE_ID_PATTERN } from '@peek/core'
+import {
+  PACKAGE_MANIFEST_FILE,
+  parsePackageManifest,
+  type PackageManifest,
+} from '@peek/core/package-manifest'
 import { isKernelToolName } from '../mcp/kernel-tool-names'
 import { PACKAGE_UI_DIR } from '../packages/assets'
 

@@ -162,7 +162,7 @@ function resolvePackageDir(name, fromDir) {
  *
  * Only the top level needs this. The bundles inline the workspace packages, so
  * an external left in `driver-host.js` may belong to any of them — mysql2 is
- * `@peek/driver-sql`'s dependency, and under pnpm's strict layout `apps/desktop`
+ * `@peek/db-sql`'s dependency, and under pnpm's strict layout `apps/desktop`
  * cannot see it. Resolving from the app alone would call a correctly installed
  * dependency missing.
  *

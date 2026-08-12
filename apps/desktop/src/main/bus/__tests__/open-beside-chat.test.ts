@@ -109,7 +109,10 @@ function scene(
   const conn: ConnectionState = {
     id: CONN_ID,
     driverId: 'postgres',
+    identity: 'postgres\u0000postgresql://postgres@localhost:5432/postgres',
     label: 'local',
+    detail: 'postgresql://postgres@localhost:5432/postgres',
+    endpoint: 'localhost:5432/postgres',
     config: PG_CONFIG,
     status: ready ? 'ready' : 'connecting',
     capabilities: ready ? ['tabularQuery'] : [],

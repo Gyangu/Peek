@@ -87,10 +87,56 @@ export const settings = {
   'settings.packages.name': 'Database',
   'settings.packages.version': 'Connector',
   'settings.packages.capabilities': 'Capabilities',
+  'settings.packages.source': 'Source',
+  /*
+   * Not "Bundled" / "User". The column answers whether *this build* ships a
+   * package under that id, which is not the same as who put the installed copy
+   * there — a user's newer PostgreSQL keeps the bundled id (design §2.5 rule 2)
+   * and would then be labelled a lie by the shorter word. `sourceNote` below
+   * carries the distinction in full, because this is also what decides whether
+   * an uninstall is remembered.
+   */
+  'settings.packages.sourceBundled': 'Ships with peek',
+  'settings.packages.sourceUser': 'Added by you',
+  /* The header of the button column. Visually hidden — the buttons say what they
+   * do — but a row-by-row screen reader still announces which column it is in. */
+  'settings.packages.manage': 'Manage',
+  'settings.packages.sourceNote':
+    'Source says whether this build of peek ships a package under that id — not who put the installed copy there. Removing one peek ships is remembered, so it stays gone after a restart; “Restore bundled packages” undoes that.',
+  /*
+   * The one sentence about trust, and it is a statement rather than a warning
+   * (design §2.9 corollary 1). peek runs what is in the packages directory: no
+   * signature check, no hash check, no sandbox. A warning with a button next to
+   * it teaches people to click past warnings, so there is none — and no word
+   * here may suggest anything was inspected.
+   */
+  'settings.packages.trustNote':
+    'A package runs with your own privileges from the moment a connection opens. peek does not inspect what is inside one — installing it is you deciding to trust it.',
+  'settings.packages.install': 'Install…',
+  'settings.packages.uninstall': 'Uninstall',
+  'settings.packages.upgrade': 'Upgrade to {version}',
+  'settings.packages.restore': 'Restore bundled packages',
+  'settings.packages.reading': 'Reading…',
+  'settings.packages.empty': 'Nothing is installed, so peek cannot open any database.',
+  'settings.packages.installed': 'Installed {id} {version}.',
+  'settings.packages.replaced': 'Replaced {id}. {version} is installed now.',
+  /*
+   * "Removed", never "completely removed". The directory is gone and the
+   * processes that had loaded it were killed, and that is all peek knows —
+   * whatever the package wrote elsewhere while it ran is outside what this
+   * button can speak for.
+   */
+  'settings.packages.uninstalled': 'Removed {id}.',
+  'settings.packages.uninstalledClosed': {
+    one: 'Removed {id}. {count} open connection was closed.',
+    other: 'Removed {id}. {count} open connections were closed.',
+  },
+  'settings.packages.restored': 'Restored {ids}.',
+  'settings.packages.restoredNone':
+    'Nothing was missing — every package this build ships is already installed.',
+  'settings.packages.restoreFailed': 'Could not restore {ids}.',
   'settings.packages.viewKinds': 'Views contributed by a package',
   'settings.packages.noViewKinds': 'None — every database above browses through the built-in views.',
-  'settings.packages.builtinHint':
-    'These packages are built into this copy of peek, so there is nothing to install or remove yet.',
 
   /* ---------------- The chat agent ---------------- */
   'settings.section.agent': 'Chat agent',

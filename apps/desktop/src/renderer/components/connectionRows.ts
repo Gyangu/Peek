@@ -1,9 +1,4 @@
-import {
-  connectionIdentity,
-  defaultConnectionLabel,
-  type ConnectionState,
-  type SavedConnection,
-} from '@peek/core'
+import type { ConnectionState, SavedConnection } from '@peek/core'
 
 /**
  * One line of the sidebar.
@@ -34,12 +29,23 @@ export interface ConnectionRow {
 /**
  * Merge the live connections and the book into one list.
  *
- * Rows are matched by `connectionIdentity`, not by label. A label is a display
- * string two different servers can share, and pairing on it made the connect
- * button of one host go dead because another host happened to have a database of
- * the same name. Identity survives the trip through redaction — see the note on
- * `connectionIdentity` — so the config in the renderer hashes to the same string
- * as the stripped one in the book.
+ * Rows are matched on **identity**, not on label. A label is a display string two
+ * different servers can share, and pairing on it made the connect button of one
+ * host go dead because another host happened to have a database of the same name.
+ *
+ * The window **reads** that identity now instead of computing it. It used to call
+ * `connectionIdentity(config)` on both sides, which only worked while the fields
+ * that name a server were a `switch` in core over the six databases peek happened
+ * to compile in; they are the package's declaration now
+ * (`DriverManifest.identity`), and the joining stays in main because identity is
+ * what a stored credential is released against. So both sides arrive carrying the
+ * answer and this is a string comparison.
+ *
+ * That also retires the note this comment used to carry about identity surviving
+ * redaction. The two identities still have to agree across it — a live
+ * connection's config holds a password and the book's does not — but that is a
+ * property of where they are computed, not something this file relies on from the
+ * outside any more.
  *
  * Order is `lastUsedAt`, newest first, which is the order the book already comes
  * in. A live connection with no entry has no timestamp and sorts first: it is
@@ -53,7 +59,7 @@ export function buildConnectionRows(
   saved: readonly SavedConnection[],
 ): ConnectionRow[] {
   const entryByIdentity = new Map<string, SavedConnection>()
-  for (const entry of saved) entryByIdentity.set(connectionIdentity(entry.config), entry)
+  for (const entry of saved) entryByIdentity.set(entry.identity, entry)
 
   // Which entries the live side has spoken for. Two connections on one config
   // (the UI does not offer it; MCP can) both claim the same entry, and both keep
@@ -62,14 +68,19 @@ export function buildConnectionRows(
   const claimed = new Set<string>()
 
   const live: ConnectionRow[] = conns.map((conn) => {
-    const identity = connectionIdentity(conn.config)
-    const entry = entryByIdentity.get(identity)
+    const entry = entryByIdentity.get(conn.identity)
     if (entry) claimed.add(entry.id)
     return {
       key: conn.id,
       conn,
       ...(entry === undefined ? {} : { entry }),
-      label: conn.label || defaultConnectionLabel(conn.config),
+      // `conn.label` and nothing else. The `|| defaultConnectionLabel(conn.config)`
+      // that stood here was already dead — a connection is labelled when it is
+      // opened — and there is nothing left to fall back *to*: naming a connection
+      // is the package's job, it runs in the package host, and the window may not
+      // execute a package's code. Whoever fills `ConnectionState` is what must not
+      // leave this empty; `snapshotWorkspace` says the same about its own copy.
+      label: conn.label,
     }
   })
 

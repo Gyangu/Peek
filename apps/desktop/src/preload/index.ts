@@ -25,6 +25,7 @@ import type {
   CommandResultFor,
   CommandSource,
   ConnId,
+  InstalledPackages,
   KeyValueResult,
   NamespaceNode,
   PeekedValue,
@@ -63,6 +64,12 @@ type Unsubscribe = () => void
 interface InternalBridge {
   invoke(name: string, input: unknown, source?: string): Promise<unknown>
   getSnapshot(): Promise<StateSnapshotMessage>
+  /** Read once, at preload time; see `IPC.PACKAGES_READ` for why it is not a method. */
+  installedPackages: InstalledPackages
+  /** The same registry again, whenever a package is installed or uninstalled. */
+  onPackagesChanged(handler: (installed: InstalledPackages) => void): Unsubscribe
+  /** Native directory chooser for "Install…"; null when the user cancelled. */
+  pickPackageDir(): Promise<string | null>
   onPatch(handler: (msg: StatePatchMessage) => void): Unsubscribe
   onNotify(handler: (msg: NotifyMessage) => void): Unsubscribe
   onMenuAction(handler: (msg: MenuActionMessage) => void): Unsubscribe
@@ -76,12 +83,69 @@ interface InternalBridge {
   restoreChat(chatId: string): Promise<boolean>
 }
 
+/**
+ * What is installed, fetched before the window has run a line of its own code.
+ *
+ * The one blocking IPC in this file, and the reason it is worth one is in
+ * `IPC.PACKAGES_READ`: the connect form, the capability prediction and the
+ * package registration all read this during module initialisation, where there is
+ * no `await` to be had. Main answers from an object it built before it created
+ * this window.
+ *
+ * A main process that has not installed its handler yet answers `undefined`
+ * (`sendSync` on a channel nobody listens on), and that collapses to the empty
+ * registry rather than to a throw — a preload that dies takes the whole bridge
+ * with it, and "no databases" is a state the window already draws.
+ */
+const NOTHING_INSTALLED: InstalledPackages = { drivers: [], viewKinds: [], tools: [] }
+
+function readInstalledPackages(): InstalledPackages {
+  const answer: unknown = ipcRenderer.sendSync(IPC.PACKAGES_READ)
+  if (!hasThreeLists(answer)) {
+    console.error('[peek/preload] main did not answer with the installed packages')
+    return NOTHING_INSTALLED
+  }
+  return answer
+}
+
+/**
+ * The three lists are there and are lists — and no more than that.
+ *
+ * Not validation: the value left main already parsed by `PackageManifestSchema`,
+ * and preload re-checking a manifest would be a second opinion about a schema it
+ * cannot see. What it is guarding is the shape *this file* would otherwise
+ * assert without looking — an unanswered `sendSync` returns `undefined`, and the
+ * failure of an unchecked one is a `.map` of nothing several modules later, in
+ * the window, with no trace of where it came from.
+ */
+function hasThreeLists(value: unknown): value is InstalledPackages {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('drivers' in value) || !('viewKinds' in value) || !('tools' in value)) return false
+  return Array.isArray(value.drivers) && Array.isArray(value.viewKinds) && Array.isArray(value.tools)
+}
+
 const internal: InternalBridge = {
   invoke(name, input, source) {
     return ipcRenderer.invoke(IPC.COMMAND_INVOKE, { name, input, source: source ?? 'ui' })
   },
   getSnapshot() {
     return ipcRenderer.invoke(IPC.STATE_SNAPSHOT) as Promise<StateSnapshotMessage>
+  },
+  installedPackages: readInstalledPackages(),
+  onPackagesChanged(handler) {
+    // Not put through `hasThreeLists`, unlike the synchronous read above: that
+    // guard exists because an unanswered `sendSync` returns `undefined`, and a
+    // pushed message either arrives as what main sent or does not arrive.
+    const listener = (_event: IpcRendererEvent, installed: InstalledPackages): void => {
+      handler(installed)
+    }
+    ipcRenderer.on(IPC.PACKAGES_CHANGED, listener)
+    return () => {
+      ipcRenderer.off(IPC.PACKAGES_CHANGED, listener)
+    }
+  },
+  pickPackageDir() {
+    return ipcRenderer.invoke(IPC.PACKAGES_PICK_DIR) as Promise<string | null>
   },
   onPatch(handler) {
     const listener = (_event: IpcRendererEvent, msg: StatePatchMessage): void => {
@@ -193,6 +257,13 @@ function bootstrapMainWorld(internalKey: string, relayKey: string, bridgeKey: st
     },
     getSnapshot() {
       return bridge.getSnapshot()
+    },
+    installedPackages: bridge.installedPackages,
+    onPackagesChanged(handler) {
+      return bridge.onPackagesChanged(handler)
+    },
+    pickPackageDir() {
+      return bridge.pickPackageDir()
     },
     onPatch(handler) {
       return bridge.onPatch(handler)
@@ -307,6 +378,16 @@ if (!bootstrapped) {
       return internal.invoke(name, input, source) as Promise<CommandResultFor<K>>
     },
     getSnapshot: () => internal.getSnapshot(),
+    installedPackages: internal.installedPackages,
+    // Implemented here as well, for the reason `onMenuAction` below is: it is one
+    // `ipcRenderer.on` with no main world involved, and a window that silently
+    // kept a stale driver list would offer a database peek can no longer open.
+    onPackagesChanged: (handler) => internal.onPackagesChanged(handler),
+    // And this one too, on the same grounds: the chooser lives in main, so a
+    // failed main-world bootstrap leaves it perfectly reachable. An "Install…"
+    // that does nothing is worse on a degraded window than on a healthy one —
+    // it is the launch where the user is already looking for what broke.
+    pickPackageDir: () => internal.pickPackageDir(),
     onPatch: (handler) => internal.onPatch(handler),
     onNotify: (handler) => internal.onNotify(handler),
     // Implemented here as well: the menu is main's, not the data plane's, so a

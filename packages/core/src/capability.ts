@@ -27,8 +27,65 @@ export const CAPABILITIES = [
 export const CapabilitySchema = z.enum(CAPABILITIES)
 export type Capability = z.infer<typeof CapabilitySchema>
 
+/**
+ * The class an id has to belong to before peek will serve it.
+ *
+ * One pattern for what turns out to be one thing seen from three sides: a
+ * **package** id is a directory name under `~/.peek/packages/` and the host of a
+ * `peek-package://` URL; a **driver** id is what a connection persists, what a
+ * scan cursor is prefixed with, and what a `Record` in main is keyed by. All
+ * three are written by whoever wrote the package, so all three are checked
+ * rather than trusted.
+ *
+ * A dot is refused along with the separators. It costs dotted ids
+ * (`com.example.thing`) and buys not having to reason about whether `..`
+ * survives URL host parsing on every platform — worth it while the ids are
+ * still ours to choose.
+ *
+ * `main/packages/assets.ts` applies it to a URL host and `cursor.ts` admits
+ * exactly this class inside a cursor token; both say so where they do it, so a
+ * widening here has two places to follow it to.
+ */
+export const PACKAGE_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/
+
+/**
+ * The databases this build ships in-repo.
+ *
+ * **No longer the type of a driver id, and no longer the answer to "which
+ * drivers exist".** It was a `z.enum`, which made a driver from outside the
+ * repository unrepresentable — the exact property a package read off disk has
+ * to be allowed to break (design 2026-08-07 §2.6). What can answer that question
+ * is the registry the app assembles from the manifests it collected
+ * (`manifestDriverIds()` in `apps/desktop/src/drivers/manifests.ts`); ask it, not
+ * this list.
+ *
+ * What is left is a statement about *this* build: these six packages live in
+ * `packages/` and are compiled in. It survives because the tests that pin the
+ * migration need something outside the registry to compare it against — a
+ * registry checked against itself proves nothing — and it goes away when the six
+ * move to `~/.peek/packages/` and stop being a fact about the source tree.
+ */
 export const DRIVER_IDS = ['postgres', 'mysql', 'sqlite', 'redis', 'qdrant', 'neo4j'] as const
-export const DriverIdSchema = z.enum(DRIVER_IDS)
+
+/**
+ * Which driver a connection speaks to.
+ *
+ * A **string with a shape**, not an enum over the six above: `PACKAGE_ID_PATTERN`
+ * is the whole of what core can say about an id, because whether a driver
+ * actually exists is a question about a directory that core cannot see. The
+ * caller answers it by asking the registry, and a miss there is an ordinary
+ * value it turns into a structured error — see `lookupManifest`.
+ *
+ * The cost is stated once here rather than rediscovered: `Record<DriverId, …>`
+ * used to be *total over six*, so a table missing a driver failed to compile.
+ * It is `Record<string, …>` now and that check is gone. Its replacement is
+ * `driver-registry.test.ts`, which reads the tables' keys back and compares them
+ * against the manifests — the same trade the design records for every guarantee
+ * that opening the union costs.
+ */
+export const DriverIdSchema = z
+  .string()
+  .regex(PACKAGE_ID_PATTERN, 'must be lowercase letters, digits and hyphens, starting with one of those')
 export type DriverId = z.infer<typeof DriverIdSchema>
 
 /**
@@ -53,7 +110,7 @@ export type DriverId = z.infer<typeof DriverIdSchema>
  */
 
 /* ================================================================== */
-/* 2. ConnectionConfig (discriminated union on driverId)               */
+/* 2. ConnectionConfig: an open record, checked against the manifest   */
 /* ================================================================== */
 
 const baseConn = {
@@ -61,6 +118,56 @@ const baseConn = {
   label: z.string().optional(),
 } as const
 
+/**
+ * What every connection config has, whatever database it names.
+ *
+ * **Open, and that is the point.** This was a `z.discriminatedUnion` over six
+ * `driverId` literals; a config for a database peek did not compile in was
+ * unrepresentable, which is precisely what a package installed at runtime has to
+ * be able to be. What is left is the part the *kernel* owns — which driver, and
+ * what the user called it. Everything below that belongs to the package.
+ *
+ * **Unknown keys survive.** They have to: a config is almost entirely its
+ * driver's own fields (`host`, `file`, `apiKey`), and this schema has never
+ * heard of any of them. Which is the same sentence read as a warning — parsing
+ * through this alone says *this is shaped like a config*, not *this config is
+ * one its driver could use*. The second half is `connectionConfigSchema` in
+ * `./manifest`, built from the fields the package declared, and it runs wherever
+ * a manifest is in reach: the connect dialog before a command is sent, and
+ * `parseConnectionConfig` in the app's registry for everything main reads back
+ * off disk or off the wire.
+ *
+ * The driver id is still checked, because `PACKAGE_ID_PATTERN` is checkable
+ * without a registry — a `driverId` of `../../etc` is refused here rather than
+ * at whichever path first turns one into a directory name.
+ */
+export const ConnectionConfigSchema = z.looseObject({
+  driverId: DriverIdSchema,
+  ...baseConn,
+})
+
+export type ConnectionConfig = z.infer<typeof ConnectionConfigSchema>
+
+/* ------------------------------------------------------------------ */
+/* The six in-repo config shapes                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * **Transitional, and only a type.** These six were the branches of
+ * `ConnectionConfigSchema`. Nothing parses through them any more — a config is
+ * parsed by the open schema above and then measured against its package's
+ * declared fields — and they survive for one reason: each in-repo package
+ * declares its `DriverDisplay` over its own branch (`DriverDisplay<PostgresConnectionConfig>`),
+ * which is what lets it read `config.host` without re-narrowing a union by hand.
+ *
+ * They leave with the packages. When the six move to `~/.peek/packages/` their
+ * displays are compiled against a config they describe themselves, and a config
+ * shape written in core for a database core cannot see is the thing this whole
+ * change exists to delete.
+ *
+ * Do not add a seventh. A new database declares its fields in its manifest,
+ * where they are the schema (`connectionFieldsOf`), not here.
+ */
 export const PostgresConnectionConfigSchema = z.object({
   driverId: z.literal('postgres'),
   ...baseConn,
@@ -145,16 +252,33 @@ export const Neo4jConnectionConfigSchema = z.object({
   connectTimeoutMs: z.number().int().positive().optional(),
 })
 
-export const ConnectionConfigSchema = z.discriminatedUnion('driverId', [
-  PostgresConnectionConfigSchema,
-  MysqlConnectionConfigSchema,
-  SqliteConnectionConfigSchema,
-  RedisConnectionConfigSchema,
-  QdrantConnectionConfigSchema,
-  Neo4jConnectionConfigSchema,
-])
+/**
+ * Is this config the one `driverId`'s package declared?
+ *
+ * **The narrowing the config union used to hand out for free**, and the reason
+ * it is a function now: `cfg.driverId !== 'postgres'` narrowed a discriminated
+ * union down to one branch, and an open record has no branches to narrow to.
+ * Every in-repo driver has one `requireXConfig` funnel that did exactly this,
+ * so the six of them share this rather than each writing the predicate again.
+ *
+ * **It asserts more than it checks, exactly as the union did.** Answering true
+ * says the whole shape is right, and all that was measured is the id. The claim
+ * is backed one layer up rather than here: a config reaches a driver only after
+ * `parseConnectionConfig` measured it against the fields that driver's manifest
+ * declares (`conn.open`), which is the gate the `z.discriminatedUnion` used to
+ * be. Calling this on a config that did not come through there is calling it on
+ * a promise nobody made.
+ *
+ * Transitional, and it leaves with the six schemas above: a package that owns
+ * its own config shape narrows with its own parse and needs nothing from core.
+ */
+export function isDriverConfig<C extends ConnectionConfig>(
+  config: ConnectionConfig,
+  driverId: DriverId,
+): config is C {
+  return config.driverId === driverId
+}
 
-export type ConnectionConfig = z.infer<typeof ConnectionConfigSchema>
 export type PostgresConnectionConfig = z.infer<typeof PostgresConnectionConfigSchema>
 export type MysqlConnectionConfig = z.infer<typeof MysqlConnectionConfigSchema>
 export type SqliteConnectionConfig = z.infer<typeof SqliteConnectionConfigSchema>
@@ -173,136 +297,88 @@ export function redactUrlCredentials(url: string): string {
   return url.replace(/(:\/\/[^:/@]*):[^@]*@/, `$1:${REDACTED}@`)
 }
 
-export function redactConnectionConfig(cfg: ConnectionConfig): ConnectionConfig {
-  const redactUrl = (url: string | undefined): string | undefined => {
-    if (!url) return url
-    return redactUrlCredentials(url)
-  }
-  switch (cfg.driverId) {
-    case 'postgres':
-    case 'mysql':
-    // Neo4j carries its password in a separate field *and* accepts it inside the
-    // URL, so both have to be scrubbed — the same two-field shape as postgres.
-    case 'neo4j':
-      return {
-        ...cfg,
-        ...(cfg.password === undefined ? {} : { password: REDACTED }),
-        ...(cfg.url === undefined ? {} : { url: redactUrl(cfg.url) }),
-      }
-    case 'redis':
-      return {
-        ...cfg,
-        ...(cfg.password === undefined ? {} : { password: REDACTED }),
-        ...(cfg.url === undefined ? {} : { url: redactUrl(cfg.url) }),
-      }
-    case 'qdrant':
-      return { ...cfg, ...(cfg.apiKey === undefined ? {} : { apiKey: REDACTED }) }
-    case 'sqlite':
-      return { ...cfg }
-  }
-}
+/**
+ * What scrubbing one field means.
+ *
+ *   'value'         the whole value is replaced by `REDACTED` — a password, an
+ *                   API key, anything that is a secret in its entirety;
+ *   'url-password'  only the password inside the URL's userinfo goes, so the
+ *                   scheme, the user and the address survive and the string is
+ *                   still recognisable as the connection it came from.
+ */
+export const REDACT_RULES = ['value', 'url-password'] as const
+export const RedactRuleSchema = z.enum(REDACT_RULES)
+export type RedactRule = z.infer<typeof RedactRuleSchema>
+
+/** Field name → how to scrub it. This is `DriverManifest.redact`, verbatim. */
+export type RedactRules = Readonly<Record<string, RedactRule>>
 
 /**
- * Derive a default display name from a config (used when `label` is empty).
+ * Redact a config against the rules its driver declared.
  *
- * The name goes into a 240px sidebar row that truncates at the end, so what it
- * has to carry is the part that **tells two connections apart** — a database
- * name, a file name, a host and port. Returning the whole connection string
- * puts the discriminating part last, exactly where it gets cut off: two
- * databases on the same server both read `mysql://root@localhost:330…`.
+ * This used to be a `switch` over `driverId` with one branch per built-in
+ * database. The branches were all the same two moves — blank a secret field,
+ * strip the password out of a URL — so the switch was really a table written as
+ * control flow, and a database peek did not compile in could not appear in it at
+ * all. The table is now the package's own `redact` block and this function is the
+ * one place it is applied.
  *
- * The full text is not lost, it moves to `connectionDetail` and the row tooltip.
- *
- * No branch returns a URL any more, but the URL is still scrubbed everywhere it
- * is touched: this label is broadcast to the renderer and to MCP, and a URL
- * carries a plaintext password. Callers do not need to remember (and should not
- * have to remember) to call `redactConnectionConfig` first.
+ * **No rules means the config is returned untouched, plaintext password and
+ * all.** That is a deliberate decision (plugin-architecture's decision 5,
+ * restated in `docs/design/2026-08-07-database-packages-from-disk.md` §2.3d) and
+ * not an oversight to tighten here: peek does not validate packages, so a
+ * defensive default would be security theatre over a package that can read the
+ * config anyway. The consequence is concrete and worth stating where someone
+ * calling this will see it — a driver package that omits `redact` puts its
+ * connection's password verbatim into MCP receipts, into the renderer's
+ * snapshot, and into the agent transcript. The loader is what warns about it;
+ * this function does not, because it cannot tell "declared nothing" from
+ * "declared nothing that matched".
  */
-export function defaultConnectionLabel(cfg: ConnectionConfig): string {
-  if (cfg.label) return cfg.label
-  switch (cfg.driverId) {
-    case 'postgres':
-    case 'mysql': {
-      const parts = urlParts(cfg.url)
-      return (
-        cfg.database ??
-        parts?.database ??
-        hostPort(cfg.host ?? parts?.host, cfg.port ?? parts?.port) ??
-        cfg.driverId
-      )
-    }
-    case 'sqlite':
-      return baseName(cfg.file)
-    case 'redis': {
-      const parts = urlParts(cfg.url)
-      const at = hostPort(cfg.host ?? parts?.host ?? 'localhost', cfg.port ?? parts?.port ?? 6379)
-      // The logical database index is part of what names a redis connection, but
-      // only when it is not the default one everybody is already on.
-      const db = cfg.db ?? (parts?.database === undefined ? undefined : Number(parts.database))
-      return db === undefined || db === 0 || Number.isNaN(db) ? (at ?? cfg.driverId) : `${at}/${db}`
-    }
-    case 'qdrant': {
-      const parts = urlParts(cfg.url)
-      return hostPort(parts?.host, parts?.port) ?? safeUrlLabel(cfg.url) ?? cfg.driverId
-    }
-    case 'neo4j': {
-      // The database name comes first for the same reason it does on postgres:
-      // two connections to one server differ by database, and a 240px row that
-      // truncates at the end would cut off exactly that.
-      const parts = urlParts(cfg.url)
-      return (
-        cfg.database ?? hostPort(cfg.host ?? parts?.host, cfg.port ?? parts?.port) ?? cfg.driverId
-      )
-    }
+export function redactConnectionConfig(cfg: ConnectionConfig, rules: RedactRules): ConnectionConfig {
+  const fields: Readonly<Record<string, unknown>> = cfg
+  const patch: Record<string, string> = {}
+  for (const [name, rule] of Object.entries(rules)) {
+    const value = fields[name]
+    // An absent field is left absent rather than filled with `REDACTED`: the
+    // presence of a key is itself information the reader uses (`url` set means
+    // the URL wins over host/port), and inventing one would change the config's
+    // meaning, not just hide it.
+    if (typeof value !== 'string') continue
+    patch[name] = rule === 'value' ? REDACTED : redactUrlCredentials(value)
   }
+  return { ...cfg, ...patch }
 }
+
+/* ------------------------------------------------------------------ */
+/* Address-formatting helpers, shared by whoever draws a connection    */
+/* ------------------------------------------------------------------ */
 
 /**
- * The long form of the same thing: what the label had to leave out.
+ * There is deliberately **no `defaultConnectionLabel` / `connectionDetail`
+ * here.**
  *
- * Meant for a `title` tooltip next to a `defaultConnectionLabel`, so it is the
- * full path or the full (scrubbed) address, and never just repeats the label.
+ * Both were a `switch` over `driverId`, and both were the reason core had to
+ * know how six particular databases spell an address. They are now
+ * `DriverDisplay.label` / `DriverDisplay.detail` (see `./manifest`), written by
+ * the package that owns the database, run in the package host, and computed once
+ * when a connection opens — a config never changes after that, so the strings do
+ * not either. Everything downstream reads a stored string.
+ *
+ * What stays here is the vocabulary those functions were built out of, exported
+ * rather than private because the packages are now the callers: a package that
+ * had to re-derive "host, plus a port when there is one" would derive it
+ * slightly differently, and six slightly different addresses for one connection
+ * is exactly what having one label was for.
  */
-export function connectionDetail(cfg: ConnectionConfig): string {
-  switch (cfg.driverId) {
-    case 'postgres':
-    case 'mysql': {
-      if (cfg.url !== undefined) return redactUrlCredentials(cfg.url)
-      const at = hostPort(cfg.host, cfg.port) ?? ''
-      const user = cfg.user === undefined ? '' : `${cfg.user}@`
-      const db = cfg.database === undefined ? '' : `/${cfg.database}`
-      return `${cfg.driverId}://${user}${at}${db}`
-    }
-    case 'sqlite':
-      return cfg.file
-    case 'redis': {
-      if (cfg.url !== undefined) return redactUrlCredentials(cfg.url)
-      const at = hostPort(cfg.host ?? 'localhost', cfg.port ?? 6379) ?? ''
-      return `redis://${at}/${cfg.db ?? 0}`
-    }
-    case 'qdrant':
-      return redactUrlCredentials(cfg.url)
-    case 'neo4j': {
-      if (cfg.url !== undefined) return redactUrlCredentials(cfg.url)
-      const at = hostPort(cfg.host ?? 'localhost', cfg.port ?? 7687) ?? ''
-      const user = cfg.user === undefined ? '' : `${cfg.user}@`
-      const db = cfg.database === undefined ? '' : `/${cfg.database}`
-      return `bolt://${user}${at}${db}`
-    }
-  }
-}
 
-function safeUrlLabel(url: string | undefined): string | undefined {
-  return url === undefined ? undefined : redactUrlCredentials(url)
-}
-
-function hostPort(host: string | undefined, port: number | undefined): string | undefined {
+export function hostPort(host: string | undefined, port: number | undefined): string | undefined {
   if (host === undefined || host === '') return undefined
   return port === undefined ? host : `${host}:${port}`
 }
 
 /** The last path segment. Kept string-only so core stays free of `node:path`. */
-function baseName(file: string): string {
+export function baseName(file: string): string {
   const cut = file.replace(/[/\\]+$/, '')
   const at = Math.max(cut.lastIndexOf('/'), cut.lastIndexOf('\\'))
   return at === -1 ? cut : (cut.slice(at + 1) || cut)
@@ -316,7 +392,7 @@ function baseName(file: string): string {
  * not an error worth reporting here — the caller falls back to another field,
  * and the driver is the one that gets to reject a bad URL.
  */
-function urlParts(url: string | undefined): { host?: string; port?: number; database?: string } | undefined {
+export function urlParts(url: string | undefined): { host?: string; port?: number; database?: string } | undefined {
   if (url === undefined || url === '') return undefined
   let parsed: URL
   try {
@@ -363,47 +439,37 @@ export function stripUrlPassword(url: string): string {
  * string as a **stripped** one (`://user@host`), which is what lets the renderer
  * compute an identity that agrees with main's. Normalizing every side through the
  * same function is what makes those three agree.
+ *
+ * ## Why the *joining* stayed in core when the display strings left
+ *
+ * `fields` is the package's `DriverManifest.identity` — a list of names, and
+ * nothing more. The package cannot supply the answer itself, and this is a
+ * security requirement rather than a matter of taste: identity is what a stored
+ * credential is released against (`config/connection-book.ts`), so a package
+ * that computed it could make its own connection collide with another one and
+ * read that connection's password back out of the keychain. Declaring *which*
+ * fields matter is harmless; deciding *whether two connections are the same* is
+ * not, and stays here.
+ *
+ * The two rules the kernel keeps for itself, and a package cannot switch off:
+ * `driverId` leads, and a `url` field is stripped of its password first.
  */
-export function connectionIdentity(config: ConnectionConfig): string {
-  const url = (value: string | undefined): string => (value === undefined ? '' : stripUrlPassword(value))
-  switch (config.driverId) {
-    case 'postgres':
-    case 'mysql':
-      return [
-        config.driverId,
-        url(config.url),
-        config.host ?? '',
-        config.port === undefined ? '' : String(config.port),
-        config.database ?? '',
-        config.user ?? '',
-      ].join(SEP)
-    case 'redis':
-      return [
-        config.driverId,
-        url(config.url),
-        config.host ?? '',
-        config.port === undefined ? '' : String(config.port),
-        config.db === undefined ? '' : String(config.db),
-        config.username ?? '',
-      ].join(SEP)
-    case 'qdrant':
-      return [config.driverId, url(config.url)].join(SEP)
-    case 'sqlite':
-      return [config.driverId, config.file].join(SEP)
-    case 'neo4j':
-      // The database is part of the identity, unlike the postgres branch where it
-      // is also present: two Bolt connections to one server that open different
-      // databases are two connections, and a stored credential released against
-      // one of them must not be released against the other.
-      return [
-        config.driverId,
-        url(config.url),
-        config.host ?? '',
-        config.port === undefined ? '' : String(config.port),
-        config.database ?? '',
-        config.user ?? '',
-      ].join(SEP)
+export function connectionIdentity(config: ConnectionConfig, fields: readonly string[]): string {
+  const values: Readonly<Record<string, unknown>> = config
+  const parts: string[] = [config.driverId]
+  for (const name of fields) {
+    const value = values[name]
+    // Absent reads as empty rather than being skipped: dropping it would shift
+    // every later field one slot left, and `host=a, port=undefined` would then
+    // produce the identity of `host=undefined, port=a`.
+    if (value === undefined) {
+      parts.push('')
+      continue
+    }
+    const text = typeof value === 'string' ? value : String(value)
+    parts.push(name === 'url' ? stripUrlPassword(text) : text)
   }
+  return parts.join(SEP)
 }
 
 /**
@@ -944,6 +1010,26 @@ export const NAMESPACE_NODE_KINDS = [
 export type NamespaceNodeKind = (typeof NAMESPACE_NODE_KINDS)[number]
 
 /**
+ * What a node stands for when it stands for children the level left out.
+ *
+ * `listChildren` returns a bare array, so "is this the whole level?" has nowhere
+ * to live in the return type. A driver that had to stop early — a bounded SCAN,
+ * a paged catalog — says so by ending the level with a node carrying this, and
+ * the UI words it. Silence still means "complete", which is the honest default
+ * only for drivers that really do return the whole level.
+ *
+ * `remaining` is optional rather than a `counted | unknown` discriminator so
+ * that having no honest number is an *absence* the caller cannot route around:
+ * a level cut short mid-listing knows how much of its own sample it folded, but
+ * not how much of the level, and a precise count over an imprecise sample is the
+ * worst of both.
+ */
+export interface NamespaceElision {
+  /** How many children were folded away, when the driver counted them all */
+  remaining?: number
+}
+
+/**
  * A node in the namespace tree. **Lazily loaded**: one `listChildren` call returns
  * exactly one level, and `hasChildren` decides whether the UI draws an expand
  * arrow (pass true when unknown; if expanding yields an empty array the UI folds
@@ -965,6 +1051,14 @@ export interface NamespaceNode {
   ref?: CollectionRef
   /** Dimmed text on the right: row-count estimate, column type, TTL, … */
   detail?: string
+  /**
+   * Set on a node that stands for children this level left out rather than for
+   * anything in the store. Such a node carries no `ref` — there is no pattern
+   * that means "what I did not list" — so nothing can be opened on it, and the
+   * UI supplies its own localized wording; `name` and `detail` stay the driver's
+   * English fallback, which MCP reads.
+   */
+  elision?: NamespaceElision
   /** Driver-specific metadata; the UI does not interpret it */
   meta?: Readonly<Record<string, unknown>>
 }

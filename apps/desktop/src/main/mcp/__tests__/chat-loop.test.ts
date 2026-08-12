@@ -19,6 +19,7 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import '../../../drivers/__tests__/in-repo-registry'
 import {
   asPanelId,
   collectPanels,

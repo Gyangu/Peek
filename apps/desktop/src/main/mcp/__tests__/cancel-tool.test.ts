@@ -63,6 +63,7 @@ function snapshot(): WorkspaceSnapshot {
         id: asConnId('conn_1'),
         driverId: 'postgres',
         label: 'local',
+        endpoint: 'localhost:5432/demo',
         status: 'ready',
         capabilities: ['tabularQuery', 'cancel'],
         config: { driverId: 'postgres', url: 'postgresql://app@localhost:5432/demo' },

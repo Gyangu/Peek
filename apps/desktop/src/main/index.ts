@@ -1,13 +1,38 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, ipcMain, safeStorage, shell, type WebContents } from 'electron'
-import type { ConnId, MenuActionMessage, NamespaceNode, NotifyMessage, WorkspaceSnapshot } from '@peek/core'
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, type WebContents } from 'electron'
+import type {
+  ConnId,
+  MenuActionMessage,
+  NamespaceNode,
+  NotifyLevel,
+  NotifyMessage,
+  WorkspaceSnapshot,
+} from '@peek/core'
 import { IPC, stepUiZoom, toPeekError, UI_ZOOM_DEFAULT } from '@peek/core'
 import { installAppMenu } from './menu'
+import { hardenWindow } from './window-hardening'
 import { createAutoRefreshScheduler } from './auto-refresh'
-import { createCommandBus, type CommandBus, type CommandDeps } from './bus'
-import { createChatEventSink, createChatHandlers, watchChatViews, type ChatRuntime } from './bus/handlers'
-import { installBusIpc, installChatRestoreIpc, sendChatDeltas, sendNotify } from './bus/ipc-main'
+import {
+  createCommandBus,
+  type CommandBus,
+  type CommandDeps,
+  type PackageAdminService,
+} from './bus'
+import {
+  createChatEventSink,
+  createChatHandlers,
+  createViewHandlers,
+  watchChatViews,
+  type ChatRuntime,
+} from './bus/handlers'
+import {
+  installBusIpc,
+  installChatRestoreIpc,
+  sendChatDeltas,
+  sendNotify,
+  sendPackagesChanged,
+} from './bus/ipc-main'
 import { AcpManager, chatRootDir, defaultAcpConfig, type McpEndpointInfo } from './acp'
 import { DEFAULT_DELTA_BUDGET } from './agent'
 import { EndpointManager } from './agent/endpoint/loop'
@@ -20,10 +45,12 @@ import {
   createMcpController,
   createSafeStorageVault,
   createSettingsStore,
+  packagesDir,
   resolveConfigDir,
   type ConnectionBook,
   type McpController,
   type SettingsStore,
+  type StoredDisplay,
 } from './config'
 import {
   createAcpChatRuntime,
@@ -33,8 +60,24 @@ import {
   createEndpointChatRuntime,
 } from './chat-host'
 import { ConnectionManager, setTimeoutSettings } from './connections'
-import { collectTools, createMcpServer, generateToken } from './mcp'
-import { installPluginProtocol, registerPluginScheme } from './plugins/protocol'
+import { collectTools, createMcpServer, generateToken, type PackageToolCaller } from './mcp'
+import { installedPackages as installedSnapshot } from '../drivers/installed'
+import {
+  bundledCatalog,
+  bundledPackagesRoot,
+  layOutBundledPackages,
+  type BundledLayoutReport,
+} from './packages/bundled'
+import { adoptPackageScan } from './packages/adopt'
+import { createPackageAdmin } from './packages/admin'
+import { createPackageHandlers, type PackageCommandOptions } from './packages/commands'
+import { createConnectionDisplayService } from './packages/display'
+import { packageLoadNotices } from './packages/installed'
+import { loadPackages, type PackageLoadReport } from './packages/loader'
+import { packageEntryPaths } from './packages/locations'
+import { PackageHostRegistry } from './packages/registry'
+import { createPackageViewSource } from './packages/view-answers'
+import { installPackageProtocol, registerPackageScheme } from './packages/protocol'
 import { WorkspaceStore, createResultEventSink } from './store'
 import { installDriverRpc, type DriverRpcOptions } from './driver-rpc'
 import { createResultRowsBroker, type ResultRowsBroker } from './result-rows'
@@ -109,13 +152,13 @@ hardenStdio()
  * only correct **before `app.whenReady()`**.
  *
  * `protocol.registerSchemesAsPrivileged` after ready is not an error — it is
- * ignored, and `peek-plugin://` then loads with an opaque origin and no secure
- * context. A plugin frame would still come up, so nothing would look broken; the
+ * ignored, and `peek-package://` then loads with an opaque origin and no secure
+ * context. A package frame would still come up, so nothing would look broken; the
  * isolation it exists to provide would simply not be there. Putting the call
  * where it cannot be reordered after `whenReady` is the only defence, since
  * there is no failure to test for.
  */
-registerPluginScheme()
+registerPackageScheme()
 
 const isDev = !app.isPackaged
 
@@ -124,7 +167,44 @@ const isDev = !app.isPackaged
 /* ================================================================== */
 
 const store = new WorkspaceStore()
-const connections = new ConnectionManager()
+const connections = new ConnectionManager({
+  // `PEEK_DRIVER_HOST_DIR` relocates the process that receives unredacted
+  // passwords, so a shipped peek ignores it outright and only a development or
+  // test run may use it. The decision is made here rather than inside the
+  // manager because that module is imported by `node --test`, where `electron`
+  // is not importable. See `resolveHostDir`.
+  allowHostDirOverride: !app.isPackaged,
+})
+/**
+ * The package host pool.
+ *
+ * Empty until something needs a value only a package can compute, which is the
+ * whole design (§2.4bis c): installing packages costs manifests read at startup
+ * and no processes. Nothing here forks; `hostFor` does, and only `hostFor`.
+ */
+const packageHosts = new PackageHostRegistry({
+  // Read at fork time, not now: this constant is evaluated while main is still
+  // loading its own imports, and the scan that fills the slot runs inside
+  // `app.whenReady()`.
+  resolveContrib: (packageId) => packageEntryPaths(packageId)?.contrib ?? null,
+  onLog: (packageId, level, text) => {
+    notify({ level, message: `[${packageId}] ${text}` })
+  },
+})
+
+/**
+ * How a package's MCP tool reaches the process that can run it.
+ *
+ * One deadline for every package tool, and a short one: what crosses is the
+ * *mapping* — the tool's `toCommands` or its receipt renderer — not the query it
+ * maps onto. Whatever the Commands it produces then go on to do has its own
+ * budget, on the driver side, where the work actually is.
+ */
+const PACKAGE_TOOL_MS = 10_000
+
+const callPackageTool: PackageToolCaller = (packageId, call) =>
+  packageHosts.call(packageId, 'callTool', call, PACKAGE_TOOL_MS)
+
 /** The one place driver host events write back into the source of truth (state transitions reuse store/mutations) */
 const resultSink = createResultEventSink(store)
 
@@ -222,11 +302,153 @@ function renderers(): readonly WebContents[] {
     .map((w) => w.webContents)
 }
 
+/**
+ * Notices raised before any window had loaded, kept until one has.
+ *
+ * Startup happens entirely before `createWindow` — the bundled lay-out and the
+ * package scan both have to finish before preload can be answered — so every
+ * notice either of them produces was, until this buffer, sent to nobody and
+ * survived only in the console. That is the wrong half of the audience: a
+ * refused package means a database the user can no longer connect to, and the
+ * place they are meant to find out is the error centre (`packageLoadNotices` in
+ * `packages/installed.ts` is written for a reader, not for a log).
+ *
+ * Bounded, because a window that never finishes loading would otherwise make
+ * this grow for the life of the process. It holds the *oldest* entries on
+ * purpose: the first refusal is the one that explains the rest.
+ */
+const pendingNotices: NotifyMessage[] = []
+const PENDING_NOTICE_CAPACITY = 100
+/** Flipped by the first `did-finish-load`; before it, `sendNotify` has nothing to send to. */
+let rendererHasLoaded = false
+
 function notify(message: NotifyMessage): void {
-  sendNotify(renderers(), message)
+  // A window that exists but has not run its scripts drops what it is sent, so
+  // the gate is "has one loaded", not "is there one".
+  if (rendererHasLoaded) sendNotify(renderers(), message)
+  else if (pendingNotices.length < PENDING_NOTICE_CAPACITY) pendingNotices.push(message)
   const tag = `[peek/${message.level}]`
   if (message.level === 'error') console.error(tag, message.message, message.detail ?? '')
   else if (message.level === 'warn') console.warn(tag, message.message, message.detail ?? '')
+}
+
+/** Hand the startup notices to the window that just came up, in the order they happened. */
+function flushPendingNotices(target: WebContents): void {
+  rendererHasLoaded = true
+  const queued = pendingNotices.splice(0, pendingNotices.length)
+  for (const message of queued) sendNotify([target], message)
+}
+
+/**
+ * Say what happened to the packages this build ships.
+ *
+ * The console is the channel and not a fallback: this runs before there is a
+ * window, so `notify`'s renderer half is empty by construction. The place a
+ * person is meant to see this is the settings panel, which reads the same
+ * outcomes to draw "upgrade" and "restore bundled packages" (design §2.8).
+ *
+ * Only the outcomes somebody can act on are said out loud. "Laid out" on a first
+ * run is five lines of noise about the app working, and `kept` is every launch
+ * after that.
+ */
+function reportBundledLayout(report: BundledLayoutReport): void {
+  for (const status of report.statuses) {
+    // `laid-out` and `kept` carry no detail, which is the same statement: the
+    // first is the app working on a first run, the second is every launch after.
+    if (status.detail === null) continue
+    const level: NotifyLevel = status.outcome === 'failed' ? 'error' : 'info'
+    notify({ level, message: `Bundled package '${status.id}': ${status.detail}` })
+  }
+}
+
+/**
+ * Read `<configDir>/packages/` and make what is there the registry every process
+ * reads.
+ *
+ * The production caller `loadPackages` was landed without (`loader.ts`'s "not
+ * wired yet"), and the half of acceptance 11 that was missing: a package outside
+ * the repository could be *read* and not *used*, because main and the window
+ * both still built their registries from a compile-time list (§4undecies(b)).
+ * Three lines, and every registry downstream — driver manifests, the spawn
+ * table, the connect dialog's picker — is now a projection of this call.
+ *
+ * ## Every refusal is said out loud, and none of them stops the boot
+ *
+ * A refused package is a database that is simply not there, which without a line
+ * on the error centre is indistinguishable from a bug in peek — the user opens
+ * the connect dialog and PostgreSQL is missing. So each one is reported with all
+ * of its issues (design §4.2 item 10: one bad package does not cost the others),
+ * and the `redact` warnings with it: decision 5 made that warning the *only*
+ * observable consequence of a package that never considered which of its fields
+ * are secret, and a warning nobody sees would leave it with none.
+ *
+ * The console is half the channel and not a fallback: this runs before there is
+ * a window, so `notify`'s renderer half is empty by construction, exactly as it
+ * is for `reportBundledLayout` above.
+ */
+function installAndReportPackages(packagesRoot: string): PackageLoadReport {
+  const report = loadPackages(packagesRoot)
+  adoptPackages(report)
+  for (const notice of packageLoadNotices(report, packagesRoot)) notify(notice)
+  return report
+}
+
+/**
+ * Make one scan the registry every process reads, and tell the windows.
+ *
+ * Split out of `installAndReportPackages` because `packages.install` and
+ * `packages.uninstall` need exactly this and nothing else: no notices (a
+ * command's own refusals come back in its receipt, and re-announcing every
+ * pre-existing one on each install would bury them) and no ordering assumptions
+ * about the window, which by then exists.
+ *
+ * The broadcast is the third line rather than the caller's job, so that it is
+ * impossible to replace the registry without saying so. A window holding a
+ * driver list main has already forgotten offers a database that no longer opens,
+ * and nothing about that is loud.
+ */
+function adoptPackages(report: PackageLoadReport): void {
+  // The two registry halves are `packages/adopt.ts`, not two lines here: they
+  // have to move together, and a test that drives the four verbs has to be able
+  // to install them the way this line does rather than by copying it.
+  sendPackagesChanged(renderers(), adoptPackageScan(report))
+}
+
+/**
+ * Everything the four `packages.*` verbs need from this process.
+ *
+ * Assembled once and shared by the handlers and by the uninstall effect, so
+ * there is one packages root and one bundled catalog in the process rather than
+ * one per caller. The catalog is read here and held — see the field's note in
+ * `packages/commands.ts` for why that is safe and why it has to be.
+ *
+ * `bundledRoot` is the same path the startup lay-out used, computed the same
+ * way. Two spellings of "where this build keeps its copies" would be one
+ * spelling too many: `packages.restore` and the first start have to reach the
+ * identical directory or "restore" means something different from "lay out".
+ *
+ * `toolsChanged` reaches the controller through the module-level `mcp` at call
+ * time rather than capturing a handle: a rebind (a new port, a rotated token)
+ * replaces the server handle, and a captured one would be notifying sessions
+ * that closed with the endpoint it belonged to.
+ */
+function createPackageCommandOptions(): PackageCommandOptions {
+  const packagesRoot = packagesDir(resolveConfigDir())
+  const bundledRoot = bundledPackagesRoot(
+    import.meta.dirname,
+    app.isPackaged ? process.resourcesPath : null,
+  )
+  return {
+    packagesRoot,
+    bundledRoot,
+    catalog: bundledCatalog(bundledRoot),
+    scan: () => loadPackages(packagesRoot),
+    adopt: adoptPackages,
+    toolsChanged: () => {
+      mcp?.notifyToolsChanged()
+    },
+    notify,
+  }
 }
 
 /* ================================================================== */
@@ -242,8 +464,17 @@ function notify(message: NotifyMessage): void {
  * completion / errors flow back into the source of truth through
  * connections.events (see the subscriptions below).
  */
-function createDeps(): CommandDeps {
+function createDeps(packages: PackageAdminService): CommandDeps {
   return {
+    // Naming a connection is the owning package's job and the package runs
+    // elsewhere, so it arrives here as a side effect like any other. See
+    // `describeConnection` in bus/intents.ts for why the reducer cannot wait.
+    display: createConnectionDisplayService(packageHosts),
+
+    // Taking one off the disk, after `packages.uninstall` has closed everything
+    // that pointed at it.
+    packages,
+
     connections: {
       async open(req) {
         /*
@@ -271,7 +502,7 @@ function createDeps(): CommandDeps {
           connId: req.connId,
           ...(req.timeoutMs === undefined ? {} : { timeoutMs: req.timeoutMs }),
         })
-        book?.remember(config)
+        book?.remember(config, nameOf(req.connId))
         return {
           capabilities: outcome.capabilities,
           ...(outcome.serverInfo === undefined ? {} : { serverInfo: outcome.serverInfo }),
@@ -330,6 +561,26 @@ function createDeps(): CommandDeps {
 
     notify,
   }
+}
+
+/**
+ * What a connection is called, read back out of the source of truth on its way
+ * into the connection book.
+ *
+ * The answer is already there because `conn.open` plans `describeConnection`
+ * **before** `connect` and intents run in order (`bus/effects.ts`), so the round
+ * trip to the package host has landed by the time the connect effect gets here.
+ * That ordering is now load-bearing rather than cosmetic, and
+ * `connection-book.test.ts` pins it.
+ *
+ * Empty when naming did not succeed — it is a soft intent, so a slow host leaves
+ * a working connection unnamed. `remember` then keeps the pair the entry already
+ * had (see `pickDisplay`); main must not fall back to computing it, which is the
+ * whole point of §2.3(b-2).
+ */
+function nameOf(connId: ConnId): StoredDisplay {
+  const conn = store.getState().connections[connId]
+  return { label: conn?.label ?? '', detail: conn?.detail ?? '' }
 }
 
 /* ================================================================== */
@@ -490,6 +741,10 @@ function createWindow(): BrowserWindow {
   // webContents.postMessage is lost. Every reload needs a fresh handover.
   win.webContents.on('did-finish-load', () => {
     connections.attachRenderer(win.webContents)
+    // Right here rather than on `ready-to-show`: the same reason the handover
+    // above waits for this event is the reason a notice does — before it, the
+    // renderer has not subscribed and the message goes on the floor.
+    flushPendingNotices(win.webContents)
     // `zoomFactor` is per-navigation state, not per-window: it resets to 1 on
     // every load, so remembering it once at startup is not enough — a dev-server
     // hot reload would silently undo the user's setting.
@@ -501,11 +756,11 @@ function createWindow(): BrowserWindow {
     if (mainWindow === win) mainWindow = null
   })
 
-  // External links always go to the system browser; in-window navigation off-site is refused
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  // No new windows, no navigation, no permissions. In its own module so the
+  // Electron probe can exercise this exact function rather than a copy of it —
+  // these are Chromium behaviours, so an assertion is the only honest check and
+  // it has to run against the real thing. Design 2026-08-07 §2.10.
+  hardenWindow(win)
 
   const devServerUrl = process.env['ELECTRON_RENDERER_URL']
   if (isDev && devServerUrl) {
@@ -554,6 +809,10 @@ function buildMcpController(
         introspect: (req) => driverRpc.introspect(req.connId, req.parentId, req.refresh),
         // Row data lives only in the renderer cache (chunks bypass main), so sample from the renderer
         readResultRows: (req) => rows.read(req),
+        // Passed rather than left to `collectTools()`'s own default, because the
+        // default has no way to reach a package host: a tool would list and then
+        // refuse to run.
+        callPackageTool,
         logger: {
           log: (level, message, detail) => {
             if (level === 'error') console.error('[peek/mcp]', message, detail ?? '')
@@ -583,7 +842,35 @@ function buildMcpController(
 /* ================================================================== */
 
 function bootstrap(): void {
-  const commandBus = createCommandBus({ store, deps: createDeps() })
+  const packageOptions = createPackageCommandOptions()
+  // Wrapped rather than passed as `packageHosts.dispose`, which would arrive
+  // unbound. One binding for both callers: an install and an uninstall have to
+  // reach the same registry, or one of them kills a host the other still has.
+  const disposeHost = (packageId: string): Promise<void> => packageHosts.dispose(packageId)
+  const packages = createPackageAdmin(packageOptions, disposeHost)
+  const commandBus = createCommandBus({ store, deps: createDeps(packages) })
+
+  // Overwrites the `createUnavailablePackageViews` stubs `createCommandBus`
+  // registered, exactly as the chat handlers below are overwritten. Until this
+  // line runs, a package view opens and never fetches — which is also what it
+  // does when the package that owns it is gone, so there is no second code path.
+  commandBus.registerAll(
+    createViewHandlers(
+      createPackageViewSource(packageHosts, {
+        onError: (message, detail) => {
+          notify({ level: 'warn', message, detail })
+        },
+      }),
+    ),
+  )
+
+  // The four kernel verbs of §2.4, replacing the `unavailablePackageHandlers`
+  // stubs the same way. They can be registered this early because they depend on
+  // nothing that is assembled below: the packages root is an environment
+  // variable, the scan is a directory read, and the MCP notification is looked up
+  // through `mcp` at call time.
+  commandBus.registerAll(createPackageHandlers(packageOptions, disposeHost))
+
   const configDir = resolveConfigDir()
 
   // The one place peek is allowed to keep a credential. `safeStorage` hands the
@@ -776,7 +1063,7 @@ function wireEndpointBackend(
       // The same tools an external MCP client sees, called in-process rather than
       // over the loopback: no second credential, and `source: 'agent'` is passed
       // by this line rather than inferred from a bearer token.
-      tools: collectTools(),
+      tools: collectTools({ callPackageTool }),
       toolContext: {
         dispatch: (name, input, callSource) => commandBus.dispatch(name, input, callSource) as never,
         getSnapshot: (): WorkspaceSnapshot => store.getSnapshot(),
@@ -955,6 +1242,11 @@ async function shutdown(): Promise<void> {
   await connections.disposeAll().catch((error: unknown) => {
     console.error('[peek/error] failed to reclaim driver processes', error)
   })
+  // Last, and unconditionally: a package host holds no connection, so there is
+  // nothing to wind down first — only processes to reap.
+  await packageHosts.disposeAll().catch((error: unknown) => {
+    console.error('[peek/error] failed to reclaim package host processes', error)
+  })
 }
 
 // Single instance: the MCP port and the local state are both singletons, so a second window would be meaningless
@@ -977,10 +1269,66 @@ if (!app.requestSingleInstanceLock()) {
     installAppMenu({ isDev, onZoom: menuZoom, onOpenSettings: menuOpenSettings })
 
     // Before `bootstrap()`, which creates the window: the first thing a restored
-    // workspace can contain is a plugin view, and its iframe would then request
+    // workspace can contain is a package view, and its iframe would then request
     // a scheme with no handler. That failure is silent in the frame — a blank
     // panel, no console entry in the host — so the ordering is the fix.
-    installPluginProtocol()
+    //
+    // `resolveConfigDir()` is called again here rather than threaded down from
+    // `bootstrap()`: it reads one environment variable and nothing else, and
+    // ordering the protocol behind the window's assembly is what the paragraph
+    // above forbids.
+    const packagesRoot = packagesDir(resolveConfigDir())
+
+    // And before the protocol, because this is what puts a package's `ui/` where
+    // the protocol serves it from. The shipped packages are copied into
+    // `~/.peek/packages/` exactly once — never over anything already there, and
+    // never over a tombstone (design 2026-08-07 §2.5); after that they are
+    // ordinary installed packages, which is decision 1.
+    reportBundledLayout(
+      layOutBundledPackages({
+        bundledRoot: bundledPackagesRoot(import.meta.dirname, app.isPackaged ? process.resourcesPath : null),
+        packagesRoot,
+      }),
+    )
+
+    // Then the scan, which is what turns those directories into a registry. It
+    // has to be after the lay-out (a first start would otherwise find nothing)
+    // and before `bootstrap()`, which creates the window: preload reads the
+    // registry synchronously as the window loads, and the connect dialog's
+    // fields, the capability prediction and the spawn table are all projections
+    // of it.
+    installAndReportPackages(packagesRoot)
+
+    // The window's only route to that registry, and it is answered from memory:
+    // `event.returnValue` blocks the renderer until it is set, so anything slower
+    // than a property read here would be a stall on every window load. See
+    // `IPC.PACKAGES_READ` for why the channel is synchronous at all.
+    //
+    // Registered here rather than in `bootstrap()` because preload asks before
+    // the window's first script runs, and a handler installed a tick later would
+    // answer `undefined` on exactly the launches that are slowest.
+    ipcMain.on(IPC.PACKAGES_READ, (event) => {
+      event.returnValue = installedSnapshot()
+    })
+
+    // The window half of "Install…". It picks and stops there — validating the
+    // directory and copying it in is `packages.install`, which the window sends
+    // next, so a hand-typed path and a picked one meet exactly the same checks.
+    // See `IPC.PACKAGES_PICK_DIR` for why this is not itself a command.
+    ipcMain.handle(IPC.PACKAGES_PICK_DIR, async (event): Promise<string | null> => {
+      const parent = BrowserWindow.fromWebContents(event.sender)
+      // Sheet-modal to the window that asked, when there is one: the dialog is
+      // an answer to a click in that window, and a detached chooser on macOS is
+      // one more thing to find behind the app.
+      const result = await (parent === null
+        ? dialog.showOpenDialog({ properties: ['openDirectory'] })
+        : dialog.showOpenDialog(parent, { properties: ['openDirectory'] }))
+      // `filePaths` is empty on cancel; `null` says that plainly rather than
+      // making the renderer read an array's length to find out.
+      return result.canceled ? null : (result.filePaths[0] ?? null)
+    })
+
+    installPackageProtocol(packagesRoot)
 
     bootstrap()
 

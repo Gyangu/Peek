@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { ConnectionConfigSchema, DRIVER_IDS, type DriverId } from '@peek/core'
+import '../../../drivers/__tests__/in-repo-registry'
+import type { DriverId, SavedConnection } from '@peek/core'
+import { connectFormOf, manifestDriverIds, parseConnectionConfig } from '../../../drivers/manifests'
 import { CATALOGS } from '../../i18n/catalog'
 import { LOCALES } from '../../i18n/locales'
 import {
@@ -10,6 +12,7 @@ import {
   defaultConnectMode,
   initialConnectValues,
   missingRequiredFields,
+  seedDriverId,
   validateConnectionConfig,
   type ConnectMode,
 } from '../connectForm'
@@ -20,11 +23,21 @@ import {
  * This is the module that decides whether a driver is reachable from the UI at
  * all: a driver with no form is one the user cannot open, however completely its
  * package is implemented. Nothing else in the app checks that — `ConnectDialog`
- * lists `DRIVER_IDS` in its picker and asks this table for the fields, so a
- * missing row shows up as a dialog with no inputs rather than as a build error.
+ * fills its picker from `manifestDriverIds()` and asks this table for the
+ * fields, so a missing row shows up as a dialog with no inputs rather than as a
+ * build error.
+ *
+ * The loops below walk that same list rather than core's `DRIVER_IDS`, which is
+ * what they used to walk: the registry is what the dialog offers, so it is what
+ * has to be covered. Reading the constant would leave a driver that is loaded
+ * but not listed there untested — the failure mode a package installed at
+ * runtime brings with it.
  *
  * Everything here is pure: no DOM, no driver process, no database.
  * ================================================================== */
+
+/** Every driver this build collected a manifest for; the picker offers exactly these. */
+const DRIVER_IDS: readonly DriverId[] = manifestDriverIds()
 
 /** Fill in whatever the form marks required, so the result is submittable. */
 function filled(
@@ -58,13 +71,19 @@ function sampleUrl(driverId: DriverId): string {
     // sample should be the one the form itself defaults to.
     case 'neo4j':
       return 'neo4j://localhost:7687'
+    // No longer unreachable: `DriverId` is a string with a shape, so the
+    // compiler cannot tell anyone that a seventh driver needs a sample here.
+    // Failing loudly is the substitute — a driver with no sample would silently
+    // be filled in with `sample-url` and connect nowhere.
+    default:
+      throw new Error(`connect-form.test.ts has no sample url for ${driverId}`)
   }
 }
 
 describe('connect form coverage', () => {
   test('every driver core declares has a form — otherwise the dialog offers an empty one', () => {
-    // ConnectDialog renders DRIVER_IDS directly, so this is the invariant that
-    // keeps the picker and the form table from drifting apart.
+    // ConnectDialog renders this same list directly, so this is the invariant
+    // that keeps the picker and the form table from drifting apart.
     for (const driverId of DRIVER_IDS) {
       const spec = connectFormSpec(driverId)
       assert.ok(spec, `${driverId} has no form spec`)
@@ -89,16 +108,20 @@ describe('connect form coverage', () => {
   })
 
   test('every field label resolves in every locale', () => {
-    // A label is looked up by a key held as data, so a typo cannot be caught by
-    // the compiler the way a literal `t('...')` call is: it surfaces as the raw
-    // key sitting in the dialog.
+    // **Changed by decision 3 and by nothing else** (design §2.3c): this used to
+    // read `field.labelKey in CATALOGS[locale]`, and the key it looked up no
+    // longer exists — a package carries its own text. The question is the same
+    // one, asked of the package instead of the window: does every box the dialog
+    // draws have a name in the language the dialog is in? A miss still surfaces
+    // the same way, as a label nobody chose sitting in the form.
     for (const driverId of DRIVER_IDS) {
       for (const mode of connectFormSpec(driverId).modes) {
         for (const field of connectFields(driverId, mode)) {
           for (const { id: locale } of LOCALES) {
-            assert.ok(
-              field.labelKey in CATALOGS[locale],
-              `${locale} has no message for ${field.labelKey} (${driverId}/${mode}/${field.name})`,
+            assert.equal(
+              typeof field.label[locale],
+              'string',
+              `${locale} has no label for ${driverId}/${mode}/${field.name}`,
             )
           }
         }
@@ -155,14 +178,16 @@ describe('required fields gate the submit button', () => {
 
 describe('values become a ConnectionConfig core accepts', () => {
   test('every driver and mode assembles a config that passes the contract schema', () => {
-    // The same schema main validates `conn.open` against. If this passes here,
-    // the dialog cannot produce a config that main rejects with no field to blame.
+    // The same parse main validates `conn.open` against — the registry's, which
+    // is the manifest's own field list either side of the process boundary. If
+    // this passes here, the dialog cannot produce a config that main rejects
+    // with no field to blame.
     for (const driverId of DRIVER_IDS) {
       for (const mode of connectFormSpec(driverId).modes) {
         const built = buildConnectionConfig(driverId, mode, filled(driverId, mode), 'label')
         assert.ok(built.ok, `${driverId}/${mode} did not assemble: ${built.ok ? '' : built.issue}`)
         assert.equal(built.config.driverId, driverId)
-        assert.equal(ConnectionConfigSchema.safeParse(built.config).success, true)
+        assert.notEqual(parseConnectionConfig(built.config, 'keep'), null)
       }
     }
   })
@@ -285,16 +310,17 @@ describe('switching driver resets the form', () => {
 
 describe('what a rejected draft tells the user', () => {
   /*
-   * `validateConnectionConfig` is a call to the real `ConnectionConfigSchema`,
-   * and these tests exist to keep it that way.
+   * `validateConnectionConfig` is a call to the real parse — core's
+   * `parseConnectionConfig`, against the driver's own declared fields — and
+   * these tests exist to keep it that way.
    *
    * It was once a hand-written table of per-driver field rules, added to keep
    * zod out of the renderer chunk. Measurement said otherwise on both counts:
    * zod ships regardless (core's `ids.ts` and `errors.ts` are built on it, and
-   * the renderer uses both), and the schema itself is declared beside
-   * `DRIVER_CAPABILITIES` in `capability.ts`, which `state/capabilities.ts`
-   * already pulls in. The mirror made the built chunk 1,868 B *larger* while
-   * being a second copy of a contract main enforces for real.
+   * the renderer uses both), and the parse is built out of `capability.ts` and
+   * `manifest.ts`, which the renderer already pulls in for `ConnectionState`
+   * and the connect form itself. The mirror made the built chunk 1,868 B
+   * *larger* while being a second copy of a contract main enforces for real.
    *
    * The one property the mirror was genuinely good at is the one asserted here:
    * a rejection names the field, so the dialog can point at a box. Anything that
@@ -302,19 +328,19 @@ describe('what a rejected draft tells the user', () => {
    */
 
   test('the issue names the offending field, not just that something is wrong', () => {
-    const outcome = validateConnectionConfig({ driverId: 'postgres', port: 'not-a-number' })
+    const outcome = validateConnectionConfig({ driverId: 'postgres', port: 'not-a-number' }, connectFormOf)
     assert.equal(outcome.ok, false)
     if (!outcome.ok) assert.match(outcome.issue, /^port: /)
   })
 
   test('a required field left out is reported against that field', () => {
-    const outcome = validateConnectionConfig({ driverId: 'sqlite' })
+    const outcome = validateConnectionConfig({ driverId: 'sqlite' }, connectFormOf)
     assert.equal(outcome.ok, false)
     if (!outcome.ok) assert.match(outcome.issue, /^file: /)
   })
 
   test('a driver outside the union is refused rather than passed to main', () => {
-    const outcome = validateConnectionConfig({ driverId: 'oracle', url: 'x' })
+    const outcome = validateConnectionConfig({ driverId: 'oracle', url: 'x' }, connectFormOf)
     assert.equal(outcome.ok, false)
   })
 
@@ -322,21 +348,110 @@ describe('what a rejected draft tells the user', () => {
     // `z.object` strips what it does not declare. The dialog relies on that: a
     // stale value from the other mode must not survive into the config, and the
     // check here is the last place it could be removed.
-    const outcome = validateConnectionConfig({
-      driverId: 'sqlite',
-      file: '/tmp/a.db',
-      readOnly: true,
-      somethingElse: 'should not travel',
-    })
+    const outcome = validateConnectionConfig(
+      {
+        driverId: 'sqlite',
+        file: '/tmp/a.db',
+        readOnly: true,
+        somethingElse: 'should not travel',
+      },
+      connectFormOf,
+    )
     assert.ok(outcome.ok)
     assert.deepEqual(outcome.config, { driverId: 'sqlite', file: '/tmp/a.db', readOnly: true })
   })
 
   test('the accepted config is exactly what main will accept', () => {
-    // Same schema, same answer — which is the entire reason to call it here
+    // Same parse, same answer — which is the entire reason to call it here
     // rather than to describe it a second time.
-    const outcome = validateConnectionConfig({ driverId: 'redis', host: 'localhost', port: 6379, db: 0 })
+    const outcome = validateConnectionConfig({ driverId: 'redis', host: 'localhost', port: 6379, db: 0 }, connectFormOf)
     assert.ok(outcome.ok)
-    assert.equal(ConnectionConfigSchema.safeParse(outcome.config).success, true)
+    assert.notEqual(parseConnectionConfig(outcome.config, 'keep'), null)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* What a blank form opens on                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One book entry. Only two of its fields decide anything here, and the rest are
+ * filled because `SavedConnection` is a shape main promises rather than a bag —
+ * a partial cast would let this suite keep passing if the two that matter were
+ * renamed.
+ */
+function entry(driverId: DriverId, lastUsedAt: string): SavedConnection {
+  return {
+    id: `${driverId}:${lastUsedAt}`,
+    driverId,
+    identity: `${driverId}://sample`,
+    label: driverId,
+    detail: '',
+    config: { driverId } as SavedConnection['config'],
+    hasSecret: false,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    lastUsedAt,
+  }
+}
+
+const INSTALLED: readonly DriverId[] = ['neo4j', 'postgres', 'redis']
+
+describe('seedDriverId — the driver a blank connect form opens on', () => {
+  /*
+   * The literal `'postgres'` this replaces was not merely a wrong default: it
+   * was a lookup for a manifest that a user can uninstall, and the throw landed
+   * in a render, which unmounts the window. So the cases below are all one
+   * question — can this function name a driver that is not installed — asked
+   * from each direction a driver id can arrive from.
+   */
+  test('the most recently used driver in the book wins', () => {
+    const book = [
+      entry('postgres', '2026-08-01T00:00:00.000Z'),
+      entry('redis', '2026-08-09T00:00:00.000Z'),
+      entry('neo4j', '2026-08-05T00:00:00.000Z'),
+    ]
+    assert.equal(seedDriverId(book, INSTALLED), 'redis')
+  })
+
+  test('an uninstalled driver is skipped, however recently it was used', () => {
+    // The regression that matters: uninstall the database you use most, and the
+    // book still names it. Seeding from it is the same crash through a door the
+    // picker does not have.
+    const book = [
+      entry('postgres', '2026-08-09T00:00:00.000Z'),
+      entry('redis', '2026-08-02T00:00:00.000Z'),
+    ]
+    assert.equal(seedDriverId(book, ['neo4j', 'redis']), 'redis')
+  })
+
+  test('a book with nothing installed left in it falls back to the first installed driver', () => {
+    const book = [entry('postgres', '2026-08-09T00:00:00.000Z')]
+    assert.equal(seedDriverId(book, ['neo4j', 'redis']), 'neo4j')
+  })
+
+  test('an empty book falls back to the first installed driver', () => {
+    assert.equal(seedDriverId([], INSTALLED), 'neo4j')
+  })
+
+  test('nothing installed answers null rather than throwing or inventing one', () => {
+    // A legal state since Phase C (design 2026-08-07 decision 1), and the reason
+    // this function takes its list as an argument: proving it needs an empty
+    // registry, which the process running this suite does not have.
+    assert.equal(seedDriverId([], []), null)
+    assert.equal(seedDriverId([entry('postgres', '2026-08-09T00:00:00.000Z')], []), null)
+  })
+
+  test('the same timestamp twice keeps the earlier entry, so the answer is not the book order', () => {
+    const stamp = '2026-08-09T00:00:00.000Z'
+    assert.equal(seedDriverId([entry('redis', stamp), entry('neo4j', stamp)], INSTALLED), 'redis')
+  })
+
+  test('every driver it can answer with is one the form can actually be drawn for', () => {
+    // The property behind all of the above: whatever comes back is a driver
+    // `connectFormSpec` will not throw on.
+    const installed = manifestDriverIds()
+    const seeded = seedDriverId([], installed)
+    assert.notEqual(seeded, null)
+    if (seeded !== null) assert.ok(connectFormSpec(seeded).modes.length > 0)
   })
 })

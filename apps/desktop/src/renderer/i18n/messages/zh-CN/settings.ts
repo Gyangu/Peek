@@ -19,9 +19,32 @@ export const settings: CatalogFor<SettingsMessages> = {
   'settings.packages.name': '数据库',
   'settings.packages.version': '连接器版本',
   'settings.packages.capabilities': '能力',
+  'settings.packages.source': '来源',
+  'settings.packages.sourceBundled': 'peek 自带',
+  'settings.packages.sourceUser': '你装的',
+  'settings.packages.manage': '管理',
+  'settings.packages.sourceNote':
+    '「来源」说的是这份 peek 有没有自带同 id 的包，不是这份装着的副本是谁放的。卸载自带的那种会被记住，重启之后也不会自己回来；「恢复自带包」撤销这条记录。',
+  'settings.packages.trustNote':
+    '连接一打开，包就以你自己的权限运行。peek 不检查包里有什么 —— 装它，就是你决定信它。',
+  'settings.packages.install': '安装…',
+  'settings.packages.uninstall': '卸载',
+  'settings.packages.upgrade': '升级到 {version}',
+  'settings.packages.restore': '恢复自带包',
+  'settings.packages.reading': '读取中…',
+  'settings.packages.empty': '一个包都没装，peek 打不开任何数据库。',
+  'settings.packages.installed': '已装上 {id} {version}。',
+  'settings.packages.replaced': '已替换 {id}，现在装着的是 {version}。',
+  'settings.packages.uninstalled': '已卸载 {id}。',
+  'settings.packages.uninstalledClosed': {
+    one: '已卸载 {id}，顺带关掉了 {count} 个开着的连接。',
+    other: '已卸载 {id}，顺带关掉了 {count} 个开着的连接。',
+  },
+  'settings.packages.restored': '已恢复 {ids}。',
+  'settings.packages.restoredNone': '没有缺的 —— 这份 peek 自带的包都装着。',
+  'settings.packages.restoreFailed': '{ids} 恢复失败。',
   'settings.packages.viewKinds': '由包提供的视图种类',
   'settings.packages.noViewKinds': '没有 —— 上面这些数据库都用内置视图浏览。',
-  'settings.packages.builtinHint': '这些包是编译进这份 peek 的，暂时没有可安装或卸载的东西。',
 
   /* ---------------- MCP 端点 ---------------- */
   'mcp.title': 'MCP 端点',

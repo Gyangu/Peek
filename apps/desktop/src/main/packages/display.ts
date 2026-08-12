@@ -92,7 +92,8 @@ export function createConnectionDisplayService(
  *
  * Exported for the one test that has to stand in for a package host —
  * `bus/__tests__/connection-book.test.ts` composes the package's half (straight
- * off `DRIVER_DISPLAYS`, which main may not do and a test may) with this half.
+ * off `drivers/__tests__/in-repo-displays.ts`, which main may not do and a test
+ * may) with this half.
  * Calling the rule beats copying it; a copy that drifts stays green.
  */
 export function labelOf(config: ConnectionConfig, derive: () => string): string {

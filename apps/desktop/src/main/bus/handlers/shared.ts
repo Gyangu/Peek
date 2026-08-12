@@ -16,9 +16,11 @@ import {
   type ConnId,
   type ConnectionState,
   type LayoutNode,
+  type PackageViewText,
   type PanelId,
   type PanelNode,
-  type PluginViewState,
+  type PackageViewState,
+  type PackageViewStateShape,
   type QueryViewState,
   type ResultId,
   type TableViewState,
@@ -29,7 +31,6 @@ import {
   type ViewState,
   type Workspace,
 } from '@peek/core'
-import { lookupViewKindContract } from '../../../drivers/viewKinds'
 import { plain } from '../../store/workspace-store'
 import { putView, removeView, runningResultOf, startResult } from '../../store/mutations'
 import { failMsg } from '../failure'
@@ -44,15 +45,15 @@ import { buildChatViewState, stageChatAttachments } from './chat'
  * saying so in the type is what keeps a chat view (which has no `connId` at all)
  * from having to be defended against at every line of the fetch path.
  *
- * `PluginViewState` is in here rather than beside it on a path of its own,
- * because that is the entire claim being made about plugin views: they fetch
+ * `PackageViewState` is in here rather than beside it on a path of its own,
+ * because that is the entire claim being made about package views: they fetch
  * through the *same* machinery — the same cancel-the-previous-result rule, the
  * same `ResultMeta` with an `origin`, the same backpressure and deadline. A
- * second fetch path for plugins would be a second place for all of that to be
+ * second fetch path for packages would be a second place for all of that to be
  * got wrong, and the first thing to drift would be the invisible one (the
  * orphaned-cursor rule in `beginResult`).
  */
-type FetchingViewState = TableViewState | QueryViewState | VectorViewState | PluginViewState
+type FetchingViewState = TableViewState | QueryViewState | VectorViewState | PackageViewState
 
 /** Default topK for a vector view */
 const DEFAULT_TOP_K = 10
@@ -527,19 +528,58 @@ function buildViewState(spec: ViewOpenSpec, ctx: ReduceCtx): ViewState {
         ...(spec.scoreThreshold === undefined ? {} : { scoreThreshold: spec.scoreThreshold }),
         ...(spec.filter ? { filter: spec.filter } : {}),
       }
-    // The kernel builds the envelope and nothing else: `state` is the plugin's
-    // shape, so main stores it as it arrived and lets the plugin's own schema be
+    // The kernel builds the envelope and nothing else: `state` is the package's
+    // shape, so main stores it as it arrived and lets the package's own schema be
     // the thing that ever looked at it. Defaulting to `{}` rather than leaving it
     // undefined keeps `applyViewPatch`'s merge from having to special-case a
     // view that has never been patched.
-    case 'plugin':
+    //
+    // The two strings come from the answer the bus fetched before this reduction
+    // began — the same answer `startPackageFetch` reads a few lines below. They
+    // are written here rather than after the fact so that the view is never
+    // broadcast without them: a tab that appears with the fallback title and
+    // renames itself a moment later is a flicker nobody asked for.
+    case 'package': {
+      const text = packageTextOf(ctx)
       return {
         ...base,
-        kind: 'plugin',
-        pluginKind: spec.pluginKind,
-        state: spec.state ?? {},
+        ...packageViewOf(spec),
+        ...(text === undefined ? {} : { packageText: text }),
       }
+    }
   }
+}
+
+/**
+ * The question a package is asked about a view that does not exist yet.
+ *
+ * Shared with `buildViewState` above rather than rebuilt in the caller, because
+ * the two must agree exactly: whatever `prepare` describes to the package is the
+ * view the reducer then creates, and a `state` defaulted in one place and not
+ * the other would have the package answering about a view nobody opened.
+ */
+export function packageViewOf(spec: Extract<ViewOpenSpec, { kind: 'package' }>): PackageViewStateShape {
+  return {
+    kind: 'package',
+    packageKind: spec.packageKind,
+    connId: spec.connId,
+    state: spec.state ?? {},
+  }
+}
+
+/**
+ * What the package said this view is called and shows, or nothing.
+ *
+ * `undefined` rather than blank strings when no answer came back: `viewTitle`
+ * and `describeView` already fall back for a view nobody can speak for, and a
+ * stored empty string would be a worse answer than no answer — it reads as "the
+ * package says this view has no name". A view that already had text keeps it,
+ * one patch stale, which beats blanking a tab because a host was slow.
+ */
+export function packageTextOf(ctx: ReduceCtx): PackageViewText | undefined {
+  const answer = ctx.prepared?.packageView
+  if (answer === undefined) return undefined
+  return { title: answer.title, describe: answer.describe }
 }
 
 /* ================================================================== */
@@ -573,32 +613,45 @@ export function autoFetch(
       return runQuery && view.text.trim() !== '' && canFetch(draft, view.connId, 'tabularQuery')
         ? startQuery(draft, view, ctx, {})
         : undefined
-    case 'plugin':
-      return startPluginFetch(draft, view, ctx)
+    case 'package':
+      return startPackageFetch(draft, view, ctx)
     default:
       return undefined
   }
 }
 
 /**
- * What a plugin view fetches, decided by its own registration.
+ * What a package view fetches, decided by its own registration.
  *
- * ## Why the plugin is asked rather than inspected
+ * ## Why the package is asked rather than inspected
  *
  * Every branch above reads fields the kernel declared and therefore understands
- * (`view.ref`, `view.text`, `view.queryVec`). A plugin view's `state` is an
+ * (`view.ref`, `view.text`, `view.queryVec`). A package view's `state` is an
  * opaque record the kernel stores verbatim and has no schema for, so the only
  * honest way to turn it into a fetch is to ask the code that declared it. That
- * code — `ViewKindRegistration.autoFetch`, living in the plugin package and
- * running *here, in main* — is also the reason a self-drawn Tier C frame is not
- * a statement-composition surface: the frame can patch `state`, and this is what
- * decides what `state` becomes.
+ * code — `ViewKindRegistration.autoFetch` — is also the reason a self-drawn
+ * Tier C frame is not a statement-composition surface: the frame can patch
+ * `state`, and this is what decides what `state` becomes.
  *
- * ## The three ways this returns undefined, and why none of them is an error
+ * ## Why the answer arrives instead of being computed
  *
- * - **no registration**: an ordinary state, not a fault. A workspace persisted
- *   while a plugin was installed restores after it was removed, and the view is
- *   already rendering `view.pluginMissing` on screen. Failing the Command
+ * `autoFetch` used to be called right here, in main. It is package code, and
+ * package code no longer runs in the process that can decrypt every saved
+ * credential (design 2026-08-07 §2.4bis b); it runs in that package's host
+ * process, which is on the other side of an asynchronous boundary. A reduction
+ * cannot cross one — its synchrony is what makes every check-and-set in these
+ * handlers race-free — so the question is asked *before* the reduction, by the
+ * command's `prepare` stage, and what reaches here is the answer (§2.4bis e).
+ *
+ * ## The four ways this returns undefined, and why none of them is an error
+ *
+ * - **nothing was prepared**: no package could be asked, or none was. That
+ *   covers a kind no installed package registers, a host that crashed or timed
+ *   out, and a command that opens views without preparing (`layout.split`,
+ *   `layout.setLayout` — they open a package view idle, and the next
+ *   `view.update` or auto-refresh tick fetches it). A workspace persisted while
+ *   a package was installed and restored after it was removed lands here too,
+ *   already rendering `view.packageMissing` on screen; failing the Command
  *   instead would make restoring a workspace fail as a whole.
  * - **`autoFetch` returned null**: the registration's own answer, and a
  *   legitimate one — a view that only shows what is in its state. This is the
@@ -608,21 +661,16 @@ export function autoFetch(
  *   `canFetch`. The view stays idle rather than planning a request the driver is
  *   contractually obliged to reject.
  */
-function startPluginFetch(
+function startPackageFetch(
   draft: Draft<Workspace>,
-  view: Draft<PluginViewState>,
+  view: Draft<PackageViewState>,
   ctx: ReduceCtx,
 ): ResultId | undefined {
-  const contract = lookupViewKindContract(view.pluginKind)
-  if (contract === null) return undefined
-
-  // `plain` first: the registration is package code written against a plain
-  // `PluginViewStateShape`, and handing it an immer draft would leak drafts into
-  // whatever it returns — a `CollectionRef` that is a draft revokes the moment
-  // this reduction ends, and the plan would carry a proxy that throws when the
-  // effect runs, long after the stack that could explain it is gone.
-  const fetch = contract.autoFetch(plain(view))
-  if (fetch === null) return undefined
+  // Plain data by construction: it came back through a structured clone, so
+  // there is no longer any way for a draft proxy to end up inside an effect
+  // intent — the hazard the old `plain(view)` call here existed to head off.
+  const fetch = ctx.prepared?.packageView?.fetch
+  if (fetch === undefined || fetch === null) return undefined
   if (!canFetch(draft, view.connId, fetch.capability)) return undefined
 
   switch (fetch.capability) {

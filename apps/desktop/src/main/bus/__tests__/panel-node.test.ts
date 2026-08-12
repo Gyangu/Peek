@@ -27,6 +27,7 @@ import {
   type ViewState,
 } from '@peek/core'
 import { assertPanelInvariants } from './panel-invariants'
+import { redactRulesFor } from '../../../drivers/manifests'
 
 /**
  * The reference tests for the panel-tab data model.
@@ -278,7 +279,7 @@ test('snapshotWorkspace: a background tab is mounted but not visible', () => {
   ws.views = { [V('1')]: mkView('1'), [V('2')]: mkView('2') }
   ws.layout = panelOf('a', ['1', '2'], '1')
 
-  const snap = snapshotWorkspace(ws)
+  const snap = snapshotWorkspace(ws, redactRulesFor)
   const byId = new Map(snap.views.map((v) => [String(v.id), v]))
 
   const first = byId.get('view_1')
@@ -299,7 +300,7 @@ test('snapshotWorkspace: an unplaced view reports tabIndex -1 and is not visible
   ws.views = {
     [V('1')]: { id: V('1'), connId: asConnId('conn_1'), kind: 'query', text: '', status: 'idle' },
   }
-  const snap = snapshotWorkspace(ws)
+  const snap = snapshotWorkspace(ws, redactRulesFor)
   assert.equal(snap.views[0].panelId, null)
   assert.equal(snap.views[0].tabIndex, -1)
   assert.equal(snap.views[0].visible, false)

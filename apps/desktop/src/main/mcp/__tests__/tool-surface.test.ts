@@ -73,13 +73,13 @@ test('the scan covers both kinds of source, or the rules below are vacuous for o
     `no kernel tool file was scanned; found: ${files.join(', ')}`,
   )
   assert.ok(
-    files.some((f) => f.startsWith('packages/driver-')),
+    files.some((f) => f.startsWith('packages/db-')),
     'no driver package tool module was scanned. Either every package stopped contributing tools — ' +
       'in which case say so here, because this file has just gone half-vacuous — or the scan broke.',
   )
   // `@peek/core` has a `src/mcp-tools.ts` too: the contract a tool is *declared
   // in*, which is not a tool source. It was being scanned as one until the glob
-  // was narrowed to `driver-*`, which meant a `name: 'x',` line anywhere in the
+  // was narrowed to `db-*`, which meant a `name: 'x',` line anywhere in the
   // frozen contract would have registered as a publishable tool name.
   assert.ok(
     !files.some((f) => f.startsWith('packages/core/')),

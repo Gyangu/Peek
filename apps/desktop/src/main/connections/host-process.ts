@@ -17,6 +17,7 @@ import {
   type PeekError,
 } from '@peek/core'
 import { crashedError, timeoutError } from './classify'
+import { allowedEnv } from './spawn-policy'
 
 /* ================================================================== */
 /* Message parsing: utilityProcess messages are `any`, so narrow to       */
@@ -58,6 +59,16 @@ export interface HostProcessHooks {
 
 export interface SpawnOptions {
   entryPath: string
+  /**
+   * The package's own `driver.mjs`, absolute — what the host loads once it is up.
+   *
+   * `entryPath` is peek's driver-host bundle and is the same file for every
+   * connection; this is the package half, and it comes from the scan rather than
+   * from a compiled-in list (design §4quaterdecies). Passed as a spawn option
+   * rather than read by the host from a well-known place because the host is the
+   * process that must not get to choose where package code comes from.
+   */
+  packageEntry: string
   driverId: DriverId
   readyMs: number
   forwardStdio: boolean
@@ -139,11 +150,21 @@ export class DriverHostProcess {
     // utilityProcess.fork must be called after the app is ready
     if (!app.isReady()) await app.whenReady()
 
-    const env = sanitizeEnv({
-      ...process.env,
+    // peek's own three variables are added *after* the allowlist rather than
+    // passing through it: they are set by this process, not inherited from the
+    // user's shell, and putting them on the list would make it read as though a
+    // `PEEK_CONN_ID` from outside were something a driver host may see.
+    //
+    // `PEEK_PACKAGE_ENTRY` is the one that matters for that distinction: it names
+    // the file this child is about to execute, so an inherited copy would be a
+    // driver host choosing its successor's code. It is set from the scan, here,
+    // and never read from anywhere else.
+    const env: Record<string, string> = {
+      ...allowedEnv(process.env),
       PEEK_CONN_ID: String(this.connId),
       PEEK_DRIVER_ID: opts.driverId,
-    })
+      PEEK_PACKAGE_ENTRY: opts.packageEntry,
+    }
 
     let child: UtilityProcess
     try {
@@ -391,15 +412,6 @@ export class DriverHostProcess {
 /* ================================================================== */
 /* Small helpers                                                       */
 /* ================================================================== */
-
-/** ForkOptions.env rejects undefined values, so filter them out first. */
-function sanitizeEnv(src: Record<string, string | undefined>): Record<string, string> {
-  const out: Record<string, string> = {}
-  for (const [k, v] of Object.entries(src)) {
-    if (typeof v === 'string') out[k] = v
-  }
-  return out
-}
 
 function decodeChunk(chunk: unknown): string {
   if (typeof chunk === 'string') return chunk.trimEnd()

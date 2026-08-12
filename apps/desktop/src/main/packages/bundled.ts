@@ -1,8 +1,9 @@
 import { cpSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { PACKAGE_MANIFEST_FILE, parsePackageManifest } from '@peek/core'
+import { PACKAGE_MANIFEST_FILE, parsePackageManifest } from '@peek/core/package-manifest'
 import { z } from 'zod'
 import { CONFIG_DIR_MODE, readJsonFile, writeJsonFile } from '../config/json-file'
+import { inspectPackageDir, loadPackages, type LoadedPackage } from './loader'
 
 /* ==================================================================
  * The packages peek ships with, and the one rule that makes them ordinary.
@@ -34,11 +35,21 @@ import { CONFIG_DIR_MODE, readJsonFile, writeJsonFile } from '../config/json-fil
  *
  * ## What this module does not decide
  *
- * It does not load, register or validate anything — `loader.ts` scans the
- * directory afterwards and judges what it finds, including the copies made here.
- * A bundled package is subjected to exactly the checks a third-party one is,
- * which is decision 1 restated as code: if peek's own package cannot pass the
- * loader, that is a bug in the package and not a reason for a bypass.
+ * It does not load or register anything — `loader.ts` scans the directory
+ * afterwards and judges what it finds, including the copies made here. A bundled
+ * package is subjected to exactly the checks a third-party one is, which is
+ * decision 1 restated as code: if peek's own package cannot pass the loader,
+ * that is a bug in the package and not a reason for a bypass.
+ *
+ * It does run one of those checks *before* copying, through the loader's own
+ * `inspectPackageDir` — the same call `installPackage` makes, for the same
+ * reason. Rule 1 asks "is this id absent", and absent is not the same as free: a
+ * package the user installed under a different name can already own the
+ * `driverId` this one ships, and the scan that follows resolves that by
+ * directory order. Copying first and finding out afterwards leaves a directory
+ * that loads for nobody, reported as restored. Decision 1 says the shipped
+ * copies are ordinary packages; being refused for the reason any other package
+ * would be refused is what that means.
  * ================================================================== */
 
 /** Where the tombstones live, beside the packages rather than inside one. */
@@ -107,7 +118,10 @@ export type BundledOutcome =
   | 'upgradable'
   /** Something is installed under this id whose manifest peek cannot read, so there was nothing to compare. */
   | 'unreadable'
-  /** The copy itself failed, or the shipped package has no readable manifest. */
+  /**
+   * The copy itself failed, the shipped package has no readable manifest, or it
+   * could not have loaded beside what is already installed.
+   */
   | 'failed'
 
 export interface BundledPackageStatus {
@@ -123,6 +137,21 @@ export interface BundledPackageStatus {
 
 export interface BundledLayoutReport {
   readonly statuses: readonly BundledPackageStatus[]
+  /**
+   * Why not one package could be laid out, when the packages directory itself
+   * was the thing that failed.
+   *
+   * Per-package failures are `failed` statuses; this is the case that has no
+   * package to blame — `~/.peek/packages` is a regular file, or `~/.peek` is not
+   * writable because peek was once started under `sudo`. Both are ordinary
+   * accidents and both used to be an exception thrown out of the first statement
+   * of `app.whenReady()`, which is not a place a throw is survivable: everything
+   * after it — the scan, the protocol, the window, the `activate` handler — is in
+   * the same callback, so the app kept running with no window and no way to quit
+   * it but Force Quit. Reported rather than thrown, and null on every start where
+   * the directory was fine.
+   */
+  readonly issue: string | null
 }
 
 /* ------------------------------------------------------------------ */
@@ -221,20 +250,48 @@ export interface LayOutOptions {
 export function layOutBundledPackages(options: LayOutOptions): BundledLayoutReport {
   const { bundledRoot, packagesRoot } = options
   const ids = directoryNames(bundledRoot)
-  if (ids.length === 0) return { statuses: [] }
+  if (ids.length === 0) return { statuses: [], issue: null }
 
-  mkdirSync(packagesRoot, { recursive: true, mode: CONFIG_DIR_MODE })
-  clearStagingLitter(packagesRoot)
+  let suppressed: ReadonlySet<string>
+  try {
+    mkdirSync(packagesRoot, { recursive: true, mode: CONFIG_DIR_MODE })
+    clearStagingLitter(packagesRoot)
+    suppressed = new Set(readTombstones(packagesRoot).map((stone) => stone.id))
+  } catch (error) {
+    // The three statements that are about the directory rather than about any
+    // one package. They are grouped because they fail together and for one
+    // reason — the caller cannot use `~/.peek/packages/` at all — and because
+    // the alternative is the throw that took the whole boot down with it.
+    return {
+      statuses: [],
+      issue:
+        `peek could not use its packages directory ${packagesRoot}: ${messageOf(error)} — no package ` +
+        'was laid out, and none can be installed until that path is a writable directory',
+    }
+  }
 
-  const suppressed = new Set(readTombstones(packagesRoot).map((stone) => stone.id))
+  // Read on first use rather than up front, because the common start lays
+  // nothing out: every bundled id is already installed, every `layOutOne`
+  // returns before this is called, and a scan here would put a second full read
+  // of the packages directory on the boot path for nothing.
+  let scanned: readonly LoadedPackage[] | null = null
+  const installed = (): readonly LoadedPackage[] => (scanned ??= loadPackages(packagesRoot).loaded)
+
   return {
     statuses: ids.map((id) =>
-      layOutOne(id, join(bundledRoot, id), join(packagesRoot, id), suppressed.has(id)),
+      layOutOne(id, join(bundledRoot, id), join(packagesRoot, id), suppressed.has(id), installed),
     ),
+    issue: null,
   }
 }
 
-function layOutOne(id: string, source: string, target: string, tombstoned: boolean): BundledPackageStatus {
+function layOutOne(
+  id: string,
+  source: string,
+  target: string,
+  tombstoned: boolean,
+  installed: () => readonly LoadedPackage[],
+): BundledPackageStatus {
   const bundledVersion = versionOf(source)
   if (bundledVersion === null) {
     return {
@@ -263,7 +320,7 @@ function layOutOne(id: string, source: string, target: string, tombstoned: boole
         detail: `'${id}' was uninstalled; "restore bundled packages" in settings brings it back`,
       }
     }
-    return copyIn(id, source, target, bundledVersion)
+    return copyIn(id, source, target, bundledVersion, installed())
   }
 
   const installedVersion = versionOf(target)
@@ -306,23 +363,75 @@ function layOutOne(id: string, source: string, target: string, tombstoned: boole
  * over the whole directory by the time any package is copied, and a second
  * removal here would be a guard no test can fail — the fragment it defends
  * against is gone before this is called.
+ *
+ * `alongside` is what the packages directory already holds, and the check
+ * against it happens **before** the copy for the reason `installPackage` puts
+ * its own first: a package that will be refused is one this function must not
+ * write, or the report says `laid-out` about bytes nothing will ever load.
  */
-function copyIn(id: string, source: string, target: string, bundledVersion: string): BundledPackageStatus {
+function copyIn(
+  id: string,
+  source: string,
+  target: string,
+  bundledVersion: string,
+  alongside: readonly LoadedPackage[],
+): BundledPackageStatus {
+  const inspected = inspectPackageDir(source, alongside)
+  if (!inspected.ok) {
+    return {
+      id,
+      bundledVersion,
+      installedVersion: null,
+      outcome: 'failed',
+      // Every issue, indented, exactly as `packages.install` reports a refusal:
+      // the reader of both is a person who has to go and change something, and
+      // for a bundled id that something is usually the package they installed
+      // over it.
+      detail: `'${id}' was not laid out:\n${inspected.issues.map((issue) => `  ${issue}`).join('\n')}`,
+    }
+  }
+
   const staging = join(target, '..', `${STAGING_PREFIX}${id}`)
   try {
     cpSync(source, staging, { recursive: true })
     renameSync(staging, target)
     return { id, bundledVersion, installedVersion: bundledVersion, outcome: 'laid-out', detail: null }
   } catch (error) {
-    rmSync(staging, { recursive: true, force: true })
+    discardStaging(staging)
     return {
       id,
       bundledVersion,
       installedVersion: null,
       outcome: 'failed',
-      detail: `'${id}' could not be laid out: ${error instanceof Error ? error.message : String(error)}`,
+      detail: `'${id}' could not be laid out: ${messageOf(error)}`,
     }
   }
+}
+
+/**
+ * Throw away a half-written staging directory without letting the cleanup
+ * become the failure that gets reported.
+ *
+ * `force: true` swallows ENOENT and nothing else, so on the exact filesystems
+ * this cleanup exists for — a full disk, a directory an ACL made unwritable
+ * mid-copy — the `rmSync` raises its own error on top of the one being handled.
+ * In `layOutBundledPackages` that lands on the startup path, which is where a
+ * throw costs the window; here it would replace a precise "could not be laid
+ * out: ENOSPC" with an unrelated EACCES about a dot-directory the user has never
+ * heard of. The litter left behind is swept by `clearStagingLitter` on the next
+ * start, which is what that sweep is for.
+ */
+function discardStaging(staging: string): void {
+  try {
+    rmSync(staging, { recursive: true, force: true })
+  } catch {
+    // Deliberately silent: nothing here is worth a second line on top of the
+    // failure the caller is already reporting.
+  }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**

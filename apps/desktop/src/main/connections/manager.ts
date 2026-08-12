@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { WebContents } from 'electron'
 import {
-  defaultConnectionLabel,
   newConnId,
   peekErrorMsg,
   type Capability,
@@ -35,11 +34,14 @@ import {
   unsupported,
 } from './classify'
 import { ResultDeadlines, type DeadlineTimerApi } from './deadline'
+import { resolveHostDir } from './spawn-policy'
 import { DEFAULT_TIMEOUTS, resolveExecutionTimeout, type ExecutionKind, type Timeouts } from './timeouts'
 import { TypedEmitter } from './emitter'
 import { DriverHostProcess } from './host-process'
 import { DataPlaneLink } from './port-broker'
 import { lookupDriver } from './registry'
+import { packageIdForDriver } from '../../drivers/installed'
+import { packageEntryPaths } from '../packages/locations'
 import type {
   CancelOutcome,
   ConnectOptions,
@@ -58,7 +60,6 @@ import type {
 interface ConnEntry {
   connId: ConnId
   driverId: DriverId
-  label: string
   config: ConnectionConfig
   status: ConnStatus
   capabilities: Capability[]
@@ -125,7 +126,20 @@ export class ConnectionManager implements ConnectionEffects {
     this.timeouts = { ...DEFAULT_TIMEOUTS, ...options.timeouts }
     this.deadlines = new ResultDeadlines(options.timers)
     // The main bundle and the driver-host bundle both live in out/main (see electron.vite.config.ts)
-    this.hostDir = options.hostDir ?? process.env['PEEK_DRIVER_HOST_DIR'] ?? import.meta.dirname
+    if (options.hostDir !== undefined) {
+      this.hostDir = options.hostDir
+    } else {
+      const decision = resolveHostDir(
+        import.meta.dirname,
+        process.env,
+        options.allowHostDirOverride ?? false,
+      )
+      this.hostDir = decision.dir
+      // Loud, always. The whole point of the check is that this variable stops
+      // being able to change where the plaintext-password process loads from
+      // *quietly*; a silent success would keep the half that matters.
+      if (decision.note !== null) console.error(`[peek/error] ${decision.note}`)
+    }
     this.forwardStdio = options.forwardStdio ?? true
   }
 
@@ -189,6 +203,24 @@ export class ConnectionManager implements ConnectionEffects {
       })
     }
 
+    // The other half of the entry: peek's host bundle above, the package's own
+    // `driver.mjs` here. Both are resolved before the fork so that a package that
+    // went missing between the scan and this connect fails as a named error
+    // rather than as a child that exits during its first import.
+    //
+    // Two lookups because they answer two questions and the second can fail on
+    // its own: which package owns this driver (the registry the window and main
+    // share), and where that package keeps its code (main only).
+    const packageId = packageIdForDriver(config.driverId)
+    const entries = packageId === null ? null : packageEntryPaths(packageId)
+    if (entries === null) {
+      throw peekErrorMsg('INTERNAL', 'error.driver.hostBuildMissing', undefined, {
+        detail:
+          `No installed package was found for driver '${config.driverId}'. It is in the registry, `
+          + 'so the scan accepted it and its directory has gone away since.',
+      })
+    }
+
     const connId = options.connId ?? newConnId()
     // Reconnect: reap the old process first — one connId must never own two processes
     if (this.conns.has(connId)) await this.disconnect(connId)
@@ -202,7 +234,6 @@ export class ConnectionManager implements ConnectionEffects {
     const entry: ConnEntry = {
       connId,
       driverId: config.driverId,
-      label: defaultConnectionLabel(config),
       config,
       status: 'connecting',
       capabilities: [],
@@ -218,6 +249,7 @@ export class ConnectionManager implements ConnectionEffects {
     try {
       await host.spawn({
         entryPath,
+        packageEntry: entries.driver,
         driverId: config.driverId,
         readyMs: this.timeouts.readyMs,
         forwardStdio: this.forwardStdio,
@@ -814,7 +846,6 @@ function toRuntime(entry: ConnEntry): ConnectionRuntime {
   return {
     connId: entry.connId,
     driverId: entry.driverId,
-    label: entry.label,
     status: entry.status,
     capabilities: [...entry.capabilities],
     ...(entry.serverInfo === undefined ? {} : { serverInfo: entry.serverInfo }),

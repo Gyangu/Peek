@@ -17,6 +17,7 @@ import { Menu } from '../../ui/Menu'
 import { useContextMenu } from '../../ui/useContextMenu'
 import { ViewError } from '../ViewError'
 import { openSpecForNode } from './openTarget'
+import { elisionLabel } from './treeElision'
 import { treeMenuNodes } from './treeMenu'
 
 /**
@@ -183,6 +184,10 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
     <>
       {entry.nodes.map((node) => {
         const open = expandedSet.has(node.id)
+        // An elision node stands for children the driver left out, not for
+        // anything in the store, so its own `name` ('…') and English `detail`
+        // are the driver's fallback for MCP and the row is worded here instead.
+        const elided = node.elision === undefined ? null : elisionLabel(node.elision, t)
         return (
           <div key={node.id}>
             {/* `h-row` was 22px until it became --spacing-row: matching the grid
@@ -222,7 +227,7 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
                 onSelect(node)
                 menu.open(node)(e)
               }}
-              title={`${node.detail ?? node.name}\n${t('menu.hint')}`}
+              title={`${elided ?? node.detail ?? node.name}\n${t('menu.hint')}`}
             >
               {/* A disclosure triangle is geometry, not a word. It used to say so
                   in the only way a stylesheet can — 10px, deliberately *below* the
@@ -247,8 +252,10 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
                 {iconOf(node.kind)}
               </span>
               <span className="truncate">{node.name}</span>
-              {node.detail ? (
-                <span className="ml-tight truncate text-fg-faint text-micro">{node.detail}</span>
+              {elided ?? node.detail ? (
+                <span className="ml-tight truncate text-fg-faint text-micro">
+                  {elided ?? node.detail}
+                </span>
               ) : null}
             </div>
             {open ? (

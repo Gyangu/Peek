@@ -1,4 +1,4 @@
-import { DRIVER_MANIFESTS } from '../../drivers/manifests'
+import { driverManifests } from '../../drivers/manifests'
 
 /**
  * The `instructions` string sent during MCP `initialize` — the one piece of prose
@@ -41,10 +41,15 @@ import { DRIVER_MANIFESTS } from '../../drivers/manifests'
  * arrives here already documented, and means the example cannot drift from the
  * schema that will validate it.
  *
- * Built once at module load. Manifests are static data, so there is nothing to
- * recompute per connection.
+ * Built per `initialize` rather than once at module load. It used to be a module
+ * constant, which held for exactly as long as the manifests were compiled in;
+ * they come off disk now, and a constant here would be assembled before anything
+ * had read `~/.peek/packages/`. Nothing is recomputed per connection — this runs
+ * once per MCP session, alongside `mcpInstructions()` itself.
  */
-const CONNECT_EXAMPLES = DRIVER_MANIFESTS.map((m) => `  - ${m.displayName}: ${m.mcpConnectExample}`).join('\n')
+function connectExamples(): string {
+  return driverManifests().map((m) => `  - ${m.displayName}: ${m.mcpConnectExample}`).join('\n')
+}
 
 /**
  * Each package's Agent Skill, in one block, from the packages themselves.
@@ -63,19 +68,33 @@ const CONNECT_EXAMPLES = DRIVER_MANIFESTS.map((m) => `  - ${m.displayName}: ${m.
  *    = false`). A package installed mid-session is not in the text a live client
  *    is holding.
  *  - **Every installed package contributes, connected or not.** The text is built
- *    at module load, before any connection exists, so it cannot filter by what is
- *    in use. That is what `MAX_SKILL_CHARS` is really bounding: not one
+ *    when a session opens, before any connection exists, so it cannot filter by
+ *    what is in use. That is what `MAX_SKILL_CHARS` is really bounding: not one
  *    paragraph's length, but the tax a user who only opens PostgreSQL pays for
  *    five databases they never touch.
  *
  * A manifest without a `skill` contributes nothing — no empty heading, no line
  * saying it had nothing to say.
  */
-const DRIVER_SKILLS = DRIVER_MANIFESTS.filter((m) => m.skill !== undefined)
-  .map((m) => `${m.displayName}:\n${m.skill ?? ''}`)
-  .join('\n\n')
+function driverSkills(): string {
+  return driverManifests()
+    .filter((m) => m.skill !== undefined)
+    .map((m) => `${m.displayName}:\n${m.skill ?? ''}`)
+    .join('\n\n')
+}
 
-export const MCP_INSTRUCTIONS = `peek is a desktop database viewer, and these tools drive its user interface directly. Humans and AI share one command channel, so every step you take appears on the user's screen as you take it — there is no staging area and nothing to commit.
+/**
+ * The preamble, assembled from whatever is installed right now.
+ *
+ * A function rather than the `MCP_INSTRUCTIONS` constant it replaces, for the
+ * reason the two helpers above give: two of its paragraphs are the packages
+ * talking, and this module is imported long before any package has been read.
+ * Called once per `initialize` (`server.ts`), which is also the point at which
+ * the text stops being able to change — `capabilities.tools.listChanged` is
+ * false, so a client holds whatever it was handed.
+ */
+export function mcpInstructions(): string {
+  return `peek is a desktop database viewer, and these tools drive its user interface directly. Humans and AI share one command channel, so every step you take appears on the user's screen as you take it — there is no staging area and nothing to commit.
 
 Where you are:
 - You may be an external client (an editor, a terminal) connected over the loopback MCP endpoint, or you may be the assistant embedded in peek's own chat panel. The tools, and this text, are the same either way.
@@ -85,7 +104,7 @@ Where you are:
 Typical flow:
 1. read_workspace — look at the current UI first: the layout, the views stacked in each panel and which one is visible, which databases are connected.
 2. list_connections / connect — connect first if there is no connection yet. The config to pass, per database:
-${CONNECT_EXAMPLES}
+${connectExamples()}
 3. introspect — expand the namespace tree to obtain a table's ref (omit parentId for the root level).
 4. open_view — open a table as a table view, or open a query view to write SQL.
 5. run_query — run a query; the receipt carries only the first 20 rows, the full result lives in the UI for the user to scroll.
@@ -113,7 +132,7 @@ Conversations:
 
 What each database expects, contributed by the package that implements it:
 
-${DRIVER_SKILLS}
+${driverSkills()}
 
 Notes:
 - No tool writes to a database. Statements are not inspected — peek opens every connection read-only at the server (PostgreSQL and MySQL run in a read-only transaction, SQLite is opened read-only with PRAGMA query_only), so a write you send is refused by the database itself and comes back as CONFLICT. Do not treat that as something to work around.
@@ -121,3 +140,4 @@ Notes:
 - Result set data is never handed to you in full: raise previewRows if you need more rows, or let the user look at the UI.
 - The user can move, close and re-arrange things while you work. Ids you read earlier can be stale; commands fail with NOT_FOUND rather than guessing, so re-read the workspace instead of retrying blind.
 - Failures return a structured PeekError (code + message + detail); use the code to decide whether to retry or to change your arguments.`
+}

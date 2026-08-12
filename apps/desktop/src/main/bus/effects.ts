@@ -1,5 +1,5 @@
 import type { Draft } from 'immer'
-import { hasUsableRows, isSettledResultStatus } from '@peek/core'
+import { hasUsableRows, isSettledResultStatus, peekError } from '@peek/core'
 import type {
   CommandName,
   CommandSource,
@@ -9,7 +9,7 @@ import type {
   ViewState,
   Workspace,
 } from '@peek/core'
-import { failResult, cancelResult, setConnectionStatus } from '../store/mutations'
+import { failResult, cancelResult, setConnectionDisplay, setConnectionStatus } from '../store/mutations'
 import type { WorkspaceStore } from '../store/workspace-store'
 import type { CommandDeps } from './deps'
 import { CommandFailure, asPeekError } from './failure'
@@ -76,6 +76,19 @@ async function runIntent(intent: EffectIntent, ctx: EffectRunnerCtx): Promise<vo
       return
     }
 
+    case 'describeConnection': {
+      // Absent while the package hosts are not wired up (and in the unit tests
+      // that inject their own deps): a connection then keeps whatever the reducer
+      // seeded, which is the same degradation as any other unavailable dep.
+      const display = ctx.deps.display
+      if (!display) return
+      const strings = await display.describe({ config: intent.config })
+      ctx.store.apply((draft) => {
+        setConnectionDisplay(draft, intent.connId, strings)
+      }, meta)
+      return
+    }
+
     case 'disconnect':
       await ctx.deps.connections.close(intent.connId)
       return
@@ -131,6 +144,22 @@ async function runIntent(intent: EffectIntent, ctx: EffectRunnerCtx): Promise<vo
       }, meta)
       return
     }
+
+    case 'uninstallPackage': {
+      const packages = ctx.deps.packages
+      if (!packages) {
+        // Not degraded quietly, unlike `display` above. A silent no-op here would
+        // answer `packages.uninstall` with a receipt saying the package is gone
+        // while its directory is untouched and the next launch registers it
+        // again. The connections the reducer already closed stay closed, which
+        // is visible and one click to undo.
+        throw new CommandFailure(
+          peekError('INTERNAL', 'This peek was assembled without a package manager'),
+        )
+      }
+      await packages.uninstall({ packageId: intent.packageId, version: intent.version })
+      return
+    }
   }
 }
 
@@ -159,8 +188,16 @@ function applyIntentFailure(
         restorePreviousResult(draft, intent.viewId, intent.resultId, ACCEPTED_FETCHES.get(ctx.store))
       }, meta)
       return
+    case 'describeConnection':
+    // A connection whose name could not be computed is still a working
+    // connection; pushing it to `error` would report a broken database because a
+    // package host was slow.
     case 'disconnect':
     case 'cancel':
+    // Nothing in the Workspace describes an installed package, so a failed
+    // uninstall has no state machine to push to `error`. The command fails and
+    // the caller is told; `runIntents` above is what does the telling.
+    case 'uninstallPackage':
       return
   }
 }

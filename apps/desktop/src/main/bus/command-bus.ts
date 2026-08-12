@@ -31,10 +31,15 @@ import type { CommandHandler, CommandHandlerMap, ReduceCtx } from './types'
  * property this project exists to guarantee.
  *
  * The order of one dispatch:
- *   zod validation → reduce (pure state, atomic) → patch broadcast → effects →
- *   finalize → result + log
+ *   zod validation → prepare (async, reads only) → reduce (pure state, atomic) →
+ *   patch broadcast → effects → finalize → result + log
  * A failure at any step collapses into the error branch of a CommandResult;
  * **no exception ever escapes to the caller**.
+ *
+ * `prepare` is where a Command is allowed to be slow, and `reduce` is where it
+ * is allowed to be sure. Keeping them separate is what lets a package view ask
+ * another process what to fetch without any reducer in the app becoming async
+ * (design 2026-08-07 §2.4bis e).
  */
 export interface CommandBusOptions {
   store: WorkspaceStore
@@ -128,17 +133,27 @@ export class CommandBus {
     }
 
     const intents: EffectIntent[] = []
-    const ctx: ReduceCtx = {
-      source,
-      commandId: id,
-      now: startedAt,
-      ids: this.#ids,
-      plan: (intent) => {
-        intents.push(intent)
-      },
-    }
 
     try {
+      // The asynchronous prelude, and the only await before the state changes.
+      // A handler that declares one is asking a question main cannot answer
+      // itself — today, what a package says about one of its views — and the
+      // answer has to be in hand *before* `produce` starts, because a reducer
+      // may not await (see `CommandPreparer`). Awaited only when it really is a
+      // promise, for the same reason the state stage is.
+      const preparing = handler.prepare?.(this.#store.getState(), input)
+      const prepared = preparing instanceof Promise ? await preparing : preparing
+      const ctx: ReduceCtx = {
+        source,
+        commandId: id,
+        now: startedAt,
+        ids: this.#ids,
+        plan: (intent) => {
+          intents.push(intent)
+        },
+        ...(prepared === undefined ? {} : { prepared }),
+      }
+
       // Awaited only when it actually is a promise: a reducer's result must reach
       // the effect phase in the same tick it was produced, and `await` on a plain
       // value would insert a microtask between them for every command in the app.

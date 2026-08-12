@@ -1,4 +1,5 @@
 import { snapshotWorkspace, type StateReadResult, type WorkspaceSnapshot } from '@peek/core'
+import { redactRulesFor } from '../../../drivers/manifests'
 import { failMsg } from '../failure'
 import type { CommandHandlerMap } from '../types'
 
@@ -12,7 +13,7 @@ import type { CommandHandlerMap } from '../types'
 export const stateHandlers = {
   'state.read': {
     read(state, input) {
-      const full = snapshotWorkspace(state)
+      const full = snapshotWorkspace(state, redactRulesFor)
       const include = new Set(input.include ?? ['layout', 'views', 'connections', 'results'])
 
       let views = include.has('views') ? full.views : []

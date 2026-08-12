@@ -1,47 +1,36 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import type { ConnectField, ConnectMode, DriverManifest } from '@peek/core'
-import { DRIVER_MANIFESTS, manifestDriverIds } from '../../../drivers/manifests'
-import { CATALOGS } from '../catalog'
+import '../../../drivers/__tests__/in-repo-registry'
+import { driverManifests, manifestDriverIds } from '../../../drivers/manifests'
 import { LOCALES, type Locale } from '../locales'
 
 /* ==================================================================
- * The connect forms, measured against the catalogs they are rendered with.
+ * The connect forms, measured against the locales peek ships.
  *
- * A `ConnectField` carries a `labelKey`, not a label: the field lists live in
- * the driver packages, which have no i18n runtime, and the text lives here.
- * That key is the only thing joining the two halves, and nothing inside a
- * driver package can tell whether it names a real message.
+ * **This file used to measure them against peek's own catalogs**, because a
+ * `ConnectField` carried a `labelKey` and the text lived in `messages/`. Under
+ * decision 3 (design 2026-08-07 §2.3c) a package carries its own text, so there
+ * is no key to look up and no catalog to look it up in — the join this file
+ * existed to check does not exist.
  *
- * The compile-time half of the join is a single annotation in
- * `renderer/components/connectForm.ts`, and it is fragile by construction. It
- * measures every `labelKey` against `PlainMessageKey`, which is derived from
- * the **English** catalog alone — so a key that exists in `en` and nowhere else
- * compiles, which is the failure this file exists for. At runtime
- * `translateDynamic` falls back to the English catalog, so a Chinese user is
- * shown an English label inside an otherwise Chinese dialog; a key missing from
- * every catalog renders as the raw key itself (see `translate`). Neither raises
- * anything, in any process.
+ * What remains is a real question and a narrower one: **do the packages peek
+ * ships speak every language peek ships?** The schema
+ * (`PackageConnectFieldSchema`) only demands `en`, and it is right to — a
+ * package translated into nothing must still install. That floor is exactly
+ * what an in-repo package must not sit on, and nothing else would notice: a
+ * missing translation falls back to English, so a Chinese user gets an English
+ * label inside an otherwise Chinese dialog and no process raises anything.
  *
- * That annotation also has literal types to measure only because
- * `defineManifest`'s `const` type parameter preserved them: both spellings that
- * widen them (`: DriverManifest` on a manifest, a type annotation on
- * `DRIVER_MANIFESTS`) still compile, and the check then passes on `string`.
- * These assertions do not care how the keys were typed — they read the shipped
- * `CATALOGS`, once per locale.
+ * The compile-time half is gone with the keys. `connectForm.ts` records what
+ * that cost; the replacement for a third-party package is the loader refusing a
+ * field with no `en`, and the replacement for an in-repo one is this file.
  *
  * Nothing here connects to anything: manifests are static data, described
  * before a connection exists.
  * ================================================================== */
 
-/**
- * The manifests, widened on purpose.
- *
- * The literal `labelKey` types are what `connectForm.ts` is for; here they are
- * only ever read as strings, and the widened element type is also what lets
- * `connectForm.fields` be indexed by a `ConnectMode` variable.
- */
-const MANIFESTS: readonly DriverManifest[] = DRIVER_MANIFESTS
+const MANIFESTS: readonly DriverManifest[] = driverManifests()
 
 /**
  * Both modes, whether or not a manifest lists them.
@@ -66,21 +55,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 describe('driver manifest labels', () => {
   test('there is something to check — an empty manifest list would make every assertion here vacuous', () => {
     const ids = manifestDriverIds()
-    assert.ok(ids.length > 0, 'DRIVER_MANIFESTS is empty, so none of the checks below prove anything')
+    assert.ok(ids.length > 0, 'the installed registry is empty, so none of the checks below prove anything')
     // Two manifests under one id means `lookupManifest` answers with whichever
     // was declared last, and one driver draws another driver's connect form.
     assert.deepEqual([...new Set(ids)], ids, `two manifests share a driverId: ${ids.join(', ')}`)
   })
 
-  test('every field label exists in every locale, not only in English', () => {
+  test('every field label is written in every locale peek ships, not only in English', () => {
     for (const manifest of MANIFESTS) {
       for (const mode of MODES) {
         for (const field of manifest.connectForm.fields[mode]) {
           for (const locale of ALL_LOCALES) {
+            // `localizedText` would answer the English here and the dialog would
+            // look fine to anyone reading English, which is why the raw record
+            // is what is asserted on.
+            const written: unknown = field.label[locale]
             assert.ok(
-              CATALOGS[locale][field.labelKey] !== undefined,
-              `${where(manifest, mode, field)}: catalog ${locale} has no ${field.labelKey} — ` +
-                'the label falls back to English, or renders as the key, with nothing to warn anyone',
+              typeof written === 'string' && written !== '',
+              `${where(manifest, mode, field)}: label has no ${locale} text — it falls back to ` +
+                `'${field.label.en}' in an otherwise ${locale} dialog, with nothing to warn anyone`,
             )
           }
         }
@@ -94,8 +87,8 @@ describe('driver manifest labels', () => {
         // `name` is the key into the form's value record *and* the config
         // property it fills, so a duplicate is not a cosmetic clash: both boxes
         // read and write one slot, the second one typed into wins, and
-        // `assembleConfig` sends a value the user believes belongs to the other
-        // field.
+        // `assembleFromForm` sends a value the user believes belongs to the
+        // other field.
         const names = manifest.connectForm.fields[mode].map((f) => f.name)
         assert.deepEqual(
           [...new Set(names)],
@@ -115,7 +108,7 @@ describe('driver manifest labels', () => {
       for (const mode of modes) {
         // A driver whose offered mode draws no field is one the user cannot
         // connect with, however complete the rest of its package is: the form
-        // has no box to type into and `assembleConfig` reads nothing.
+        // has no box to type into and `assembleFromForm` reads nothing.
         assert.ok(
           fields[mode].length > 0,
           `${manifest.driverId}: mode '${mode}' is offered but draws no field`,

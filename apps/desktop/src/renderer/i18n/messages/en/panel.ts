@@ -38,17 +38,17 @@ export const panel = {
   'a11y.panel.empty': 'Empty panel {index}',
 
   'view.gone': 'View {viewId} no longer exists',
-  'view.pluginMissing': 'No plugin loaded for view kind “{kind}”',
-  'view.pluginUnbuilt': 'The “{kind}” view’s interface was not built — run pnpm build:plugin-ui',
-  'view.pluginError': 'The “{kind}” view reported a problem',
+  'view.packageMissing': 'No package loaded for view kind “{kind}”',
+  'view.packageUnbuilt': 'The “{kind}” view’s interface was not built — run pnpm build:packages',
+  'view.packageError': 'The “{kind}” view reported a problem',
 
   /* View-kind labels. `viewTitle()` in core stays English because MCP reads it;
    * the window uses these instead when it wants the kind spelled out.
    *
-   * `view.kind.graph` is contributed by a plugin rather than by a built-in kind,
-   * and it is here rather than in the plugin because the catalog is what
+   * `view.kind.graph` is contributed by a package rather than by a built-in kind,
+   * and it is here rather than in the package because the catalog is what
    * `PlainMessageKey` checks a registration's `titleKey` against — a key living
-   * anywhere else could not be checked at all. Phase C, where plugins arrive at
+   * anywhere else could not be checked at all. Phase C, where packages arrive at
    * runtime, is what makes that check a load-time lookup instead. */
   'view.kind.table': 'Table',
   'view.kind.query': 'Query',

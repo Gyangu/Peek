@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
+import '../../../drivers/__tests__/in-repo-registry'
 import {
-  connectionIdentity,
   redactConnectionConfig,
   type ConnId,
   type ConnectionConfig,
   type ConnectionState,
   type SavedConnection,
 } from '@peek/core'
+import { connectionIdentityOf, redactRulesFor } from '../../../drivers/manifests'
+import { DRIVER_DISPLAYS } from '../../../drivers/__tests__/in-repo-displays'
 import { buildConnectionRows } from '../connectionRows'
 
 /* ==================================================================
@@ -23,17 +25,42 @@ import { buildConnectionRows } from '../connectionRows'
 
 let seq = 0
 
+/**
+ * The tooltip string, derived the way the owning package's host derives it.
+ *
+ * Straight off `DRIVER_DISPLAYS` — the same objects the owning package compiles
+ * into its `contrib.mjs` — because there is no app-side spelling of it left to
+ * borrow (§4nonies).
+ * Unlike `label`, `detail` carries no kernel rule on top, so this one call *is*
+ * the whole answer.
+ */
+function detailOf(config: ConnectionConfig): string {
+  const display = DRIVER_DISPLAYS[config.driverId]
+  assert.ok(display, `no display is collected for driverId=${config.driverId}`)
+  return display.detail(config)
+}
+
 function live(config: ConnectionConfig, over: Partial<ConnectionState> = {}): ConnectionState {
   seq += 1
+  // The renderer never sees a cleartext config; everything crossing out of main
+  // is redacted, and the row model has to work on that.
+  const shown = redactConnectionConfig(config, redactRulesFor(config.driverId))
   return {
     id: `c${seq}` as ConnId,
     driverId: config.driverId,
+    // Spelled the way `conn.open` spells it — identity off the config as it
+    // arrived, detail off the redacted copy — because the point of these two
+    // being fields at all is that the window reads main's answer instead of
+    // deriving its own. A fixture that derived them differently would test a
+    // sidebar nobody ships.
+    identity: connectionIdentityOf(config),
     label: '',
+    detail: detailOf(shown),
+    // Never read by a row; present because `ConnectionState` requires it.
+    endpoint: '',
     status: 'ready',
     capabilities: [],
-    // The renderer never sees a cleartext config; everything crossing out of
-    // main is redacted, and the row model has to work on that.
-    config: redactConnectionConfig(config),
+    config: shown,
     ...over,
   }
 }
@@ -42,9 +69,15 @@ function live(config: ConnectionConfig, over: Partial<ConnectionState> = {}): Co
 function saved(config: ConnectionConfig, over: Partial<SavedConnection> = {}): SavedConnection {
   const stripped = stripSecrets(config)
   return {
-    id: `id:${connectionIdentity(stripped)}`,
+    id: `id:${connectionIdentityOf(stripped)}`,
     driverId: config.driverId,
+    // Derived from the book's own stripped copy, as `toSavedConnection` does.
+    // The live side above starts from the raw config, so the pairing tests only
+    // pass while the two spellings agree — which is what keeps them from being
+    // a comparison of one string with itself, and what the suite below pins.
+    identity: connectionIdentityOf(stripped),
     label: 'entry',
+    detail: detailOf(stripped),
     config: stripped,
     hasSecret: false,
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -76,16 +109,25 @@ const PG_URL: ConnectionConfig = { driverId: 'postgres', url: 'postgresql://app:
 const REDIS: ConnectionConfig = { driverId: 'redis', host: 'localhost', port: 6379 }
 
 describe('identity survives redaction', () => {
-  // The whole merge rests on this: the renderer computes an identity from a
-  // redacted config (`://user:***@host`) and it has to equal the one main
-  // computed from a stripped one (`://user@host`).
+  // The whole merge rests on this. It used to rest on it in this file: the
+  // renderer computed an identity from a redacted config (`://user:***@host`)
+  // and it had to equal the one main computed from a stripped one
+  // (`://user@host`). The window no longer computes either — both sides arrive
+  // carrying main's answer — but that only moved the requirement, it did not
+  // remove it: `conn.open` keys a live connection off the config as it arrived
+  // and the book keys its entry off a stripped copy, so a redaction that
+  // disturbed the identity would break the pairing in main instead, one layer
+  // further from anything that would notice.
   for (const [name, config] of [
     ['fields', PG],
     ['url', PG_URL],
     ['qdrant api key', { driverId: 'qdrant', url: 'http://localhost:6333', apiKey: 'k' } as ConnectionConfig],
   ] as const) {
     test(name, () => {
-      assert.equal(connectionIdentity(redactConnectionConfig(config)), connectionIdentity(stripSecrets(config)))
+      assert.equal(
+        connectionIdentityOf(redactConnectionConfig(config, redactRulesFor(config.driverId))),
+        connectionIdentityOf(stripSecrets(config)),
+      )
     })
   }
 })

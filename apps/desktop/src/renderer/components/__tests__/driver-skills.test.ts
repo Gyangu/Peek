@@ -1,25 +1,33 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { MAX_SKILL_CHARS } from '@peek/core'
-import { DRIVER_MANIFESTS } from '../../../drivers/manifests'
-import { MCP_INSTRUCTIONS } from '../../../main/mcp/instructions'
+import '../../../drivers/__tests__/in-repo-registry'
+import { driverManifests } from '../../../drivers/manifests'
+import { mcpInstructions } from '../../../main/mcp/instructions'
 
 /* ==================================================================
  * The Agent Skill each driver package contributes.
  *
  * A skill is prose a package writes for the model that will drive peek against
- * its database, folded into `MCP_INSTRUCTIONS` (design §2.4bis(f)). Prose has no
+ * its database, folded into `mcpInstructions()` (design §2.4bis(f)). Prose has no
  * type, so these are the rules that stand in for one.
  *
  * The rule with teeth is the length cap, and it is worth saying why a cap on
  * documentation is a correctness rule rather than a style preference:
- * `MCP_INSTRUCTIONS` is fixed at `initialize` and read by every model on every
+ * `mcpInstructions()` is fixed at `initialize` and read by every model on every
  * session, so **every package's skill is paid for by every user**, including the
  * one who only ever opens PostgreSQL. A budget that tight is what forces a skill
  * to hold only the things a model gets wrong without it.
  * ================================================================== */
 
-const WITH_SKILL = DRIVER_MANIFESTS.filter((m) => m.skill !== undefined)
+const WITH_SKILL = driverManifests().filter((m) => m.skill !== undefined)
+
+/**
+ * Read once, here, rather than per assertion: the preamble is assembled per call
+ * now that the manifests come off disk, and three tests reading it would
+ * assemble it three times for no benefit.
+ */
+const INSTRUCTIONS = mcpInstructions()
 
 describe('driver skills', () => {
   test('are contributed by packages, not by the app — so this file is not measuring nothing', () => {
@@ -36,11 +44,11 @@ describe('driver skills', () => {
     // the last entry). The model reads the string, not the manifest.
     for (const m of WITH_SKILL) {
       assert.ok(
-        MCP_INSTRUCTIONS.includes(m.skill ?? ''),
-        `${m.displayName}'s skill is declared but does not appear in MCP_INSTRUCTIONS`,
+        INSTRUCTIONS.includes(m.skill ?? ''),
+        `${m.displayName}'s skill is declared but does not appear in the instructions`,
       )
       assert.ok(
-        MCP_INSTRUCTIONS.includes(m.displayName),
+        INSTRUCTIONS.includes(m.displayName),
         `${m.displayName}'s skill appears unattributed — a reader cannot tell which database it is about`,
       )
     }
@@ -50,10 +58,10 @@ describe('driver skills', () => {
     // Absent means "nothing here would surprise a model". It must not render as
     // an empty section, which reads as "this database has no rules" rather than
     // "nobody wrote any down".
-    for (const m of DRIVER_MANIFESTS) {
+    for (const m of driverManifests()) {
       if (m.skill !== undefined) continue
       assert.ok(
-        !MCP_INSTRUCTIONS.includes(`${m.displayName}:\n`),
+        !INSTRUCTIONS.includes(`${m.displayName}:\n`),
         `${m.displayName} declares no skill but has a heading in the instructions`,
       )
     }
@@ -74,7 +82,7 @@ describe('driver skills', () => {
   test('carry no credential, exactly like mcpConnectExample', () => {
     // Same rule and same reason: it is read verbatim by every connected client,
     // and a model that reads a password will repeat it.
-    for (const m of DRIVER_MANIFESTS) {
+    for (const m of driverManifests()) {
       for (const [field, text] of [
         ['mcpConnectExample', m.mcpConnectExample],
         ['skill', m.skill ?? ''],

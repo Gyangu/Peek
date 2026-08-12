@@ -18,6 +18,7 @@ import type { ColumnDef, ResultPause } from './chunk'
 import type { CommandInput, CommandName, CommandResultFor, CommandSource } from './commands'
 import type { PeekError } from './errors'
 import type { ChatId, ConnId, ResultId, ViewId } from './ids'
+import type { InstalledPackages } from './package-manifest'
 import type { ConnStatus, Workspace, WorkspaceSnapshot } from './workspace'
 
 /* ================================================================== */
@@ -50,6 +51,65 @@ export const IPC = {
   COMMAND_INVOKE: 'peek:command:invoke',
   /** R→M: fetch a full Workspace snapshot (on renderer startup, or after spotting a gap in `rev`) */
   STATE_SNAPSHOT: 'peek:state:snapshot',
+
+  /**
+   * R→M, **synchronously**: what is installed under `~/.peek/packages/`, as data.
+   *
+   * The window's only route to the driver manifests, the view-kind declarations
+   * and the tool declarations, now that none of the three is compiled into its
+   * chunk (design 2026-08-07 §1.4, and `drivers/installed.ts` for the shape).
+   *
+   * **Synchronous, which is the one thing here worth defending.** Everything
+   * that reads this reads it during a render or during module initialisation —
+   * the connect dialog's field list, the capability prediction that greys out a
+   * query button, the package registration that runs before the first paint — and
+   * none of those has anywhere to put an `await`. The alternatives were an async
+   * fetch with a "packages not known yet" state threaded through every one of
+   * them, or a window that paints an empty database picker and fills it a frame
+   * later. This blocks the renderer once, in preload, on a main process that
+   * built the answer before it created the window: an in-memory object, already
+   * parsed, no disk read.
+   *
+   * It is not a general-purpose channel and must not grow into one. A *change*
+   * to what is installed (install, uninstall, upgrade) is a different question
+   * with a different shape — it has to reach a window that is already open —
+   * and answering it here would mean polling.
+   */
+  PACKAGES_READ: 'peek:packages:read',
+
+  /**
+   * M→R: what is installed *now*, after an install or an uninstall.
+   *
+   * The other half of `PACKAGES_READ`, and a separate channel because it answers
+   * a different question: that one is "what is installed" asked by a window that
+   * is still loading, this one is "it changed" told to a window that is already
+   * open. Design §2.4 asks for exactly this pair — one read command plus a
+   * broadcast that follows the package set — and the note above says why the
+   * synchronous read cannot grow into it (a window would have to poll).
+   *
+   * The body is the whole `InstalledPackages`, not a delta. It is three small
+   * lists that change when a person clicks a button, and a delta would mean the
+   * window applying an edit to a registry it can only replace wholesale
+   * (`installPackages` in `drivers/installed.ts` refuses to merge, deliberately:
+   * a merge keeps a package alive across its own uninstall).
+   */
+  PACKAGES_CHANGED: 'peek:packages:changed',
+
+  /**
+   * R→M: open the native directory chooser, and answer with what was picked.
+   *
+   * `packages.install` takes an absolute path and a window has none. The DOM
+   * cannot supply one either — a `<input type="file" webkitdirectory>` yields
+   * relative entry names, and the absolute path behind them is only reachable
+   * through a main-world Electron API. So the picker itself runs in main.
+   *
+   * **Not a command**, for the reason `MENU_ACTION` next door is not one: what
+   * crosses is a piece of window chrome, not a change to the source of truth.
+   * Cancelling a file dialog is not an action anybody should find in the command
+   * log; the `packages.install` that may follow it is, and that one goes through
+   * the bus like everything else. Design §2.8(c).
+   */
+  PACKAGES_PICK_DIR: 'peek:packages:pickDir',
 
   /** M→R: immer patch broadcast */
   STATE_PATCH: 'peek:state:patch',
@@ -303,6 +363,45 @@ export interface PeekBridge {
   ): Promise<CommandResultFor<K>>
 
   getSnapshot(): Promise<StateSnapshotMessage>
+
+  /**
+   * The installed packages, as data, fetched by preload before this object
+   * existed.
+   *
+   * A property rather than a method, and that is the contract: preload has
+   * already asked (`IPC.PACKAGES_READ`, synchronously), so a reader cannot end up
+   * holding a promise on a path that has no room for one. Required, and answered
+   * on the degraded preload path too — a window that cannot list databases is not
+   * a window with a degraded data plane, it is a window with no connect dialog.
+   */
+  installedPackages: InstalledPackages
+
+  /**
+   * What is installed changed — a package was installed or uninstalled.
+   *
+   * Required rather than optional, on the same grounds as `onMenuAction`: it is
+   * one `ipcRenderer.on` with no main world involved, so a degraded data plane is
+   * no reason for it to be missing, and a window that silently kept a stale
+   * driver list would offer a database peek can no longer open. The handler
+   * receives the complete registry, which replaces the one `installedPackages`
+   * seeded.
+   */
+  onPackagesChanged(handler: (installed: InstalledPackages) => void): () => void
+
+  /**
+   * Ask the user for a package directory; `null` means they cancelled.
+   *
+   * Required rather than optional, on the same grounds as `onMenuAction` and
+   * `onPackagesChanged`: it is one `ipcRenderer.invoke` with no main world
+   * involved, so a degraded data plane is no reason for it to be missing. A
+   * feature-detected picker would give the settings panel an "Install…" button
+   * that silently does nothing on exactly the launches that are already broken.
+   *
+   * It does **not** install. The path comes back, the window sends
+   * `packages.install`, and the refusals arrive in that command's receipt — see
+   * `IPC.PACKAGES_PICK_DIR` for why the two halves are not one call.
+   */
+  pickPackageDir(): Promise<string | null>
 
   onPatch(handler: (msg: StatePatchMessage) => void): () => void
 

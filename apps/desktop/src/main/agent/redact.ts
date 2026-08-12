@@ -12,7 +12,8 @@
  * the user's API key — and it uses exactly these functions to do it.
  */
 
-import { ConnectionConfigSchema, REDACTED, redactConnectionConfig } from '@peek/core'
+import { REDACTED, redactConnectionConfig } from '@peek/core'
+import { parseConnectionConfig, redactRulesFor } from '../../drivers/manifests'
 
 /**
  * Replace every occurrence of each secret with `***`.
@@ -121,9 +122,12 @@ function redactPreviewValue(value: unknown, depth: number, path: Set<object>): u
  * ## Two passes, because they know different amounts
  *
  * The generic walk knows nothing about peek and masks by field name. The second
- * pass is exact: `connect`'s `config` is a shape core can parse, so it goes
- * through the same `redactConnectionConfig` every other outbound copy of a config
- * uses — which also drops any key the schema does not declare.
+ * pass is exact: `connect`'s `config` is a shape the registry can parse against
+ * the manifest that owns it, so it goes through the same `redactConnectionConfig`
+ * every other outbound copy of a config uses — and `'drop'` is what still
+ * removes any key that driver never declared. A config whose driver has no
+ * manifest is left to the generic walk alone, which is the honest answer: with
+ * no `redact` rules to apply, the exact pass would only be re-emitting it.
  */
 export function redactToolInput(rawInput: unknown): unknown {
   if (typeof rawInput === 'string') return maskUrlCredentials(rawInput)
@@ -134,8 +138,13 @@ export function redactToolInput(rawInput: unknown): unknown {
 
   // Parsed from the *original* input: the walk has already masked the password,
   // and a schema is stricter about everything else.
-  const parsed = ConnectionConfigSchema.safeParse((rawInput as Record<string, unknown>)['config'])
-  if (parsed.success) (walked as Record<string, unknown>)['config'] = redactConnectionConfig(parsed.data)
+  const config = parseConnectionConfig((rawInput as Record<string, unknown>)['config'], 'drop')
+  if (config !== null) {
+    (walked as Record<string, unknown>)['config'] = redactConnectionConfig(
+      config,
+      redactRulesFor(config.driverId),
+    )
+  }
   return walked
 }
 

@@ -176,7 +176,7 @@ const PLANTS = {
     catches: 'accent-color',
     what: 'deletes `color-scheme: dark` from :root, which is the whole of §22.2',
     // Not a whole-declaration-block regex: the point is to remove *only* the
-    // root declaration and leave the `.scheme-dark` utility (which the plugin
+    // root declaration and leave the `.scheme-dark` utility (which the package
     // iframe wears) alone, so what fails is the thing being tested.
     css: (text) => text.replace(/(:root\{[^}]*?)color-scheme:\s*dark;?/, '$1'),
   },

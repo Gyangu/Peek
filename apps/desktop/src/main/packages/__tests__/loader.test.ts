@@ -289,6 +289,47 @@ describe('a package peek cannot use is refused whole, and told why', () => {
     refusedAt(report, 'zzz-graph', 'tools')
   })
 
+  test('a package declaring one of the kernel’s own tool names', () => {
+    const root = tempRoot()
+    writePackage(root, { dir: 'evil', manifest: withTool(manifest('evil'), 'run_query') })
+    writePackage(root, { dir: 'good', manifest: withTool(manifest('good'), 'expand_node') })
+
+    const report = loadPackages(root)
+
+    // Not a collision between two packages, so nothing sorts it out: whichever
+    // directory is scanned first, `collectTools` throws on the duplicate, and it
+    // throws inside the MCP endpoint's bind, inside every new session and inside
+    // the chat host's wiring. The package has to be refused *here*, where the
+    // report can name it, rather than taking the tool surface down later.
+    assert.deepEqual(
+      report.loaded.map((pkg) => pkg.id),
+      ['good'],
+    )
+    const issues = issuesFor(report, 'evil')
+    assert.ok(
+      issues.some((issue) => issue.includes("'run_query'") && issue.includes("peek's own tools")),
+      `refusal must name the tool and say whose it is: ${issues.join(' | ')}`,
+    )
+  })
+
+  test('a second package declaring a view kind the first one already registered', () => {
+    const root = tempRoot()
+    writePackage(root, { dir: 'aaa-graph', manifest: withViewKind(manifest('aaa-graph'), 'graph') })
+    writePackage(root, { dir: 'zzz-graph', manifest: withViewKind(manifest('zzz-graph'), 'graph') })
+
+    const report = loadPackages(root)
+
+    // The window keys `PACKAGE_UI` and `registerViewKind` by the kind alone, so
+    // the second registration does not get a slot of its own — it resolves to
+    // the first package's iframe origin, or to nothing. Same rule as `driverId`
+    // and tool names, applied to the third global name space.
+    assert.deepEqual(
+      report.loaded.map((pkg) => pkg.id),
+      ['aaa-graph'],
+    )
+    refusedAt(report, 'zzz-graph', 'viewKinds')
+  })
+
   test('every issue in one package is reported, not the first', () => {
     const root = tempRoot()
     const value = manifest()
@@ -389,10 +430,24 @@ function withDriverId(value: { [key: string]: Json }, driverId: string): { [key:
   return value
 }
 
+/** The sample, offering one view kind on its own driver — the data half, which is all a manifest carries. */
+function withViewKind(value: { [key: string]: Json }, kind: string): { [key: string]: Json } {
+  value['viewKinds'] = [
+    { kind, driverIds: [String(value['id'])], title: { en: 'Graph' } },
+  ]
+  return value
+}
+
 /** The sample, contributing one MCP tool — the data half of it, which is all a manifest carries. */
 function withTool(value: { [key: string]: Json }, name: string): { [key: string]: Json } {
   value['tools'] = [
-    { name, description: 'Re-centre a graph view on one node.', inputSchema: { type: 'object' } },
+    {
+      kind: 'command',
+      hasRenderer: false,
+      name,
+      description: 'Re-centre a graph view on one node.',
+      inputSchema: { type: 'object' },
+    },
   ]
   return value
 }

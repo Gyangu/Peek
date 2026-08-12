@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react'
-import type { MouseEvent as ReactMouseEvent, ReactElement } from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactElement, ReactNode, RefObject } from 'react'
+import { localizedText } from '@peek/core'
 import type { DriverId, SavedConnection } from '@peek/core'
-import { DRIVER_IDS } from '@peek/core'
-import { driverCapabilities } from '../../drivers/manifests'
+import { driverCapabilities, manifestDriverIds } from '../../drivers/manifests'
 import { useModalDialog } from '../hooks'
 import { Button } from '../ui/Button'
 import { Segmented } from '../ui/Segmented'
-import { useT, type TFunction } from '../i18n'
+import { useLocale, useT } from '../i18n'
 import { dispatch } from '../state/dispatch'
+import { usePackagesRevision } from '../state/packagesStore'
 import {
   MODAL_BODY,
   MODAL_FOOT,
@@ -25,6 +26,7 @@ import {
   defaultConnectMode,
   initialConnectValues,
   missingRequiredFields,
+  seedDriverId,
   valuesFromConfig,
   type ConnectField,
   type ConnectMode,
@@ -56,20 +58,90 @@ export interface ConnectDialogProps {
   onClose: () => void
   /** Seed from a saved connection. Absent means a blank form. */
   initial?: SavedConnection
+  /**
+   * The connection book, as the sidebar last read it — what a **blank** form
+   * opens on.
+   *
+   * The list rather than a driver id already chosen from it: picking one is
+   * seeding, and seeding is this dialog's job (`seedDriverId`). The sidebar
+   * holds the book because it draws it; it has no reason to know what a form
+   * would do with it.
+   */
+  saved: readonly SavedConnection[]
 }
 
-export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactElement {
+export function ConnectDialog({ onClose, initial, saved }: ConnectDialogProps): ReactElement {
   const t = useT()
+  // Everything below reads the installed registry synchronously — the picker's
+  // ids, the field list, the capability line — so this subscription is what makes
+  // a package installed while this dialog is open show up in it, which is design
+  // §2.7 step 5 ("立刻能在连接对话框里选它"). The value is deliberately unused.
+  usePackagesRevision()
+  // The locale itself, not just a bound `t`: a field's label is text the package
+  // carries, so it is looked up in the manifest rather than in peek's catalog.
+  const locale = useLocale()
   // Escape, focus containment, focus restoration. The initial focus is left to
   // the first field's `autoFocus` — see the note in `useModalDialog`.
   const dialogRef = useModalDialog({ label: 'connect', onClose })
-  const seed = useMemo(() => seedFrom(initial), [initial])
-  const [driverId, setDriverId] = useState<DriverId>(seed.driverId)
+  const seed = useMemo(() => seedFrom(initial, saved), [initial, saved])
+  const [driverId, setDriverId] = useState<DriverId | null>(seed.driverId)
   const [mode, setMode] = useState<ConnectMode>(seed.mode)
   const [values, setValues] = useState<Record<string, string | boolean>>(seed.values)
   const [label, setLabel] = useState(seed.label)
   const [busy, setBusy] = useState(false)
   const [issue, setIssue] = useState<string | null>(null)
+  const title = initial ? t('connect.editTitle') : t('connect.title')
+
+  /**
+   * The selected driver, but only while a package still provides it.
+   *
+   * Everything below this line reads the manifest — the mode list, the fields,
+   * the assembly on submit — and `connectForm.ts` throws for a driver that has
+   * none. Since Phase C that is not a wiring bug but an ordinary state with
+   * three ways in, and this one expression is where all three are answered:
+   *
+   *   - `initial` names a driver whose package was uninstalled. The sidebar
+   *     still lists that connection, because the book stores its own name
+   *     (design 2026-08-07 §2.3(b-2)), so "edit" is still offered on a row
+   *     nothing can open;
+   *   - the package went away **while this dialog was open**. That is not
+   *     hypothetical: `usePackagesRevision()` above exists precisely so this
+   *     component re-renders when it does, and re-rendering is what would run
+   *     the throw;
+   *   - nothing is installed at all, so `seedDriverId` had nothing to pick.
+   *     Both new-connection entrances are disabled in that state
+   *     (`Sidebar.tsx`), which makes this the backstop rather than the notice.
+   *
+   * A throw here is not a broken dialog, it is a blank window: this runs inside
+   * a render, and React's answer to that is to unmount the tree — `ErrorBoundary`
+   * then offers a reload that lands in the same state, because what caused it is
+   * on disk. Design 2026-08-11 §2.3.
+   */
+  const live = driverId !== null && manifestDriverIds().includes(driverId) ? driverId : null
+
+  const missing = useMemo(
+    () => (live === null ? [] : missingRequiredFields(live, mode, values)),
+    [live, mode, values],
+  )
+
+  if (live === null) {
+    return (
+      <DialogShell shellRef={dialogRef} title={title} onClose={onClose}>
+        <div className={MODAL_BODY}>
+          {/* Named, and the name is the driver id — the same identifier the
+              picker, the settings table and the MCP receipts spell, so the
+              sentence lines up with the row the user is looking at. */}
+          <div className="form-hint" style={{ color: 'var(--color-err)' }}>
+            {driverId === null ? t('connect.noPackages') : t('connect.driverGone', { driverId })}
+          </div>
+        </div>
+        <div className={MODAL_FOOT}>
+          <Button onClick={onClose}>{t('connect.cancel')}</Button>
+        </div>
+      </DialogShell>
+    )
+  }
+
   /**
    * Whether the stored credential is still the one that will be sent.
    *
@@ -81,16 +153,12 @@ export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactEl
    */
   const savedSecretInUse =
     initial?.hasSecret === true &&
-    driverId === seed.driverId &&
+    live === seed.driverId &&
     mode === seed.mode &&
     sameValues(values, seed.values)
 
-  const spec = connectFormSpec(driverId)
-  const fields = connectFields(driverId, mode)
-  const missing = useMemo(
-    () => missingRequiredFields(driverId, mode, values),
-    [driverId, mode, values],
-  )
+  const spec = connectFormSpec(live)
+  const fields = connectFields(live, mode)
 
   // Switching driver or mode resets to that form's defaults. Carrying values
   // across would mean a port left over from postgres quietly connecting a redis
@@ -109,7 +177,7 @@ export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactEl
 
   const submit = (): void => {
     if (busy || missing.length > 0) return
-    const built = buildConnectionConfig(driverId, mode, values, label)
+    const built = buildConnectionConfig(live, mode, values, label)
     if (!built.ok) {
       setIssue(built.issue)
       return
@@ -125,21 +193,146 @@ export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactEl
   }
 
   return (
-    /*
-     * The mask does **not** close this one, and that is the difference between
-     * it and `ValueModal`. This dialog holds typed input — a host, a port, a
-     * password — and a stray click on the dimmed area outside it used to discard
-     * all of it with no confirmation and no undo. A read-only modal can be
-     * dismissed by clicking away; a form cannot. Escape and Cancel are the ways
-     * out, and both are deliberate acts.
-     */
+    <DialogShell shellRef={dialogRef} title={title} onClose={onClose}>
+      <div className={MODAL_BODY}>
+        <div className="form-row">
+          <label htmlFor="peek-driver">{t('connect.driver')}</label>
+          <select
+            id="peek-driver"
+            value={live}
+            onChange={(e) => {
+              const next = e.target.value as DriverId
+              switchTo(next, defaultConnectMode(next))
+            }}
+          >
+            {/* Driver ids are identifiers: `postgres` reads the same everywhere. */}
+            {/* Straight from the collected manifests, so a package that is loaded is
+                a package that is offered — there is no second list of ids to
+                fall out of step with, which is what `DRIVER_IDS` was. */}
+            {manifestDriverIds().map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="form-hint">
+          {/* Capability names are part of the driver contract, never translated. */}
+          {t('connect.capabilities', { list: (driverCapabilities()[live] ?? []).join(' · ') })}
+        </div>
+
+        {spec.modes.length > 1 ? (
+          <div className="form-row">
+            <label>{t('connect.mode')}</label>
+            <Segmented
+              label={t('connect.mode')}
+              value={mode}
+              options={spec.modes.map((m) => ({
+                value: m,
+                label: t(m === 'url' ? 'connect.mode.url' : 'connect.mode.fields'),
+              }))}
+              onChange={(next) => {
+                switchTo(live, next)
+              }}
+            />
+          </div>
+        ) : null}
+
+        {fields.map((field, i) => (
+          <FieldRow
+            key={`${live}:${mode}:${field.name}`}
+            locale={locale}
+            field={field}
+            value={values[field.name] ?? ''}
+            autoFocus={i === 0}
+            onChange={(v) => {
+              setValue(field.name, v)
+            }}
+            onSubmit={submit}
+          />
+        ))}
+
+        <div className="form-row">
+          <label htmlFor="peek-label">{t('connect.label')}</label>
+          <input
+            id="peek-label"
+            value={label}
+            placeholder={t('connect.labelPlaceholder')}
+            onChange={(e) => {
+              setLabel(e.target.value)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submit()
+            }}
+          />
+        </div>
+
+        {savedSecretInUse ? (
+          <div className="form-hint">{t('connect.savedSecretInUse')}</div>
+        ) : initial?.hasSecret === true ? (
+          // The form has moved away from what the credential was saved for, so
+          // it will not be sent. Saying so here is cheaper than an
+          // authentication failure the user has to interpret.
+          <div className="form-hint">{t('connect.savedSecretNotUsed')}</div>
+        ) : null}
+
+        {issue ? (
+          // The rejected field, named — evidence, not prose. The colour is an
+          // inline style for the same cascade reason the dialog's width is:
+          // `.form-hint` is unlayered and already sets `color`, so a
+          // `text-err` utility on this element would lose to it and the one
+          // hint that has to stand out would read like the four around it.
+          <div className="form-hint" style={{ color: 'var(--color-err)' }}>
+            {t('connect.invalid', { issue })}
+          </div>
+        ) : null}
+        <div className="form-hint">{t('connect.privacyNote')}</div>
+      </div>
+      <div className={MODAL_FOOT}>
+        <Button onClick={onClose}>{t('connect.cancel')}</Button>
+        <Button variant="primary" action="conn.open" disabled={busy || missing.length > 0} onClick={submit}>
+          {busy ? t('connect.connecting') : t('connect.submit')}
+        </Button>
+      </div>
+    </DialogShell>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+interface DialogShellProps {
+  shellRef: RefObject<HTMLDivElement | null>
+  title: string
+  onClose: () => void
+  children: ReactNode
+}
+
+/**
+ * The mask, the box and the title bar — everything this dialog is before it
+ * knows whether it has a form to draw.
+ *
+ * Extracted when the "no package provides this driver" state arrived: that state
+ * is still *this dialog*, with the same title, the same Escape key and the same
+ * position on screen, and the alternative was a second copy of the markup below
+ * whose only job would be to stay identical to the first.
+ *
+ * The mask does **not** close this one, and that is the difference between it
+ * and `ValueModal`. This dialog holds typed input — a host, a port, a password —
+ * and a stray click on the dimmed area outside it used to discard all of it with
+ * no confirmation and no undo. A read-only modal can be dismissed by clicking
+ * away; a form cannot. Escape and Cancel are the ways out, and both are
+ * deliberate acts.
+ */
+function DialogShell({ shellRef, title, onClose, children }: DialogShellProps): ReactElement {
+  const t = useT()
+  return (
     <div className={MODAL_MASK}>
       <div
         className={MODAL_SHELL}
-        ref={dialogRef}
+        ref={shellRef}
         role="dialog"
         aria-modal="true"
-        aria-label={initial ? t('connect.editTitle') : t('connect.title')}
+        aria-label={title}
         /* Narrower than the shared dialog: a form of short labelled fields does
            not want a 760px measure. It was already an inline width, with a note
            saying it had to be one because the shared rule was unlayered and beat
@@ -151,109 +344,13 @@ export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactEl
         onMouseDown={stop}
       >
         <div className={MODAL_HEAD}>
-          <span className={MODAL_TITLE}>{initial ? t('connect.editTitle') : t('connect.title')}</span>
+          <span className={MODAL_TITLE}>{title}</span>
           <span className="flex-1" />
           <Button variant="ghost" icon label={t('app.errors.close')} onClick={onClose}>
             ✕
           </Button>
         </div>
-        <div className={MODAL_BODY}>
-          <div className="form-row">
-            <label htmlFor="peek-driver">{t('connect.driver')}</label>
-            <select
-              id="peek-driver"
-              value={driverId}
-              onChange={(e) => {
-                const next = e.target.value as DriverId
-                switchTo(next, defaultConnectMode(next))
-              }}
-            >
-              {/* Driver ids are identifiers: `postgres` reads the same everywhere. */}
-              {DRIVER_IDS.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="form-hint">
-            {/* Capability names are part of the driver contract, never translated. */}
-            {t('connect.capabilities', { list: (driverCapabilities()[driverId] ?? []).join(' · ') })}
-          </div>
-
-          {spec.modes.length > 1 ? (
-            <div className="form-row">
-              <label>{t('connect.mode')}</label>
-              <Segmented
-                label={t('connect.mode')}
-                value={mode}
-                options={spec.modes.map((m) => ({
-                  value: m,
-                  label: t(m === 'url' ? 'connect.mode.url' : 'connect.mode.fields'),
-                }))}
-                onChange={(next) => {
-                  switchTo(driverId, next)
-                }}
-              />
-            </div>
-          ) : null}
-
-          {fields.map((field, i) => (
-            <FieldRow
-              key={`${driverId}:${mode}:${field.name}`}
-              t={t}
-              field={field}
-              value={values[field.name] ?? ''}
-              autoFocus={i === 0}
-              onChange={(v) => {
-                setValue(field.name, v)
-              }}
-              onSubmit={submit}
-            />
-          ))}
-
-          <div className="form-row">
-            <label htmlFor="peek-label">{t('connect.label')}</label>
-            <input
-              id="peek-label"
-              value={label}
-              placeholder={t('connect.labelPlaceholder')}
-              onChange={(e) => {
-                setLabel(e.target.value)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submit()
-              }}
-            />
-          </div>
-
-          {savedSecretInUse ? (
-            <div className="form-hint">{t('connect.savedSecretInUse')}</div>
-          ) : initial?.hasSecret === true ? (
-            // The form has moved away from what the credential was saved for, so
-            // it will not be sent. Saying so here is cheaper than an
-            // authentication failure the user has to interpret.
-            <div className="form-hint">{t('connect.savedSecretNotUsed')}</div>
-          ) : null}
-
-          {issue ? (
-            // The rejected field, named — evidence, not prose. The colour is an
-            // inline style for the same cascade reason the dialog's width is:
-            // `.form-hint` is unlayered and already sets `color`, so a
-            // `text-err` utility on this element would lose to it and the one
-            // hint that has to stand out would read like the four around it.
-            <div className="form-hint" style={{ color: 'var(--color-err)' }}>
-              {t('connect.invalid', { issue })}
-            </div>
-          ) : null}
-          <div className="form-hint">{t('connect.privacyNote')}</div>
-        </div>
-        <div className={MODAL_FOOT}>
-          <Button onClick={onClose}>{t('connect.cancel')}</Button>
-          <Button variant="primary" action="conn.open" disabled={busy || missing.length > 0} onClick={submit}>
-            {busy ? t('connect.connecting') : t('connect.submit')}
-          </Button>
-        </div>
+        {children}
       </div>
     </div>
   )
@@ -262,7 +359,7 @@ export function ConnectDialog({ onClose, initial }: ConnectDialogProps): ReactEl
 /* ------------------------------------------------------------------ */
 
 interface FieldRowProps {
-  t: TFunction
+  locale: string
   field: ConnectField
   value: string | boolean
   autoFocus: boolean
@@ -270,12 +367,12 @@ interface FieldRowProps {
   onSubmit: () => void
 }
 
-function FieldRow({ t, field, value, autoFocus, onChange, onSubmit }: FieldRowProps): ReactElement {
+function FieldRow({ locale, field, value, autoFocus, onChange, onSubmit }: FieldRowProps): ReactElement {
   const id = `peek-field-${field.name}`
   if (field.type === 'checkbox') {
     return (
       <div className="form-row">
-        <label htmlFor={id}>{t(field.labelKey)}</label>
+        <label htmlFor={id}>{localizedText(field.label, locale)}</label>
         <input
           id={id}
           type="checkbox"
@@ -289,7 +386,7 @@ function FieldRow({ t, field, value, autoFocus, onChange, onSubmit }: FieldRowPr
   }
   return (
     <div className="form-row">
-      <label htmlFor={id}>{t(field.labelKey)}</label>
+      <label htmlFor={id}>{localizedText(field.label, locale)}</label>
       <input
         id={id}
         className={field.mono === true ? 'font-mono tabular-nums' : undefined}
@@ -316,17 +413,39 @@ function stop(e: ReactMouseEvent): void {
 /* ------------------------------------------------------------------ */
 
 interface Seed {
-  driverId: DriverId
+  /**
+   * Null only when nothing is installed and there was no `initial` to name a
+   * driver — the one case with no id to put in the message, which is why the
+   * guard above has two sentences rather than one.
+   */
+  driverId: DriverId | null
   mode: ConnectMode
   values: Record<string, string | boolean>
   label: string
 }
 
-/** A blank postgres form, or the saved connection unpacked back into one. */
-function seedFrom(initial: SavedConnection | undefined): Seed {
+/**
+ * A blank form, or the saved connection unpacked back into one.
+ *
+ * Neither branch may call into `connectForm.ts` for a driver with no manifest —
+ * that is the throw design 2026-08-11 is about, and seeding is the one place
+ * that used to do it unconditionally (with the literal `'postgres'`). So both
+ * check first and hand the guard an unusable seed rather than a form built from
+ * a lookup that cannot succeed.
+ */
+function seedFrom(initial: SavedConnection | undefined, saved: readonly SavedConnection[]): Seed {
+  const installed = manifestDriverIds()
   if (!initial) {
-    const mode = defaultConnectMode('postgres')
-    return { driverId: 'postgres', mode, values: initialConnectValues('postgres', mode), label: '' }
+    const driverId = seedDriverId(saved, installed)
+    if (driverId === null) return { driverId, mode: 'fields', values: {}, label: '' }
+    const mode = defaultConnectMode(driverId)
+    return { driverId, mode, values: initialConnectValues(driverId, mode), label: '' }
+  }
+  if (!installed.includes(initial.driverId)) {
+    // The id is kept so the guard can name it: this is the row the user clicked
+    // "edit" on, and "some package is missing" would leave them to work out
+    // which one.
+    return { driverId: initial.driverId, mode: 'fields', values: {}, label: '' }
   }
   const config = initial.config as unknown as Record<string, unknown>
   const mode = connectModeFor(initial.driverId, config)

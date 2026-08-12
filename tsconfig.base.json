@@ -34,16 +34,16 @@
     "paths": {
       "@peek/core": ["./packages/core/src/index.ts"],
       "@peek/core/*": ["./packages/core/src/*"],
-      "@peek/driver-postgres": ["./packages/driver-postgres/src/index.ts"],
-      "@peek/driver-postgres/*": ["./packages/driver-postgres/src/*"],
-      "@peek/driver-redis": ["./packages/driver-redis/src/index.ts"],
-      "@peek/driver-redis/*": ["./packages/driver-redis/src/*"],
-      "@peek/driver-qdrant": ["./packages/driver-qdrant/src/index.ts"],
-      "@peek/driver-qdrant/*": ["./packages/driver-qdrant/src/*"],
-      "@peek/driver-sql": ["./packages/driver-sql/src/index.ts"],
-      "@peek/driver-sql/*": ["./packages/driver-sql/src/*"],
-      "@peek/driver-neo4j": ["./packages/driver-neo4j/src/index.ts"],
-      "@peek/driver-neo4j/*": ["./packages/driver-neo4j/src/*"]
+      "@peek/db-postgres": ["./packages/db-postgres/src/index.ts"],
+      "@peek/db-postgres/*": ["./packages/db-postgres/src/*"],
+      "@peek/db-redis": ["./packages/db-redis/src/index.ts"],
+      "@peek/db-redis/*": ["./packages/db-redis/src/*"],
+      "@peek/db-qdrant": ["./packages/db-qdrant/src/index.ts"],
+      "@peek/db-qdrant/*": ["./packages/db-qdrant/src/*"],
+      "@peek/db-sql": ["./packages/db-sql/src/index.ts"],
+      "@peek/db-sql/*": ["./packages/db-sql/src/*"],
+      "@peek/db-neo4j": ["./packages/db-neo4j/src/index.ts"],
+      "@peek/db-neo4j/*": ["./packages/db-neo4j/src/*"]
     }
   }
 }

@@ -6,8 +6,8 @@
     <!--
       Local resources only: MCP goes through the main process, the renderer never talks to the network.
 
-      `script-src 'self'` is never relaxed, plugins included — a plugin that draws
-      its own view gets an iframe on its own `peek-plugin://` origin instead, and
+      `script-src 'self'` is never relaxed, packages included — a package that draws
+      its own view gets an iframe on its own `peek-package://` origin instead, and
       `frame-src` is the single clause that permits it. `child-src 'none'` denies
       workers by the same directive name; `object-src` / `base-uri` /
       `form-action` are three navigation and embedding paths `default-src` does
@@ -16,7 +16,7 @@
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src peek-plugin:; child-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src peek-package:; child-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <title>peek</title>
   </head>

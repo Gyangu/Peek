@@ -106,7 +106,7 @@ function placements(snap: WorkspaceSnapshot): Map<string, Placement> {
       visible: v.visible,
       title: v.title,
       // The kind a reader would name it by: "Opened graph view", not "Opened
-      // plugin view". Same call, same reason, as `briefView` in summary.ts.
+      // package view". Same call, same reason, as `briefView` in summary.ts.
       kind: displayViewKind(v),
       describe: v.describe,
     })

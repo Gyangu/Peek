@@ -36,7 +36,15 @@ import type { Timeouts } from './timeouts'
 export interface ConnectionRuntime {
   connId: ConnId
   driverId: DriverId
-  label: string
+  /**
+   * There is deliberately **no `label`** here any more.
+   *
+   * The mirror used to carry one, derived from the config by a second call to a
+   * second copy of the naming rules. A connection is named exactly once now,
+   * when `conn.open` reduces, and the name is stored on `ConnectionState` — so a
+   * label on the mirror could only ever be a value that agrees with the source
+   * of truth until the day it does not. Nothing read it.
+   */
   status: ConnStatus
   /** The real capability set, filled in by the host once ready */
   capabilities: Capability[]
@@ -194,10 +202,26 @@ export interface ConnectionEventMap extends Record<string, unknown> {
 export interface ConnectionManagerOptions {
   /**
    * Directory holding the driver host build output. Defaults to the directory of
-   * the main bundle itself (out/main). Override with the PEEK_DRIVER_HOST_DIR
-   * environment variable, which is handy in tests.
+   * the main bundle itself (out/main).
+   *
+   * Passing it here is the *explicit* form and is taken as given — a caller that
+   * names a directory has already decided. The environment variable
+   * `PEEK_DRIVER_HOST_DIR` is the other form, and it is checked rather than
+   * trusted; see `resolveHostDir` in `./manager` and `allowHostDirOverride`
+   * below.
    */
   hostDir?: string
+  /**
+   * Whether `PEEK_DRIVER_HOST_DIR` may relocate the driver host at all.
+   *
+   * `main/index.ts` passes `!app.isPackaged`, so a shipped peek ignores the
+   * variable outright: nothing in a packaged build needs to load its own bundle
+   * from somewhere else, and the driver host is the process that receives
+   * unredacted passwords. Defaults to **false** — a caller that has not thought
+   * about it gets the safe answer, and every existing test passes `hostDir`
+   * explicitly anyway.
+   */
+  allowHostDirOverride?: boolean
   /** Override the per-stage timeouts */
   timeouts?: Partial<Timeouts>
   /** Turn the driver host's stdout/stderr into log events (default true) */

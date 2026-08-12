@@ -10,6 +10,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./package-manifest": {
+      "types": "./src/package-manifest.ts",
+      "default": "./src/package-manifest.ts"
     }
   },
   "files": [

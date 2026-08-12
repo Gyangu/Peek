@@ -13,6 +13,7 @@ import {
   type ValueRef,
 } from '@peek/core'
 import { createClient, type RedisClientType } from 'redis'
+import { PREFIX_SAMPLE_KEYS } from '../keyspace'
 import { RedisSession } from '../session'
 
 /**
@@ -36,8 +37,17 @@ const CONFIG: RedisConnectionConfig = { driverId: 'redis', url: URL }
 const BIG_HASH_FIELDS = 10_000
 /** Bigger than VALUE_PREVIEW_BYTES (4KB), so the scalar has to travel truncated */
 const BIG_STRING_BYTES = 200_000
-/** Enough keys that a scan needs several SCAN round trips */
-const BULK_KEYS = 3_000
+/**
+ * Enough keys that a scan needs several SCAN round trips, and few enough that
+ * everything under PREFIX still fits inside one namespace-tree sample.
+ *
+ * The tree stops sampling a level at `PREFIX_SAMPLE_KEYS`; a fixture past that
+ * ceiling hides some of its own sibling keys from the tree, and which ones go
+ * missing is redis bucket order, not a contract anyone can assert on. The scan
+ * tests want volume, the tree test wants the level whole — this is the number
+ * that serves both, and `fits in one namespace-tree sample` holds it there.
+ */
+const BULK_KEYS = 1_500
 
 type RawClient = RedisClientType
 
@@ -61,6 +71,18 @@ function pattern(glob: string, db?: number): KeyPatternRef {
 
 function scanRequest(over: Partial<CollectionScanRequest> & { ref: KeyPatternRef }): CollectionScanRequest {
   return { resultId: newResultId(), ...over }
+}
+
+/** Keys currently matching `glob`, counted the same way the driver would reach them */
+async function countKeys(c: RawClient, glob: string): Promise<number> {
+  let cursor = '0'
+  let n = 0
+  do {
+    const page = await c.scan(cursor, { MATCH: glob, COUNT: 500 })
+    cursor = page.cursor
+    n += page.keys.length
+  } while (cursor !== '0')
+  return n
 }
 
 /** Remove everything this suite created, without touching anyone else's keys */
@@ -203,6 +225,26 @@ describe('db-redis against a live server', () => {
   })
 
   /* ---- introspect ------------------------------------------------- */
+
+  /**
+   * A precondition of the tree test below, asserted where it can be read.
+   *
+   * `sampleLevel` stops at PREFIX_SAMPLE_KEYS, so a level only lists what the
+   * sample reached. Grow this suite's fixture past the ceiling and the tree test
+   * starts failing on whichever sibling redis happened to hand back last — a
+   * puzzle, and one that looks like a driver bug rather than a fixture that
+   * outgrew the sample.
+   */
+  it('keeps its own fixture inside one namespace-tree sample', async (t) => {
+    if (!available) return t.skip('no redis')
+    const n = await countKeys(client(), `${PREFIX}*`)
+    assert.ok(n >= BULK_KEYS, `the bulk fixture is missing; only ${n} keys under ${PREFIX}`)
+    assert.ok(
+      n < PREFIX_SAMPLE_KEYS,
+      `${n} keys under ${PREFIX} exceeds the ${PREFIX_SAMPLE_KEYS}-key sample ceiling: `
+      + 'the tree can no longer see every key at that level. Lower BULK_KEYS.',
+    )
+  })
 
   it('builds a namespace tree from key prefixes, lazily', async (t) => {
     if (!available) return t.skip('no redis')

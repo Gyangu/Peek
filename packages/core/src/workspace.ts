@@ -13,9 +13,9 @@ import type {
 import {
   collectionBrowseStyle,
   collectionRefLabel,
-  defaultConnectionLabel,
   redactConnectionConfig,
 } from './capability'
+import type { RedactRules } from './capability'
 // Type-only, so the commands.ts → workspace.ts edge stays the only real one:
 // `import type` is erased entirely and creates no module cycle at runtime.
 import type { CommandSource } from './commands'
@@ -37,7 +37,12 @@ import type {
   ChatUsage,
   PendingPermission,
 } from './chat'
-import type { PluginViewKind, PluginViewStateShape, ViewKindLookup } from './view-kinds'
+import type {
+  PackageViewText,
+  PackageViewKindName,
+  PackageViewStateShape,
+  ViewKindLookup,
+} from './view-kinds'
 
 // The branded types are re-exported here so they can be pulled straight from
 // workspace, the way PLAN §5 describes them.
@@ -59,8 +64,48 @@ export type ConnStatus = 'idle' | 'connecting' | 'ready' | 'error'
 export interface ConnectionState {
   id: ConnId
   driverId: DriverId
+  /**
+   * Which server and account this connection names; see `connectionIdentity`.
+   *
+   * Stored for the same reason `detail` is, but for a different consumer: the
+   * sidebar pairs a live connection with its saved entry by this string, and it
+   * used to compute both sides itself. It cannot any more — the fields that make
+   * up an identity are the driver package's declaration, and the answer decides
+   * which stored credential belongs to which connection, so the kernel computes
+   * it once and hands the string out. No password reaches it.
+   */
+  identity: string
   /** User-visible name */
   label: string
+  /**
+   * The long form of the name, for the sidebar row's tooltip.
+   *
+   * Stored rather than derived, and that is the whole point of it being here:
+   * both strings used to be functions of the config that anyone could call
+   * (`defaultConnectionLabel` / `connectionDetail`, a switch in core over the six
+   * databases it happened to know). Naming a connection is the owning package's
+   * job now — `DriverDisplay` — and a package's code may not run in the window.
+   * A config never changes after the connection is open, so the answer is
+   * computed once, when it opens, and every reader downstream reads the string.
+   * See `docs/design/2026-08-07-database-packages-from-disk.md` §2.3(b).
+   *
+   * Required, not optional: nothing downstream of here can reach the display, so
+   * an absent value would have no later chance to be filled in.
+   */
+  detail: string
+  /**
+   * The same address in the spelling an MCP receipt uses — defaults filled in, no
+   * URL synthesised, for a model rather than for a person.
+   *
+   * It used to be derived on read (`mcp/summary.ts`'s `connTarget`), and the
+   * asymmetry with the two strings above was deliberate while it lasted: those
+   * are consumed by the window, which may never execute a package's code, while
+   * this one never left main, where the display was in reach. Main does not run
+   * package code either now (§2.4bis), so it joins them — one `display` round
+   * trip answers all three, and the answer is stored because `connTarget` is
+   * synchronous and sits on the receipt path.
+   */
+  endpoint: string
   /**
    * The full connection config, password included. **It may exist only inside
    * main's source of truth.** Anything headed for the renderer or MCP goes through
@@ -146,7 +191,7 @@ export type AutoRefreshStopReason = 'paged' | 'error'
 
 /**
  * A view that fetches for itself, and can therefore be told to fetch again on a
- * timer — table, query, vector and plugin, which is exactly the set `autoFetch`
+ * timer — table, query, vector and package, which is exactly the set `autoFetch`
  * knows how to re-run.
  *
  * It is a base of its own rather than two fields on `ViewBase` for the reason
@@ -325,26 +370,45 @@ export interface ChatViewState extends ViewBase {
 }
 
 /**
- * A view contributed by a plugin.
+ * A view contributed by a package.
  *
  * The seventh member of the union, and the only open one — see
  * `view-kinds.ts` for why the union grows a member rather than being replaced by
  * a registry. Its presence is what keeps every `switch (view.kind)` in the repo
  * an exhaustive one: a call site that handles the six built-ins and stops still
- * fails to compile, so "what does this do with a plugin view" is a question the
+ * fails to compile, so "what does this do with a package view" is a question the
  * compiler asks rather than one someone remembers.
  */
-export interface PluginViewState extends RefreshableViewBase, PluginViewStateShape {
+export interface PackageViewState extends RefreshableViewBase, PackageViewStateShape {
   /**
    * The result set currently streaming, when the kind's `autoFetch` asked for one.
    *
-   * Carried by the kernel, not by `state`: a plugin view fetches through the same
+   * Carried by the kernel, not by `state`: a package view fetches through the same
    * `beginResult` / `runningResultOf` machinery as a table — same deadline, same
    * backpressure, same cancel-the-previous-one-first rule — and all of that
-   * addresses a view by *this* field. A plugin that kept its own result id
+   * addresses a view by *this* field. A package that kept its own result id
    * somewhere in `state` would be outside every one of those.
    */
   resultId?: ResultId
+
+  /**
+   * What the package last said this view is called and what it shows.
+   *
+   * Written by the reducer that changed `state`, from an answer fetched before
+   * it ran (design 2026-08-07 §2.4bis e) — `PackageViewText` records why the
+   * strings are data rather than a call.
+   *
+   * Optional because it is an answer that may not have arrived: no package owns
+   * the kind, its host is down, or the view was restored from a workspace
+   * persisted before it. `viewTitle` and `describeView` fall back exactly as
+   * they did when nobody could speak for the view, so the absent case is one
+   * that already had a reader.
+   *
+   * **Not `title`.** That field is an explicit, caller-set override and still
+   * wins over this one; writing a derived title into it would make the next
+   * patch unable to tell "the user named this tab" from "the package did".
+   */
+  packageText?: PackageViewText
 }
 
 export type ViewState =
@@ -354,7 +418,7 @@ export type ViewState =
   | TreeViewState
   | VectorViewState
   | ChatViewState
-  | PluginViewState
+  | PackageViewState
 
 /**
  * The members that extend `RefreshableViewBase`, spelled out.
@@ -364,10 +428,10 @@ export type ViewState =
  * of the list is that adding a fetching view kind is a decision someone makes
  * here — the same reason `BUILTIN_VIEW_KINDS` is not derived either.
  */
-export type RefreshableView = TableViewState | QueryViewState | VectorViewState | PluginViewState
+export type RefreshableView = TableViewState | QueryViewState | VectorViewState | PackageViewState
 
 /** The kinds of `RefreshableView`, for a narrowing test that needs only the discriminant. */
-export const REFRESHABLE_VIEW_KINDS = ['table', 'query', 'vector', 'plugin'] as const
+export const REFRESHABLE_VIEW_KINDS = ['table', 'query', 'vector', 'package'] as const
 
 export function isRefreshableViewKind(kind: ViewKind): kind is RefreshableView['kind'] {
   return (REFRESHABLE_VIEW_KINDS as readonly string[]).includes(kind)
@@ -376,16 +440,16 @@ export function isRefreshableViewKind(kind: ViewKind): kind is RefreshableView['
 /**
  * The discriminant of `ViewState`: still a closed set of literals, now seven.
  *
- * `'plugin'` is one value however many plugins are loaded — which is what keeps
- * every `switch` exhaustive and every `Extract<>` exact. Which plugin view a
- * `'plugin'` state actually is lives in `PluginViewState.pluginKind`.
+ * `'package'` is one value however many packages are loaded — which is what keeps
+ * every `switch` exhaustive and every `Extract<>` exact. Which package view a
+ * `'package'` state actually is lives in `PackageViewState.packageKind`.
  */
 export type ViewKind = ViewState['kind']
 
-export const VIEW_KINDS = ['table', 'query', 'inspector', 'tree', 'vector', 'chat', 'plugin'] as const
+export const VIEW_KINDS = ['table', 'query', 'inspector', 'tree', 'vector', 'chat', 'package'] as const
 
 /**
- * The kinds the kernel implements itself — everything but `'plugin'`.
+ * The kinds the kernel implements itself — everything but `'package'`.
  *
  * Hand-written rather than derived, on purpose: a seventh *built-in* must stay a
  * compile error in seven places.
@@ -399,11 +463,11 @@ export function isBuiltinViewKind(kind: string): kind is BuiltinViewKind {
 }
 
 /**
- * The name to *show* for a view: a plugin view reports its own kind, not the
- * word `plugin`.
+ * The name to *show* for a view: a package view reports its own kind, not the
+ * word `package`.
  *
  * `ViewSummary.kind` goes out over MCP, and telling a model that six different
- * plugin views are all `kind: "plugin"` would make them indistinguishable in the
+ * package views are all `kind: "package"` would make them indistinguishable in the
  * one place they most need telling apart.
  *
  * ## Why the parameter is structural rather than `ViewState`
@@ -411,14 +475,14 @@ export function isBuiltinViewKind(kind: string): kind is BuiltinViewKind {
  * It has two callers on two sides of the snapshot boundary: main holds
  * `ViewState`, and everything downstream of `snapshotWorkspace` — the MCP
  * receipts above all — holds `ViewSummary`. Both carry a `kind` and both carry a
- * `pluginKind` exactly when that kind is `'plugin'`, so one implementation
+ * `packageKind` exactly when that kind is `'package'`, so one implementation
  * serves both. Declaring it over `ViewState` alone is what left the summary side
- * to write `v.pluginKind ?? v.kind` by hand — which is how this function spent
+ * to write `v.packageKind ?? v.kind` by hand — which is how this function spent
  * its first version being dead code while the bug its own comment describes was
  * live on the wire.
  */
-export function displayViewKind(view: { kind: ViewKind; pluginKind?: string }): string {
-  return view.pluginKind ?? view.kind
+export function displayViewKind(view: { kind: ViewKind; packageKind?: string }): string {
+  return view.packageKind ?? view.kind
 }
 
 /** Narrow ViewState down to one concrete kind */
@@ -901,10 +965,44 @@ export function overflowingPanel(node: LayoutNode): PanelNode | null {
 /*    already redacted)                                                 */
 /* ================================================================== */
 
+/**
+ * A connection as it leaves main — and deliberately **not** the whole of
+ * `ConnectionState`.
+ *
+ * Two of that shape's strings are missing, and the line between what crosses and
+ * what does not is the reader, not the sensitivity:
+ *
+ * - **`detail`** is the sidebar row's tooltip. The window does not read this
+ *   snapshot — it is sent the redacted `Workspace` itself (`store/sanitize.ts`)
+ *   — so the only readers here are inside main: the MCP brief and the agent's
+ *   context document. The brief already carries one address line per connection
+ *   (`DriverDisplay.endpoint`, spelled for a model: defaults filled in, no
+ *   synthesised URL), and `detail` is the same address spelled for a person.
+ *   Two near-identical lines is worse than one for the reader that has to act on
+ *   them.
+ * - **`identity`** is what pairs a live connection with its saved book entry,
+ *   which is drawn in the window, off the `Workspace`, for the same reason. It
+ *   is also the key a stored credential is released against
+ *   (`connectionIdentity`), so publishing it to every connected MCP client would
+ *   hand out that key to buy nothing.
+ *
+ * Both are one field away if a reader for them ever appears here. Neither is
+ * withheld because it is secret — `identity` holds no password by construction.
+ */
 export interface ConnectionSummary {
   id: ConnId
   driverId: DriverId
   label: string
+  /**
+   * The address line a receipt prints for this connection.
+   *
+   * Carried where `detail` deliberately is not: this summary's readers are all
+   * inside main (MCP's `briefConnection`, the agent's context document) and every
+   * one of them wants the model-facing spelling. `detail` is the same address
+   * written for a person, and putting both here would only make a reader who has
+   * to act choose between two lines that say the same thing.
+   */
+  endpoint: string
   status: ConnStatus
   capabilities: Capability[]
   /** Redacted */
@@ -945,17 +1043,17 @@ export interface ViewSummary {
   id: ViewId
   kind: ViewKind
   /**
-   * Which plugin view this is, present exactly when `kind === 'plugin'` — the
+   * Which package view this is, present exactly when `kind === 'package'` — the
    * same shape as `browse` and `chat` below.
    *
-   * Without it every plugin view on the wire is `kind: "plugin"` and they are
+   * Without it every package view on the wire is `kind: "package"` and they are
    * indistinguishable to a model, which is the failure `displayViewKind` was
    * written to prevent and then did not, because nothing called it. It matters
    * as soon as a package contributes a tool that acts on its own view: neo4j's
    * `expand_node` takes a `viewId`, and the only way a model can pick the right
    * one out of `read_workspace` is if the graph views say `graph`.
    */
-  pluginKind?: PluginViewKind
+  packageKind?: PackageViewKindName
   /**
    * Absent on a chat view that is not tied to a connection. Every other kind
    * always has one, so a reader narrowing on `kind` keeps the guarantee it had.
@@ -1055,25 +1153,32 @@ export function describeView(view: ViewState, lookup?: ViewKindLookup): string {
       if (view.attachments.length > 0) parts.push(`${view.attachments.length} attachment(s) staged`)
       return parts.join(' · ')
     }
-    case 'plugin':
-      return lookup?.(view.pluginKind)?.describe(view) ?? unregisteredPluginView(view)
+    // `packageText` first, and the lookup only behind it: once the registration
+    // runs in the package host, main has no lookup to pass, and the stored string
+    // is the *same function's* answer for the state the view is actually in. The
+    // lookup stays for the renderer, which holds the registration in-process and
+    // reaches this before any patch has been prefetched for a restored view.
+    case 'package':
+      return view.packageText?.describe
+        ?? lookup?.(view.packageKind)?.describe(view)
+        ?? unregisteredPackageView(view)
   }
 }
 
 /**
- * What a plugin view says about itself when nothing can speak for it.
+ * What a package view says about itself when nothing can speak for it.
  *
- * Reached when no lookup was supplied, or when the plugin that registered this
- * kind is no longer loaded — a view outliving its plugin is an ordinary state
- * (the workspace is restored, the plugin was uninstalled), not an error.
+ * Reached when no lookup was supplied, or when the package that registered this
+ * kind is no longer loaded — a view outliving its package is an ordinary state
+ * (the workspace is restored, the package was uninstalled), not an error.
  *
  * It names the kind rather than pretending the view is empty, because the two
  * readers of this string both need to tell those apart: a model reading
  * `read_workspace` has to know a pane it cannot interpret is there, and a person
- * has to be able to work out which plugin to reinstall.
+ * has to be able to work out which package to reinstall.
  */
-function unregisteredPluginView(view: PluginViewState): string {
-  return `Plugin view "${view.pluginKind}" (no plugin loaded for this kind)`
+function unregisteredPackageView(view: PackageViewState): string {
+  return `Package view "${view.packageKind}" (no package loaded for this kind)`
 }
 
 /**
@@ -1095,8 +1200,8 @@ export function viewTitle(view: ViewState, lookup?: ViewKindLookup): string {
       return `Vector · ${view.collection}`
     case 'chat':
       return 'Chat'
-    case 'plugin':
-      return lookup?.(view.pluginKind)?.title(view) ?? view.pluginKind
+    case 'package':
+      return view.packageText?.title ?? lookup?.(view.packageKind)?.title(view) ?? view.packageKind
   }
 }
 
@@ -1124,8 +1229,18 @@ function summarizeChat(view: ChatViewState): ChatViewSummary {
  * Reduce the source-of-truth Workspace to a read-only snapshot that is safe to
  * leave main: redacted and flattened. Both MCP's read_workspace and state.read
  * return this.
+ *
+ * `redactRules` answers, per driver, which config fields carry secrets — it is
+ * the driver's `DriverManifest.redact`, and the app is what holds the manifests
+ * (core deliberately holds no registry; see `ManifestLookup`). It is a required
+ * parameter and not an optional one on purpose: this is the chokepoint every
+ * outbound copy of a config passes, and a default would mean a caller who forgot
+ * gets plaintext passwords in the snapshot with nothing failing to say so.
  */
-export function snapshotWorkspace(ws: Workspace): WorkspaceSnapshot {
+export function snapshotWorkspace(
+  ws: Workspace,
+  redactRules: (driverId: DriverId) => RedactRules,
+): WorkspaceSnapshot {
   const panels = collectPanels(ws.layout)
   const placement = new Map<ViewId, { panelId: PanelId; tabIndex: number; visible: boolean }>()
   for (const p of panels) {
@@ -1135,13 +1250,19 @@ export function snapshotWorkspace(ws: Workspace): WorkspaceSnapshot {
   }
 
   const connections: ConnectionSummary[] = Object.values(ws.connections).map((c) => {
-    // Redact before deriving the label: an empty label falls back to the connection
-    // URL, and the raw URL carries a plaintext password.
-    const config = redactConnectionConfig(c.config)
+    const config = redactConnectionConfig(c.config, redactRules(c.driverId))
     return {
       id: c.id,
       driverId: c.driverId,
-      label: c.label || defaultConnectionLabel(config),
+      // `c.label` and nothing else. There used to be a fallback here —
+      // `defaultConnectionLabel(config)` — which was a switch in core over the six
+      // databases it happened to know. Naming a connection is the package's job
+      // now (`DriverDisplay.label`), it runs in the package host, and its answer
+      // is computed once when the connection opens and stored right here, so
+      // there is nothing left for a snapshot to derive. Whoever fills
+      // `ConnectionState` is what must not leave this empty.
+      label: c.label,
+      endpoint: c.endpoint,
       status: c.status,
       capabilities: c.capabilities,
       config,
@@ -1155,7 +1276,7 @@ export function snapshotWorkspace(ws: Workspace): WorkspaceSnapshot {
     return {
       id: v.id,
       kind: v.kind,
-      ...(v.kind === 'plugin' ? { pluginKind: v.pluginKind } : {}),
+      ...(v.kind === 'package' ? { packageKind: v.packageKind } : {}),
       ...(v.connId === undefined ? {} : { connId: v.connId }),
       panelId: at?.panelId ?? null,
       tabIndex: at?.tabIndex ?? -1,
