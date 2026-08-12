@@ -1,0 +1,440 @@
+/* ==================================================================
+ * The graph frame's chrome.
+ *
+ * ## Why the palette is copied instead of imported
+ *
+ * This document lives on `peek-package://neo4j` with `default-src 'none'`. It
+ * cannot `@import` the window's `styles.css`, cannot fetch it, and must not be
+ * built against it — the frame is a separate bundle on a separate origin, and a
+ * stylesheet reaching across that seam would be the one hole in a boundary the
+ * design record spends a section defending. So the values below are copied, and
+ * the copy is the cost of the boundary rather than an oversight. Every hex here
+ * appears verbatim in `apps/desktop/src/renderer/styles.css`; nothing was
+ * re-picked "close enough", because two blues that are nearly the same read as a
+ * rendering bug rather than as a theme.
+ *
+ * ## Why there is a light block at all
+ *
+ * peek ships one theme today — there is no `prefers-color-scheme` rule anywhere
+ * in the window's CSS. But `PackageTheme` is `'light' | 'dark'`, so a frame that
+ * only had a dark palette would be a frame that draws black-on-black the first
+ * day the window grows a light mode. The light values are therefore *derived*
+ * (same hues, inverted lightness ladder, contrast held at the same floors §2.2
+ * of the legibility record sets) and flagged as derived, so that when the window
+ * does pick a light palette this block is the thing to replace rather than a
+ * thing to reconcile.
+ * ================================================================== */
+
+:root,
+:root[data-theme='dark'] {
+  --bg: #16181c;
+  --bg-1: #1b1e23;
+  --bg-2: #21252b;
+  --bg-3: #292e35;
+  --bg-hover: #2d333b;
+
+  --fg: #d3d8de;
+  --fg-dim: #a8b0ba;
+  --fg-faint: #858d97;
+
+  --border: #333941;
+  --border-strong: #666f79;
+
+  --accent: #4d9cff;
+  --accent-dim: #2a5a95;
+  --ok: #4ec9a0;
+  --warn: #e0b341;
+  --err: #f0736f;
+  --err-border: #5c2f2f;
+  --err-bg: #2a1c1c;
+
+  /* The truncation banner's own surface, mixed from --warn the way the control
+     layer mixes its states, so it is visibly derived from the theme rather than
+     being a ninth colour nobody can place. */
+  --warn-border: #5c4a1f;
+  --warn-bg: #2a2415;
+
+  /*
+   * Canvas ink. Separate tokens from the chrome's because they are read by
+   * `getComputedStyle` into the 2D context — a canvas cannot inherit a CSS
+   * colour, so every pixel drawn has to name one of these explicitly.
+   */
+  --edge: #454c56;
+  --edge-hot: #8b96a3;
+  --node-stroke: #16181c;
+  --label: #d3d8de;
+  --label-halo: #16181c;
+
+  /*
+   * The label palette. Eight, because a legend with more than that stops being
+   * distinguishable at 12px on a dot; graphs with more labels wrap and two
+   * labels share a colour, which is honest — the tooltip still says which is
+   * which. The first four are peek's own accent / ok / warn / err, so a graph
+   * sitting next to the rest of the window looks like part of it.
+   */
+  --node-1: #4d9cff;
+  --node-2: #4ec9a0;
+  --node-3: #e0b341;
+  --node-4: #f0736f;
+  --node-5: #b98cf0;
+  --node-6: #56c8d8;
+  --node-7: #e0864c;
+  --node-8: #93bf5a;
+}
+
+:root[data-theme='light'] {
+  --bg: #f6f7f9;
+  --bg-1: #ffffff;
+  --bg-2: #eceff3;
+  --bg-3: #e2e6ec;
+  --bg-hover: #dde2e9;
+
+  --fg: #1c2026;
+  --fg-dim: #4a525c;
+  --fg-faint: #69727d;
+
+  --border: #d7dbe1;
+  --border-strong: #98a1ab;
+
+  --accent: #1c6fd0;
+  --accent-dim: #cbdff7;
+  --ok: #11785c;
+  --warn: #8a6206;
+  --err: #c0322e;
+  --err-border: #e8bfbd;
+  --err-bg: #fdf4f3;
+
+  --warn-border: #e2cf9a;
+  --warn-bg: #fdf8e9;
+
+  --edge: #b6bdc6;
+  --edge-hot: #5d6771;
+  --node-stroke: #ffffff;
+  --label: #1c2026;
+  --label-halo: #ffffff;
+
+  --node-1: #1c6fd0;
+  --node-2: #11785c;
+  --node-3: #8a6206;
+  --node-4: #c0322e;
+  --node-5: #6f45b8;
+  --node-6: #117184;
+  --node-7: #a3561c;
+  --node-8: #55772a;
+}
+
+:root {
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  --fs-sm: 11px;
+  --fs-md: 12px;
+  --fs-lg: 13px;
+  --fs-data: 11.5px;
+
+  --bar-h: 30px;
+  --hit-min: 24px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/*
+ * `hidden` has to win. Every element this file hides is also given `display:
+ * flex` or `display: block` by a class rule, and a class beats the UA
+ * stylesheet's `[hidden] { display: none }` on specificity — so without this the
+ * "hidden" banner is fully visible and the bug looks like a JS bug.
+ */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+.frame {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ------------------------------------------------------------------
+ * Control bar
+ * ------------------------------------------------------------------ */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-height: var(--bar-h);
+  padding: 0 8px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+.scope {
+  font-size: var(--fs-sm);
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+}
+
+.field-label {
+  font-size: var(--fs-sm);
+  color: var(--fg-faint);
+  white-space: nowrap;
+}
+
+.control {
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--fg);
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 2px 6px;
+  min-height: var(--hit-min);
+  outline: none;
+}
+
+button.control {
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button.control:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.control:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/*
+ * The in-flight marker. A pill in the bar rather than an overlay, because a
+ * refetch that already has a drawn graph behind it should not blank the graph —
+ * covering the canvas on every `depth` change would make the control feel like
+ * it destroys the view and rebuilds it.
+ */
+.pill {
+  font-size: var(--fs-sm);
+  color: var(--fg-faint);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------
+ * Banners — the loud half of §2.6bis
+ * ------------------------------------------------------------------ */
+
+.banners {
+  flex: 0 0 auto;
+}
+
+.banner {
+  display: block;
+  font-size: var(--fs-sm);
+  padding: 5px 10px;
+  border-bottom: 1px solid transparent;
+  user-select: text;
+}
+
+/*
+ * Full-width, above the canvas, and it never auto-dismisses. §2.6bis keeps
+ * exactly one guarantee from the original streaming design — "loss must be
+ * loud" — and this rule is where it is spent. A toast or a console warning would
+ * both satisfy the letter of `truncated` and miss the point: the user has to be
+ * unable to read the picture without also reading that the picture is partial.
+ */
+.banner-warn {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-bottom-color: var(--warn-border);
+}
+
+.banner-err {
+  color: var(--err);
+  background: var(--err-bg);
+  border-bottom-color: var(--err-border);
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+}
+
+/* ------------------------------------------------------------------
+ * Stage
+ * ------------------------------------------------------------------ */
+
+.stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+canvas.grabbing {
+  cursor: grabbing;
+}
+
+canvas.grabbable {
+  cursor: grab;
+}
+
+/* The centred message for "there is nothing on the canvas and here is why". */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 24px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.overlay-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  color: var(--fg-dim);
+}
+
+.overlay-detail {
+  margin: 0;
+  max-width: 46ch;
+  font-size: var(--fs-sm);
+  color: var(--fg-faint);
+  user-select: text;
+  pointer-events: auto;
+}
+
+.overlay-detail:empty {
+  display: none;
+}
+
+/* ------------------------------------------------------------------
+ * Property tooltip
+ * ------------------------------------------------------------------ */
+
+.tip {
+  position: absolute;
+  z-index: 2;
+  max-width: 320px;
+  max-height: 60%;
+  overflow: hidden;
+  padding: 6px 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 32%);
+  font-size: var(--fs-sm);
+  /* The pointer must never enter the tooltip: it is anchored to the cursor, so a
+     hover of its own would make it chase itself and flicker. */
+  pointer-events: none;
+}
+
+.tip-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.tip-label {
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: var(--fs-sm);
+  color: var(--bg);
+  background: var(--fg-dim);
+}
+
+.tip-rows {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1px 8px;
+}
+
+.tip-key {
+  color: var(--fg-faint);
+  white-space: nowrap;
+}
+
+.tip-val {
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tip-more {
+  margin-top: 3px;
+  color: var(--fg-faint);
+}
+
+.tip-hint {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-faint);
+}
+
+/* ------------------------------------------------------------------
+ * Status line
+ * ------------------------------------------------------------------ */
+
+.statusbar {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  background: var(--bg-1);
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  color: var(--fg-faint);
+  white-space: nowrap;
+  overflow: hidden;
+}

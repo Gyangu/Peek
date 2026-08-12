@@ -1,0 +1,51 @@
+{
+  "name": "@peek/db-neo4j",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "peek Neo4j driver: introspect + tabularQuery(Cypher) + collectionScan + valuePeek, plus the `graph` package view",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./manifest": {
+      "types": "./src/manifest.ts",
+      "default": "./src/manifest.ts"
+    },
+    "./display": {
+      "types": "./src/display.ts",
+      "default": "./src/display.ts"
+    },
+    "./view": {
+      "types": "./src/view.ts",
+      "default": "./src/view.ts"
+    },
+    "./mcp-tools": {
+      "types": "./src/mcp-tools.ts",
+      "default": "./src/mcp-tools.ts"
+    },
+    "./mcp-tool-meta": {
+      "types": "./src/mcp-tool-meta.ts",
+      "default": "./src/mcp-tool-meta.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.ui.json",
+    "test": "node --import ./src/__tests__/register.mjs --test src/__tests__/*.test.ts"
+  },
+  "dependencies": {
+    "@peek/core": "workspace:*",
+    "neo4j-driver": "^5.28.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "typescript": "^5.9.3"
+  }
+}
