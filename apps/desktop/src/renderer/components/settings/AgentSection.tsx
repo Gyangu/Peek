@@ -10,6 +10,7 @@ import {
 import { useT } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
 import { Button } from '../../ui/Button'
+import { Form, FormActions, FormHint, FormRow } from '../../ui/Form'
 import { Segmented } from '../../ui/Segmented'
 
 /**
@@ -72,50 +73,56 @@ export function AgentSection(): ReactElement {
     <>
       <div className="text-fg-dim mb-snug">{t('settings.agent.intro')}</div>
 
-      <div className="form-row">
-        <span className="form-label">{t('settings.agent.backend')}</span>
-        <Segmented
-          className="grow-0 shrink-0 basis-auto min-w-50"
-          label={t('settings.agent.backend')}
-          value={agent.backend}
-          options={[
-            { value: 'acp' satisfies AgentBackend, label: t('settings.agent.backend.acp') },
-            { value: 'endpoint' satisfies AgentBackend, label: t('settings.agent.backend.endpoint') },
-          ]}
-          onChange={(backend) => {
-            write({ backend })
-          }}
-        />
-      </div>
-      <div className="form-hint">{t('settings.agent.restartHint')}</div>
+      <Form>
+        <FormRow label={t('settings.agent.backend')} hint={t('settings.agent.restartHint')}>
+          <Segmented
+            className="grow-0 shrink-0 basis-auto min-w-50"
+            label={t('settings.agent.backend')}
+            value={agent.backend}
+            options={[
+              { value: 'acp' satisfies AgentBackend, label: t('settings.agent.backend.acp') },
+              { value: 'endpoint' satisfies AgentBackend, label: t('settings.agent.backend.endpoint') },
+            ]}
+            onChange={(backend) => {
+              write({ backend })
+            }}
+          />
+        </FormRow>
 
-      <div className="form-row">
-        <span className="form-label">{t('settings.agent.permissionMode')}</span>
-        {/* The two ⚠ modes in the panel's own dropdown are deliberately absent
-            here. Reaching for one on a conversation you are looking at is a
-            decision; leaving one in a settings file is something you forget. */}
-        <Segmented
-          className="grow-0 shrink-0 basis-auto min-w-50"
+        <FormRow
           label={t('settings.agent.permissionMode')}
-          value={agent.permissionMode}
-          options={AGENT_DEFAULT_PERMISSION_MODES.map((mode) => ({
-            value: mode,
-            label: t(`settings.agent.mode.${mode}`),
-          }))}
-          onChange={(permissionMode) => {
-            write({ permissionMode })
-          }}
-        />
-      </div>
-      <div className="form-hint">{t(`settings.agent.modeHint.${agent.permissionMode}`)}</div>
+          hint={t(`settings.agent.modeHint.${agent.permissionMode}`)}
+        >
+          {/* The two ⚠ modes in the panel's own dropdown are deliberately absent
+              here. Reaching for one on a conversation you are looking at is a
+              decision; leaving one in a settings file is something you forget. */}
+          <Segmented
+            className="grow-0 shrink-0 basis-auto min-w-50"
+            label={t('settings.agent.permissionMode')}
+            value={agent.permissionMode}
+            options={AGENT_DEFAULT_PERMISSION_MODES.map((mode) => ({
+              value: mode,
+              label: t(`settings.agent.mode.${mode}`),
+            }))}
+            onChange={(permissionMode) => {
+              write({ permissionMode })
+            }}
+          />
+        </FormRow>
 
-      {agent.backend === 'acp' ? (
-        <AcpForm agent={agent} busy={busy} onWrite={write} />
-      ) : (
-        <EndpointForm agent={agent} busy={busy} onWrite={write} />
-      )}
+        {/* Both halves are rows and hints, so they join this grid's columns
+            rather than starting their own: a row is a fragment, and a component
+            that returns one is still just two cells. Which is why the label
+            column is measured across the whole section, backend picker included,
+            and not per sub-form. */}
+        {agent.backend === 'acp' ? (
+          <AcpForm agent={agent} busy={busy} onWrite={write} />
+        ) : (
+          <EndpointForm agent={agent} busy={busy} onWrite={write} />
+        )}
 
-      {notice === null ? null : <div className="form-hint">{notice}</div>}
+        {notice === null ? null : <FormHint>{notice}</FormHint>}
+      </Form>
     </>
   )
 }
@@ -137,8 +144,7 @@ function AcpForm({ agent, busy, onWrite }: FormProps): ReactElement {
 
   return (
     <>
-      <div className="form-row">
-        <span className="form-label">{t('settings.agent.which')}</span>
+      <FormRow label={t('settings.agent.which')}>
         <Segmented
           className="grow-0 shrink-0 basis-auto min-w-50"
           label={t('settings.agent.which')}
@@ -155,24 +161,27 @@ function AcpForm({ agent, busy, onWrite }: FormProps): ReactElement {
             onWrite({ acpProfile })
           }}
         />
-      </div>
+      </FormRow>
 
       {/* This line was written to stand out — `unverified` means peek has no
-          probe that its sandbox took — and it never has: `form-warn` was a class
-          no stylesheet ever defined, so it has always rendered as an ordinary
-          faint hint. Removing the name states the truth; making it amber is a
-          design decision, and it cannot be `text-warn` on a `.form-hint` in any
-          case, because app.css is unlayered and outranks every utility. */}
+          probe that its sandbox took — and for two rounds it could not: the
+          class it reached for was never defined, and once that was noticed the
+          colour was unreachable anyway, because the form rules outranked every
+          utility from outside the cascade layers.
+
+          A tone is reachable now, and this one is still a plain note. Whether
+          an unprobed sandbox should read as a warning is a design decision, and
+          it stays where it was left rather than being made in passing by the
+          change that removed the obstacle. */}
       {selected?.sandbox === 'unverified' ? (
-        <div className="form-hint">{t('settings.agent.unverified', { agent: selected.displayName })}</div>
+        <FormHint>{t('settings.agent.unverified', { agent: selected.displayName })}</FormHint>
       ) : (
-        <div className="form-hint">{t('settings.agent.enforced')}</div>
+        <FormHint>{t('settings.agent.enforced')}</FormHint>
       )}
 
-      <div className="form-hint">{t('settings.agent.loginHint')}</div>
+      <FormHint>{t('settings.agent.loginHint')}</FormHint>
 
-      <div className="form-row">
-        <label htmlFor="peek-agent-exe">{t('settings.agent.executable')}</label>
+      <FormRow label={t('settings.agent.executable')} htmlFor="peek-agent-exe">
         <input
           id="peek-agent-exe"
           className="font-mono tabular-nums"
@@ -183,8 +192,8 @@ function AcpForm({ agent, busy, onWrite }: FormProps): ReactElement {
             setPath(e.target.value)
           }}
         />
-      </div>
-      <div className="form-row form-actions">
+      </FormRow>
+      <FormActions>
         <Button
           disabled={busy || path === (agent.acpExecutablePath ?? '')}
           onClick={() => {
@@ -193,8 +202,8 @@ function AcpForm({ agent, busy, onWrite }: FormProps): ReactElement {
         >
           {t('settings.agent.save')}
         </Button>
-      </div>
-      <div className="form-hint">{t('settings.agent.executableHint')}</div>
+      </FormActions>
+      <FormHint>{t('settings.agent.executableHint')}</FormHint>
     </>
   )
 }
@@ -217,8 +226,7 @@ function EndpointForm({ agent, busy, onWrite }: FormProps): ReactElement {
 
   return (
     <>
-      <div className="form-row">
-        <label htmlFor="peek-agent-url">{t('settings.agent.baseUrl')}</label>
+      <FormRow label={t('settings.agent.baseUrl')} htmlFor="peek-agent-url">
         <input
           id="peek-agent-url"
           className="font-mono tabular-nums"
@@ -229,10 +237,9 @@ function EndpointForm({ agent, busy, onWrite }: FormProps): ReactElement {
             setBaseUrl(e.target.value)
           }}
         />
-      </div>
+      </FormRow>
 
-      <div className="form-row">
-        <label htmlFor="peek-agent-model">{t('settings.agent.model')}</label>
+      <FormRow label={t('settings.agent.model')} htmlFor="peek-agent-model" hint={t('settings.agent.modelHint')}>
         <input
           id="peek-agent-model"
           className="font-mono tabular-nums"
@@ -243,11 +250,9 @@ function EndpointForm({ agent, busy, onWrite }: FormProps): ReactElement {
             setModel(e.target.value)
           }}
         />
-      </div>
-      <div className="form-hint">{t('settings.agent.modelHint')}</div>
+      </FormRow>
 
-      <div className="form-row">
-        <span className="form-label">{t('settings.agent.api')}</span>
+      <FormRow label={t('settings.agent.api')}>
         {/* Not inferred from the URL: a gateway can serve either shape from any
             path, and guessing wrong fails at the first token instead of here. */}
         <Segmented
@@ -257,10 +262,9 @@ function EndpointForm({ agent, busy, onWrite }: FormProps): ReactElement {
           options={AGENT_ENDPOINT_APIS.map((id) => ({ value: id, label: t(`settings.agent.api.${id}`) }))}
           onChange={setApi}
         />
-      </div>
+      </FormRow>
 
-      <div className="form-row">
-        <label htmlFor="peek-agent-key">{t('settings.agent.apiKey')}</label>
+      <FormRow label={t('settings.agent.apiKey')} htmlFor="peek-agent-key" hint={t('settings.agent.apiKeyHint')}>
         <input
           id="peek-agent-key"
           type="password"
@@ -272,10 +276,9 @@ function EndpointForm({ agent, busy, onWrite }: FormProps): ReactElement {
             setApiKey(e.target.value)
           }}
         />
-      </div>
-      <div className="form-hint">{t('settings.agent.apiKeyHint')}</div>
+      </FormRow>
 
-      <div className="form-row form-actions">
+      <FormActions>
         <Button
           disabled={busy || !complete}
           onClick={() => {
@@ -300,7 +303,7 @@ function EndpointForm({ agent, busy, onWrite }: FormProps): ReactElement {
             {t('settings.agent.forgetKey')}
           </Button>
         ) : null}
-      </div>
+      </FormActions>
     </>
   )
 }

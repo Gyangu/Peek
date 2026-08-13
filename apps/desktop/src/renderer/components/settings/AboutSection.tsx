@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import type { SettingsReadResult } from '@peek/core'
 import { useT, type TFunction } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
+import { Form, FormHint, FormRow } from '../../ui/Form'
 import { Gallery } from '../../ui/Gallery'
 
 /**
@@ -13,7 +14,6 @@ import { Gallery } from '../../ui/Gallery'
  * confidently wrong on exactly the machines where someone is looking it up.
  */
 export function AboutSection(): ReactElement {
-  const t = useT()
   const [info, setInfo] = useState<SettingsReadResult | null>(null)
 
   useEffect(() => {
@@ -24,16 +24,48 @@ export function AboutSection(): ReactElement {
 
   return (
     <>
+      <PathsForm info={info} />
+
+      {/*
+       * The control gallery, in dev builds only. It lives here rather than
+       * behind its own command because it is a reference, not a feature — and
+       * because a reference nobody can find is the state this codebase was
+       * already in. `import.meta.env.DEV` is a compile-time constant, so the
+       * whole subtree is dropped from the production bundle.
+       *
+       * Outside the form rather than after its last row: a rule and a gallery
+       * span the pane, and everything inside a `<Form>` is placed in one of two
+       * columns. It was never form content; the flex layout it used to sit in
+       * simply had no opinion about that.
+       */}
+      {import.meta.env.DEV ? (
+        <>
+          {/* `.gal-sep` until `ui/controls.css` was deleted — the last of the
+              gallery's classes, and the only one that was ever worn outside it. */}
+          <hr className="h-0 mt-loose mb-snug mx-0 border-0 border-t border-border" />
+          <div className="text-fg-faint mb-snug">Control gallery — renderer/ui/CLAUDE.md</div>
+          <Gallery />
+        </>
+      ) : null}
+    </>
+  )
+}
+
+function PathsForm({ info }: { info: SettingsReadResult | null }): ReactElement {
+  const t = useT()
+
+  return (
+    <Form>
       {/* Version and paths are identifiers; they are never translated. */}
-      <div className="form-row">
-        {/* The value is a span; a span cannot be labelled. */}
-        <span className="form-label">{t('settings.about.version')}</span>
+      {/* No `htmlFor`: the value is a span, and a span cannot be labelled. This
+          row and the four below it were 28px out of line with each other until
+          the element stopped being the caller's to pick. */}
+      <FormRow label={t('settings.about.version')}>
         <span className="font-mono tabular-nums">{info?.version === '' ? t('settings.about.unavailable') : info?.version}</span>
-      </div>
+      </FormRow>
 
       {PATHS.map(([key, label]) => (
-        <div className="form-row" key={key}>
-          <label htmlFor={`peek-path-${key}`}>{t(label)}</label>
+        <FormRow key={key} label={t(label)} htmlFor={`peek-path-${key}`}>
           <input
             id={`peek-path-${key}`}
             className="font-mono tabular-nums"
@@ -53,27 +85,10 @@ export function AboutSection(): ReactElement {
               e.currentTarget.select()
             }}
           />
-        </div>
+        </FormRow>
       ))}
-      <div className="form-hint">{t('settings.about.pathsHint')}</div>
-
-      {/*
-       * The control gallery, in dev builds only. It lives here rather than
-       * behind its own command because it is a reference, not a feature — and
-       * because a reference nobody can find is the state this codebase was
-       * already in. `import.meta.env.DEV` is a compile-time constant, so the
-       * whole subtree is dropped from the production bundle.
-       */}
-      {import.meta.env.DEV ? (
-        <>
-          {/* `.gal-sep` until `ui/controls.css` was deleted — the last of the
-              gallery's classes, and the only one that was ever worn outside it. */}
-          <hr className="h-0 mt-loose mb-snug mx-0 border-0 border-t border-border" />
-          <div className="form-hint">Control gallery — renderer/ui/CLAUDE.md</div>
-          <Gallery />
-        </>
-      ) : null}
-    </>
+      <FormHint>{t('settings.about.pathsHint')}</FormHint>
+    </Form>
   )
 }
 

@@ -856,44 +856,30 @@
   --shadow-cell: inset -1px 0 0 var(--color-border), inset 0 -1px 0 var(--color-border);
 
   /*
-   * The label column every form row is built on. Anything with no label of its
-   * own indents by this plus the row's 8px gap, to stand on the control column.
+   * The **ceiling** on a form's label column — not its width.
    *
-   * One width, not four. It used to be four literals scattered over sixty lines
-   * — 88 and 96 in the base rules, 116 and 124 twice over in the settings pane —
-   * and the settings override reached three of them and missed the fourth, which
-   * is the bug this replaces. See `design/2026-08-04-settings-form-gutter.md`.
+   * It was the width until 2026-08-13, and that swap is the whole of the change.
+   * One number, shared by every form in the window, that somebody had to measure
+   * and somebody else had to remember to re-measure: the settings pane declared
+   * its own 116px because its labels are longer than the connect dialog's, and
+   * three rules did arithmetic on whichever of the two was in scope so that
+   * hints and button rows could stand on the control column.
    *
-   * The `+ 8px` is written out at each of the three use sites rather than
-   * factored into a second token here, and that is not an oversight: a custom
-   * property substitutes its own `var()`s **where it is declared**, so an indent
-   * computed in `@theme` would freeze 88px into itself and go on saying 96px
-   * inside `.settings-pane`. Doing the arithmetic in the rule that consumes it is
-   * what lets the override reach it — and the override still works through a
-   * utility class, because `ml-form-label` compiles to
-   * `margin-left: var(--spacing-form-label)` and reads whatever the ancestor set.
+   * The column is `fit-content()` of this now. Each form is as wide as its own
+   * longest label and no wider, and the parts with no label of their own are
+   * grid items in the control column rather than a margin computed from one. See
+   * `form-grid` below and `design/2026-08-13-settings-form-primitives.md`.
    *
-   * 88px → 100px → 88px, and the round trip is the point: this is a *width
-   * measured against a font size*, so it tracks the scale and does not survive a
-   * change to it on its own. The failure is the quiet kind — nothing clips, the
-   * row just grows a line. Every connect-dialog label was rendered and measured
-   * at each size rather than scaled by the font ratio: "Database index" is
-   * **87.1px** at the 12px body and was 99.5px at 14px. Every other label has
-   * room to spare; the widest is the one that sets this number.
-   *
-   * Nine tenths of a pixel of headroom is thin, and it is the headroom this
-   * gutter has always had. Left at 88px rather than padded, because 100px was
-   * only ever the 14px body's answer and keeping it would leave 13px of dead
-   * column that no label reaches (§30.6) — a re-tune of a width nobody asked to
-   * re-tune, in the round that exists to undo an inflation.
-   *
-   * `.settings-pane`'s 116px override is deliberately untouched. Its own labels
-   * are longer than its gutter and were before ("Views contributed by a package"
-   * is 180.4px at the 12px body, against 116px), so wrapping there is the design
-   * rather than a regression. Widening it to fit would be a restyle this change
-   * has no mandate for.
+   * Why a ceiling may be a round number when the width could not: 88px carried
+   * **0.9px** of headroom over "Database index" at the 12px body, and a width
+   * measured against a font size does not survive a change to the scale — the
+   * failure being the quiet kind where nothing clips and a row just grows a
+   * line. Nothing measures itself against a ceiling. 180 is placed at the
+   * longest label string in the repo ("Views contributed by a package" is
+   * 180.4px at the 12px body), which is the honest place for one: a stop that
+   * everything real clears, not a target anything aims at.
    */
-  --spacing-form-label: 88px;
+  --spacing-form-label: 180px;
 
   /* Smallest side of anything a pointer is expected to hit. */
   --spacing-hit: 24px;
@@ -1070,6 +1056,72 @@
  */
 @utility overflow-anchor-none {
   overflow-anchor: none;
+}
+
+/*
+ * The form grid, and the cell that holds a row's controls.
+ *
+ * These two replace six unlayered rules — the row, the label, the two that
+ * stretched an input, the checkbox exception, the hint and the button row —
+ * plus the settings pane's override of the label width. What they buy is one
+ * fact per problem instead of one number shared by everything:
+ *
+ *  - **The label column is `fit-content()`, so each form sizes its own.** The
+ *    two-value regime it replaces (88 in the window, 116 in the settings pane)
+ *    made every local wish a global ruling: `2026-08-04-settings-form-gutter.md`
+ *    §3 turned down a wider gutter for one wrapping label because twenty other
+ *    labels would have paid for it. That trade is gone — a long label costs its
+ *    own form and nothing else.
+ *  - **Anything with no label of its own is a grid item in the second column**,
+ *    where a hint or a button row lands on the control column by being in it.
+ *    Three rules used to recompute the gutter with `calc()`, and the `+ 8px`
+ *    could not be factored out of any of them, for the reason that record's
+ *    §2.1 spends a paragraph on. There is no arithmetic left to factor.
+ *  - **Both are `@utility`, so they are in the utilities layer.** The rules they
+ *    replace were unlayered, and unlayered beats every `@layer` whatever the
+ *    specificity — which is why a colour utility written beside a hint compiled,
+ *    matched, and painted nothing, and why four call sites carried an inline
+ *    `style` to say "amber" or "red" at all. `McpSection.tsx` predicted this
+ *    exact fix in a comment; the four inline styles came off with these landing.
+ *
+ * The row itself is a fragment rather than an element: a wrapper would have to
+ * be `display: contents` to let its label and its cell reach these columns, and
+ * a fragment is that with nothing to explain. So `form-field` is the row's
+ * second half, and the first is a bare label or span.
+ *
+ * One spacing decision worth stating: rows sat 8px apart and hints 10px, both as
+ * bottom margins. It is one 8px `gap` now. The 10 was not a judgement anybody
+ * recorded — it was the number two rules happened to disagree on.
+ */
+@utility form-grid {
+  display: grid;
+  grid-template-columns: fit-content(var(--spacing-form-label)) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--spacing-snug);
+}
+
+@utility form-field {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-snug);
+  min-width: 0;
+
+  /* A text field takes the column; the label beside it already said what it is
+     for. Stated here rather than at each call site because it is the default a
+     form row means, and the exception below is the only thing that has ever
+     wanted out of it. */
+  & > input,
+  & > select {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* A checkbox must not stretch across the row like a text field does. */
+  & > input[type='checkbox'] {
+    flex: 0 0 auto;
+    width: auto;
+    margin-right: auto;
+  }
 }
 
 /* ################## SHEET: chat ################## */
@@ -1974,11 +2026,16 @@ body.view-dragging.view-drag-nodrop * {
 /* Form rows                                                             */
 /* ------------------------------------------------------------------ */
 
-/* The form rows are the window's, not this module's: the settings dialog and the
-   connect dialog are both built from them, and the settings pane overrides the
-   form gutter by redeclaring `--spacing-form-label` around these very selectors.
-   They migrate with whichever module ends up owning the form vocabulary, not
-   with this one.
+/* Six rules stood here — the row, the label slot, the two that stretched an
+   input, the checkbox exception, the hint and the button row — under a sentence
+   saying they were the window's rather than this module's, and would migrate
+   with whichever module ended up owning the form vocabulary.
+
+   `ui/Form.tsx` owns it now, and the rules are two `@utility` blocks up in the
+   tokens sheet (`form-grid` / `form-field`), which is the whole point rather
+   than a filing decision: unlayered rules outrank every `@layer`, so as long as
+   these lived here a colour utility written beside a hint could not paint it,
+   and four call sites carried an inline `style` to get around them.
 
    The modal shell used to stand above them under the same sentence — the mask,
    the shell, the head, its title, the body and the foot. All six are gone: round
@@ -1997,55 +2054,6 @@ body.view-dragging.view-drag-nodrop * {
    one fact would generate three classes. That is why the sizes are inline
    `style` and not `@utility`, and it is the question to answer first if anybody
    wants to change that. */
-.form-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-/*
- * The leading cell of a form row, matched by class rather than by element.
- *
- * `<label>` is a promise: it names a specific control, and a screen reader
- * follows it there. Three rows in the settings panel were using one as a layout
- * slot — two beside a `<Segmented>` that carries its own `aria-label`, one beside
- * a plain `<span>` that cannot be labelled at all. Styling the slot by class lets
- * the rows that really do name a control keep `<label htmlFor>` and the rest say
- * `<span>`, which is what they are.
- */
-.form-row label,
-.form-row .form-label {
-  width: var(--spacing-form-label);
-  flex: 0 0 auto;
-  color: var(--color-fg-dim);
-  text-align: right;
-}
-
-.form-row input,
-.form-row select {
-  flex: 1;
-  min-width: 0;
-}
-
-/* A checkbox must not stretch across the row like a text field does. */
-.form-row input[type='checkbox'] {
-  flex: 0 0 auto;
-  width: auto;
-  margin-right: auto;
-}
-
-.form-hint {
-  color: var(--color-fg-faint);
-  margin: 0 0 10px calc(var(--spacing-form-label) + 8px);
-}
-
-/* A row of buttons with no label of its own. It still belongs to the control
-   column: a button that falls back into the label gutter reads as if it acts on
-   the section rather than on the field above it. */
-.form-actions {
-  margin-left: calc(var(--spacing-form-label) + 8px);
-}
 
 /* ------------------------------------------------------------------ */
 /* Status bar and notifications                                          */
@@ -2247,20 +2255,17 @@ body.view-dragging.view-drag-nodrop * {
  * See docs/design/2026-08-04-tailwind-migration.md §4.3 and §11.2.
  * ================================================================== */
 
-/* The sections use wider labels than the connect dialog — "Collection scan" and
-   "Connections" do not fit the 88px the form rows default to. Widening the
-   column is the whole edit: the hints and the button rows read the same variable
-   and follow on their own.
+/* This pane used to redeclare the label column at 116px, because its labels are
+   longer than the connect dialog's and the width was one number for the whole
+   window. Both halves of that are gone: the column is `fit-content()` of a
+   ceiling now, so each form sizes its own and no pane has to announce that it is
+   different. See `form-grid` in the tokens sheet.
 
-   A custom property, so it cannot be a utility: the only Tailwind syntax that
-   sets one is `[--spacing-form-label:116px]`, which is the arbitrary-value form
-   the migration record bans outright (§3.4). It has to be a rule, and the rule
-   has to be on an ancestor — which is the entire mechanism. `w-form-label` on a
-   label inside compiles to `width: var(--spacing-form-label)` and reads whatever
-   this sets, exactly as `.form-row label` does today. */
-.settings-pane {
-  --spacing-form-label: 116px;
-}
+   The rule was also the standing example of a fact that could not be a utility —
+   the only Tailwind syntax that sets a custom property is the arbitrary-value
+   form the migration record bans outright (§3.4), so it had to be a rule on an
+   ancestor. That constraint is real and unchanged; what changed is that there is
+   no longer a fact here that needs it. */
 
 /* A two-option picker used to be stopped from stretching across this dialog by a
    `.settings-pane .seg-group` rule here. It is gone: the six callers inside the

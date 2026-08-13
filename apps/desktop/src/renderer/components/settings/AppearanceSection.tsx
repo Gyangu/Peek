@@ -4,6 +4,7 @@ import { UI_ZOOM_STEPS } from '@peek/core'
 import { isMacPlatform } from '../../hooks'
 import { LOCALES, setLocale, useLocale, useT } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
+import { Form, FormRow } from '../../ui/Form'
 import { Segmented } from '../../ui/Segmented'
 
 /**
@@ -32,12 +33,12 @@ export function AppearanceSection(): ReactElement {
   const locale = useLocale()
 
   return (
-    <>
-      <div className="form-row">
-        {/* A span, not a label: `<Segmented>` names itself with `aria-label`, and a
-            `<label>` with nothing to point at is a promise to a screen reader that
-            nothing keeps. */}
-        <span className="form-label">{t('settings.language')}</span>
+    <Form>
+      {/* No `htmlFor`: `<Segmented>` names itself with `aria-label`, and a
+          `<label>` with nothing to point at is a promise to a screen reader that
+          nothing keeps. Which element that produces is `FormRow`'s decision now,
+          not a thing each caller has to remember. */}
+      <FormRow label={t('settings.language')} hint={t('settings.languageHint')}>
         <Segmented
           className="grow-0 shrink-0 basis-auto min-w-50"
           label={t('settings.language')}
@@ -45,11 +46,10 @@ export function AppearanceSection(): ReactElement {
           options={LOCALES.map((l) => ({ value: l.id, label: l.label }))}
           onChange={setLocale}
         />
-      </div>
-      <div className="form-hint">{t('settings.languageHint')}</div>
+      </FormRow>
 
       <ZoomRow />
-    </>
+    </Form>
   )
 }
 
@@ -86,32 +86,29 @@ function ZoomRow(): ReactElement {
   }
 
   return (
-    <>
-      <div className="form-row">
-        <span className="form-label">{t('settings.zoom')}</span>
-        {/*
-         * `value` is the step this zoom *is*, resolved by proximity rather than by
-         * identity: the factor round-trips through a settings file and a
-         * `setZoomFactor` call, so 1.25 can come back as 1.2500000000000002 and an
-         * exact match would leave the group with nothing selected — which, with a
-         * roving tabindex, is a control the keyboard cannot enter.
-         */}
-        <Segmented
-          className="grow-0 shrink-0 basis-auto min-w-50"
-          label={t('settings.zoom')}
-          value={UI_ZOOM_STEPS.find((step) => zoom !== null && Math.abs(zoom - step) < 0.001) ?? -1}
-          options={UI_ZOOM_STEPS.map((step) => ({
-            value: step,
-            label: `${String(Math.round(step * 100))}%`,
-          }))}
-          onChange={choose}
-        />
-      </div>
-      {/* Modifier symbols are never translated: they are what is printed on the
-          keys in front of the reader. Same rule as `shortcutHints`. */}
-      <div className="form-hint">
-        {t('settings.zoomHint', { keys: isMacPlatform() ? '⌘+ / ⌘− / ⌘0' : 'Ctrl++ / Ctrl+− / Ctrl+0' })}
-      </div>
-    </>
+    <FormRow
+      label={t('settings.zoom')}
+      // Modifier symbols are never translated: they are what is printed on the
+      // keys in front of the reader. Same rule as `shortcutHints`.
+      hint={t('settings.zoomHint', { keys: isMacPlatform() ? '⌘+ / ⌘− / ⌘0' : 'Ctrl++ / Ctrl+− / Ctrl+0' })}
+    >
+      {/*
+       * `value` is the step this zoom *is*, resolved by proximity rather than by
+       * identity: the factor round-trips through a settings file and a
+       * `setZoomFactor` call, so 1.25 can come back as 1.2500000000000002 and an
+       * exact match would leave the group with nothing selected — which, with a
+       * roving tabindex, is a control the keyboard cannot enter.
+       */}
+      <Segmented
+        className="grow-0 shrink-0 basis-auto min-w-50"
+        label={t('settings.zoom')}
+        value={UI_ZOOM_STEPS.find((step) => zoom !== null && Math.abs(zoom - step) < 0.001) ?? -1}
+        options={UI_ZOOM_STEPS.map((step) => ({
+          value: step,
+          label: `${String(Math.round(step * 100))}%`,
+        }))}
+        onChange={choose}
+      />
+    </FormRow>
   )
 }

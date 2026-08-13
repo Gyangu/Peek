@@ -68,6 +68,53 @@ Cancel + the act, so the second press lands somewhere harmless.
 keys inside. Not a row of buttons with `aria-pressed`; that describes N
 independent switches and is what it replaced.
 
+## Building a form
+
+`Form.tsx` is the label-and-control vocabulary. **Never lay a form row out by
+hand** — the two dialogs in this app are built from these four, and the reason
+they are components is that the same thing written as a recipe drifted twice in
+two rounds.
+
+```tsx
+import { Form, FormActions, FormHint, FormRow } from '../../ui/Form'
+
+<Form>
+  <FormRow label={t('settings.language')} hint={t('settings.languageHint')}>
+    <Segmented … />
+  </FormRow>
+  <FormRow label={t('mcp.port')} htmlFor="peek-mcp-port">
+    <input id="peek-mcp-port" type="number" … />
+  </FormRow>
+  <FormHint tone="warn">{t('mcp.portFallback', …)}</FormHint>
+  <FormActions><Button …>{t('mcp.applyPort')}</Button></FormActions>
+</Form>
+```
+
+Four things worth knowing before you write one:
+
+- **Pass `htmlFor` only when the row holds one control with that id.** It is the
+  whole of the choice between a `<label>` and a span, and a `<label>` is a
+  promise a screen reader follows. A `<Segmented>` names itself; text cannot be
+  named at all. Two rows in this app were making the promise with nothing to keep
+  it, which is what moved the decision into a parameter.
+- **A row is a fragment.** Its label and its control cell join the enclosing
+  `<Form>`'s two columns directly, so a component that returns rows composes into
+  the grid of whatever form it is dropped in — and the label column is measured
+  across all of them, not per sub-form.
+- **The label column sizes itself** to that form's longest label, up to a
+  ceiling in the theme. There is no width to set and none to override; a form
+  with long labels costs itself and nothing else. Do not reintroduce a per-pane
+  declaration of it — a test fails if you do.
+- **A tone is `tone`, never a colour.** These rules are in the utilities layer,
+  which is exactly what the four inline `style={{ color }}` escapes in this app
+  were working around before they existed. If you need a fifth tone, it goes in
+  `HINT_TONES`, named for what the sentence *is*.
+
+Anything that spans the pane — a table, a rule, a gallery — belongs **outside**
+the `<Form>`, because everything inside one is placed in one of two columns.
+
+Design record: [form primitives](../../../../../docs/design/2026-08-13-settings-form-primitives.md)
+
 ## Picking a variant
 
 Pick by **what the action means**, never by what you want it to look like. The

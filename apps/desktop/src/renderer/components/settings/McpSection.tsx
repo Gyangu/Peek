@@ -5,6 +5,7 @@ import { useT } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
 import { notify } from '../../state/notifyStore'
 import { Button } from '../../ui/Button'
+import { Form, FormActions, FormHint, FormRow } from '../../ui/Form'
 
 /**
  * The MCP endpoint, as something the user can see and change.
@@ -123,123 +124,122 @@ export function McpSection(): ReactElement {
 
   return (
     <>
+      {/* Outside the form, like the other sections' opening sentences: it
+          introduces the whole section rather than any row, and everything inside
+          a `<Form>` is placed in one of two columns. */}
       <div className="text-fg-dim mb-snug">{t('mcp.intro')}</div>
 
-      <div className="form-row">
-        <label>{t('mcp.state')}</label>
-        <span className={status?.listening === true ? 'text-fg' : 'text-err'}>
-          {status === null
-            ? t('mcp.stateUnknown')
-            : status.restarting
-              ? t('mcp.stateRestarting')
-              : status.listening
-                ? t('mcp.stateListening')
-                : t('mcp.stateDown')}
-        </span>
-      </div>
+      <Form>
+        {/* No `htmlFor`: this row's value is a span. It carried a bare `<label>`
+            for two rounds — a promise to a screen reader that it names a control,
+            with nothing to name — because the element was the caller's to pick and
+            four rows either side of it really do name one. */}
+        <FormRow label={t('mcp.state')}>
+          <span className={status?.listening === true ? 'text-fg' : 'text-err'}>
+            {status === null
+              ? t('mcp.stateUnknown')
+              : status.restarting
+                ? t('mcp.stateRestarting')
+                : status.listening
+                  ? t('mcp.stateListening')
+                  : t('mcp.stateDown')}
+          </span>
+        </FormRow>
 
-      {/* The endpoint is an identifier; it is never translated. */}
-      <div className="form-row">
-        <label htmlFor="peek-mcp-url">{t('mcp.endpoint')}</label>
-        <input id="peek-mcp-url" className="font-mono tabular-nums" readOnly value={status?.url ?? ''} spellCheck={false} />
-      </div>
+        {/* The endpoint is an identifier; it is never translated. */}
+        <FormRow label={t('mcp.endpoint')} htmlFor="peek-mcp-url">
+          <input id="peek-mcp-url" className="font-mono tabular-nums" readOnly value={status?.url ?? ''} spellCheck={false} />
+        </FormRow>
 
-      <div className="form-row">
-        <label htmlFor="peek-mcp-token">{t('mcp.token')}</label>
-        <input
-          id="peek-mcp-token"
-          className="font-mono tabular-nums"
-          readOnly
-          value={reveal ? token : masked}
-          spellCheck={false}
-          /* A masked bearer token is still a bearer token: never offer it to a password manager. */
-          autoComplete="off"
-        />
-      </div>
-      {/* Two shared names, composed rather than overridden: one is the window's
-          wrapping row of buttons, the other is the row's place in the label
-          gutter. The gutter arithmetic has to stay in a rule so that the pane's
-          wider label column reaches it, which is what the second name is; the
-          bottom margin below it is this section's own and is a utility. */}
-      <div className="flex flex-wrap gap-tight mt-tight form-actions mb-snug">
-        <Button
-          variant="ghost"
-          disabled={token === ''}
-          onClick={() => {
-            setReveal((value) => !value)
-          }}
-        >
-          {reveal ? t('mcp.hide') : t('mcp.reveal')}
-        </Button>
-        <Button
-          variant="ghost"
-          disabled={token === ''}
-          onClick={() => {
-            copy(token, t('mcp.tokenCopied'))
-          }}
-        >
-          {t('mcp.copyToken')}
-        </Button>
-        <Button
-          variant="primary"
-          disabled={status?.hint === undefined || status.hint === ''}
-          onClick={() => {
-            copy(status?.hint ?? '', t('mcp.commandCopied'))
-          }}
-        >
-          {t('mcp.copyCommand')}
-        </Button>
-      </div>
-      <div className="form-hint font-mono tabular-nums break-all">
-        {status?.hint === '' ? t('mcp.noCommandYet') : status?.hint}
-      </div>
+        <FormRow label={t('mcp.token')} htmlFor="peek-mcp-token">
+          <input
+            id="peek-mcp-token"
+            className="font-mono tabular-nums"
+            readOnly
+            value={reveal ? token : masked}
+            spellCheck={false}
+            /* A masked bearer token is still a bearer token: never offer it to a password manager. */
+            autoComplete="off"
+          />
+        </FormRow>
+        <FormActions>
+          <Button
+            variant="ghost"
+            disabled={token === ''}
+            onClick={() => {
+              setReveal((value) => !value)
+            }}
+          >
+            {reveal ? t('mcp.hide') : t('mcp.reveal')}
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={token === ''}
+            onClick={() => {
+              copy(token, t('mcp.tokenCopied'))
+            }}
+          >
+            {t('mcp.copyToken')}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={status?.hint === undefined || status.hint === ''}
+            onClick={() => {
+              copy(status?.hint ?? '', t('mcp.commandCopied'))
+            }}
+          >
+            {t('mcp.copyCommand')}
+          </Button>
+        </FormActions>
+        <FormHint className="font-mono tabular-nums break-all">
+          {status?.hint === '' ? t('mcp.noCommandYet') : status?.hint}
+        </FormHint>
 
-      <div className="form-row">
-        <label htmlFor="peek-mcp-port">{t('mcp.port')}</label>
-        <input
-          id="peek-mcp-port"
-          type="number"
-          value={port}
-          onChange={(e) => {
-            portTouched.current = true
-            setPort(e.target.value)
-            setNotice(null)
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') applyPort()
-          }}
-        />
-      </div>
-      {/*
-       * These two keep their inline `color`, and it is not an oversight left
-       * over from the Tailwind migration. `.form-hint` lives in app.css, which
-       * is unlayered, and an unlayered declaration outranks every `@layer` —
-       * so `text-warn` beside `form-hint` compiles, applies to nothing, and
-       * leaves the warning reading as an ordinary faint hint. An inline style
-       * is the only thing that still wins. When app.css's form rules move into
-       * `@layer base` (see base.css's note on the `button` block), these two
-       * become `text-warn` and `text-err` and the styles come off.
-       */}
-      {status !== null && status.listening && status.port !== status.preferredPort ? (
-        // The fallback already warned once as a toast; a toast is gone by the
-        // time someone opens this panel to find out where the endpoint went.
-        <div className="form-hint" style={{ color: 'var(--color-warn)' }}>
-          {t('mcp.portFallback', { preferred: String(status.preferredPort), actual: String(status.port) })}
-        </div>
-      ) : null}
-      {status?.error ? <div className="form-hint" style={{ color: 'var(--color-err)' }}>{status.error.message}</div> : null}
+        <FormRow label={t('mcp.port')} htmlFor="peek-mcp-port">
+          <input
+            id="peek-mcp-port"
+            type="number"
+            value={port}
+            onChange={(e) => {
+              portTouched.current = true
+              setPort(e.target.value)
+              setNotice(null)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') applyPort()
+            }}
+          />
+        </FormRow>
+        {/*
+         * These two carried an inline `color` for two rounds, and the comment
+         * here explained exactly why and named the fix: the form rules were
+         * unlayered, an unlayered declaration outranks every `@layer`, so a colour
+         * utility beside a hint compiled, matched, and painted nothing. They would
+         * come off, it said, when those rules moved into a layer.
+         *
+         * That is what `ui/Form.tsx` did. A tone is a tone now.
+         */}
+        {status !== null && status.listening && status.port !== status.preferredPort ? (
+          // The fallback already warned once as a toast; a toast is gone by the
+          // time someone opens this panel to find out where the endpoint went.
+          <FormHint tone="warn">
+            {t('mcp.portFallback', { preferred: String(status.preferredPort), actual: String(status.port) })}
+          </FormHint>
+        ) : null}
+        {status?.error ? <FormHint tone="error">{status.error.message}</FormHint> : null}
 
-      <div className="flex flex-wrap gap-tight mt-tight form-actions mb-snug">
-        <Button disabled={busy} onClick={applyPort}>
-          {t('mcp.applyPort')}
-        </Button>
-        <Button disabled={busy} onClick={rotate}>
-          {t('mcp.rotateToken')}
-        </Button>
-      </div>
-      <div className="form-hint">{t('mcp.rotateWarning')}</div>
+        <FormActions>
+          <Button disabled={busy} onClick={applyPort}>
+            {t('mcp.applyPort')}
+          </Button>
+          <Button disabled={busy} onClick={rotate}>
+            {t('mcp.rotateToken')}
+          </Button>
+        </FormActions>
+        <FormHint>{t('mcp.rotateWarning')}</FormHint>
 
-      {notice ? <div className="form-hint">{notice}</div> : null}
+        {notice ? <FormHint>{notice}</FormHint> : null}
+      </Form>
     </>
   )
 }

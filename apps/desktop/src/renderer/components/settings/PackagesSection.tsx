@@ -180,23 +180,35 @@ export function PackagesSection(): ReactElement {
 
   return (
     <>
-      <div className="form-hint">{t('settings.packages.hint')}</div>
+      {/*
+       * This section is the one that has no label column, so it is the one that
+       * is not a `<Form>`.
+       *
+       * These three used to wear the shared hint and button-row names, which
+       * indented them 124px to stand on a control column — a column that exists
+       * in the other five sections and has never existed in this one, because
+       * what is below is a table across the full pane. They were aligned to
+       * something that was not there, while the table they introduce started at
+       * the edge. Full width says what this section actually is.
+       */}
+      <div className="text-fg-faint mb-snug">{t('settings.packages.hint')}</div>
 
-      <div className="flex flex-wrap gap-tight mt-tight form-actions mb-snug">
+      <div className="flex flex-wrap gap-tight mb-snug">
         <Button variant="primary" disabled={busy} onClick={install}>
           {t('settings.packages.install')}
         </Button>
       </div>
       {/* Beside the button that grants it rather than at the foot of the pane:
           the sentence is about what pressing that button does. */}
-      <div className="form-hint">{t('settings.packages.trustNote')}</div>
+      <div className="text-fg-faint mb-snug">{t('settings.packages.trustNote')}</div>
 
       {/*
-       * A real table, not a list of `.form-row`s. What is being read here is
-       * three values compared down a column ("which of these is at a different
-       * version"), and the label-gutter form layout the rest of this pane uses
+       * A real table, not a list of form rows. What is being read here is three
+       * values compared down a column ("which of these is at a different
+       * version"), and the label-and-control layout the rest of this pane uses
        * cannot line up a column at all. It gets the full pane width, hence no
-       * label gutter.
+       * label gutter — and, since 2026-08-13, neither does anything else in this
+       * section.
        *
        * The cell shape is spelled out on every `th` and `td` rather than hoisted
        * into a shared constant. A constant would read better and would also be
@@ -314,24 +326,24 @@ export function PackagesSection(): ReactElement {
           come back; an empty list is an answer, and a bleak one — nothing
           installed means no database peek can open. */}
       {packages === null ? (
-        <div className="form-hint">{t('settings.packages.reading')}</div>
+        <div className="text-fg-faint mb-snug">{t('settings.packages.reading')}</div>
       ) : packages.length === 0 ? (
-        <div className="form-hint">{t('settings.packages.empty')}</div>
+        <div className="text-fg-faint mb-snug">{t('settings.packages.empty')}</div>
       ) : null}
 
-      <div className="form-hint">{t('settings.packages.sourceNote')}</div>
+      <div className="text-fg-faint mb-snug">{t('settings.packages.sourceNote')}</div>
 
       {/* Decision 1's safety net, and the reason it is a button rather than a
           documented file to go and delete: a user who removed PostgreSQL has to
           be able to get it back with one click, not by reinstalling the app
           (§2.5). */}
-      <div className="flex flex-wrap gap-tight mt-tight form-actions mb-snug">
+      <div className="flex flex-wrap gap-tight mb-snug">
         <Button disabled={busy} onClick={restore}>
           {t('settings.packages.restore')}
         </Button>
       </div>
 
-      {notice ? <div className="form-hint">{notice}</div> : null}
+      {notice ? <div className="text-fg-faint mb-snug">{notice}</div> : null}
 
       {/*
        * View kinds are listed separately rather than as a column on the table
@@ -343,12 +355,17 @@ export function PackagesSection(): ReactElement {
        */}
       {/* A label above its content rather than beside it, for the one block here
           whose content is a list and would otherwise be indented into a narrow
-          column. `.form-label` therefore picks up none of the label-column
-          geometry: that rule is `.form-row .form-label`, and this is not one. */}
+          column.
+
+          Both of these wore the form vocabulary's names for their colour alone,
+          having stated in the same breath that they take none of its geometry —
+          which held only because the rules that gave it were written as a
+          descendant of a row. A borrowed name that works by not matching is one
+          rename away from surprising somebody; the colours are their own now. */}
       <div className="flex flex-col gap-tight mb-snug">
-        <span className="form-label">{t('settings.packages.viewKinds')}</span>
+        <span className="text-fg-dim">{t('settings.packages.viewKinds')}</span>
         {viewKinds.length === 0 ? (
-          <span className="form-hint">{t('settings.packages.noViewKinds')}</span>
+          <span className="text-fg-faint">{t('settings.packages.noViewKinds')}</span>
         ) : (
           <ul className="list-none m-0 p-0 flex flex-col gap-tight">
             {viewKinds.map((kind) => {

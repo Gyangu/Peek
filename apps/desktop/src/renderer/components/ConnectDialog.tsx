@@ -5,6 +5,7 @@ import type { DriverId, SavedConnection } from '@peek/core'
 import { driverCapabilities, manifestDriverIds } from '../../drivers/manifests'
 import { useModalDialog } from '../hooks'
 import { Button } from '../ui/Button'
+import { Form, FormHint, FormRow } from '../ui/Form'
 import { Segmented } from '../ui/Segmented'
 import { useLocale, useT } from '../i18n'
 import { dispatch } from '../state/dispatch'
@@ -130,10 +131,14 @@ export function ConnectDialog({ onClose, initial, saved }: ConnectDialogProps): 
         <div className={MODAL_BODY}>
           {/* Named, and the name is the driver id — the same identifier the
               picker, the settings table and the MCP receipts spell, so the
-              sentence lines up with the row the user is looking at. */}
-          <div className="form-hint" style={{ color: 'var(--color-err)' }}>
+              sentence lines up with the row the user is looking at.
+
+              Not inside a `<Form>`: this branch is the dialog with no form in
+              it. A hint outside the grid keeps its tone and loses only the
+              column placement it has nothing to line up with. */}
+          <FormHint tone="error">
             {driverId === null ? t('connect.noPackages') : t('connect.driverGone', { driverId })}
-          </div>
+          </FormHint>
         </div>
         <div className={MODAL_FOOT}>
           <Button onClick={onClose}>{t('connect.cancel')}</Button>
@@ -195,98 +200,95 @@ export function ConnectDialog({ onClose, initial, saved }: ConnectDialogProps): 
   return (
     <DialogShell shellRef={dialogRef} title={title} onClose={onClose}>
       <div className={MODAL_BODY}>
-        <div className="form-row">
-          <label htmlFor="peek-driver">{t('connect.driver')}</label>
-          <select
-            id="peek-driver"
-            value={live}
-            onChange={(e) => {
-              const next = e.target.value as DriverId
-              switchTo(next, defaultConnectMode(next))
-            }}
+        <Form>
+          <FormRow
+            label={t('connect.driver')}
+            htmlFor="peek-driver"
+            // Capability names are part of the driver contract, never translated.
+            hint={t('connect.capabilities', { list: (driverCapabilities()[live] ?? []).join(' · ') })}
           >
-            {/* Driver ids are identifiers: `postgres` reads the same everywhere. */}
-            {/* Straight from the collected manifests, so a package that is loaded is
-                a package that is offered — there is no second list of ids to
-                fall out of step with, which is what `DRIVER_IDS` was. */}
-            {manifestDriverIds().map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="form-hint">
-          {/* Capability names are part of the driver contract, never translated. */}
-          {t('connect.capabilities', { list: (driverCapabilities()[live] ?? []).join(' · ') })}
-        </div>
+            <select
+              id="peek-driver"
+              value={live}
+              onChange={(e) => {
+                const next = e.target.value as DriverId
+                switchTo(next, defaultConnectMode(next))
+              }}
+            >
+              {/* Driver ids are identifiers: `postgres` reads the same everywhere. */}
+              {/* Straight from the collected manifests, so a package that is loaded is
+                  a package that is offered — there is no second list of ids to
+                  fall out of step with, which is what `DRIVER_IDS` was. */}
+              {manifestDriverIds().map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </FormRow>
 
-        {spec.modes.length > 1 ? (
-          <div className="form-row">
-            <label>{t('connect.mode')}</label>
-            <Segmented
-              label={t('connect.mode')}
-              value={mode}
-              options={spec.modes.map((m) => ({
-                value: m,
-                label: t(m === 'url' ? 'connect.mode.url' : 'connect.mode.fields'),
-              }))}
-              onChange={(next) => {
-                switchTo(live, next)
+          {spec.modes.length > 1 ? (
+            /* No `htmlFor`: `<Segmented>` names itself. This row carried a bare
+               `<label>` until the element stopped being the caller's to pick. */
+            <FormRow label={t('connect.mode')}>
+              <Segmented
+                label={t('connect.mode')}
+                value={mode}
+                options={spec.modes.map((m) => ({
+                  value: m,
+                  label: t(m === 'url' ? 'connect.mode.url' : 'connect.mode.fields'),
+                }))}
+                onChange={(next) => {
+                  switchTo(live, next)
+                }}
+              />
+            </FormRow>
+          ) : null}
+
+          {fields.map((field, i) => (
+            <FieldRow
+              key={`${live}:${mode}:${field.name}`}
+              locale={locale}
+              field={field}
+              value={values[field.name] ?? ''}
+              autoFocus={i === 0}
+              onChange={(v) => {
+                setValue(field.name, v)
+              }}
+              onSubmit={submit}
+            />
+          ))}
+
+          <FormRow label={t('connect.label')} htmlFor="peek-label">
+            <input
+              id="peek-label"
+              value={label}
+              placeholder={t('connect.labelPlaceholder')}
+              onChange={(e) => {
+                setLabel(e.target.value)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submit()
               }}
             />
-          </div>
-        ) : null}
+          </FormRow>
 
-        {fields.map((field, i) => (
-          <FieldRow
-            key={`${live}:${mode}:${field.name}`}
-            locale={locale}
-            field={field}
-            value={values[field.name] ?? ''}
-            autoFocus={i === 0}
-            onChange={(v) => {
-              setValue(field.name, v)
-            }}
-            onSubmit={submit}
-          />
-        ))}
+          {savedSecretInUse ? (
+            <FormHint>{t('connect.savedSecretInUse')}</FormHint>
+          ) : initial?.hasSecret === true ? (
+            // The form has moved away from what the credential was saved for, so
+            // it will not be sent. Saying so here is cheaper than an
+            // authentication failure the user has to interpret.
+            <FormHint>{t('connect.savedSecretNotUsed')}</FormHint>
+          ) : null}
 
-        <div className="form-row">
-          <label htmlFor="peek-label">{t('connect.label')}</label>
-          <input
-            id="peek-label"
-            value={label}
-            placeholder={t('connect.labelPlaceholder')}
-            onChange={(e) => {
-              setLabel(e.target.value)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') submit()
-            }}
-          />
-        </div>
-
-        {savedSecretInUse ? (
-          <div className="form-hint">{t('connect.savedSecretInUse')}</div>
-        ) : initial?.hasSecret === true ? (
-          // The form has moved away from what the credential was saved for, so
-          // it will not be sent. Saying so here is cheaper than an
-          // authentication failure the user has to interpret.
-          <div className="form-hint">{t('connect.savedSecretNotUsed')}</div>
-        ) : null}
-
-        {issue ? (
-          // The rejected field, named — evidence, not prose. The colour is an
-          // inline style for the same cascade reason the dialog's width is:
-          // `.form-hint` is unlayered and already sets `color`, so a
-          // `text-err` utility on this element would lose to it and the one
-          // hint that has to stand out would read like the four around it.
-          <div className="form-hint" style={{ color: 'var(--color-err)' }}>
-            {t('connect.invalid', { issue })}
-          </div>
-        ) : null}
-        <div className="form-hint">{t('connect.privacyNote')}</div>
+          {/* The rejected field, named — evidence, not prose. It carried an
+              inline colour, because the hint rule was unlayered and outranked
+              any utility written beside it; the one hint that has to stand out
+              read like the four around it. A tone is a tone now. */}
+          {issue ? <FormHint tone="error">{t('connect.invalid', { issue })}</FormHint> : null}
+          <FormHint>{t('connect.privacyNote')}</FormHint>
+        </Form>
       </div>
       <div className={MODAL_FOOT}>
         <Button onClick={onClose}>{t('connect.cancel')}</Button>
@@ -371,8 +373,7 @@ function FieldRow({ locale, field, value, autoFocus, onChange, onSubmit }: Field
   const id = `peek-field-${field.name}`
   if (field.type === 'checkbox') {
     return (
-      <div className="form-row">
-        <label htmlFor={id}>{localizedText(field.label, locale)}</label>
+      <FormRow label={localizedText(field.label, locale)} htmlFor={id}>
         <input
           id={id}
           type="checkbox"
@@ -381,12 +382,11 @@ function FieldRow({ locale, field, value, autoFocus, onChange, onSubmit }: Field
             onChange(e.target.checked)
           }}
         />
-      </div>
+      </FormRow>
     )
   }
   return (
-    <div className="form-row">
-      <label htmlFor={id}>{localizedText(field.label, locale)}</label>
+    <FormRow label={localizedText(field.label, locale)} htmlFor={id}>
       <input
         id={id}
         className={field.mono === true ? 'font-mono tabular-nums' : undefined}
@@ -402,7 +402,7 @@ function FieldRow({ locale, field, value, autoFocus, onChange, onSubmit }: Field
           if (e.key === 'Enter') onSubmit()
         }}
       />
-    </div>
+    </FormRow>
   )
 }
 

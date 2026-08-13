@@ -4,6 +4,7 @@ import type { ExecutionBudgets } from '@peek/core'
 import { useT, type TFunction } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
 import { Button } from '../../ui/Button'
+import { Form, FormActions, FormHint, FormRow } from '../../ui/Form'
 
 /**
  * How long a request may run.
@@ -73,38 +74,41 @@ export function TimeoutsSection(): ReactElement {
     <>
       <div className="text-fg-dim mb-snug">{t('settings.timeouts.intro')}</div>
 
-      {FIELDS.map((field) => (
-        <div className="form-row" key={field}>
-          <label htmlFor={`peek-timeout-${field}`}>{t(LABEL[field])}</label>
-          <input
-            id={`peek-timeout-${field}`}
-            type="number"
-            min={0}
-            max={3600}
-            value={draft?.[field] ?? ''}
-            disabled={draft === null}
-            onChange={(e) => {
-              const next = e.target.value
-              setDraft((d) => (d === null ? d : { ...d, [field]: next }))
-              setNotice(null)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') apply()
-            }}
-          />
-          <span className="text-fg-faint">{t('settings.timeouts.seconds')}</span>
-        </div>
-      ))}
-      <div className="form-hint">{t('settings.timeouts.zeroHint')}</div>
+      <Form>
+        {FIELDS.map((field) => (
+          /* The unit sits in the row beside the field, with no structure of its
+             own: a row's children share one flex cell in the control column. */
+          <FormRow key={field} label={t(LABEL[field])} htmlFor={`peek-timeout-${field}`}>
+            <input
+              id={`peek-timeout-${field}`}
+              type="number"
+              min={0}
+              max={3600}
+              value={draft?.[field] ?? ''}
+              disabled={draft === null}
+              onChange={(e) => {
+                const next = e.target.value
+                setDraft((d) => (d === null ? d : { ...d, [field]: next }))
+                setNotice(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') apply()
+              }}
+            />
+            <span className="text-fg-faint">{t('settings.timeouts.seconds')}</span>
+          </FormRow>
+        ))}
+        <FormHint>{t('settings.timeouts.zeroHint')}</FormHint>
 
-      <div className="flex flex-wrap gap-tight mt-tight form-actions mb-snug">
-        <Button disabled={busy || draft === null} onClick={apply}>
-          {t('settings.timeouts.apply')}
-        </Button>
-      </div>
-      {notice ? <div className="form-hint">{notice}</div> : null}
+        <FormActions>
+          <Button disabled={busy || draft === null} onClick={apply}>
+            {t('settings.timeouts.apply')}
+          </Button>
+        </FormActions>
+        {notice ? <FormHint>{notice}</FormHint> : null}
 
-      <div className="form-hint">{t('settings.timeouts.stageNote')}</div>
+        <FormHint>{t('settings.timeouts.stageNote')}</FormHint>
+      </Form>
     </>
   )
 }
