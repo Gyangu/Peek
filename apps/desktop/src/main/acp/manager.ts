@@ -228,7 +228,11 @@ export function defaultAcpConfig(profileId?: string): AcpHostConfig {
     // A restrictive mode on purpose. The agent's own default is `auto`, where a
     // model classifier approves tool calls without asking anyone — which would
     // make "the user gates tool calls" a claim peek does not actually keep.
-    permissionMode: 'default',
+    //
+    // This is the floor, not the answer: assembly replaces it with a thunk that
+    // reads the user's setting each time a conversation starts. What stays true
+    // is what an unconfigured install gets.
+    permissionMode: () => 'default',
     timeouts: DEFAULT_ACP_TIMEOUTS,
     batch: DEFAULT_DELTA_BUDGET,
     restart: DEFAULT_RESTART_POLICY,
@@ -1162,13 +1166,17 @@ export class AcpManager {
     agentSessionId: string,
     chatId: ChatId,
   ): Promise<void> {
+    // Once, not twice: the thunk reads a file, and asking it again for the patch
+    // could report a mode other than the one just sent if the user changed the
+    // setting in between.
+    const mode = this.#config.permissionMode()
     try {
       await withTimeout(
-        connection.setSessionMode({ sessionId: agentSessionId, modeId: this.#config.permissionMode }),
+        connection.setSessionMode({ sessionId: agentSessionId, modeId: mode }),
         this.#config.timeouts.setModeMs,
         'Setting the permission mode',
       )
-      this.#patch(chatId, { permissionMode: this.#config.permissionMode })
+      this.#patch(chatId, { permissionMode: mode })
     } catch (raw) {
       this.#log('warn', 'could not set the permission mode', raw)
       this.#deps.notify({

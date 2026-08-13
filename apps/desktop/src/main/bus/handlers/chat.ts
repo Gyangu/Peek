@@ -137,12 +137,19 @@ export type ChatEffect =
    * Lazily is fine — **unless `resumeSessionId` is set**, in which case the view
    * was opened to read an existing conversation and the runtime has to fetch it
    * now. See `design/2026-08-02-chat-session-management.md` §2.4.
+   *
+   * It used to carry a `permissionMode` too, copied off the view. **Neither
+   * backend ever read it**, and what it carried was `buildChatViewState`'s
+   * placeholder rather than the user's setting — so a field that looked like the
+   * channel by which "new conversations start in …" reached a session was
+   * neither the channel nor the value. Removed rather than wired up: the
+   * runtimes read the setting themselves at the moment they need it. See
+   * `design/2026-08-13-permission-mode-takes-effect.md`.
    */
   | {
       type: 'session.open'
       chatId: ChatId
       viewId: ViewId
-      permissionMode: ChatPermissionMode
       resumeSessionId?: string
     }
   /** The conversation is gone (view closed, connection closed, layout rewritten). Tear the session down. */
@@ -1020,7 +1027,6 @@ export function watchChatViews(store: WorkspaceStore, runtime: ChatRuntime): () 
         type: 'session.open',
         chatId,
         viewId: view.id,
-        permissionMode: view.permissionMode,
         ...(view.resumeSessionId === undefined ? {} : { resumeSessionId: view.resumeSessionId }),
       })
     }

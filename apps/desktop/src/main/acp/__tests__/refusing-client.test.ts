@@ -102,7 +102,7 @@ async function runProbes(): Promise<ProbeRun> {
       profile: claudeCodeProfile,
       agentConfig: {},
       agentEntryPath: PROBE_AGENT,
-      permissionMode: 'default',
+      permissionMode: () => 'default',
       timeouts: DEFAULT_ACP_TIMEOUTS,
       batch: DEFAULT_DELTA_BUDGET,
       restart: DEFAULT_RESTART_POLICY,

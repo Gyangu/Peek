@@ -21,6 +21,7 @@ import type { WebContents } from 'electron'
 import type {
   ChatDelta,
   ChatId,
+  ChatPermissionMode,
   ChatSessionsListResult,
   ChatViewState,
   NotifyMessage,
@@ -194,6 +195,14 @@ export interface ChatRuntimeDeps {
   onError(chatId: ChatId, error: PeekError): void
   /** Routes conversations to their backend, and names the agent on each row. Optional; see `AcpHostDeps.sessionIndex`. */
   sessionIndex?: SessionIndex
+  /**
+   * The mode a conversation opening right now starts in.
+   *
+   * The same thunk the backend itself holds, so the mode a new view *shows* and
+   * the mode its session is eventually created in are one answer read twice
+   * rather than two answers that agree by luck. See `session.open`.
+   */
+  startingMode: () => ChatPermissionMode
 }
 
 /**
@@ -271,7 +280,7 @@ async function explainLoadFailure(
  * blocking it during a turn is the one deadlock this design has to avoid.
  */
 export function createAcpChatRuntime(deps: ChatRuntimeDeps): ChatRuntime {
-  const { manager, source, notify, onError, sessionIndex } = deps
+  const { manager, source, notify, onError, sessionIndex, startingMode } = deps
 
   const fail = (chatId: ChatId, raw: unknown, what: string): void => {
     const error = toPeekError(raw)
@@ -300,7 +309,25 @@ export function createAcpChatRuntime(deps: ChatRuntimeDeps): ChatRuntime {
                 onError(effect.chatId, error)
               })
             })
+            return
           }
+          /*
+           * A new conversation, so nothing is live and this only moves what the
+           * dropdown says. It is still worth doing: the session that will carry
+           * this mode is not created until somebody types, and until then the
+           * view showed `buildChatViewState`'s placeholder — so a user who had
+           * just set "new conversations start in plan" opened one and read
+           * "ask me every time". If `setSessionMode` later failed, that is what
+           * it went on reading.
+           *
+           * Read from the same thunk the backend will read, rather than passed
+           * down from the view: `watchChatViews` carried a `permissionMode` on
+           * this effect for exactly this purpose and neither backend ever read
+           * it, so what it carried was the placeholder anyway.
+           */
+          void manager.setPermissionMode(effect.chatId, startingMode()).catch((raw: unknown) => {
+            fail(effect.chatId, raw, 'setting the starting permission mode failed')
+          })
           return
 
         case 'session.close':
@@ -474,6 +501,8 @@ export interface EndpointRuntimeDeps {
   sessionIndex?: SessionIndex
   /** Names the model on each session row, since this backend has no agent to name. */
   modelId: string
+  /** As `ChatRuntimeDeps.startingMode`. */
+  startingMode: () => ChatPermissionMode
 }
 
 /**
@@ -490,7 +519,7 @@ export interface EndpointRuntimeDeps {
  * the renderer and the command handlers need to know nothing about this split.
  */
 export function createEndpointChatRuntime(deps: EndpointRuntimeDeps): ChatRuntime {
-  const { manager, source, notify, onError, sessionIndex, modelId } = deps
+  const { manager, source, notify, onError, sessionIndex, modelId, startingMode } = deps
 
   const fail = (chatId: ChatId, raw: unknown, what: string): void => {
     const error = toPeekError(raw)
@@ -513,7 +542,11 @@ export function createEndpointChatRuntime(deps: EndpointRuntimeDeps): ChatRuntim
             } catch (raw) {
               fail(effect.chatId, raw, 'loading the conversation failed')
             }
+            return
           }
+          // As the ACP backend: put the mode the next session will be created in
+          // on the dropdown now, rather than after the first message.
+          manager.setPermissionMode(effect.chatId, startingMode())
           return
 
         case 'session.close':

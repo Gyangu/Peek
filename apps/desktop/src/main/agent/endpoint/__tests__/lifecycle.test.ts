@@ -63,7 +63,7 @@ function build(dir: string, apiKey: string | null, baseUrl = 'http://localhost:1
     {
       settings: { baseUrl, model: 'test-model', api: 'openai-completions' } as never,
       apiKey,
-      permissionMode: 'default',
+      permissionMode: () => 'default',
       batch: DEFAULT_DELTA_BUDGET,
       source: 'agent',
     },

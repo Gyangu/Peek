@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, type WebContents } from 'electron'
 import type {
+  ChatPermissionMode,
   ConnId,
   MenuActionMessage,
   NamespaceNode,
@@ -226,6 +227,26 @@ let settingsStore: SettingsStore | null = null
 function applyUiZoom(factor: number): void {
   uiZoom = factor
   mainWindow?.webContents.setZoomFactor(factor)
+}
+
+/**
+ * The mode the next new conversation starts in, as of right now.
+ *
+ * Handed to both chat backends as a thunk, and read at the moment a conversation
+ * starts rather than when the backend was assembled. That distinction is the
+ * whole of `design/2026-08-13-permission-mode-takes-effect.md`: the value used to
+ * come off the same boot-time snapshot as the backend choice, so a setting whose
+ * own label reads "new conversations start in" only reached conversations started
+ * after the *next* launch — with nothing in the panel saying so, because the
+ * restart notice beside it is the backend picker's and its reason (a live agent
+ * process holding open sessions) is one this value does not share.
+ *
+ * `?? 'default'` is "the file does not say", and peek never picks a looser mode
+ * for anybody. `buildChatViewState` has a second `'default'` that reads the same
+ * and means something else — "nobody has told this view yet".
+ */
+function currentPermissionMode(): ChatPermissionMode {
+  return settingsStore?.read().agent?.permissionMode ?? 'default'
 }
 
 /**
@@ -1089,7 +1110,7 @@ function wireEndpointBackend(
     {
       settings: config,
       apiKey,
-      permissionMode: chosen.permissionMode ?? 'default',
+      permissionMode: currentPermissionMode,
       batch: DEFAULT_DELTA_BUDGET,
       source: 'agent',
     },
@@ -1103,6 +1124,7 @@ function wireEndpointBackend(
     onError: onError as never,
     sessionIndex,
     modelId: config.model,
+    startingMode: currentPermissionMode,
   })
 }
 
@@ -1118,6 +1140,9 @@ function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
   // decides what the *next* peek launch runs: a backend holds live sessions, and
   // swapping it under a conversation would hand a transcript to something that
   // cannot read it. The settings panel says so.
+  //
+  // `agent.permissionMode` used to ride along in this snapshot and must not: see
+  // `currentPermissionMode` below, and the record it points at.
   const chosen = settingsStore?.read().agent
   // One index for every backend, at the root of the chat directory — each agent
   // owns a subdirectory under it, and the index is what says which. Built here
@@ -1141,7 +1166,13 @@ function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
   if (chosen?.acpExecutablePath) acpConfig.agentConfig = { executablePath: chosen.acpExecutablePath }
   // The mode a new conversation starts in. The panel's own dropdown still moves it
   // per conversation — this only decides where it starts.
-  if (chosen?.permissionMode) acpConfig.permissionMode = chosen.permissionMode
+  //
+  // Unlike everything else read off `chosen`, this one is *not* taken from the
+  // boot-time snapshot: it is a thunk that reads the file each time a
+  // conversation starts. Which agent runs is fixed for the life of the process
+  // and says so in the panel; where a conversation *starts* is not, and used to
+  // behave as though it were.
+  acpConfig.permissionMode = currentPermissionMode
 
   const manager = new AcpManager(
     {
@@ -1189,6 +1220,9 @@ function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
     // at, through the same sink the streaming path writes with.
     onError,
     sessionIndex,
+    // The same thunk `acpConfig` holds, so what a new view shows and what its
+    // session is created in are one answer read twice.
+    startingMode: currentPermissionMode,
   })
 
   // Overwrites the `createUnavailableChatRuntime` stubs `createCommandBus`

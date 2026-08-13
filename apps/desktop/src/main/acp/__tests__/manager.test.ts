@@ -23,6 +23,7 @@ import {
   type ChatDelta,
   type ChatId,
   type ChatMessage,
+  type ChatPermissionMode,
   type NotifyMessage,
   type PeekError,
 } from '@peek/core'
@@ -122,7 +123,7 @@ function harness(
       profile: claudeCodeProfile,
       agentConfig: {},
       agentEntryPath: STUB,
-      permissionMode: 'default',
+      permissionMode: () => 'default',
       timeouts: DEFAULT_ACP_TIMEOUTS,
       batch: DEFAULT_DELTA_BUDGET,
       restart: DEFAULT_RESTART_POLICY,
@@ -162,6 +163,24 @@ async function paramsOf(log: string, method: string): Promise<Record<string, unk
     .filter((l) => l.trim())
     .map((l) => JSON.parse(l) as { method: string; params?: Record<string, unknown> })
     .find((m) => m.method === method)?.params
+}
+
+/**
+ * Every `method` call the stub recorded, in order.
+ *
+ * `paramsOf` above answers about the *first* one, which is enough for a question
+ * about what one session was told. This one exists for the question "did the
+ * second session get told something different from the first", which is what a
+ * value read per session rather than per process means.
+ */
+async function allParamsOf(log: string, method: string): Promise<Record<string, unknown>[]> {
+  const { readFileSync } = await import('node:fs')
+  return readFileSync(log, 'utf8')
+    .split('\n')
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l) as { method: string; params?: Record<string, unknown> })
+    .filter((m) => m.method === method)
+    .map((m) => m.params ?? {})
 }
 
 /** A scratch log path, unique per test. */
@@ -361,6 +380,72 @@ test('`session/new` carries the sandbox to the agent', async () => {
     assert.deepEqual(options['settingSources'], [])
     assert.deepEqual(options['tools'], [])
     assert.ok((options['disallowedTools'] as string[]).includes('Bash'))
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('the starting mode is read when a conversation starts, not when the host was assembled', async () => {
+  /*
+   * The bug: `permissionMode` was a value taken off `settings.json` once during
+   * assembly, so "new conversations start in …" only reached conversations
+   * started after the *next* launch — while the restart notice in the panel
+   * belonged to the backend picker and said nothing about this. It is a thunk
+   * now, and this is the assertion that it is read per session rather than per
+   * process. The old shape could not fail this test; it could not express it.
+   *
+   * Observed on the wire, like the sandbox above: what the agent was actually
+   * told, not what the object holding the setting contained.
+   */
+  const log = logPath('mode')
+  let mode: ChatPermissionMode = 'default'
+  const h = harness({ STUB_PROMPT_MS: '50', STUB_LOG: log }, { permissionMode: () => mode })
+  try {
+    await h.manager.send({ chatId: h.chatId, text: 'first', attachments: [] })
+    await sleep(400)
+
+    // What changing the setting does. No restart, no reassembly, nothing pushed.
+    mode = 'plan'
+
+    await h.manager.send({ chatId: asChatId('chat_second'), text: 'second', attachments: [] })
+    await sleep(400)
+
+    const sent = (await allParamsOf(log, 'session/set_mode')).map((p) => p['modeId'])
+    assert.deepEqual(
+      sent,
+      ['default', 'plan'],
+      'each session must be created in the mode set at the time it started; the agent was told ' +
+        JSON.stringify(sent),
+    )
+  } finally {
+    await h.manager.dispose()
+  }
+})
+
+test('setting the mode on a conversation with no session yet moves the dropdown and sends nothing', async () => {
+  /*
+   * The contract `session.open` leans on for the *other* half of the same bug.
+   * A new conversation creates no session until somebody types, so the dropdown
+   * used to show `buildChatViewState`'s placeholder — "ask me every time" — until
+   * the first message, whatever the user had just set. The chat host now calls
+   * this the moment the view appears.
+   *
+   * Both halves are asserted because both can regress on their own: a version
+   * that spawned an agent to record the mode would cost every user who opens a
+   * panel and never types, and one that recorded nothing would leave the
+   * dropdown lying exactly as before.
+   */
+  const log = logPath('mode-idle')
+  const h = harness({ STUB_LOG: log }, { permissionMode: () => 'plan' })
+  try {
+    await h.manager.setPermissionMode(h.chatId, 'plan')
+    await sleep(200)
+    assert.equal(
+      [...h.patches].reverse().find((p) => p.permissionMode !== undefined)?.permissionMode,
+      'plan',
+      'the window was never told what mode the conversation is in',
+    )
+    assert.ok(!existsSync(log), 'an agent was started for a conversation nobody has typed in yet')
   } finally {
     await h.manager.dispose()
   }

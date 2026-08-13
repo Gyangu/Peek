@@ -116,7 +116,15 @@ export interface EndpointHostConfig {
   settings: AgentEndpointSettings
   /** Read from the keychain by assembly. Null for a keyless endpoint. */
   apiKey: string | null
-  permissionMode: ChatPermissionMode
+  /**
+   * The mode a new conversation starts in, read at the moment one does.
+   *
+   * A thunk for the reason the ACP backend's is one: it was a value taken from
+   * `settings.json` during assembly, so changing it in the panel changed nothing
+   * until the next launch — which is not what the setting says it does. See
+   * `design/2026-08-13-permission-mode-takes-effect.md`.
+   */
+  permissionMode: () => ChatPermissionMode
   batch: DeltaBatchBudget
   /** Attributed to every command the loop's tools dispatch. */
   source: CommandSource
@@ -420,7 +428,7 @@ export class EndpointManager {
       batcher,
       transcript: [],
       streaming: false,
-      permissionMode: this.#config.permissionMode,
+      permissionMode: this.#config.permissionMode(),
       blocked: new Set(),
       unsubscribe: () => undefined,
     }

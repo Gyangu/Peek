@@ -283,8 +283,25 @@ export interface AcpHostConfig {
    * different code path than production does.
    */
   agentEntryPath?: string
-  /** Permission mode requested right after `session/new`. */
-  permissionMode: ChatPermissionMode
+  /**
+   * The mode requested right after `session/new` — the one a new conversation
+   * starts in.
+   *
+   * **A function, not a value, on purpose**, and for a different reason than
+   * `resolveCwd` above: this one can *change* while the app runs. It was a value
+   * read from `settings.json` once during assembly, so the setting the panel
+   * calls "what new conversations start in" only reached conversations started
+   * after the next launch — while the copy beside it made a restart promise on
+   * behalf of the backend picker, which really does need one, and said nothing
+   * about this.
+   *
+   * A thunk rather than a setter somebody calls after a write: a setter has to
+   * be *called*, and "who forgot to push" names the whole family of bug this is
+   * one of. Read at the moment it is used and there is no window to be stale in.
+   *
+   * See `design/2026-08-13-permission-mode-takes-effect.md`.
+   */
+  permissionMode: () => ChatPermissionMode
   /**
    * Reported to the agent as `clientInfo.version`.
    *
