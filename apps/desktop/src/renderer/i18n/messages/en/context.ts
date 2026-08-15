@@ -20,6 +20,9 @@ export const context = {
     'Send the result set as it stands when the message is sent — edit the query and re-run first, and the new rows are what goes',
   'context.attach.cell': 'Add cell {column} (row {row})',
   'context.attach.cellTitle': 'Send the whole value, not the preview the grid shows',
+  'context.attach.cells': 'Add these {columns} columns × {rows} rows',
+  'context.attach.cellsCapped': 'Add the first {capped} rows of this block (of {rows})',
+  'context.attach.cellsTitle': 'Send only the columns the selection covers, not the whole row',
   'context.attach.schema': 'Add structure of {name}',
   'context.attach.schemaTitle': 'Columns, types, primary key and indexes',
   'context.attach.query': 'Add the query text',
@@ -33,6 +36,33 @@ export const context = {
   'context.float.clear': 'Clear selection',
   'context.float.spanWarning':
     'These rows are {span} apart. peek will not read that far to collect {count} of them — select rows closer together, or add the whole result.',
+
+  /* ---- Chip names ---------------------------------------------------
+   *
+   * A chip is a noun: it answers "what will this message carry", not "what
+   * happens if I click". That is why these are a separate group from
+   * `context.attach.*` (menu entries) and `context.float.*` (the button) —
+   * those two are imperative sentences, and one string cannot be both without
+   * being bad at both. The chip already shows its kind in its own segment, so
+   * nothing here repeats the word "rows" as a category.
+   *
+   * Three kinds are absent on purpose. A schema chip is `public.orders` and a
+   * mention is `@public.orders`: an identifier, not prose, and translating it
+   * would break the one thing it is for. The workspace chip reuses
+   * `chat.attach.option.workspace` rather than saying the same thing twice.
+   */
+  'context.label.rows': { one: '{source} · {count} row', other: '{source} · {count} rows' },
+  'context.label.result': '{source} · first {count} rows',
+  'context.label.cell': '{source}.{column}[{row}]',
+  'context.label.cells': '{source} · {columns} cols × {rows} rows',
+  'context.label.query': '{source} · SQL',
+
+  /* ---- @ mentions ---------------------------------------------------- */
+  'context.mention.label': 'Add context',
+  'context.mention.hint': 'Type to filter · ↑↓ to choose · ⏎ to confirm',
+  'context.mention.empty': 'Nothing matches. Open a table or run a query, then @ it.',
+  'context.mention.full': 'This message already carries {count} attachments, the most it can.',
+  'context.mention.added': 'Added',
 
   /* ---- Attachment chips -------------------------------------------- */
   'context.chips.heading': { one: '{count} attachment', other: '{count} attachments' },

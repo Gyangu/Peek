@@ -109,9 +109,9 @@ export function PackagesSection(): ReactElement {
     // `useMenuActions` gives: `tryBridge` only vouches for `invoke` and
     // `getSnapshot`, and a preload older than this channel would otherwise take
     // the window down on a click.
-    if (!bridge || typeof bridge.pickPackageDir !== 'function') return
+    if (!bridge || typeof bridge.pickDirectory !== 'function') return
     void run(async () => {
-      const dir = await bridge.pickPackageDir()
+      const dir = await bridge.pickDirectory()
       // Cancelled. Deliberately silent: the user closed a dialog they had just
       // opened, and a line saying so would be the panel narrating its own
       // inaction.

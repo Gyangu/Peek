@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 
 import { useModalDialog } from '../hooks/useModalDialog'
+import { Icon } from './Icon'
 import { useT } from '../i18n'
 import {
   confirmNodes,
@@ -101,6 +102,14 @@ export function Menu(props: MenuProps): ReactElement | null {
         })
 
   /*
+   * Whether *this* menu is a set of alternatives, decided once for the whole
+   * list rather than per item. A tick column that only exists on the ticked row
+   * is a column the other labels shift around, so it is reserved on every item
+   * of a menu that has one — and on none at all in a menu of plain actions.
+   */
+  const ticks = shown.some((n) => n.kind === 'item' && n.checked !== undefined)
+
+  /*
    * Measure, then place.
    *
    * The menu this replaces estimated its own size with two constants (260×260)
@@ -192,13 +201,29 @@ export function Menu(props: MenuProps): ReactElement | null {
             <button
               key={node.id}
               type="button"
-              role="menuitem"
+              /*
+               * A menu of alternatives is a radio group, and saying so is the
+               * whole point of moving the tick out of the label. While it was a
+               * `✓` glued to the front of a string, the only thing announcing
+               * the current interval was a character being pronounced — every
+               * item was a plain `menuitem` and none of them claimed to be
+               * selected.
+               */
+              role={ticks ? 'menuitemradio' : 'menuitem'}
+              {...(ticks ? { 'aria-checked': node.checked === true } : {})}
               className={`${MENU_ITEM_BASE} ${MENU_TONES[node.tone ?? 'default'].classes}`}
               data-menu-item={node.id}
               disabled={node.disabled === true}
               {...(node.title === undefined ? {} : { title: node.title })}
               onClick={choose(node)}
             >
+              {/* Reserved on every item, not only the ticked one: a column that
+                  appears and disappears is a column the labels shift around. */}
+              {ticks ? (
+                <span className="w-glyph flex-none flex justify-center">
+                  {node.checked === true ? <Icon name="check" size="sm" /> : null}
+                </span>
+              ) : null}
               {node.label}
             </button>
           )

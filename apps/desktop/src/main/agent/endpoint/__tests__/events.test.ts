@@ -229,8 +229,15 @@ test('tool execution events carry through with their ids intact', () => {
 test('every other member of the union is named, not defaulted', () => {
   // `turn_end` in particular repeats the failed message that `message_end`
   // already reported — honouring both would report one failure twice.
+  //
+  // `debug` on every one of them, and that is the second half of the same
+  // point: these are events peek understands and has decided not to act on, so
+  // they are not worth a line in a log anybody reads at `info`. The level is
+  // decided where the event is classified rather than where it is written —
+  // see `AgentEventOutcome` — which is what keeps "how loud is this" from being
+  // re-argued at each call site.
   for (const type of ['agent_start', 'agent_end', 'turn_start', 'turn_end', 'tool_execution_update']) {
-    assert.deepEqual(classifyAgentEvent({ type }), { kind: 'ignored', reason: type })
+    assert.deepEqual(classifyAgentEvent({ type }), { kind: 'ignored', reason: type, level: 'debug' })
   }
 })
 
@@ -240,4 +247,60 @@ test('a shape peek has never seen is reported, never thrown', () => {
   for (const raw of [{ type: 'brand_new_event' }, {}, null, 42, 'nonsense', undefined]) {
     assert.equal(classifyAgentEvent(raw).kind, 'ignored')
   }
+})
+
+/* ================================================================== */
+/* Which of the ignored cases are worth waking someone for            */
+/* ================================================================== */
+
+/**
+ * The level attached to every `ignored` outcome, as one list.
+ *
+ * The value of this test is not that the levels are "right" — it is that this is
+ * **a list that has to be edited whenever `classifyAgentEvent` grows a branch**.
+ * Adding a twelfth reason without deciding how loud it is will fail here, which
+ * is the only mechanism that stops the next silent-drop from being introduced
+ * the same way the last eleven were.
+ *
+ * Before this existed, `loop.ts` answered all eleven with a bare `return`.
+ */
+test('the eleven ignored reasons split into routine and unusable', () => {
+  const levelOf = (raw: unknown): string => {
+    const out = classifyAgentEvent(raw)
+    assert.equal(out.kind, 'ignored')
+    return out.kind === 'ignored' ? out.level : ''
+  }
+
+  // Routine. These happen several times per turn in a healthy conversation:
+  // recording them above `debug` is how a log fills with normal operation and
+  // stops being read.
+  assert.equal(levelOf({ type: 'message_start', message: { role: 'user' } }), 'debug')
+  assert.equal(levelOf({ type: 'message_end', message: { role: 'toolResult' } }), 'debug')
+  assert.equal(levelOf({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop' } }), 'debug')
+  assert.equal(levelOf({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_delta', delta: '{' } }), 'debug')
+  assert.equal(levelOf({ type: 'message_update', assistantMessageEvent: { type: 'text_start' } }), 'debug')
+  for (const type of ['agent_start', 'agent_end', 'turn_start', 'turn_end', 'tool_execution_update']) {
+    assert.equal(levelOf({ type }), 'debug')
+  }
+
+  // Unusable. Each of these has a consequence the user can see, and until now
+  // none of them left a trace anywhere.
+  //
+  //  - an unknown type: the SDK or the model grew a shape this build cannot
+  //    handle, which is exactly what naming all ten branches was meant to make
+  //    noisy — except that naming them only moved the silence downstream
+  //  - a tool event with no id: a tool call the model announced never appears in
+  //    the transcript, and the user watches it happen
+  assert.equal(levelOf({ type: 'brand_new_thing' }), 'warn')
+  assert.equal(levelOf({}), 'warn')
+  assert.equal(levelOf(null), 'warn')
+  assert.equal(levelOf({ type: 'tool_execution_start', toolName: 'read_workspace' }), 'warn')
+  assert.equal(levelOf({ type: 'tool_execution_end', result: 1 }), 'warn')
+})
+
+test('an unknown event names the type it could not handle', () => {
+  // The reason string is what lands in `peek.log`, so it has to carry the thing
+  // somebody would search for.
+  const out = classifyAgentEvent({ type: 'tool_stream' })
+  assert.deepEqual(out, { kind: 'ignored', reason: 'unknown:tool_stream', level: 'warn' })
 })

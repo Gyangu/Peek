@@ -36,6 +36,7 @@
 
 import {
   DEFAULT_PAGE_LIMIT,
+  MAX_CHAT_ATTACHMENT_ROWS,
   collectionRefLabel,
   newAttachmentId,
   type ChatAttachment,
@@ -47,6 +48,7 @@ import {
 } from '@peek/core'
 import type { TFunction } from '../../i18n'
 import { lookupViewKind } from '../../packages/viewKinds'
+import { viewTitleOf } from '../panelTitle'
 
 /**
  * Rows to request for a whole-result attachment.
@@ -66,6 +68,13 @@ export interface ContextTarget {
   selectedRows?: readonly number[] | undefined
   /** The focused cell, when the pointer is over one. */
   cell?: { rowIndex: number; column: string } | undefined
+  /**
+   * The cell rectangle the right-click landed inside, from 2 cells up.
+   *
+   * A 1×1 rectangle is left to `cell` above: both filled would be two ways of
+   * describing the same cell, one menu line apart.
+   */
+  cellRange?: { r0: number; r1: number; columns: readonly string[] } | undefined
   /** Rows the result is known to hold, for the menu's own wording. */
   rowCount?: number | undefined
 }
@@ -74,7 +83,17 @@ export interface ContextTarget {
 export interface ContextAction {
   /** Stable across renders and locales; used as a React key and in tests. */
   id: ContextActionId
+  /** The menu line: an imperative sentence, "Add 16 selected rows". */
   label: string
+  /**
+   * What the chip will be called once staged: a noun phrase, "orders · 16 rows".
+   *
+   * Separate from `label` because the two positions want opposite grammar, and
+   * for a long time they shared one string — which is how a chip ended up
+   * reading "Rows · Add 16 rows to chat", saying the same word twice and the
+   * name of the table never. See design/2026-08-14-composer-inline-context.md §2.2.
+   */
+  chipLabel: string
   /** Longer explanation for a tooltip. */
   title?: string
   build(): ChatAttachment
@@ -84,6 +103,7 @@ export type ContextActionId =
   | 'rows'
   | 'result'
   | 'cell'
+  | 'cells'
   | 'schema'
   | 'query'
   | 'workspace'
@@ -129,6 +149,34 @@ export function cellAttachment(
   return { id: newAttachmentId(), label, kind: 'cell', viewId, resultId, rowIndex, column }
 }
 
+/**
+ * A rectangle of cells.
+ *
+ * `r1` is clamped rather than rejected: a user who dragged over 3,000 rows and
+ * then asked to attach them gets the first 500 and a label that says so, which
+ * is the same bargain `resultAttachment` strikes with its page limit. Failing
+ * outright would leave the gesture with nothing to show for it.
+ */
+export function cellsAttachment(
+  viewId: ViewId,
+  resultId: ResultId,
+  r0: number,
+  r1: number,
+  columns: readonly string[],
+  label: string,
+): ChatAttachment {
+  return {
+    id: newAttachmentId(),
+    label,
+    kind: 'cells',
+    viewId,
+    resultId,
+    r0,
+    r1: Math.min(r1, r0 + MAX_CHAT_ATTACHMENT_ROWS - 1),
+    columns: [...columns],
+  }
+}
+
 export function schemaAttachment(connId: ConnId, ref: CollectionRef, label: string): ChatAttachment {
   return { id: newAttachmentId(), label, kind: 'schema', connId, ref }
 }
@@ -161,35 +209,65 @@ export function contextActionsFor(target: ContextTarget, t: TFunction): ContextA
   const out: ContextAction[] = []
   const { view, resultId } = target
   const selected = target.selectedRows ?? []
+  // The one name this view goes by anywhere in the window, and therefore the one
+  // every chip built here is named after.
+  const source = viewTitleOf(t, view)
 
-  if (target.cell && resultId) {
+  // Ahead of the single cell, and never alongside it: `cellRange` is only set
+  // for a rectangle of 2 cells or more, where `cell` describes one corner of the
+  // very same block.
+  if (target.cellRange && resultId) {
+    const { r0, r1, columns } = target.cellRange
+    const rows = r1 - r0 + 1
+    const capped = Math.min(rows, MAX_CHAT_ATTACHMENT_ROWS)
+    // The cap is stated in the line the user reads, not applied behind it.
+    const label = rows === capped
+      ? t('context.attach.cells', { rows, columns: columns.length })
+      : t('context.attach.cellsCapped', { rows, capped })
+    const chipLabel = t('context.label.cells', { source, rows: capped, columns: columns.length })
+    out.push({
+      id: 'cells',
+      label,
+      chipLabel,
+      title: t('context.attach.cellsTitle'),
+      build: () => cellsAttachment(view.id, resultId, r0, r1, columns, chipLabel),
+    })
+  }
+
+  if (target.cell && !target.cellRange && resultId) {
     const { rowIndex, column } = target.cell
     const label = t('context.attach.cell', { column, row: rowIndex + 1 })
+    const chipLabel = t('context.label.cell', { source, column, row: rowIndex + 1 })
     out.push({
       id: 'cell',
       label,
+      chipLabel,
       title: t('context.attach.cellTitle'),
-      build: () => cellAttachment(view.id, resultId, rowIndex, column, label),
+      build: () => cellAttachment(view.id, resultId, rowIndex, column, chipLabel),
     })
   }
 
   if (selected.length > 0 && resultId) {
     const label = t('context.attach.rows', { count: selected.length })
+    const chipLabel = rowsChipLabel(t, view, selected.length)
     out.push({
       id: 'rows',
       label,
+      chipLabel,
       title: t('context.attach.rowsTitle'),
-      build: () => rowsAttachment(view.id, resultId, selected, label),
+      build: () => rowsAttachment(view.id, resultId, selected, chipLabel),
     })
   }
 
   if (resultId) {
     const label = t('context.attach.result', { count: RESULT_ATTACHMENT_MAX_ROWS })
+    const chipLabel = t('context.label.result', { source, count: RESULT_ATTACHMENT_MAX_ROWS })
     out.push({
       id: 'result',
       label,
+      chipLabel,
       title: t('context.attach.resultTitle'),
-      build: () => resultAttachment(view.id, resultId, label),
+      build: () => resultAttachment(view.id, resultId, chipLabel),
     })
   }
 
@@ -200,34 +278,52 @@ export function contextActionsFor(target: ContextTarget, t: TFunction): ContextA
   // `connId` is optional on a chat view, so membership alone does not narrow it.
   const connId = 'connId' in view ? view.connId : undefined
   if (ref && connId !== undefined) {
-    const label = t('context.attach.schema', { name: collectionRefLabel(ref) })
+    // `public.orders` is already the best name this chip could have, in every
+    // language, so the chip label is the identifier itself and not a phrase.
+    const chipLabel = collectionRefLabel(ref)
     out.push({
       id: 'schema',
-      label,
+      label: t('context.attach.schema', { name: chipLabel }),
+      chipLabel,
       title: t('context.attach.schemaTitle'),
-      build: () => schemaAttachment(connId, ref, label),
+      build: () => schemaAttachment(connId, ref, chipLabel),
     })
   }
 
   if (view.kind === 'query') {
-    const label = t('context.attach.query')
+    const chipLabel = t('context.label.query', { source })
     out.push({
       id: 'query',
-      label,
+      label: t('context.attach.query'),
+      chipLabel,
       title: t('context.attach.queryTitle'),
-      build: () => queryAttachment(view.id, label),
+      build: () => queryAttachment(view.id, chipLabel),
     })
   }
 
-  const wsLabel = t('context.attach.workspace')
+  // "Add what is on screen" for the menu line; "This workspace" for the chip.
+  const chipLabel = t('chat.attach.option.workspace')
   out.push({
     id: 'workspace',
-    label: wsLabel,
+    label: t('context.attach.workspace'),
+    chipLabel,
     title: t('context.attach.workspaceTitle'),
-    build: () => workspaceAttachment(wsLabel),
+    build: () => workspaceAttachment(chipLabel),
   })
 
   return out
+}
+
+/**
+ * What a chip carrying a row selection is called.
+ *
+ * Its own function because two surfaces build this attachment — the right-click
+ * menu here, and `SelectionActionBar`, which has no `ContextAction` to read it
+ * off. Two spellings of the same chip is exactly the drift this file exists to
+ * prevent.
+ */
+export function rowsChipLabel(t: TFunction, view: ViewState, count: number): string {
+  return t('context.label.rows', { source: viewTitleOf(t, view), count })
 }
 
 /** The collection a view browses, or null for the views that browse none. */

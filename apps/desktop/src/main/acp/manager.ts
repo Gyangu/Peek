@@ -106,7 +106,7 @@ import {
 import { PermissionBroker, type PermissionDecision } from '../agent/permissions'
 import { buildAttachmentReceipts } from '../agent/context'
 import { lastMessagePreview } from '../agent/preview'
-import { buildPeekMcpServer, ensureChatWorkdir } from './session-config'
+import { buildPeekMcpServer, buildUserMcpServers, ensureChatWorkdir } from './session-config'
 import { TranscriptTranslator, type ChatStateDelta, type TranslationOutput } from './translate'
 import {
   DEFAULT_ACP_TIMEOUTS,
@@ -224,7 +224,13 @@ export function defaultAcpConfig(profileId?: string): AcpHostConfig {
     //
     // Per agent, so no agent enumerates history another one wrote. Claude Code's
     // segment is deliberately absent — see `AcpAgentProfile.workdirSegment`.
-    resolveCwd: () => ensureChatWorkdir(process.env['PEEK_CONFIG_DIR'], profile.workdirSegment),
+    //
+    // `chosen` is what a conversation was pinned to — the user's own project
+    // directory, either from settings or from the route a resumed conversation
+    // was recorded with. Assembly replaces this with a thunk that supplies the
+    // setting; the floor here is what an unconfigured install gets.
+    resolveCwd: (chosen) =>
+      ensureChatWorkdir(process.env['PEEK_CONFIG_DIR'], profile.workdirSegment, chosen ?? undefined),
     // A restrictive mode on purpose. The agent's own default is `auto`, where a
     // model classifier approves tool calls without asking anyone — which would
     // make "the user gates tool calls" a claim peek does not actually keep.
@@ -559,17 +565,75 @@ export class AcpManager {
     // the same tools with the same permissions as the load that first opened the
     // conversation, so it is precisely as much of a sandbox question.
     const _meta = this.#config.profile.buildSessionMeta(this.#config.agentConfig)
-    await this.#replay(session, resumeId, connection, this.#config.resolveCwd(), peekMcp ? [peekMcp] : [], _meta)
+    // The conversation's own directory, on the same grounds as bringup: for
+    // `session/load` the cwd is how the agent finds the transcript, so a reload
+    // that guessed the default would find nothing rather than something stale.
+    const cwd = this.#config.resolveCwd(this.#deps.sessionIndex?.lookup(resumeId)?.cwd ?? null)
+    await this.#replay(session, resumeId, connection, cwd, this.#buildMcpServers(peekMcp), _meta)
     return true
   }
 
   /**
-   * The agent's catalogue of past conversations, filtered to peek's own workdir.
+   * peek's own descriptor plus the user's servers, in that order.
    *
-   * Filtering is not cosmetic. Every peek conversation runs in the chat workdir
-   * (`~/.peek/chat`), and the same agent binary is what the user runs in their
-   * own projects — an unfiltered list would offer to open, and to delete, work
+   * ## peek's wins, and it is not a tie-break
+   *
+   * A user server named `peek` would put a second `mcp__peek__*` namespace in
+   * front of the agent, and the tools behind it would be whatever that server
+   * offers. Every guarantee the chat panel makes about what a tool call *did*
+   * runs through peek's own server — the permission gate, the command log, the
+   * `source: 'agent'` attribution — so a namespace collision is not two servers
+   * disagreeing, it is the audit trail describing the wrong thing.
+   *
+   * Dropped rather than renamed: a server the user configured that silently
+   * became `peek-2` is one they cannot find again. It disappears with a warning,
+   * and the name rule in the settings form is what keeps this from happening in
+   * the first place — this is the backstop for a hand-edited file.
+   *
+   * Disabled rows are dropped here, so `buildUserMcpServers` stays a pure
+   * translation with nothing to decide.
+   */
+  #buildMcpServers(peekMcp: McpServer | null): McpServer[] {
+    const servers: McpServer[] = peekMcp ? [peekMcp] : []
+    const mine = this.#deps.resolveUserMcpServers?.() ?? []
+    const taken = new Set(servers.map((s) => s.name))
+    const usable = mine.filter((server) => {
+      if (!taken.has(server.name)) return true
+      this.#log('warn', `ignoring the MCP server named "${server.name}": that name is peek's own`)
+      return false
+    })
+    // Registered for redaction the moment it is in hand, on the same terms as
+    // peek's own bearer token. These values reach an agent that reports what it
+    // did, and a failed request is exactly the sort of thing whose error text
+    // quotes the header that failed.
+    for (const server of usable) this.#rememberSecret(server.authValue)
+    servers.push(...buildUserMcpServers(usable))
+    return servers
+  }
+
+  /**
+   * The agent's catalogue of past conversations, across every directory peek has
+   * started one in.
+   *
+   * ## Why this is a loop, and why the filter changed shape
+   *
+   * `session/list` answers for one `cwd`. That was the whole story while every
+   * peek conversation lived in the chat workdir, and the filter could be "runs
+   * where peek runs": the same agent binary is what the user runs in their own
+   * projects, and an unfiltered list would offer to open, and to delete, work
    * that has nothing to do with this window.
+   *
+   * A conversation can now be pinned to the user's own project directory
+   * (`2026-08-15-chat-panel-full-capability.md` §3.4), and both halves of that
+   * sentence break: the default cwd no longer holds every peek conversation, and
+   * the directories that hold the rest are exactly the ones full of the user's
+   * own work. So peek asks each directory it has recorded a route in, and the
+   * test for "is this one of ours" moves with it:
+   *
+   * - **peek's own workdir** — everything in it is peek's. Kept unfiltered, which
+   *   is also what keeps conversations from before the index existed listed.
+   * - **a directory the user chose** — theirs, with peek's conversations among
+   *   them. Only session ids the route index knows are kept.
    *
    * `supported: false` rather than an exception when the agent has no catalogue:
    * an ACP agent is not obliged to advertise `loadSession`, and "this agent does
@@ -577,25 +641,55 @@ export class AcpManager {
    */
   async listSessions(): Promise<{ sessions: SessionInfo[]; supported: boolean; cwd: string | null }> {
     if (this.#disposed) throw peekError('CONFLICT', 'The chat host is shutting down.')
-    const cwd = this.#config.resolveCwd()
+    const home = this.#config.resolveCwd(null)
     // Starting the agent to answer this is correct and cheap relative to what it
     // buys: the window cannot know whether history exists without asking, and the
     // user who opened the session list is about to use it.
     await this.#ensureAgent()
-    if (!this.#supportsSessionList()) return { sessions: [], supported: false, cwd }
+    if (!this.#supportsSessionList()) return { sessions: [], supported: false, cwd: home }
     const connection = this.#connection
     if (!connection) throw agentGoneError(this.#config.profile.displayName)
 
-    const response = await withTimeout(
-      connection.listSessions({ cwd }),
-      this.#config.timeouts.listSessionsMs,
-      'Reading the conversation list',
-    )
-    // Pagination is deliberately not followed. The first page is the recent end
-    // of a list ordered by activity, which is the part a person opens this to
-    // find; a chat workdir with more sessions than one page holds is a reason to
-    // add search, not a reason to stream thousands of rows into a dialog.
-    return { sessions: response.sessions.filter((s) => s.cwd === cwd), supported: true, cwd }
+    const routes = this.#deps.sessionIndex?.list() ?? []
+    const mine = new Set(routes.map((r) => r.sessionId))
+    const pinned = new Set<string>()
+    for (const route of routes) {
+      if (route.backend === 'acp' && route.agentId === this.#config.profile.id && route.cwd) {
+        pinned.add(route.cwd)
+      }
+    }
+
+    const seen = new Set<string>()
+    const sessions: SessionInfo[] = []
+    for (const cwd of [home, ...pinned]) {
+      let response
+      try {
+        response = await withTimeout(
+          connection.listSessions({ cwd }),
+          this.#config.timeouts.listSessionsMs,
+          'Reading the conversation list',
+        )
+      } catch (raw) {
+        // One unreachable directory — renamed, unmounted, on a volume that is not
+        // here today — must not empty the whole catalogue. The conversations that
+        // did answer are still worth listing, and the one that did not says so
+        // when it is opened, where the message can name it.
+        this.#log('warn', 'listing conversations failed for one directory', raw)
+        continue
+      }
+      // Pagination is deliberately not followed. The first page is the recent end
+      // of a list ordered by activity, which is the part a person opens this to
+      // find; a workdir with more sessions than one page holds is a reason to add
+      // search, not a reason to stream thousands of rows into a dialog.
+      for (const session of response.sessions) {
+        if (session.cwd !== cwd) continue
+        if (cwd !== home && !mine.has(session.sessionId)) continue
+        if (seen.has(session.sessionId)) continue
+        seen.add(session.sessionId)
+        sessions.push(session)
+      }
+    }
+    return { sessions, supported: true, cwd: home }
   }
 
   /**
@@ -753,11 +847,20 @@ export class AcpManager {
         this.#onAgentExit(code, signal, expected)
       },
       onStderr: (line, noise) => {
-        // Agent stderr is untrusted text and mostly chatter. It goes to the
-        // main-process log, never to a toast, and never as an error unless the
-        // process actually failed.
-        if (noise && !this.#config.verbose) return
-        this.events.emit('log', { level: this.#config.verbose ? 'info' : 'debug', message: line })
+        /*
+         * Agent stderr is untrusted text and mostly chatter. It goes to the log,
+         * never to a toast, and never as an error unless the process failed.
+         *
+         * What changed: `noise` used to **discard** the line unless `verbose` was
+         * set, and the lines an agent writes just before it dies are exactly the
+         * ones a heuristic calls chatter. A line dropped at the point of
+         * collection cannot be recovered by anybody, whereas one recorded at
+         * `debug` costs nothing until somebody turns the level down and asks.
+         * So `noise` now picks the level instead of deciding existence — the
+         * same correction made to the renderer's console forwarding, for the
+         * same reason (design §3.7(b)).
+         */
+        this.events.emit('log', { level: noise ? 'debug' : 'info', message: line })
         if (this.#config.verbose) console.log('[peek/acp]', line)
       },
     })
@@ -1016,8 +1119,15 @@ export class AcpManager {
       })
     }
 
-    const mcpServers: McpServer[] = peekMcp ? [peekMcp] : []
-    const cwd = this.#config.resolveCwd()
+    const mcpServers: McpServer[] = this.#buildMcpServers(peekMcp)
+    // A resumed conversation goes back to the directory it was created in, and
+    // for `session/load` that is not a preference — the cwd is *how the agent
+    // finds the transcript*. Resuming against the wrong one does not return the
+    // wrong conversation, it returns none. A new conversation takes the current
+    // setting; see `SessionRoute.cwd`.
+    const resumeRoute =
+      session.resumeSessionId === null ? null : (this.#deps.sessionIndex?.lookup(session.resumeSessionId) ?? null)
+    const cwd = this.#config.resolveCwd(resumeRoute?.cwd ?? null)
     // The sandbox. Without it the session inherits the user's whole Claude Code
     // configuration — MCP servers, `CLAUDE.md`, and the permission allowlist that
     // makes the dialog below decorative. See `buildAgentSessionMeta`. It is
@@ -1047,6 +1157,11 @@ export class AcpManager {
       sessionId: created.sessionId,
       backend: 'acp',
       agentId: this.#config.profile.id,
+      // Recorded only when it is not the default, so a route file stays free of
+      // a path that `resolveCwd` would have produced anyway — and so the default
+      // moving (a new agent id, a different config dir) still moves the
+      // conversations that never left it.
+      ...(cwd === this.#config.resolveCwd(null) ? {} : { cwd }),
     })
 
     await this.#applyPermissionMode(connection, created.sessionId, session.chatId)
@@ -1630,12 +1745,21 @@ export class AcpManager {
     this.#secrets.push(token)
   }
 
+  /**
+   * Emit only.
+   *
+   * The `console.error` / `console.warn` that used to sit here were written when
+   * nothing was listening to the event — main subscribed to `'log'` and threw
+   * the result at the console, so a warning genuinely had two independent paths
+   * to the same place and only one of them survived a packaged build. Now that
+   * main's subscription reaches a real sink, keeping them would double every
+   * warning in `peek.log`. Whether anything is echoed to a terminal is decided
+   * there, once, for every namespace.
+   */
   #log(level: 'debug' | 'info' | 'warn' | 'error', message: string, raw?: unknown): void {
     const detail =
       raw === undefined ? undefined : sanitizeLine(redact(raw instanceof Error ? raw.message : String(raw), this.#secrets), 500)
     this.events.emit('log', { level, message, ...(detail === undefined ? {} : { detail }) })
-    if (level === 'error') console.error('[peek/acp]', message, detail ?? '')
-    else if (level === 'warn') console.warn('[peek/acp]', message, detail ?? '')
   }
 }
 

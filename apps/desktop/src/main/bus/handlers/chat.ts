@@ -84,6 +84,7 @@ import {
   type ChatViewState,
   type PeekError,
   type PendingPermission,
+  type PendingQuestion,
   type ViewId,
   type ViewState,
   type Workspace,
@@ -347,7 +348,8 @@ function resolveAttachment(
   switch (spec.kind) {
     case 'rows':
     case 'result':
-    case 'cell': {
+    case 'cell':
+    case 'cells': {
       const view = draft.views[spec.viewId]
       if (!view) failMsg('NOT_FOUND', 'error.chat.attachViewMissing', { viewId: spec.viewId })
       const meta = draft.results[spec.resultId]
@@ -382,14 +384,30 @@ function resolveAttachment(
           maxRows,
         }
       }
+      if (spec.kind === 'cell') {
+        return {
+          id,
+          label: spec.label ?? `Cell ${spec.column}[${String(spec.rowIndex)}]`,
+          kind: 'cell',
+          viewId: spec.viewId,
+          resultId: spec.resultId,
+          rowIndex: spec.rowIndex,
+          column: spec.column,
+        }
+      }
+      // The row span is clamped rather than rejected, matching what the grid
+      // already showed the user when it offered the attachment.
+      const r1 = Math.min(spec.r1, spec.r0 + MAX_CHAT_ATTACHMENT_ROWS - 1)
       return {
         id,
-        label: spec.label ?? `Cell ${spec.column}[${String(spec.rowIndex)}]`,
-        kind: 'cell',
+        label: spec.label
+          ?? `${String(spec.columns.length)} column(s) × ${String(r1 - spec.r0 + 1)} row(s)`,
+        kind: 'cells',
         viewId: spec.viewId,
         resultId: spec.resultId,
-        rowIndex: spec.rowIndex,
-        column: spec.column,
+        r0: spec.r0,
+        r1,
+        columns: [...spec.columns],
       }
     }
 
@@ -455,6 +473,17 @@ function sameAttachment(a: ChatAttachment, b: ChatAttachment): boolean {
         a.resultId === other.resultId &&
         a.rowIndex === other.rowIndex &&
         a.column === other.column
+      )
+    }
+    case 'cells': {
+      const other = b as Extract<ChatAttachment, { kind: 'cells' }>
+      return (
+        a.viewId === other.viewId &&
+        a.resultId === other.resultId &&
+        a.r0 === other.r0 &&
+        a.r1 === other.r1 &&
+        a.columns.length === other.columns.length &&
+        a.columns.every((c, i) => c === other.columns[i])
       )
     }
     case 'schema': {
@@ -617,7 +646,13 @@ export function createChatHandlers(runtime: ChatRuntime): ChatHandlerMap {
       reduce(draft, input, ctx): ChatCancelResult {
         const view = requireChatView(draft, input.viewId)
         const messageId = view.streamingMessageId
-        const wasPending = view.pendingPermission !== undefined
+        // "Something is waiting on a person" — a permission prompt or a question
+        // the agent asked. Either one makes this a real cancel rather than a
+        // no-op, and the question case is not hypothetical: a conversation
+        // suspended on `chat.ask` has no `streamingMessageId` and is not in a
+        // busy status, so without this half the stop button would report
+        // "nothing to stop" at precisely the moment the user most wants out.
+        const wasPending = view.pendingPermission !== undefined || view.pendingQuestion !== undefined
         // A turn can be live with no `streamingMessageId` on it: this reducer
         // clears the field, so the *second* press of a stop button would
         // otherwise be swallowed while the first cancel was still travelling —
@@ -636,6 +671,11 @@ export function createChatHandlers(runtime: ChatRuntime): ChatHandlerMap {
         // Leaving the prompt up would strand the UI on a decision that can no
         // longer have an effect.
         delete view.pendingPermission
+        // Same for a question the agent asked: the tool call waiting on it is
+        // being cancelled with the turn. `watchQuestions` sees the field go and
+        // settles the broker entry, which is what stops the suspended `chat.ask`
+        // from hanging until its five-minute timeout.
+        delete view.pendingQuestion
         view.agentStatus = restingStatus(view)
 
         planChat(ctx, { type: 'cancel', chatId: view.chatId, messageId })
@@ -658,6 +698,7 @@ export function createChatHandlers(runtime: ChatRuntime): ChatHandlerMap {
 
         view.streamingMessageId = null
         delete view.pendingPermission
+        delete view.pendingQuestion
         delete view.lastMessagePreview
         delete view.usage
         view.messageCount = 0
@@ -800,6 +841,9 @@ export function createChatHandlers(runtime: ChatRuntime): ChatHandlerMap {
 
         const previousMode = view.permissionMode
         view.permissionMode = input.mode
+        // Cleared even when the mode is unchanged: someone just decided on it
+        // for this conversation, and that is what the flag reports.
+        view.permissionModeInherited = false
         if (previousMode !== input.mode) {
           planChat(ctx, { type: 'setMode', chatId: view.chatId, mode: input.mode })
         }
@@ -883,6 +927,17 @@ export interface ChatEventSink {
   onPermissionRequested(chatId: ChatId, pending: PendingPermission): void
   /** The request was withdrawn or answered elsewhere (the agent gave up, the session died). */
   onPermissionResolved(chatId: ChatId, requestId: string): void
+  /**
+   * The agent asked the user a question and is waiting on it (the `ask` tool).
+   *
+   * `null` means "no longer waiting" — answered, timed out, or cancelled. One
+   * method for both directions, unlike the permission pair above, because
+   * `QuestionBroker.onActive` is itself one callback that reports *what this
+   * chat should be showing now*: with a queue, "the previous one was answered"
+   * and "here is the next one" are the same event, and splitting them into two
+   * sink calls would put the two halves of one fact in different places.
+   */
+  onQuestionActive(chatId: ChatId, pending: PendingQuestion | null): void
   /** A message was appended to the transcript; the Workspace keeps only the count and a preview. */
   onMessageAppended(chatId: ChatId, messageId: ChatMessageId, previewText: string): void
   onTurnEnded(chatId: ChatId, end: ChatTurnEnd): void
@@ -941,6 +996,23 @@ export function createChatEventSink(store: WorkspaceStore): ChatEventSink {
         if (view.pendingPermission?.requestId !== requestId) return
         delete view.pendingPermission
         view.agentStatus = view.streamingMessageId === null ? restingStatus(view) : 'streaming'
+      })
+    },
+
+    onQuestionActive(chatId, pending) {
+      edit(chatId, (view) => {
+        if (pending === null) {
+          delete view.pendingQuestion
+          // Same restoration as a resolved permission: the turn this was
+          // blocking resumes, unless it is already gone — in which case the
+          // conversation is simply idle and the answer was harmless.
+          if (view.agentStatus === 'awaiting-answer') {
+            view.agentStatus = view.streamingMessageId === null ? restingStatus(view) : 'streaming'
+          }
+          return
+        }
+        view.pendingQuestion = pending as Draft<PendingQuestion>
+        view.agentStatus = 'awaiting-answer'
       })
     },
 
@@ -1076,6 +1148,10 @@ export function buildChatViewState(
     // the user just picked from a list reads as an empty chat, not a loading one.
     agentStatus: resuming ? 'loading' : 'idle',
     permissionMode: spec.permissionMode ?? 'default',
+    // `spec.permissionMode` only ever comes from the user's settings — the panel
+    // sets a mode through `chat.setMode`, never by building a view. So its
+    // presence *is* the inheritance, and there is nothing else to consult.
+    permissionModeInherited: spec.permissionMode !== undefined,
     streamingMessageId: null,
     messageCount: 0,
     attachments: [],

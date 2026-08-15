@@ -10,10 +10,13 @@ import {
 import { AboutSection } from './AboutSection'
 import { AgentSection } from './AgentSection'
 import { AppearanceSection } from './AppearanceSection'
+import { KeyboardSection } from './KeyboardSection'
 import { McpSection } from './McpSection'
+import { NotificationsSection } from './NotificationsSection'
 import { PackagesSection } from './PackagesSection'
 import { TimeoutsSection } from './TimeoutsSection'
 import { Button } from '../../ui/Button'
+import { Icon } from '../../ui/Icon'
 import {
   MODAL_BODY,
   MODAL_FOOT,
@@ -100,7 +103,7 @@ function OpenSettings({ section }: { section: SettingsSection }): ReactElement {
           <span className={MODAL_TITLE}>{t('settings.title')}</span>
           <span className="flex-1" />
           <Button variant="ghost" icon label={t('settings.close')} onClick={closeSettings}>
-            ✕
+            <Icon name="close" />
           </Button>
         </div>
 
@@ -134,7 +137,7 @@ function OpenSettings({ section }: { section: SettingsSection }): ReactElement {
                  */
                 className={
                   id === section
-                    ? 'text-left px-snug py-tight border rounded-control bg-accent-dim border-accent text-fg'
+                    ? 'text-left px-snug py-tight border rounded-control bg-accent-dim border-accent text-on-accent'
                     : 'text-left px-snug py-tight border rounded-control bg-transparent border-transparent text-fg-dim hover:bg-bg-3 hover:text-fg'
                 }
                 onClick={() => {
@@ -176,6 +179,8 @@ const SECTION_LABEL = {
   agent: 'settings.section.agent',
   packages: 'settings.section.packages',
   appearance: 'settings.section.appearance',
+  notifications: 'settings.section.notifications',
+  keyboard: 'settings.section.keyboard',
   timeouts: 'settings.section.timeouts',
   about: 'settings.section.about',
 } as const satisfies Record<SettingsSection, string>
@@ -190,6 +195,10 @@ function Section({ id }: { id: SettingsSection }): ReactElement {
       return <PackagesSection />
     case 'appearance':
       return <AppearanceSection />
+    case 'notifications':
+      return <NotificationsSection />
+    case 'keyboard':
+      return <KeyboardSection />
     case 'timeouts':
       return <TimeoutsSection />
     case 'about':

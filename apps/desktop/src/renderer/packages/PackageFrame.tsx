@@ -13,6 +13,7 @@ import { notify } from '../state/notifyStore'
 import { getCell, isPendingCell, setViewport } from '../state/resultCache'
 import { useResult } from '../state/useResult'
 import { useT } from '../i18n'
+import { useTheme } from '../theme'
 
 /* ==================================================================
  * The host side of a Tier C package view: an iframe, and one MessagePort.
@@ -52,15 +53,15 @@ export interface PackageFrameProps {
   packageId: string
 }
 
-/**
- * peek has one theme today.
- *
- * Sent anyway, because the protocol declares the field and a package that reads
- * it must get a real answer rather than `undefined` — and because the day peek
- * grows a light theme, the packages that were written against this are the ones
- * that follow along for free.
+/*
+ * The theme used to be a constant here, reading `peek has one theme today` and
+ * promising that a package written against it would follow along for free the
+ * day the window grew a light one. That day is
+ * `design/2026-08-15-light-and-dark-theme.md`, and the promise held exactly: the
+ * protocol already carried the field and the `theme` message, so the whole of
+ * what changed on this side is that the value is now read rather than fixed —
+ * and nothing at all changed on the frame's side.
  */
-const THEME: PackageTheme = 'dark'
 
 /**
  * How long silence from a frame counts as normal.
@@ -88,6 +89,13 @@ export function PackageFrame({ view, packageId }: PackageFrameProps): ReactEleme
    */
   const readyRef = useRef(false)
   const snapshot = useResult(view.resultId)
+  /*
+   * `PackageTheme` is `'light' | 'dark'` and so is `ResolvedTheme` — the same
+   * two words, deliberately not the same type. One is this window's business and
+   * the other is a wire format a third-party package compiles against; tying
+   * them would mean a rename in here reaching into every installed package.
+   */
+  const theme: PackageTheme = useTheme()
 
   const origin = `peek-package://${packageId}`
   const src = `${origin}/index.html`
@@ -155,8 +163,8 @@ export function PackageFrame({ view, packageId }: PackageFrameProps): ReactEleme
    * performs. A ref updated on each render is the standard way out, and the
    * reason it is safe here is that nothing in the handler runs during render.
    */
-  const latest = useRef({ view, buildData, t })
-  latest.current = { view, buildData, t }
+  const latest = useRef({ view, buildData, t, theme })
+  latest.current = { view, buildData, t, theme }
 
   /**
    * Hand the frame its port, once per document.
@@ -197,7 +205,7 @@ export function PackageFrame({ view, packageId }: PackageFrameProps): ReactEleme
               packageKind: current.view.packageKind,
               state: current.view.state,
               locale: navigator.language,
-              theme: THEME,
+              theme: current.theme,
             })
             post(current.buildData())
             return
@@ -256,6 +264,20 @@ export function PackageFrame({ view, packageId }: PackageFrameProps): ReactEleme
   }, [buildData, post])
 
   /**
+   * A theme switch reaches the frame as `theme`, on the same footing as `state`
+   * above: the frame repaints itself, nothing reloads, and the graph keeps its
+   * layout. `db-neo4j`'s `applyTheme` sets `data-theme` on its own document and
+   * re-reads the canvas colours out of CSS, which is the whole of what a package
+   * has to do — see `design/2026-08-15-light-and-dark-theme.md` §2.7.
+   *
+   * Skipped before `ready`, like the two above: the handshake's `init` carries
+   * the current theme, so a frame that has not answered yet is not behind.
+   */
+  useEffect(() => {
+    if (readyRef.current) post({ t: 'theme', theme })
+  }, [theme, post])
+
+  /**
    * A frame that never says `ready` must not be a blank rectangle.
    *
    * The two ways to get one are indistinguishable from out here — the UI was
@@ -310,10 +332,12 @@ export function PackageFrame({ view, packageId }: PackageFrameProps): ReactEleme
         ref={frameRef}
         /* `bg-bg-1` because the frame's own document paints its background, and
            without this the iframe's default white flashes through for one frame
-           on a dark window. `scheme-dark` is all peek can say about the inside:
-           it is cross-origin, so every visual decision in there is the
-           package's, and this element only decides how much room it gets. */
-        className="flex-1 border-0 bg-bg-1 scheme-dark"
+           — and `bg-bg-1` is now whichever white or near-black the theme says, so
+           that frame is right in both. The colour scheme follows for the same
+           reason: it is all peek can say about the inside (the frame is
+           cross-origin, so every visual decision in there is the package's), and
+           saying `dark` on a light window is worse than saying nothing. */
+        className={`flex-1 border-0 bg-bg-1 ${theme === 'dark' ? 'scheme-dark' : 'scheme-light'}`}
         src={src}
         title={view.title ?? view.packageKind}
         // No `allow`, so every permission-policy-gated feature (camera, geolocation,

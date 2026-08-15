@@ -92,6 +92,33 @@ export function respondPermission(
   )
 }
 
+/**
+ * Answer the question the agent is blocked on.
+ *
+ * `requestId` travels for the same reason it does above, and against the same
+ * race: a turn can ask a second question while the first is still being read,
+ * and an unqualified answer would then answer the wrong one.
+ *
+ * `other` is the free-text box peek always offers. It may travel **with** chosen
+ * options or instead of them — "the second one, but only for the EU rows" is a
+ * real answer, and forcing it to be one or the other would throw away half of it.
+ */
+export function answerQuestion(
+  viewId: ViewId,
+  optionIds: string[],
+  other?: string,
+  requestId?: string,
+): Promise<boolean> {
+  return ok(
+    dispatch('chat.answer', {
+      viewId,
+      optionIds,
+      ...(other === undefined || other === '' ? {} : { other }),
+      ...(requestId ? { requestId } : {}),
+    }),
+  )
+}
+
 export function setChatMode(viewId: ViewId, mode: ChatPermissionMode): Promise<boolean> {
   return ok(dispatch('chat.setMode', { viewId, mode }))
 }

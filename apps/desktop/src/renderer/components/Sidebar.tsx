@@ -15,6 +15,7 @@ import { ConnectDialog } from './ConnectDialog'
 import { FirstRunGuide } from './FirstRunGuide'
 import { CONN_DOT, LIST_HEAD, LIST_HEAD_TITLE } from './shellClasses'
 import { Button } from '../ui/Button'
+import { Icon } from '../ui/Icon'
 import { Menu } from '../ui/Menu'
 import { useContextMenu } from '../ui/useContextMenu'
 
@@ -138,7 +139,7 @@ export function Sidebar(): ReactElement {
             setSidebarCollapsed(false)
           }}
         >
-          ›
+          <Icon name="sidebar.expand" />
         </Button>
       </div>
     )
@@ -161,19 +162,23 @@ export function Sidebar(): ReactElement {
             setSidebarCollapsed(true)
           }}
         >
-          ‹
+          <Icon name="sidebar.collapse" />
         </Button>
         <span className={LIST_HEAD_TITLE}>{t('sidebar.connections')}</span>
         <Button
           variant="ghost"
+          icon
+          label={t('sidebar.newConnection')}
+          /* `title` still stated: `icon` would default it to the label, and the
+             disabled case has more to say than the label does — which package
+             situation is stopping it. */
           title={canConnect ? t('sidebar.newConnection') : t('connect.noPackages')}
-          aria-label={t('sidebar.newConnection')}
           disabled={!canConnect}
           onClick={() => {
             openConnectDialog()
           }}
         >
-          ＋
+          <Icon name="create" />
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-tight">
@@ -326,8 +331,10 @@ function ConnectionRowItem({ row, active, onActivate, onEdit, onForgotten }: Row
             and everything after it is fixed-width. */}
         <span className="min-w-0 flex-1 truncate">{row.label}</span>
         {entry?.hasSecret ? (
-          <span className="conn-key flex-none text-micro opacity-85" title={t('sidebar.secretStored')}>
-            🔑
+          /* The one colour emoji in a monochrome window, and the one glyph here
+             whose size no rung controlled — the system emoji font decided both. */
+          <span className="conn-key flex-none flex opacity-85" title={t('sidebar.secretStored')}>
+            <Icon name="credential" size="sm" />
           </span>
         ) : null}
         {/* Driver id is an identifier and stays untranslated. */}

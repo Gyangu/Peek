@@ -147,7 +147,7 @@ describe('what the manifest carries is what the tool is built from', () => {
         // Unreachable through the loader — `PackageManifestSchema` runs the same
         // conversion and refuses the package by name — but the alternative here
         // is a throw on the path that opens an MCP session, which would cost the
-        // kernel's thirteen tools as well as this one.
+        // kernel's fourteen tools as well as this one.
         { ...declared, name: 'broken', inputSchema: { type: 'object', properties: { a: { type: 'nonsense' } } } },
       ]),
     )

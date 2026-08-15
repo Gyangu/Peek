@@ -21,6 +21,9 @@ export const context: CatalogFor<ContextMessages> = {
     '发送的是消息发出那一刻的结果——先改 SQL 重跑，发出去的就是新数据',
   'context.attach.cell': '加入单元格 {column}（第 {row} 行）',
   'context.attach.cellTitle': '发送完整值，而不是表格里显示的预览',
+  'context.attach.cells': '加入这 {columns} 列 × {rows} 行',
+  'context.attach.cellsCapped': '加入这一块的前 {capped} 行（共 {rows} 行）',
+  'context.attach.cellsTitle': '只发送框住的那几列，不是整行',
   'context.attach.schema': '加入 {name} 的表结构',
   'context.attach.schemaTitle': '列定义、类型、主键与索引',
   'context.attach.query': '加入查询语句',
@@ -33,6 +36,28 @@ export const context: CatalogFor<ContextMessages> = {
   'context.float.clear': '取消选择',
   'context.float.spanWarning':
     '这些行相距 {span} 行。peek 不会为了取其中 {count} 行而读取这么大的范围——请选择相邻的行，或直接加入整个结果。',
+
+  /* ---- chip 的名字 ---------------------------------------------------
+   *
+   * chip 是个名词——它回答「这条消息会带上什么」，不是「点了会发生什么」。所以它和
+   * `context.attach.*`（菜单项）、`context.float.*`（按钮）分开：后两者是祈使句，
+   * 一个字符串同时当两边用，只会两边都不像话。kind 段已经写了类别，这里不再重复。
+   *
+   * 少了三种是故意的：表结构 chip 就是 `public.orders`，提及就是 `@public.orders`
+   * ——标识符不翻译，翻了就不是它了；工作区直接复用 `chat.attach.option.workspace`。
+   */
+  'context.label.rows': { other: '{source} · {count} 行' },
+  'context.label.result': '{source} · 前 {count} 行',
+  'context.label.cell': '{source}.{column}[{row}]',
+  'context.label.cells': '{source} · {columns} 列 × {rows} 行',
+  'context.label.query': '{source} · SQL',
+
+  /* ---- @ 提及 -------------------------------------------------------- */
+  'context.mention.label': '添加上下文',
+  'context.mention.hint': '输入名字筛选 · ↑↓ 选择 · ⏎ 确认',
+  'context.mention.empty': '没有匹配的内容。可以打开一张表或跑一条查询，再回来 @ 它。',
+  'context.mention.full': '这条消息已经带了 {count} 个附件，到上限了。',
+  'context.mention.added': '已添加',
 
   /* ---- 附件区 ------------------------------------------------------ */
   'context.chips.heading': { other: '{count} 个附件' },

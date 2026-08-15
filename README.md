@@ -37,8 +37,8 @@ next read.
 | Keyboard / a11y | Panels are `role="group"` and tab strips are real ARIA `tablist`s. An empty panel emits neither `tablist` nor `tabpanel`: a tab list with no tabs, and a tab panel no tab controls, would announce a widget that is not there. Roving tabindex is per widget — one panel element (the focused one) and one tab per strip. Panel chrome is otherwise unconditionally tabbable, because the bodies beside it (CodeMirror, the grid's toolbar and pagination) cannot be taken out of the tab order, and pretending the surrounding chrome was out of it only made `Tab` walk into a body before the strip above it. DOM focus and `focusedPanel` sync both ways, with a guard that stops a remote MCP call from pulling the caret out of a dialog or the sidebar; closing a panel's last tab hands focus back to the panel rather than dropping it to the document. Changes that move focus announce themselves through role semantics; ones that do not are announced by a single polite live region. Splitter handles are not keyboard-resizable. |
 | Cancel / timeouts | Every query, scan and vector search runs under a deadline (120s / 120s / 60s by default; `0` means none). A deadline that expires and an explicit `cancel_query` take the same escalation path — ask the driver, then kill its process — so a wedged connection cannot outlive either. All three result views draw the same cancel control; a driver without the `cancel` capability shows it disabled with the reason, rather than silently omitting it. |
 | Errors | A status-bar badge counts what went wrong and opens a panel holding the last 100 entries, each copyable with its code and detail. Errors that used to exist only as a toast that had already faded are now recoverable after the fact. |
-| MCP | 13 tools over Streamable HTTP on loopback, bearer-token authenticated. Port 7332 by default, settable and persisted; if it is taken, the next 8 are tried and the window says where it landed. |
-| Persistence | Three files and two subtrees under `~/.peek`: `mcp.json` (endpoint + token), `connections.json` (the connection book), `settings.json` (the MCP port), `chat/`, and `packages/` — the installed database packages, one directory each. Credentials never land in plaintext **on disk** — they are encrypted by the OS keychain through Electron's `safeStorage` and stored apart from the config that names the server; what a loaded package is handed at connect time is a different question, answered under [Packages and trust](#packages-and-trust). Layout, open views, query text and results are still memory-only and start empty every launch. |
+| MCP | 15 tools over Streamable HTTP on loopback, bearer-token authenticated. Port 7332 by default, settable and persisted; if it is taken, the next 8 are tried and the window says where it landed. |
+| Persistence | Four files and two subtrees under `~/.peek`: `mcp.json` (endpoint + token), `connections.json` (the connection book), `settings.json` (the MCP port), `workspace.json` (the layout and the definition of every open view), `chat/`, and `packages/` — the installed database packages, one directory each. Credentials never land in plaintext **on disk** — they are encrypted by the OS keychain through Electron's `safeStorage` and stored apart from the config that names the server; what a loaded package is handed at connect time is a different question, answered under [Packages and trust](#packages-and-trust). The workspace stores what a view **is** (which table, which filters, the text in a query editor) and never what happened to it in a session: no cursors, no result sets, no transcripts. `PEEK_NO_RESTORE=1` starts empty and leaves the file alone. |
 | Packaging | `pnpm build` emits minified bundles under `apps/desktop/out` (~3.2MB total), not an installer. `apps/desktop/scripts/package-mac.mjs` produces a macOS `.app`. |
 | i18n | English is the default and is never auto-detected from the OS; a `zh-CN` catalog ships alongside it, switchable from the status bar. |
 
@@ -355,7 +355,7 @@ On first launch — no connection, and nothing in the connection book — the wi
 guide instead of an empty grid: connect a database, copy the MCP registration command, open the chat
 panel.
 
-### The thirteen tools
+### The fifteen tools
 
 | Tool | Kind | Purpose |
 | --- | --- | --- |
@@ -372,6 +372,8 @@ panel.
 | `send_chat` | command | Post a message into a chat view (`chat.send`), opening one if none is named. Attachments are named by descriptor, not inlined. |
 | `read_chat` | read | Read a chat view's transcript back: messages, tool calls, plans, and any permission request still waiting on a human. |
 | `control_chat` | command | The chat lifecycle that is not "send": cancel the turn, clear the transcript, detach the agent, set the mode, answer a permission prompt. |
+| `notify` | command | Tell the user something that reaches them when peek is not the window in front (`app.notify`): a system notification when they are elsewhere, an in-app message when they are not. |
+| `ask` | command | Put a question to the user with two to four answers and **wait** for the reply (`chat.ask`). The prompt appears in a chat panel, peek always adds a free-text box, and the answer returns as the tool result — so the agent keeps working in the same turn. The only tool that suspends until a person acts. |
 
 There is deliberately no tool that hands a full result set to the model. Layout changes go through
 the same Command Bus as the human's keyboard and mouse, so `read_workspace` always shows an AI the
@@ -458,6 +460,35 @@ Two consequences are worth stating outright, because both used to be handled for
   backstop. peek's answer is local and manual: uninstall it. That closes the connections, kills the
   package's host process and deletes the directory; what the package wrote elsewhere while it ran is
   outside anything that button can speak for.
+
+### The chat panel makes the same deal, behind two switches
+
+Out of the box the embedded agent has no file tools, no shell, and sees peek's own MCP server and
+nothing else — `settings.json`, `CLAUDE.md` and any MCP servers configured on this machine are not
+inherited, and `scripts/verify-chat-security.mjs` runs a probe against the real agent to check it.
+Settings → Agent has two switches that trade parts of that away. Both are off by default, both say
+what they cost next to themselves, and neither shows a confirmation dialog — for the same reason
+installing a package does not.
+
+- **File and command tools.** Turns the agent's own `Read`, `Write`, `Edit` and `Bash` back on, and
+  lets you point it at a working directory of your choosing. This gives up more than a tool list:
+  peek's guarantee that the panel cannot approve its own permission prompts rested on the agent
+  having no way to read a file, because the bearer token that carries full control of the window sits
+  in `~/.peek/mcp.json` in the clear. An agent that can read that file can present that token, and a
+  permission prompt becomes a notification rather than a barrier. There is no partial version of this
+  — one `Read` is the whole chain — so peek offers the switch rather than a per-tool illusion, and
+  the settings panel says exactly this when it is on. Note also that **`Bash` reaches your databases
+  directly**, past the sidebar's "allow AI to modify data" switch, which only governs statements that
+  travel through peek.
+- **Your own MCP servers.** Adds servers you list to the panel alongside peek's own. Their tool calls
+  still go through peek's permission prompt; what happens after you approve one is between the agent
+  and that server, and peek can neither see it nor account for it. In particular a database MCP
+  server of your own is not bound by the write switch — that switch is a field peek passes to its own
+  drivers, and it never reaches anybody else's code. Credentials you enter here are encrypted by the
+  OS keychain like every other secret peek stores, and are redacted from error messages and logs.
+
+Conversations started before you flip either switch are unaffected — a conversation is fixed to the
+capabilities it was created with.
 
 ---
 
@@ -570,13 +601,26 @@ stays native scrolling. The vertical scrollbar is drawn by hand, because with
 - **`VectorViewState.queryText` is inert.** Drivers are forbidden from embedding, and nothing else in
   peek turns text into a vector, so the field can be set but never consumed. Vector search is driven
   by "more like this point" (`queryPointId`), which is the only entry point a human can operate.
-- **Layout and open views still do not persist.** The connection book survives a restart; the
-  arrangement of panels, which tabs were open, and what was typed in a query editor do not. Result
-  sets are memory-only by design and always will be.
+- **A restored desk comes back empty until its connections are up.** The layout, the tabs and the
+  text in a query editor are saved and restored; the rows are not. Restoring opens the connections
+  without waiting for them, so every view starts idle and fills in when its connection reports
+  ready — and a query view never re-runs itself, because restoring a desk must not execute the
+  statement somebody left in an editor. Result sets are memory-only by design and always will be.
 - **`cursorToken` values do not survive a version change.** The token now names the driver that
   minted it (`postgres:0:400`), so a stale one — from an older build, or from another connection — is
-  refused rather than replayed against the wrong store. That is the intended trade; it does mean a
-  token held across an upgrade is dead, which matters if view state is ever persisted.
+  refused rather than replayed against the wrong store. That is the intended trade, and it is why
+  `workspace.json` stores `ViewOpenSpec`s rather than view state: a spec has no field a cursor could
+  live in, so a restored view starts its scan from the top instead of replaying a dead token.
+- **Stored credentials are only as private as your user account.** Passwords are encrypted by the OS
+  keychain and never written in the clear, which protects a `connections.json` that leaks *somewhere
+  else* — a backup, a sync folder, another account on the same machine, a file pasted into an issue.
+  It does not protect against code already running as you, and a hardened runtime would not change
+  that: `--options runtime` was measured against this build and AMFI does not honour it without a
+  trusted signing identity, so `DYLD_INSERT_LIBRARIES` still loads into peek, and the keychain ACL —
+  which checks the main binary's cdhash, left untouched by an injected dylib — waves the injected
+  code through as peek. Nothing detects an edited `out/main/index.js` either (`asar: false`, so
+  neither integrity fuse applies). Closing this needs Developer ID signing, which arrives with the
+  first published binary; the measurement is in `docs/design/2026-08-15-hardened-runtime.md`.
 
 ---
 
@@ -585,7 +629,7 @@ stays native scrolling. The vertical scrollbar is drawn by hand, because with
 | Milestone | Scope |
 | --- | --- |
 | **M6** | **Complete.** Cancel and timeouts end to end, an error panel, connection persistence with keychain-backed credentials, a settable MCP port with token rotation, the capability-model gaps closed (per-collection browse style, a canonical JS representation per `LogicalType`, a cursor format that names its driver), and the build and measurement work: minified bundles, two benchmark scripts, a runnable chat-security verification, and dropping the general-purpose table engine from the grid. |
-| **M7** | Not yet scoped. The work M6 leaves behind: a form for the timeout settings and somewhere to persist them, persisting layout and open views, and a self-provisioning PostgreSQL fixture. The first two are in [Known limitations](#known-limitations); the third is described under [Quick start](#quick-start). |
+| **M7** | Partly landed. Of the work M6 left behind: the timeout settings have a form and a home in `settings.json`, and **layout and open views now persist** (`workspace.json`, design 2026-08-15). What remains is a self-provisioning PostgreSQL fixture, described under [Quick start](#quick-start). |
 
 M3 (Redis), M4 (Qdrant) and M5 (MySQL / SQLite) were the test of the capability model, and it held:
 `packages/core` did not change to accommodate a key-value store or a vector database. What the

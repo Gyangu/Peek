@@ -12,6 +12,7 @@ import { connHas } from '../../state/capabilities'
 import { dispatch } from '../../state/dispatch'
 import { useResult } from '../../state/useResult'
 import { Button } from '../../ui/Button'
+import { Icon } from '../../ui/Icon'
 import { Menu } from '../../ui/Menu'
 import type { Point } from '../../ui/menuModel'
 import { autoRefreshMenuNodes, formatInterval } from './autoRefreshMenu'
@@ -82,14 +83,16 @@ export function CancelButton({ viewId, conn, running }: CancelButtonProps): Reac
         title={t('result.cancelUnsupportedTitle', { driverId: conn?.driverId ?? '—' })}
         aria-label={t('result.cancelUnsupportedTitle', { driverId: conn?.driverId ?? '—' })}
       >
-        ■ {t('result.cancelUnsupported')}
+        <Icon name="stop" />
+        {t('result.cancelUnsupported')}
       </Button>
     )
   }
 
   return (
     <Button variant="ghost" disabled={!running} onClick={cancel} title={t('result.cancelTitle')}>
-      ■ {t('result.cancel')}
+      <Icon name="stop" />
+      {t('result.cancel')}
     </Button>
   )
 }
@@ -137,7 +140,8 @@ export function CacheGapNotice({ resultId, onRefetch, disabled }: CacheGapNotice
         <strong>{t('result.cacheGap')}</strong> {t('result.cacheGapDetail')}
       </div>
       <Button variant="ghost" disabled={disabled === true} onClick={onRefetch}>
-        ⟳ {t('result.cacheGapRefetch')}
+        <Icon name="refresh" />
+        {t('result.cacheGapRefetch')}
       </Button>
     </div>
   )
@@ -210,7 +214,9 @@ export function AutoRefreshControl(props: AutoRefreshControlProps): ReactElement
           setAt({ x: r.left, y: r.bottom })
         }}
       >
-        ⏱ {label} ▾
+        <Icon name="autoRefresh.timer" />
+        {label}
+        <Icon name="disclosure.open" size="sm" />
       </Button>
       {at ? (
         <Menu

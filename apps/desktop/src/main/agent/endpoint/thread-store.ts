@@ -40,7 +40,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
-import type { ChatMessage } from '@peek/core'
+import { noopLogger, type ChatMessage, type Logger } from '@peek/core'
 
 const FILE_VERSION = 1
 
@@ -85,9 +85,11 @@ export interface EndpointThreadFile {
 
 export class EndpointThreadStore {
   readonly #dir: string
+  readonly #log: Logger
 
-  constructor(dir: string) {
+  constructor(dir: string, logger: Logger = noopLogger) {
     this.#dir = dir
+    this.#log = logger
   }
 
   get dir(): string {
@@ -129,8 +131,14 @@ export class EndpointThreadStore {
         modelId: typeof parsed.modelId === 'string' ? parsed.modelId : '',
         updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
       }
-    } catch {
-      return null // Truncated or corrupt. Degrade, do not throw.
+    } catch (error) {
+      // Truncated or corrupt. Degrade, do not throw — but **say so**. Silently
+      // reading `null` here is indistinguishable from "there was no such
+      // conversation", and the two could not be further apart from the user's
+      // side: one is a tab that was never opened, the other is history that
+      // existed this morning and is now gone. The file stays where it is.
+      this.#log.log('warn', `the stored conversation ${sessionId} could not be parsed and was skipped`, error)
+      return null
     }
   }
 
@@ -151,7 +159,7 @@ export class EndpointThreadStore {
       renameSync(temp, target)
       return true
     } catch (error) {
-      console.warn('[peek/chat] could not store the conversation', error)
+      this.#log.log('warn', `the conversation ${file.sessionId} could not be stored`, error)
       try {
         unlinkSync(temp)
       } catch {
@@ -175,7 +183,7 @@ export class EndpointThreadStore {
       rmSync(this.path(sessionId), { force: true })
       return true
     } catch (error) {
-      console.warn('[peek/chat] could not delete the conversation', error)
+      this.#log.log('warn', `the conversation ${sessionId} could not be deleted`, error)
       return false
     }
   }

@@ -25,6 +25,7 @@ import type {
 } from '@peek/core'
 import type { DeltaBatchBudget } from '../agent/types'
 import type { AcpAgentProfile, AcpAgentUserConfig } from './profiles'
+import type { UserMcpServer } from './session-config'
 import type { SessionIndex } from '../agent/session-index'
 import type { AcpSnapshotStore } from './snapshot-store'
 
@@ -113,6 +114,20 @@ export interface AcpHostDeps {
    * anywhere explaining why.
    */
   resolveMcpEndpoint(): McpEndpointInfo | null
+  /**
+   * The user's own MCP servers, credentials already unsealed.
+   *
+   * A thunk, read when a conversation starts, so adding a server takes effect on
+   * the next one rather than the next launch. Optional and defaulting to none:
+   * a host wired without it is a chat panel that sees peek and nothing else,
+   * which is what every host was before this existed.
+   *
+   * **Unsealing happens on the other side of this.** Main holds the keychain;
+   * everything reachable from here holds plaintext it was handed. Keeping the
+   * seam at the config boundary is what stops a credential from being one
+   * refactor away from a log line.
+   */
+  resolveUserMcpServers?(): UserMcpServer[]
   /**
    * Where to record which backend owns a conversation.
    *
@@ -253,20 +268,26 @@ export interface AcpHostConfig {
    * Resolve the agent session's working directory. Must return an existing
    * absolute path; the agent rejects anything else.
    *
-   * peek uses a directory of its own (`~/.peek/chat`) rather than the user's
-   * project or home directory. `cwd` is what the agent resolves its
-   * project-level configuration against, and it is the root its own file tools
-   * would work from. Pointing it at a real project would import that project's
-   * configuration into a database viewer's chat panel; pointing it at `~` would
-   * hand the agent the whole home directory.
+   * `cwd` is what the agent resolves its project-level configuration against,
+   * and it is the root its own file tools would work from. peek's default is a
+   * directory of its own (`~/.peek/chat`), which is the right answer for the
+   * panel's original job: talk about the database in front of you, where a
+   * project directory buys nothing and a home directory would be a reach nobody
+   * asked for.
    *
-   * **A function, not a string, on purpose.** Creating the directory can fail —
+   * `chosen` overrides that with a directory the user pointed at — see
+   * `ensureChatWorkdir`, which explains why the default's two justifications did
+   * not survive the panel gaining real file tools, and which one of them
+   * `settingSources: []` was doing properly all along.
+   *
+   * **A function, not a string, on purpose.** Resolving the directory can fail —
    * a read-only home, hostile permissions, a plain file already sitting at the
-   * path — and resolving it during assembly made that failure take the whole app
-   * down before a window existed. Deferring it to the moment an agent is
-   * actually started costs one conversation instead.
+   * path, a chosen directory that has since been renamed — and resolving it
+   * during assembly made that failure take the whole app down before a window
+   * existed. Deferring it to the moment an agent is actually started costs one
+   * conversation instead.
    */
-  resolveCwd: () => string
+  resolveCwd: (chosen?: string | null) => string
   /**
    * Which agent to run. Carries its process shape, its sandbox switches and its
    * display name; see `profiles.ts`.

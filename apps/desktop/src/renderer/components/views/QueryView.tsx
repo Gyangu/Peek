@@ -9,6 +9,7 @@ import { DataGrid } from '../DataGrid'
 import { ViewError } from '../ViewError'
 import { AutoRefreshControl, CacheGapNotice, CancelButton } from './ResultControls'
 import { Button } from '../../ui/Button'
+import { Icon } from '../../ui/Icon'
 
 // CodeMirror is the heaviest thing in the bundle, so it gets its own lazily
 // loaded chunk — the "cold start to interactive under 1.5s" budget (PLAN §8)
@@ -84,7 +85,8 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
           }}
           title="⌘/Ctrl + Enter"
         >
-          ▶ {t('query.run')}
+          <Icon name="run" />
+          {t('query.run')}
         </Button>
         <CancelButton viewId={viewId} conn={conn} running={running} />
         <AutoRefreshControl

@@ -20,7 +20,7 @@ import type { PeekTool } from './types'
  * ## The one thing that did not move
  *
  * `defineCommandTool`. A package tool is still built by the same constructor the
- * kernel's thirteen are built by, and that is the whole shape of this file: what
+ * kernel's fourteen are built by, and that is the whole shape of this file: what
  * crosses the process boundary is the *mapping* — `toCommands`, `render`,
  * `read` — and everything wrapped around it stays here. The second validation
  * pass before a mapped input reaches the Command Bus, the `uiEffects` block the

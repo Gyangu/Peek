@@ -290,7 +290,7 @@ function readPackage(name: string, dir: string, accepted: readonly LoadedPackage
   }
 
   for (const tool of manifest.tools) {
-    // The kernel's own thirteen come first, because they are the half no other
+    // The kernel's own fourteen come first, because they are the half no other
     // package can be blamed for and the half that fails worst. `collectTools`
     // throws on a duplicate name — deliberately, so nothing can shadow
     // `run_query` — and every assembly of the tool surface goes through it: the
@@ -307,7 +307,7 @@ function readPackage(name: string, dir: string, accepted: readonly LoadedPackage
     const owner = accepted.find((pkg) => pkg.manifest.tools.some((t) => t.name === tool.name))
     if (owner === undefined) continue
     // An MCP tool name is global: `tools/list` is one flat list across every
-    // package and the kernel's own thirteen, and a model picks by name alone. So
+    // package and the kernel's own fourteen, and a model picks by name alone. So
     // two packages declaring `expand_node` is not a collision peek can resolve
     // by scoping — whichever the executor routed to would be a coin toss the
     // user never sees, on a call that acts on their database. Same shape as the

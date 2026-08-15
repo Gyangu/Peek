@@ -15,6 +15,8 @@ export const settings = {
   'settings.sections': 'Settings sections',
   'settings.section.mcp': 'MCP endpoint',
   'settings.section.appearance': 'Appearance',
+  'settings.section.notifications': 'Notifications',
+  'settings.section.keyboard': 'Keyboard',
   'settings.section.timeouts': 'Queries & timeouts',
   'settings.section.about': 'About',
 
@@ -54,6 +56,13 @@ export const settings = {
   /* Language names are endonyms and never pass through t(); a picker written in
      a language you cannot read helps nobody. */
   'settings.languageHint': 'Applies immediately, and is remembered on this machine.',
+  'settings.theme': 'Appearance',
+  /* Names what follows the OS, because that is the only one of the three whose
+     behaviour is not self-evident from its label. */
+  'settings.themeHint': 'Following the system switches with macOS between light and dark.',
+  'settings.themeDark': 'Dark',
+  'settings.themeLight': 'Light',
+  'settings.themeSystem': 'System',
   'settings.zoom': 'Interface size',
   /* Deliberately says "everything", because that is the difference between this
      and a font-size setting: row heights and hit targets scale with the text, so
@@ -61,6 +70,20 @@ export const settings = {
      small boxes. */
   'settings.zoomHint':
     'Scales the whole window — text, row heights and controls together. {keys} do the same.',
+
+  /* ---------------- Notifications ---------------- */
+  'settings.notifications.system': 'System notifications',
+  /* Says when they appear, not what they are: the surprising half of the rule is
+     that peek stays quiet while you are looking at it. */
+  'settings.notifications.systemHint':
+    'Let peek reach you through the notification centre when its window is not the one in front. ' +
+    'While you are looking at peek it shows a message in the app instead.',
+  'settings.notifications.turnEnd': 'When the agent finishes',
+  'settings.notifications.turnEndHint':
+    'Tell you when a chat turn ends, or stops to ask permission, while you are working elsewhere. ' +
+    'The agent can also notify you itself, at any point it judges worth interrupting for.',
+  'settings.notifications.on': 'On',
+  'settings.notifications.off': 'Off',
 
   /* ---------------- Queries & timeouts ---------------- */
   'settings.timeouts.intro':
@@ -153,14 +176,58 @@ export const settings = {
   'settings.agent.mode.auto': 'Let the agent judge',
   'settings.agent.mode.acceptEdits': 'Accept edits',
   'settings.agent.mode.plan': 'Plan only',
+  'settings.agent.mode.dontAsk': '⚠ Never ask',
+  'settings.agent.mode.bypassPermissions': '⚠ Bypass all checks',
   'settings.agent.modeHint.default': 'Every tool call waits for you. This is peek’s default.',
   'settings.agent.modeHint.auto': 'The agent’s own classifier approves calls instead of you. It still cannot reach anything beyond peek’s tools.',
   'settings.agent.modeHint.acceptEdits': 'Edits go through without asking; everything else still waits for you.',
   'settings.agent.modeHint.plan': 'The agent plans and explains, and runs nothing until you leave this mode.',
+  'settings.agent.modeHint.dontAsk': 'Tool calls run without asking. Every new conversation says “from settings” next to its mode.',
+  'settings.agent.modeHint.bypassPermissions': 'Nothing is checked and nothing is asked. Every new conversation says “from settings” next to its mode.',
+  /* Says where the mode is visible, now that it can be set here. The old note
+     said these two modes were deliberately absent — see the design doc §2.1 for
+     why refusing to store the choice only meant re-making it every day. */
   'settings.agent.modeDangerNote':
-    'The two modes that skip checks entirely stay in the panel’s own dropdown, per conversation — not here, where they would quietly apply to every future one.',
+    'The last two take you out of the loop for every new conversation. A conversation started on one of them marks it in the panel, and you can still change the mode there for that conversation alone.',
   'settings.agent.which': 'Which agent',
   'settings.agent.missing': 'not installed',
+  'settings.agent.mcp': 'Your MCP servers',
+  'settings.agent.mcp.none': 'None yet',
+  'settings.agent.mcp.count': { one: '{count} server', other: '{count} servers' },
+  'settings.agent.mcp.unnamed': 'New server',
+  'settings.agent.mcp.name': 'Name',
+  'settings.agent.mcp.namePlaceholder': 'lowercase-name',
+  'settings.agent.mcp.transport': 'Transport',
+  'settings.agent.mcp.transport.http': 'HTTP',
+  'settings.agent.mcp.transport.stdio': 'Command',
+  'settings.agent.mcp.enabled': 'Enabled',
+  'settings.agent.mcp.target': 'Address',
+  'settings.agent.mcp.targetPlaceholder.http': 'https://example.com/mcp',
+  'settings.agent.mcp.targetPlaceholder.stdio': '/absolute/path/to/server',
+  'settings.agent.mcp.authHeader': 'Header name',
+  'settings.agent.mcp.authValue': 'Header value',
+  'settings.agent.mcp.authValuePlaceholder': 'Bearer …',
+  'settings.agent.mcp.add': 'Add a server',
+  'settings.agent.mcp.remove': 'Remove',
+  'settings.agent.mcp.discard': 'Discard changes',
+  /* Names the rule rather than the field: the constraint is not arbitrary, and a
+     user who knows why will not fight it. */
+  'settings.agent.mcp.invalid':
+    'Every server needs an address and a unique name of lowercase letters, digits, - or _. The name becomes the tool prefix the agent addresses it by.',
+  'settings.agent.mcp.hint':
+    'These are sent to the agent alongside peek’s own tools. peek does not gate what they do — a tool call still asks you, but what happens after that is between the agent and that server.',
+  'settings.agent.workdir': 'Working directory',
+  'settings.agent.workdirPick': 'Choose…',
+  'settings.agent.workdirReset': 'Use peek’s own',
+  'settings.agent.workdirHint':
+    'Where new conversations work. Point it at a project to let the agent read and edit that project; conversations already started keep the directory they were started in.',
+  'settings.agent.fullTools': 'File and command tools',
+  'settings.agent.fullTools.off': 'Off',
+  'settings.agent.fullTools.on': 'On',
+  /* States the consequence, not a warning about one. peek does not hold a gate
+     here and should not sound like it does — see the design doc §2.5. */
+  'settings.agent.relaxed':
+    'The agent can read, write and run things on this machine, so it can also read peek’s own MCP token and approve its own tool calls. The permission prompt is no longer a barrier — it is a notification. peek does not stop this and cannot; you are turning it off deliberately.',
   'settings.agent.enforced': 'peek checks this agent’s sandbox with a probe against the real agent: no shell, no file tools, and none of your own Claude Code settings.',
   /* Names the gap rather than implying a guarantee peek has not tested. */
   'settings.agent.unverified':

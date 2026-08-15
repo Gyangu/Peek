@@ -8,8 +8,9 @@ import {
 } from 'react'
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual'
 import type { ColumnDef, ConnId, ResultId, SortSpec, ViewState } from '@peek/core'
-import { isTruncatedValue } from '@peek/core'
+import { MAX_CHAT_ATTACHMENT_ROWS, isTruncatedValue } from '@peek/core'
 import { tStatic, useT, type TFunction } from '../i18n'
+import { clearGridSelection, publishGridSelection, type GridSelectionSpec } from '../state/gridSelectionStore'
 import { notify } from '../state/notifyStore'
 import { getCell, isRowLoaded, setViewport } from '../state/resultCache'
 import { useResult } from '../state/useResult'
@@ -23,6 +24,7 @@ import {
   isExpandable,
 } from '../util/format'
 import { columnMenuNodes } from './columnMenu'
+import { Icon } from '../ui/Icon'
 import { Menu } from '../ui/Menu'
 import { useContextMenu } from '../ui/useContextMenu'
 import {
@@ -31,6 +33,7 @@ import {
   MAX_SELECTION_SPAN,
   SelectionActionBar,
   applyRowClick,
+  applyRowDrag,
   isRowSelected,
   selectAllRows,
   selectedIndexes,
@@ -39,7 +42,16 @@ import {
   type ContextTarget,
   type RowSelection,
 } from './context-actions'
-import { copyCellPlan, copyRowsPlan, type CopyPlan, type GridCopySource } from './gridCopy'
+import { copyCellPlan, copyRangePlan, copyRowsPlan, type CopyPlan, type GridCopySource } from './gridCopy'
+import {
+  isInRange,
+  rangeAt,
+  rangeCellCount,
+  rangeFrom,
+  rangeHasRow,
+  type CellPos,
+  type CellRange,
+} from './cellRange'
 import {
   columnWindowKey,
   useColumnModel,
@@ -108,10 +120,30 @@ export interface DataGridProps {
   emptyHint?: string
 }
 
-interface CellPos {
-  row: number
-  col: number
-}
+/**
+ * How close to the top or bottom edge a drag has to get before the grid starts
+ * scrolling under it, and how fast it may go once there.
+ *
+ * Both are stated in the grid's own unit — a row — rather than in pixels: the
+ * band has to be big enough to aim at with a moving pointer and small enough not
+ * to trigger while reading a row near the edge, and "one row" is exactly that
+ * size at any row height.
+ */
+const AUTOSCROLL_BAND = ROW_H
+const AUTOSCROLL_MAX_ROWS_PER_FRAME = 3
+
+/**
+ * A drag in progress. `null` between gestures.
+ *
+ * The row variant carries `base`, the row selection as it stood when the button
+ * went down. Every move recomputes from that snapshot rather than accumulating
+ * on the previous frame's result — otherwise dragging back the way you came adds
+ * rows instead of giving them up, and a ⌘-drag becomes impossible to undo
+ * without releasing.
+ */
+type GridDrag =
+  | { kind: 'rows'; anchor: number; additive: boolean; base: RowSelection; moved: boolean }
+  | { kind: 'cells'; anchor: CellPos; moved: boolean }
 
 export function DataGrid(props: DataGridProps): ReactElement {
   const { connId, view, resultId, sort, onSortColumn, onSetSort, emptyHint } = props
@@ -187,17 +219,48 @@ export function DataGrid(props: DataGridProps): ReactElement {
    */
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [sizing, setSizing] = useState<ColumnSizing>({})
-  const [selected, setSelected] = useState<CellPos | null>(null)
+  /**
+   * The rectangle of cells, which is also where the focused cell lives.
+   *
+   * There used to be a separate `selected: CellPos | null` here. It is the same
+   * fact as this rectangle's anchor — a plain click is a 1×1 rectangle — and
+   * keeping both would mean two answers to "what am I looking at", which the
+   * value inspector, the context menu and ⌘C all ask independently.
+   */
+  const [range, setRange] = useState<CellRange | null>(null)
   const [expanded, setExpanded] = useState<CellPos | null>(null)
   /**
    * Rows highlighted for "add these to the chat".
    *
-   * Distinct from `selected`, which is a single *cell* and drives the value
-   * inspector. Both exist because they answer different questions: the cell is
-   * "what am I looking at", the row set is "what do I want to send".
+   * Distinct from `range`, which is a rectangle of *cells*. Both exist because
+   * they answer different questions: the row set is "these rows, whole", the
+   * rectangle is "this block, these columns only". Both can be copied and both
+   * can be attached — the rectangle as a `cells` descriptor, since
+   * design/2026-08-15-cell-range-attachment.md.
+   *
+   * They are **mutually exclusive**: building either one clears the other, so at
+   * most one selection is on screen at any moment. Letting them coexist needed
+   * two invented precedence rules — one to decide which highlight a cell wears,
+   * one to decide what ⌘C means — and needing a precedence rule to disambiguate
+   * is the sign that the two states should never have been simultaneous. The
+   * design note records the rule this overturned.
    */
   const [rowSelection, setRowSelection] = useState<RowSelection>(EMPTY_SELECTION)
   const [menu, setMenu] = useState<{ x: number; y: number; cell: CellPos | null } | null>(null)
+
+  /* The two selections, readable from a handler without becoming one of its
+   * dependencies.
+   *
+   * `GridRow` is memoized on its props, so every handler it receives has to keep
+   * a stable identity or the whole visible window re-renders on each selection
+   * change — precisely while a drag is producing one per frame. A mouse handler
+   * needs to *read* the current selection (to decide what a shift-press extends
+   * from, or whether a right-click landed inside one) but never needs to
+   * re-subscribe when it changes, which is exactly what a ref is for. */
+  const rowSelectionRef = useRef(rowSelection)
+  rowSelectionRef.current = rowSelection
+  const rangeRef = useRef(range)
+  rangeRef.current = range
 
   const schema = snap.schema
   const rowCount = snap.rowCount
@@ -272,7 +335,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
     swapRef.current = null
 
     if (swap !== null) {
-      setSelected(null)
+      setRange(null)
       setExpanded(null)
       setRowSelection(EMPTY_SELECTION)
       setMenu(null)
@@ -429,12 +492,13 @@ export function DataGrid(props: DataGridProps): ReactElement {
     void navigator.clipboard.writeText(plan.text).then(
       () => {
         // tStatic, not `t`: a toast is worded once, when it is raised.
-        notify(
-          'info',
-          plan.truncated > 0
-            ? `${done} ${tStatic('grid.copy.previewOnly', { count: plan.truncated })}`
-            : done,
-        )
+        // Truncation is reported before pending when both apply: a preview is a
+        // real value cut short, a pending cell is no value at all, and the
+        // second is the more obvious of the two on screen (a row of `···`).
+        let msg = done
+        if (plan.truncated > 0) msg = `${msg} ${tStatic('grid.copy.previewOnly', { count: plan.truncated })}`
+        if (plan.pending > 0) msg = `${msg} ${tStatic('grid.copy.notLoaded', { count: plan.pending })}`
+        notify('info', msg)
       },
       () => {
         // The clipboard can be refused outright; a button that looks like it
@@ -459,6 +523,16 @@ export function DataGrid(props: DataGridProps): ReactElement {
     [copySource, runCopy],
   )
 
+  const copyRange = useCallback(
+    (r: CellRange): void => {
+      runCopy(
+        copyRangePlan(copySource, r),
+        tStatic('grid.copy.cellsDone', { count: rangeCellCount(r) }),
+      )
+    },
+    [copySource, runCopy],
+  )
+
   /* --- Keyboard: with overflow-y hidden there is no native scrolling left, so
    * arrows, page keys, Home and End all have to be handled here --- */
   const onKeyDown = useCallback(
@@ -466,7 +540,9 @@ export function DataGrid(props: DataGridProps): ReactElement {
       const m = driver.metrics
       const page = Math.max(ROW_H, m.bodyH - ROW_H)
       if (e.key === 'Escape') {
+        // Whichever of the two exists — at most one does.
         setRowSelection(EMPTY_SELECTION)
+        setRange(null)
         setMenu(null)
       } else if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
         // Bounded by the same span the attachment will accept. Selecting a
@@ -475,14 +551,23 @@ export function DataGrid(props: DataGridProps): ReactElement {
         // anywhere is worse than one that is simply absent.
         if (rowCount > MAX_SELECTION_SPAN) return
         setRowSelection(selectAllRows(rowCount))
+        setRange(null)
       } else if ((e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'C')) {
-        // Rows win over the cell: a row set is something the user built on
-        // purpose, while the selected cell is wherever they last clicked to
-        // read something. Neither one present means there is nothing to copy,
-        // and the event is left alone rather than swallowed.
+        /*
+         * No precedence to state: the two selections are mutually exclusive, so
+         * at most one of these branches has anything in it. That is the whole
+         * argument for the exclusivity — "which of the two highlighted things
+         * does ⌘C mean" is a question a table should never have to answer.
+         *
+         * The one distinction left is inside the rectangle: a block goes to the
+         * clipboard as TSV with a header, a single cell as the bare value, which
+         * is what makes it pasteable into a query or a ticket.
+         */
         const rows = selectedIndexes(rowSelection)
-        if (rows.length > 0) copyRows(rows)
-        else if (selected !== null) copyCell(selected.row, selected.col)
+        if (range !== null) {
+          if (rangeCellCount(range) > 1) copyRange(range)
+          else copyCell(range.anchor.row, range.anchor.col)
+        } else if (rows.length > 0) copyRows(rows)
         else return
       } else if (e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         driver.scrollTo(e.key === 'ArrowUp' ? 0 : m.maxTop)
@@ -495,7 +580,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
       else return
       e.preventDefault()
     },
-    [driver, rowCount, rowSelection, selected, copyRows, copyCell],
+    [driver, rowCount, rowSelection, range, copyRows, copyCell, copyRange],
   )
 
   const setSurface = useCallback(
@@ -535,28 +620,242 @@ export function DataGrid(props: DataGridProps): ReactElement {
   }
   const stableCols = colsRef.current
 
-  const handleCellClick = useCallback((row: number, col: number, expand: boolean) => {
-    setSelected({ row, col })
+  /* ==================================================================
+   * Dragging: 框选
+   *
+   * Two gestures share one machine, because they are the same motion started
+   * over different territory — the row-number gutter selects rows, anywhere
+   * else selects a rectangle of cells. What they build is deliberately
+   * separate (see the note on `rowSelection` above); how they are tracked is
+   * not, and duplicating the pointer plumbing twice over would be two chances
+   * to get the auto-scroll wrong.
+   * ================================================================== */
+
+  const dragRef = useRef<GridDrag | null>(null)
+  /** Set on mouse-up when the gesture moved, and consumed by the `click` that follows it. */
+  const suppressClickRef = useRef(false)
+  /** The last pointer position, in client coordinates. Auto-scroll re-reads it every frame. */
+  const pointerRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  const autoRef = useRef<number | null>(null)
+
+  /**
+   * Which cell is under a client point — computed, never looked up in the DOM.
+   *
+   * `document.elementFromPoint` would be the obvious way and is wrong twice
+   * over: while auto-scrolling the pointer is usually *outside* the grid, where
+   * there are no cells to hit, and the rows above and below the viewport are
+   * real DOM (that is what `ROW_OVERSCAN` is), so a point just past the edge
+   * would hit a row that is not on screen.
+   *
+   * The arithmetic is the same one the renderer lays rows out with — `ROW_H`,
+   * `HEAD_H`, and the driver's virtual `top` — so a hit and the row the user
+   * sees under the pointer cannot disagree. Reading `driver.metrics.top` rather
+   * than any DOM transform is what makes that hold on the frame a 4096-row
+   * origin block flips, where the transform is a block away from the position.
+   */
+  const hitRef = useRef<{ widths: readonly number[]; rowCount: number }>({ widths, rowCount })
+  hitRef.current = { widths, rowCount }
+
+  const hitTest = useCallback(
+    (clientX: number, clientY: number): CellPos | null => {
+      const wrap = wrapRef.current
+      const el = scrollRef.current
+      if (!wrap || !el) return null
+      const { widths: w, rowCount: count } = hitRef.current
+      if (count === 0 || w.length === 0) return null
+      const rect = wrap.getBoundingClientRect()
+
+      const y = clientY - rect.top - HEAD_H + driver.metrics.top
+      const row = Math.min(count - 1, Math.max(0, Math.floor(y / ROW_H)))
+
+      // Linear scan over the prefix sums. The column count is bounded by the
+      // schema, so this is a handful of additions; a maintained prefix-sum array
+      // would be one more thing to keep in step with resizing for no gain.
+      const x = clientX - rect.left + el.scrollLeft - GUTTER_W
+      let col = w.length - 1
+      let acc = 0
+      for (let i = 0; i < w.length; i += 1) {
+        acc += w[i] ?? 0
+        if (x < acc) {
+          col = i
+          break
+        }
+      }
+      return { row, col: Math.max(0, col) }
+    },
+    [driver],
+  )
+
+  /** Extend whichever selection the drag is building to the cell now under the pointer. */
+  const extendDrag = useCallback((pos: CellPos): void => {
+    const d = dragRef.current
+    if (!d) return
+    // Each branch clears the other selection: the two are exclusive, and a drag
+    // is the most deliberate way there is to say which one you mean.
+    if (d.kind === 'rows') {
+      if (!d.moved && pos.row === d.anchor) return
+      d.moved = true
+      setRowSelection(applyRowDrag(d.base, d.anchor, pos.row, d.additive))
+      setRange(null)
+    } else {
+      if (!d.moved && pos.row === d.anchor.row && pos.col === d.anchor.col) return
+      d.moved = true
+      setRange(rangeFrom(d.anchor, pos.row, pos.col, MAX_SELECTION_SPAN))
+      setRowSelection(EMPTY_SELECTION)
+    }
+  }, [])
+
+  /**
+   * Scroll the grid while the pointer sits against an edge, and keep extending.
+   *
+   * The selection is re-derived from the *stored* pointer position on every
+   * frame, not from a move event — with the pointer held still against the
+   * bottom edge there are no more move events, and the rows scrolling past
+   * underneath still have to join the selection. That is the behaviour every
+   * file manager and spreadsheet has.
+   */
+  const stopAutoScroll = useCallback((): void => {
+    if (autoRef.current !== null) {
+      cancelAnimationFrame(autoRef.current)
+      autoRef.current = null
+    }
+  }, [])
+
+  const tickAutoScroll = useCallback((): void => {
+    autoRef.current = null
+    if (!dragRef.current) return
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const rect = wrap.getBoundingClientRect()
+    const { x, y } = pointerRef.current
+
+    const top = rect.top + HEAD_H
+    const above = top + AUTOSCROLL_BAND - y
+    const below = y - (rect.bottom - AUTOSCROLL_BAND)
+    let dy = 0
+    if (above > 0) dy = -speedFor(above)
+    else if (below > 0) dy = speedFor(below)
+
+    if (dy !== 0) {
+      driver.scrollBy(dy)
+      const pos = hitTest(x, y)
+      if (pos) extendDrag(pos)
+    }
+    autoRef.current = requestAnimationFrame(tickAutoScroll)
+  }, [driver, hitTest, extendDrag])
+
+  /**
+   * Arm a drag. Called from `mousedown`, which does **not** change any selection
+   * of its own: the `click` that follows on mouse-up still carries the existing
+   * plain/shift/⌘ rules, so a press that never moves behaves exactly as it did
+   * before this feature existed. Only the first move off the starting cell turns
+   * the gesture into a drag.
+   *
+   * A shift-press measures from the anchor already on screen, which is what lets
+   * someone grab the far end of a range they built and pull it. With nothing
+   * selected there is nothing to extend, and the press itself is the anchor.
+   */
+  const handleGridMouseDown = useCallback(
+    (row: number, col: number, gutter: boolean, mods: { shift: boolean; toggle: boolean }): void => {
+      if (gutter) {
+        const rows = rowSelectionRef.current
+        const anchor = mods.shift && rows.anchor !== null ? rows.anchor : row
+        dragRef.current = {
+          kind: 'rows',
+          anchor,
+          additive: mods.toggle,
+          base: rows,
+          moved: false,
+        }
+      } else {
+        const r = rangeRef.current
+        const anchor = mods.shift && r !== null ? r.anchor : { row, col }
+        dragRef.current = { kind: 'cells', anchor, moved: false }
+      }
+    },
+    [],
+  )
+
+  /* The pointer listeners live on `window`, not on the row.
+   *
+   * `setPointerCapture` would be the modern spelling, but capture is held by a
+   * specific element and rows are unmounted as they virtualize away — so the
+   * capture would be dropped mid-drag by the very scrolling the drag asked for.
+   * A window listener depends on no node that can disappear. */
+  useEffect(() => {
+    const onMove = (e: MouseEvent): void => {
+      if (!dragRef.current) return
+      pointerRef.current = { x: e.clientX, y: e.clientY }
+      const pos = hitTest(e.clientX, e.clientY)
+      if (pos) extendDrag(pos)
+      if (autoRef.current === null) autoRef.current = requestAnimationFrame(tickAutoScroll)
+    }
+    const onUp = (): void => {
+      const d = dragRef.current
+      dragRef.current = null
+      stopAutoScroll()
+      // A gesture that moved has already said what it meant; the `click` that
+      // browsers deliver after it would re-run the plain-click rules on top and
+      // collapse the selection to one row, or pop the value modal open.
+      suppressClickRef.current = d?.moved === true
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      stopAutoScroll()
+    }
+  }, [hitTest, extendDrag, tickAutoScroll, stopAutoScroll])
+
+  const handleCellClick = useCallback((row: number, col: number, expand: boolean, shift: boolean) => {
+    setRange((prev) =>
+      shift && prev !== null
+        ? rangeFrom(prev.anchor, row, col, MAX_SELECTION_SPAN)
+        : rangeAt(row, col),
+    )
+    setRowSelection(EMPTY_SELECTION)
     if (expand) setExpanded({ row, col })
   }, [])
 
   /**
-   * Row selection, from the two gestures a table is expected to have.
+   * Row selection, from the gestures a table is expected to have.
    *
-   * `gutter` is what separates "I clicked a row number" from "I clicked a cell".
-   * A plain click on a cell must not replace the row selection: people click
-   * cells constantly to read them, and popping the action bar up every time —
-   * or worse, silently discarding a selection they built — makes the feature
-   * something to fight. So a plain cell click is inspection only, while the row
-   * number is the selection handle and shift/⌘ work from anywhere on the row.
+   * `gutter` is what separates "I clicked a row number" from "I clicked a cell",
+   * and it is now the **only** way to reach the row selection: the row number is
+   * the selection handle, and shift/⌘ modify it only there.
+   *
+   * It used to be reachable from anywhere on the row, with a plain cell click
+   * deliberately left inert so that reading values never disturbed a selection
+   * someone had built. Both halves of that go away with the rectangle: shift on
+   * a cell now unambiguously extends the rectangle, and a plain cell click is a
+   * 1×1 rectangle rather than a no-op — which under the exclusivity rule means
+   * it clears the rows. The old note is preserved in the design record, with
+   * what it cost to overturn.
    */
   const handleRowSelect = useCallback(
     (row: number, mods: { shift: boolean; toggle: boolean; gutter: boolean }): void => {
-      if (!mods.gutter && !mods.shift && !mods.toggle) return
+      if (!mods.gutter) return
       setRowSelection((prev) => applyRowClick(prev, row, { shift: mods.shift, toggle: mods.toggle }))
+      setRange(null)
     },
     [],
   )
+
+  /**
+   * Swallow the `click` a completed drag leaves behind.
+   *
+   * Captured on the wrap so it is stopped before it reaches the row, which is
+   * the only place both halves of a click (row selection *and* cell focus /
+   * expand) can be cancelled at once. Cancelling inside each handler instead
+   * would need the flag cleared by whichever of them ran last — an ordering
+   * nobody should have to remember.
+   */
+  const onClickCapture = useCallback((e: ReactMouseEvent<HTMLDivElement>): void => {
+    if (!suppressClickRef.current) return
+    suppressClickRef.current = false
+    e.stopPropagation()
+  }, [])
 
   const clearRowSelection = useCallback(() => {
     setRowSelection(EMPTY_SELECTION)
@@ -565,10 +864,74 @@ export function DataGrid(props: DataGridProps): ReactElement {
   /** The column headers' own menu; the rows' is `menu`/`ContextMenu` below. */
   const headerMenu = useContextMenu<string>()
 
-  const handleRowContextMenu = useCallback((row: number, col: number, x: number, y: number): void => {
-    setSelected({ row, col })
-    setMenu({ x, y, cell: col < 0 ? null : { row, col } })
-  }, [])
+  /**
+   * The right-click, which selects only when it lands outside the selection.
+   *
+   * Right-clicking *inside* what is already selected must leave it alone — that
+   * press is how both "add these rows to the chat" and "copy this block" are
+   * reached, and a menu that cleared the selection on the way to opening would
+   * have nothing left to act on by the time it appeared. This is what every
+   * file manager does, and it is the one exception to the exclusivity rule
+   * above: the press is not a new selection, it is a question about the
+   * existing one.
+   *
+   * Outside the selection it behaves as a left click: the cell becomes a 1×1
+   * rectangle and the rows are dropped. A press on the gutter (`col < 0`) never
+   * builds a rectangle, so there it only drops one.
+   */
+  const handleRowContextMenu = useCallback(
+    (row: number, col: number, x: number, y: number): void => {
+      setMenu({ x, y, cell: col < 0 ? null : { row, col } })
+      if (isRowSelected(rowSelectionRef.current, row)) return
+      if (col >= 0 && isInRange(rangeRef.current, row, col)) return
+      setRowSelection(EMPTY_SELECTION)
+      setRange(col < 0 ? null : rangeAt(row, col))
+    },
+    [],
+  )
+
+  /**
+   * The current selection as an attachment descriptor, or null when nothing is
+   * selected.
+   *
+   * Built here and not by the reader because this is the only place that can:
+   * `range` carries column *indexes*, and turning them into the column names an
+   * attachment addresses needs the schema. Rows and rectangles collapse into one
+   * value because they are mutually exclusive on screen.
+   */
+  const selectionSpec = useMemo<GridSelectionSpec | null>(() => {
+    if (shownResultId === undefined) return null
+    if (range) {
+      const columns = columnNamesIn(schema, range)
+      if (columns.length === 0) return null
+      return {
+        kind: 'cells',
+        viewId: view.id,
+        resultId: shownResultId,
+        r0: range.r0,
+        // Clamped to what an attachment may carry — the rectangle itself is
+        // allowed to be far bigger, because the clipboard can take it.
+        r1: Math.min(range.r1, range.r0 + MAX_CHAT_ATTACHMENT_ROWS - 1),
+        columns,
+      }
+    }
+    const rowIndexes = selectedIndexes(rowSelection)
+    if (rowIndexes.length === 0) return null
+    return { kind: 'rows', viewId: view.id, resultId: shownResultId, rowIndexes }
+  }, [range, rowSelection, schema, shownResultId, view.id])
+
+  // Publish it for the surfaces outside this subtree — `@` in the composer, and
+  // the shortcut that will attach it. Clearing is by view id, so a grid that
+  // loses its selection cannot wipe another grid's.
+  useEffect(() => {
+    if (selectionSpec) publishGridSelection(selectionSpec)
+    else clearGridSelection(view.id)
+  }, [selectionSpec, view.id])
+
+  // Unmounting counts as losing it: a closed tab must not stay attachable.
+  useEffect(() => () => {
+    clearGridSelection(view.id)
+  }, [view.id])
 
   const closeMenu = useCallback(() => {
     setMenu(null)
@@ -589,6 +952,8 @@ export function DataGrid(props: DataGridProps): ReactElement {
 
   const rows: ReactElement[] = []
   for (let i = geom.renderFirst; i <= geom.renderLast; i += 1) {
+    const inRangeRow = range !== null && rangeHasRow(range, i)
+    const isAnchorRow = range !== null && range.anchor.row === i
     rows.push(
       <GridRow
         key={i}
@@ -601,13 +966,20 @@ export function DataGrid(props: DataGridProps): ReactElement {
         width={totalWidth}
         cols={stableCols}
         dataVersion={isRowLoaded(shownResultId, i) ? 0 : snap.version}
-        selectedCol={selected && selected.row === i ? selected.col : -1}
+        // Three numbers, not the range object: `GridRow` is memoized on its
+        // props, and a fresh `CellRange` identity on every drag frame would
+        // re-render the whole window even for the rows the rectangle never
+        // touched. Same argument as `rowSelected` below.
+        anchorCol={isAnchorRow ? range.anchor.col : -1}
+        rangeC0={inRangeRow ? range.c0 : -1}
+        rangeC1={inRangeRow ? range.c1 : -1}
         // A boolean, not the Set: `GridRow` is memoized on its props, and
         // handing every row the same Set identity would defeat that for the
         // whole window on every selection change.
         rowSelected={isRowSelected(rowSelection, i)}
         onCellClick={handleCellClick}
         onRowSelect={handleRowSelect}
+        onRowMouseDown={handleGridMouseDown}
         onRowContextMenu={handleRowContextMenu}
       />,
     )
@@ -628,6 +1000,20 @@ export function DataGrid(props: DataGridProps): ReactElement {
       },
     })
   }
+  // Offered only for a real block, and only when the right-click landed inside
+  // it: a menu item that would copy a rectangle somewhere else on screen is a
+  // trap. The 1×1 case is already covered by "copy cell" above.
+  if (range !== null && rangeCellCount(range) > 1 && menu?.cell && isInRange(range, menu.cell.row, menu.cell.col)) {
+    const block = range
+    copyItems.push({
+      id: 'copy-range',
+      label: t('grid.copy.cells', { count: rangeCellCount(block) }),
+      title: t('grid.copy.cellsTitle'),
+      onSelect: () => {
+        copyRange(block)
+      },
+    })
+  }
   const selectedRowIndexes = selectedIndexes(rowSelection)
   if (selectedRowIndexes.length > 0) {
     copyItems.push({
@@ -640,6 +1026,15 @@ export function DataGrid(props: DataGridProps): ReactElement {
     })
   }
 
+  // Offered to the menu on the same three conditions as "copy N cells" above: a
+  // rectangle, more than one cell, and the right-click inside it.
+  const menuRange = range !== null
+    && rangeCellCount(range) > 1
+    && menu?.cell
+    && isInRange(range, menu.cell.row, menu.cell.col)
+    ? range
+    : null
+
   const contextTarget: ContextTarget = {
     view,
     ...(shownResultId === undefined ? {} : { resultId: shownResultId }),
@@ -647,6 +1042,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
     ...(menu?.cell && schema?.[menu.cell.col]
       ? { cell: { rowIndex: menu.cell.row, column: schema[menu.cell.col].name } }
       : {}),
+    ...(menuRange ? { cellRange: { r0: menuRange.r0, r1: menuRange.r1, columns: columnNamesIn(schema, menuRange) } } : {}),
     rowCount,
   }
 
@@ -678,6 +1074,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
         ref={wrapRef}
         tabIndex={0}
         onKeyDown={onKeyDown}
+        onClickCapture={onClickCapture}
       >
         <div
           className="grid-scroll relative flex-1 min-h-0 min-w-0 overflow-x-auto overflow-y-hidden overscroll-y-contain overflow-anchor-none bg-bg contain-layout contain-paint outline-none"
@@ -685,9 +1082,21 @@ export function DataGrid(props: DataGridProps): ReactElement {
         >
           {/* Height is always 100%: no dimension in the DOM is derived from
               rowCount any more, so the 16,777,214px wall simply does not exist */}
-          <div className="grid-inner relative h-full" style={{ width: totalWidth }}>
+          {/* `min-w-full` on both of these is one decision, not two: the header
+              strip below is a piece of the *panel's* furniture, so its width has
+              the panel as a floor and the content only as a ceiling. Without it
+              the strip is exactly `totalWidth` wide and stops dead mid-panel —
+              a 54px stub over the empty-state hint when there are no columns at
+              all, a severed bottom rule when the columns simply don't fill the
+              width. `min-width: 100%` resolves against the *containing block*,
+              which for the strip is this node, so the floor has to be passed
+              down a level: this one takes it from `.grid-scroll`, the strip
+              takes it from this one. `width` and `min-width` together resolve to
+              the larger, so the normal case — more columns than fit — is
+              untouched and the strip still scrolls with the columns. */}
+          <div className="grid-inner relative h-full min-w-full" style={{ width: totalWidth }}>
             <div
-              className="sticky top-0 z-4 h-head bg-bg-2 shadow-rule-b-strong"
+              className="sticky top-0 z-4 h-head bg-bg-2 shadow-rule-b-strong min-w-full"
               style={{ width: totalWidth }}
             >
               <div className="sticky left-0 z-5 inline-block align-top w-gutter h-head bg-bg-2 shadow-rule-r-strong" />
@@ -716,7 +1125,9 @@ export function DataGrid(props: DataGridProps): ReactElement {
                     <span className="truncate">{col.name}</span>
                     <span className="text-fg-faint text-micro flex-none">{col.nativeType}</span>
                     {s ? (
-                      <span className="text-accent flex-none">{s.dir === 'asc' ? '▲' : '▼'}</span>
+                      <span className="text-accent flex-none flex">
+                        <Icon name={s.dir === 'asc' ? 'sort.asc' : 'sort.desc'} size="sm" />
+                      </span>
                     ) : null}
                     {/* The 7px drag bar. `opacity-70` is unconditional and that
                         is not a shortcut: at rest the bar has no background at
@@ -764,7 +1175,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
         ) : null}
 
         <SelectionActionBar
-          viewId={view.id}
+          view={view}
           resultId={shownResultId}
           selection={rowSelection}
           onClear={clearRowSelection}
@@ -841,6 +1252,39 @@ function stopClick(e: ReactMouseEvent): void {
   e.stopPropagation()
 }
 
+/**
+ * How fast the grid scrolls under a drag, given how far into the edge band the
+ * pointer has pushed.
+ *
+ * Linear in the depth rather than constant, so a pointer resting just inside the
+ * band creeps — which is what you want when picking the row after the last
+ * visible one — and one shoved hard against the edge covers ground. The cap is
+ * per frame, so at 60Hz it works out to roughly 180 rows a second: fast enough
+ * to be worth doing, slow enough that the rows joining the selection can still
+ * be read as they go by.
+ */
+function speedFor(depth: number): number {
+  const t = Math.min(1, depth / AUTOSCROLL_BAND)
+  return ROW_H * (0.5 + t * (AUTOSCROLL_MAX_ROWS_PER_FRAME - 0.5))
+}
+
+/**
+ * The names of the columns a rectangle spans, left to right.
+ *
+ * Names and not indexes, because that is what an attachment addresses: a result
+ * re-run with a different projection leaves an index pointing silently at the
+ * wrong column. Columns the schema cannot account for are skipped rather than
+ * guessed at.
+ */
+function columnNamesIn(schema: readonly ColumnDef[] | null | undefined, range: CellRange): string[] {
+  const out: string[] = []
+  for (let col = range.c0; col <= range.c1; col += 1) {
+    const name = schema?.[col]?.name
+    if (name !== undefined) out.push(name)
+  }
+  return out
+}
+
 /* ------------------------------------------------------------------ */
 /* Row component: memo plus a fixed row height means props stay constant   */
 /* while scrolling, so re-renders are skipped entirely.                    */
@@ -856,11 +1300,21 @@ interface GridRowProps {
   /** 0 once the row is loaded; otherwise it tracks the result version, so the
    *  row refreshes by itself when its data arrives. */
   dataVersion: number
-  selectedCol: number
+  /** The rectangle's anchor if it is on this row, else -1. */
+  anchorCol: number
+  /** The rectangle's column bounds if it covers this row, else -1/-1. */
+  rangeC0: number
+  rangeC1: number
   /** Part of the row set staged for "add these to the chat". */
   rowSelected: boolean
-  onCellClick: (row: number, col: number, expand: boolean) => void
+  onCellClick: (row: number, col: number, expand: boolean, shift: boolean) => void
   onRowSelect: (row: number, mods: { shift: boolean; toggle: boolean; gutter: boolean }) => void
+  onRowMouseDown: (
+    row: number,
+    col: number,
+    gutter: boolean,
+    mods: { shift: boolean; toggle: boolean },
+  ) => void
   /** `col` is -1 when the pointer was over the row-number gutter. */
   onRowContextMenu: (row: number, col: number, x: number, y: number) => void
 }
@@ -873,12 +1327,33 @@ const GridRow = memo(function GridRow(props: GridRowProps): ReactElement {
     top,
     width,
     cols,
-    selectedCol,
+    anchorCol,
+    rangeC0,
+    rangeC1,
     rowSelected,
     onCellClick,
     onRowSelect,
+    onRowMouseDown,
     onRowContextMenu,
   } = props
+
+  /* The press that may become a drag. Delegated to the row like everything else
+   * here, and deliberately not on the cells: a `mousedown` handler per cell
+   * would be one closure per visible cell, allocated on every scroll frame. */
+  const onMouseDown = (e: ReactMouseEvent<HTMLDivElement>): void => {
+    // Left button only. A right-click has its own path, and a middle-click that
+    // armed a drag would leave the machine waiting for a mouse-up that the
+    // window listener does see — but for a gesture the user never began.
+    if (e.button !== 0) return
+    const target = e.target as HTMLElement
+    const gutter = target.dataset['gutter'] !== undefined
+    const raw = target.dataset['col']
+    if (!gutter && raw === undefined) return
+    onRowMouseDown(rowIndex, raw === undefined ? 0 : Number(raw), gutter, {
+      shift: e.shiftKey,
+      toggle: e.metaKey || e.ctrlKey,
+    })
+  }
 
   // Cells carry no handlers of their own: the event is delegated to the row and
   // the column index is read back off data-col
@@ -895,7 +1370,7 @@ const GridRow = memo(function GridRow(props: GridRowProps): ReactElement {
     // row set keeps opening the value modal.
     const modified = e.shiftKey || e.metaKey || e.ctrlKey
     const expand = !modified && (isTruncatedValue(value) || (e.detail >= 2 && isExpandable(value)))
-    onCellClick(rowIndex, col, expand)
+    onCellClick(rowIndex, col, expand, e.shiftKey)
   }
 
   const onContextMenu = (e: ReactMouseEvent<HTMLDivElement>): void => {
@@ -917,16 +1392,23 @@ const GridRow = memo(function GridRow(props: GridRowProps): ReactElement {
   // layering over it. See cellSurfaceClass in util/format.ts.
   const rowSurface = cellSurfaceClass(odd, rowSelected, false)
   const selectedSurface = cellSurfaceClass(odd, rowSelected, true)
+  const rangeSurface = cellSurfaceClass(odd, rowSelected, false, true)
 
   const cells: ReactElement[] = []
   for (const vc of cols) {
     const value = getCell(resultId, rowIndex, vc.index)
     const logical = schema ? schema[vc.index]?.logical : undefined
     const base = cellClass(value, logical)
+    const surface =
+      vc.index === anchorCol
+        ? selectedSurface
+        : rangeC0 >= 0 && vc.index >= rangeC0 && vc.index <= rangeC1
+          ? rangeSurface
+          : rowSurface
     cells.push(
       <div
         key={vc.index}
-        className={`${base} ${vc.index === selectedCol ? selectedSurface : rowSurface}`}
+        className={`${base} ${surface}`}
         data-col={vc.index}
         style={{ left: GUTTER_W + vc.start, width: vc.size }}
       >
@@ -939,6 +1421,7 @@ const GridRow = memo(function GridRow(props: GridRowProps): ReactElement {
     <div
       className={ROW_CLASS}
       style={style}
+      onMouseDown={onMouseDown}
       onClick={onClick}
       onContextMenu={onContextMenu}
     >
@@ -987,7 +1470,7 @@ const ROWNUM_SELECTED_CLASS = 'grid-rownum sticky left-0 z-2 inline-block align-
  * editor's shortcut hints follow. It is the one place the selection gesture is
  * discoverable without trying it.
  */
-const ROWNUM_TITLE = 'click · ⇧ range · ⌘/ctrl toggle'
+const ROWNUM_TITLE = 'click · drag · ⇧ range · ⌘/ctrl toggle'
 
 /* ------------------------------------------------------------------ */
 

@@ -7,7 +7,7 @@
  * app — see `docs/design/2026-08-03-plugin-architecture.md` §2.4bis(c).
  *
  * Kept rather than deleted because the alternative was rewriting the import line
- * in thirteen tool files, the executor, the registry, the server and their tests
+ * in fourteen tool files, the executor, the registry, the server and their tests
  * to say the same thing in a longer way. A file that only re-exports is easy to
  * mistake for cruft; this one is load-bearing in the sense that matters — it made
  * a contract move show up in the diff as a contract move, not as forty touched

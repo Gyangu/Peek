@@ -201,3 +201,63 @@ test('touching a session nobody recorded is a no-op, not a new row', () => {
     assert.deepEqual(index.list(), [])
   })
 })
+
+/* ================================================================== */
+/* The working directory a conversation was pinned to                  */
+/* ================================================================== */
+
+test('a pinned working directory survives a restart, and its absence still means the default', () => {
+  withDir((dir) => {
+    const index = SessionIndex.at(dir)
+    index.record({ sessionId: 'pinned', backend: 'acp', agentId: 'claude-code', cwd: '/work/api' })
+    index.record({ sessionId: 'plain', backend: 'acp', agentId: 'claude-code' })
+
+    // Not a preference that can be re-derived. For `session/load` the cwd is how
+    // the agent *finds* the transcript, so a route that lost it does not resume
+    // the wrong conversation — it resumes none.
+    const reopened = SessionIndex.at(dir)
+    assert.equal(reopened.lookup('pinned')?.cwd, '/work/api')
+    assert.equal(reopened.lookup('plain')?.cwd, undefined)
+  })
+})
+
+test('a route recorded before working directories existed still reads', () => {
+  withDir((dir) => {
+    // Written by hand in the older shape, which is the shape every route in a
+    // real installation has today. Absent must go on meaning "peek's own
+    // directory" rather than becoming a route that cannot be opened.
+    writeFileSync(
+      join(dir, SESSION_INDEX_FILE),
+      JSON.stringify({
+        version: 1,
+        routes: { legacy: { sessionId: 'legacy', backend: 'acp', agentId: 'claude-code', createdAt: 1 } },
+      }),
+    )
+    const route = SessionIndex.at(dir).lookup('legacy')
+    assert.equal(route?.agentId, 'claude-code')
+    assert.equal(route?.cwd, undefined)
+  })
+})
+
+test('a malformed working directory costs the directory, not the conversation', () => {
+  withDir((dir) => {
+    // Same rule as `title` beside it: a route that cannot state its directory
+    // falls back to the default, where it may fail to load and say so. Dropping
+    // the whole route would instead take the conversation out of the catalogue,
+    // which is a worse answer to a hand-edited file.
+    writeFileSync(
+      join(dir, SESSION_INDEX_FILE),
+      JSON.stringify({
+        version: 1,
+        routes: {
+          a: { sessionId: 'a', backend: 'acp', agentId: 'claude-code', createdAt: 1, cwd: 42 },
+          b: { sessionId: 'b', backend: 'acp', agentId: 'claude-code', createdAt: 2, cwd: '' },
+        },
+      }),
+    )
+    const index = SessionIndex.at(dir)
+    assert.equal(index.list().length, 2)
+    assert.equal(index.lookup('a')?.cwd, undefined)
+    assert.equal(index.lookup('b')?.cwd, undefined)
+  })
+})

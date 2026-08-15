@@ -1,12 +1,12 @@
 import {
   isRefreshableViewKind,
-  refreshPatch,
   type RefreshableView,
   type ResultId,
   type ViewId,
   type Workspace,
 } from '@peek/core'
 import type { CommandBus } from './bus'
+import { refreshCommand, resultIdOf } from './refresh-command'
 import { setAutoRefresh } from './store/mutations'
 import type { WorkspaceStore } from './store/workspace-store'
 
@@ -244,35 +244,3 @@ function gradeLastRound(state: Workspace, entry: Tracked): { consecutiveErrors: 
   return { consecutiveErrors: 0, consumed: true }
 }
 
-interface RefreshCommand {
-  name: 'view.update' | 'query.run'
-  input: unknown
-}
-
-/**
- * The command that re-runs one view, by kind.
- *
- * The vector and package patches are empty on purpose: `applyViewPatch` changes
- * nothing, and `refresh: true` is what asks for the fetch — the same shape the
- * table view's Next-page button has always used. A table goes through
- * `refreshPatch` instead, because on a cursor-paged collection "refresh" has to
- * say `offset: 0` or it silently pages forward.
- */
-function refreshCommand(view: RefreshableView): RefreshCommand {
-  switch (view.kind) {
-    case 'table':
-      return { name: 'view.update', input: { viewId: view.id, patch: refreshPatch(view.ref), refresh: true } }
-    case 'query':
-      return { name: 'query.run', input: { viewId: view.id, text: view.text } }
-    case 'vector':
-      return { name: 'view.update', input: { viewId: view.id, patch: { kind: 'vector' }, refresh: true } }
-    case 'package':
-      return { name: 'view.update', input: { viewId: view.id, patch: { kind: 'package' }, refresh: true } }
-  }
-}
-
-function resultIdOf(data: unknown): ResultId | null {
-  if (typeof data !== 'object' || data === null) return null
-  const id = (data as { resultId?: unknown }).resultId
-  return typeof id === 'string' ? (id as ResultId) : null
-}

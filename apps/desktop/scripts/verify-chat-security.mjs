@@ -25,6 +25,31 @@
  * (a probe that printed a document and left a human to judge it). Both are gone;
  * what they measured is below, with a verdict and an exit code.
  *
+ * ## What it verifies since 2026-08-15, which is not what it used to
+ *
+ * The chat panel's built-in tools became a setting. A user can switch them on,
+ * and then the agent has a shell — see
+ * `docs/design/2026-08-15-chat-panel-full-capability.md` §2.5 for why peek
+ * offers that and does not defend against it.
+ *
+ * So this script no longer verifies an absolute property. **It verifies the
+ * default, and it verifies that peek tells the truth when the default is
+ * given up.** Concretely:
+ *
+ *  - Every check below runs against the configuration peek ships (`{}`, not the
+ *    machine's real settings). Those assertions are unchanged and must stay
+ *    green: "out of the box, the chat panel cannot run a shell" is still a fact
+ *    and this is still what makes it one.
+ *  - Section 1b checks the switch itself — that it withdraws exactly the tool
+ *    restrictions it advertises, that it does **not** take filesystem-settings
+ *    isolation along with them, and that the tier peek reports moves to
+ *    `relaxed` so the settings panel has something honest to say.
+ *
+ * The distinction matters when a check goes red. "The sandbox broke" and "the
+ * user turned the sandbox off" are different events, and only the first one is
+ * this script's business. Nothing here reads the user's settings, so it can
+ * never be reporting the second.
+ *
  * ## Usage
  *
  *     pnpm --filter @peek/desktop build
@@ -53,7 +78,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire, registerHooks } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -385,13 +410,19 @@ async function main() {
     endpoint = await waitForEndpoint(configDir, child)
 
     /* ---------------------------------------------------------------- */
-    console.log('1. The sandbox peek asks for')
+    console.log('1. The sandbox peek asks for, at its default configuration')
     /* ---------------------------------------------------------------- */
 
     // The sandbox is per-agent now: Claude Code expresses it as `_meta`, Codex as
     // an environment variable. This probe checks Claude Code — it is the profile
     // peek marks `enforced`, and this script is what that claim rests on. A Codex
     // equivalent is what would let its profile stop saying `unverified`.
+    //
+    // **`{}` is load-bearing.** Since 2026-08-15 a user can switch the built-in
+    // tools back on, and every assertion below is about the configuration peek
+    // ships, not about one it can promise. Passing the user's real settings here
+    // would have this script go red for a machine that is behaving exactly as
+    // asked — see the header note on what this script now measures.
     const { claudeCodeProfile, CLAUDE_DISALLOWED_TOOLS: AGENT_DISALLOWED_TOOLS } =
       await src('main/acp/profiles.ts')
     const options = claudeCodeProfile.buildSessionMeta({})?.claudeCode?.options ?? {}
@@ -411,6 +442,43 @@ async function main() {
         AGENT_DISALLOWED_TOOLS.includes(shell) && (options.disallowedTools ?? []).includes(shell),
       )
     }
+
+    /* ---------------------------------------------------------------- */
+    console.log('\n1b. And what it stops asking for when the user says so')
+    /* ---------------------------------------------------------------- */
+
+    /*
+     * The other half of a switch that gives a guarantee away: that it gives away
+     * what it says it does, and keeps what it says it keeps.
+     *
+     * There is nothing to *verify* about a session with a shell in it — the
+     * checks above have no meaning once the tools they exclude are wanted. What
+     * can still be checked is whether peek is telling the truth about the trade,
+     * and that is what these three are. A switch that quietly took more than it
+     * advertised would pass every assertion in section 1 and still be the worst
+     * bug in this file.
+     */
+    const openOptions = claudeCodeProfile.buildSessionMeta({ fullTools: true })?.claudeCode?.options ?? {}
+    check(
+      'the switch withdraws the tool restrictions it advertises',
+      openOptions.tools === undefined && openOptions.disallowedTools === undefined,
+      `tools = ${JSON.stringify(openOptions.tools)}, disallowedTools = ${JSON.stringify(openOptions.disallowedTools)}`,
+    )
+    // The line the switch may not cross. Inheriting the user's own configuration
+    // is a different thing from being given tools, and it is the one that would
+    // make the panel behave differently on every machine — including inheriting
+    // a permission allowlist, which is the measured bug section 1 exists for.
+    check(
+      'and does not quietly take filesystem-settings isolation with it',
+      Array.isArray(openOptions.settingSources) && openOptions.settingSources.length === 0,
+      `settingSources = ${JSON.stringify(openOptions.settingSources)}`,
+    )
+    check(
+      'the tier peek reports moves to `relaxed`, so the panel can say so',
+      claudeCodeProfile.sandbox({ fullTools: true }) === 'relaxed' &&
+        claudeCodeProfile.sandbox({}) === 'enforced',
+      `sandbox({fullTools:true}) = ${claudeCodeProfile.sandbox({ fullTools: true })}`,
+    )
 
     /* ---------------------------------------------------------------- */
     console.log('\n2. What peek’s MCP server actually exposes')
@@ -746,6 +814,44 @@ async function main() {
       note('The copyable registration command belongs in ~/.peek/mcp.json (0600) and behind the settings')
       note('panel’s copy button — the two places that are actually access controlled. Whatever printed')
       note('the line above should log the URL instead; see config/mcp-controller.ts for the shape.')
+    }
+
+    /*
+     * And now the third audience, which is the newest and the most persistent.
+     *
+     * stdout is wide but transient — a terminal buffer, a CI job that ages out.
+     * `~/.peek/logs/` is a **file**, it survives the process, and its entire
+     * purpose is that users can pick it up and send it to somebody. That makes
+     * it the one place a leaked token would travel furthest, which is exactly
+     * why the check is here rather than in a unit test: `scrub.ts` proves the
+     * masking function works on strings a test hands it, and this proves the
+     * real app, run for real, did not write the real token to the real file.
+     *
+     * "Guards nailed to shipped code" (2026-08-12): an assertion aimed at
+     * something that does not ship is one nobody knows whether to believe when
+     * it goes red. A token in a log file is something everybody should believe.
+     */
+    const logDir = join(configDir, 'logs')
+    const logFiles = existsSync(logDir)
+      ? readdirSync(logDir).map((name) => join(logDir, name))
+      : []
+    let leakedInFiles = 0
+    for (const file of logFiles) {
+      const body = readFileSync(file, 'utf8')
+      if (body.includes(endpoint.token)) {
+        leakedInFiles += 1
+        note(`${file} contains the bearer token`)
+      }
+    }
+    check(
+      'no file under ~/.peek/logs/ contains the MCP bearer token',
+      leakedInFiles === 0,
+      logFiles.length === 0 ? 'no log files were written' : `${String(logFiles.length)} file(s) scanned`,
+    )
+    // A run that wrote nothing is not evidence of anything, so it is said out
+    // loud rather than passing quietly as a green check.
+    if (logFiles.length === 0) {
+      note('The logging system wrote no file during this run — the check above proved nothing.')
     }
   } catch (error) {
     if (error !== SKIP) check('the verification run completed', false, String(error?.message ?? error))

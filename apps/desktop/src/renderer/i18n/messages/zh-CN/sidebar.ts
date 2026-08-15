@@ -7,7 +7,7 @@ export const sidebar: CatalogFor<SidebarMessages> = {
   'sidebar.collapse': '收起连接列表',
   'sidebar.expand': '展开连接列表',
   'sidebar.empty': '还没有连接',
-  'sidebar.emptyHint': '点右上角 ＋ 新建',
+  'sidebar.emptyHint': '点右上角新建',
 
   'sidebar.secretStored': '密码已存入系统钥匙串',
   'sidebar.connectHint': '双击连接',

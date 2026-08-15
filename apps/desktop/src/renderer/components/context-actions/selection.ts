@@ -91,6 +91,33 @@ export function applyRowClick(
   return { anchor: index, rows: new Set([index]) }
 }
 
+/**
+ * The selection while a drag is in progress: the range from where the button
+ * went down to the row the pointer is over now.
+ *
+ * `base` is the selection as it stood **when the drag started**, not the one
+ * from the previous frame. Every move re-derives the whole answer from it, which
+ * is what makes dragging back the way you came give rows up again; folding each
+ * frame into the last would make the gesture a ratchet that only ever adds.
+ *
+ * `additive` keeps `base` and adds the range to it (the ⌘-drag), which is the
+ * same rule `applyRowClick` follows for shift+⌘. Without it the range replaces
+ * the selection outright.
+ *
+ * The anchor is passed in rather than read from `base`, because a drag has its
+ * own origin — the row the button went down on — and it must not move while the
+ * far end is being dragged around.
+ */
+export function applyRowDrag(
+  base: RowSelection,
+  anchor: number,
+  index: number,
+  additive: boolean,
+): RowSelection {
+  const range = rangeBetween(anchor, index)
+  return { anchor, rows: additive ? union(base.rows, range) : range }
+}
+
 /** Select every row in `[0, rowCount)`. Bounded by the caller, since the grid knows the count. */
 export function selectAllRows(rowCount: number): RowSelection {
   if (rowCount <= 0) return EMPTY_SELECTION

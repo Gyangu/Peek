@@ -139,28 +139,45 @@ export function cellClass(v: unknown, logical: LogicalType | undefined): string 
   }
 }
 
-/* The four backgrounds, as alternatives rather than as a base plus overrides. */
+/* The five backgrounds, as alternatives rather than as a base plus overrides. */
 const SURFACE_REST = 'bg-bg group-hover:bg-bg-1'
 const SURFACE_STRIPE = 'bg-bg-stripe group-hover:bg-bg-1'
 /** A selected row does not change under the pointer, so it carries no variant. */
 const SURFACE_ROW_SELECTED = 'bg-row-sel'
-/** The focused cell outranks the row it is in, hover included. */
+/**
+ * Inside the dragged rectangle: the focused cell's fill without its ring.
+ *
+ * No border is drawn around the rectangle as a whole. It is virtualized, so its
+ * top and bottom edges are routinely off screen, and half a frame reads as a
+ * bug rather than as a boundary. The fill alone says where the block is, and it
+ * says it on every row that is actually visible.
+ */
+const SURFACE_IN_RANGE = 'bg-bg-sel'
+/** The anchor cell outranks the rest of its own rectangle, hover included. */
 const SURFACE_CELL_SELECTED = 'bg-bg-sel outline outline-accent -outline-offset-1'
 
 /**
  * What a cell is drawn *on*: exactly one background, and the hover variant that
  * goes with it where the row has one.
  *
- * The precedence is the same one the four descendant rules encoded, read top
- * to bottom: the focused cell beats the staged selection, which beats the zebra
+ * The precedence, read top to bottom: the anchor beats the rest of the rectangle
+ * it anchors, which beats the row staged for the chat, which beats the zebra
  * stripe, which beats the resting surface.
+ *
+ * The middle two can never actually meet: the grid keeps the rectangle and the
+ * row selection mutually exclusive, so a cell is offered at most one of them.
+ * The order between them is stated anyway rather than left undefined — a total
+ * function is worth more than a comment claiming a case cannot arise, and if a
+ * later change does let them overlap, the answer is already decided.
  */
 export function cellSurfaceClass(
   odd: boolean,
   rowSelected: boolean,
   cellSelected: boolean,
+  inRange = false,
 ): string {
   if (cellSelected) return SURFACE_CELL_SELECTED
+  if (inRange) return SURFACE_IN_RANGE
   if (rowSelected) return SURFACE_ROW_SELECTED
   return odd ? SURFACE_STRIPE : SURFACE_REST
 }

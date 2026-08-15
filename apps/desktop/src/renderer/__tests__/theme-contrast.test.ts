@@ -62,33 +62,107 @@ const SHEET = 'styles.css'
 const THEME = readFileSync(join(RENDERER, SHEET), 'utf8')
 
 /**
- * Where the `@theme` block starts and ends in `THEME`, as offsets.
+ * The two blocks that declare colours, as offsets into `THEME`.
  *
- * Used twice: to read the palette, and — below — to tell a colour literal that
+ * Used twice: to read the palettes, and — below — to tell a colour literal that
  * *is* the palette from one written into a rule. That distinction used to be
  * "which file is this", which stopped being a question the day there was one
  * file. Offsets rather than a filename keep the exemption exactly as narrow as
- * it was: the block, and nothing else in the sheet.
+ * it was: these blocks, and nothing else in the sheet.
+ *
+ * It was one block until the light palette arrived. Both are exempted for the
+ * same reason and neither is exempted by name — a third block would have to be
+ * added here deliberately, which is the property the offsets were chosen for.
  */
-const THEME_BLOCK = ((): { start: number; end: number } => {
-  const m = /@theme\s*\{([\s\S]*?)\n\}/.exec(THEME)
-  assert.ok(m, `${SHEET} must contain an @theme block`)
-  return { start: m.index, end: m.index + m[0].length }
-})()
+const BLOCK_SOURCES = [
+  { what: '@theme', re: /@theme\s*\{([\s\S]*?)\n\}/ },
+  { what: ":root[data-theme='light']", re: /:root\[data-theme='light'\]\s*\{([\s\S]*?)\n\}/ },
+] as const
 
-/** The `@theme` block's custom properties, as a plain map. */
-function themeVars(css: string): Map<string, string> {
-  const block = /@theme\s*\{([\s\S]*?)\n\}/.exec(css)
-  assert.ok(block, `${SHEET} must contain an @theme block`)
+const THEME_BLOCKS = BLOCK_SOURCES.map(({ what, re }) => {
+  const m = re.exec(THEME)
+  assert.ok(m, `${SHEET} must contain a ${what} block`)
+  return { what, start: m.index, end: m.index + m[0].length, body: m[1] }
+})
+
+/** Whether an offset falls inside one of the palette blocks. */
+function inPaletteBlock(index: number): boolean {
+  return THEME_BLOCKS.some((b) => index >= b.start && index < b.end)
+}
+
+/** One block's custom properties, as a plain map. */
+function declarations(body: string): Map<string, string> {
   const vars = new Map<string, string>()
-  for (const line of block[1].split('\n')) {
+  for (const line of body.split('\n')) {
     const decl = /^\s*(--[a-z0-9-]+)\s*:\s*([^;]+);/i.exec(line)
     if (decl) vars.set(decl[1], decl[2].trim())
   }
   return vars
 }
 
-const VARS = themeVars(THEME)
+/**
+ * The two palettes.
+ *
+ * `dark` is the `@theme` block, which is also the default — nothing selects it,
+ * it is what `:root` says. `light` is that same map with the override block laid
+ * over it, which is exactly what the cascade does to the real `:root`: the
+ * override states only the colours whose value changes, and everything it does
+ * not mention keeps the value above.
+ *
+ * Deriving `light` by overlay rather than reading it standalone is what makes
+ * the eight `color-mix()` tokens resolve correctly without being restated in
+ * the override — the same mechanism the browser uses, for the same reason. See
+ * `design/2026-08-15-light-and-dark-theme.md` §2.2.
+ */
+const THEMES = ['dark', 'light'] as const
+type ThemeName = (typeof THEMES)[number]
+
+const DARK_VARS = declarations(THEME_BLOCKS[0].body)
+const PALETTES: Record<ThemeName, Map<string, string>> = {
+  dark: DARK_VARS,
+  light: new Map([...DARK_VARS, ...declarations(THEME_BLOCKS[1].body)]),
+}
+
+/**
+ * Which palette the assertions below are reading, and what they resolved from it.
+ *
+ * Module-level and switched by `inTheme` rather than threaded through every
+ * helper: `colorOf`, `contrast` and `assertAtLeast` are called from about eighty
+ * places in this file, and adding a parameter to each would have been eighty
+ * chances to pass the wrong one. The switch is synchronous and every assertion
+ * runs synchronously inside it.
+ */
+let CURRENT: ThemeName = 'dark'
+let VARS = PALETTES.dark
+
+/*
+ * Every token some assertion in this file actually resolved, recorded as it is
+ * read rather than listed by hand — and now once per palette, because "measured"
+ * is a fact about a value rather than about a name.
+ *
+ * This is what the coverage test at the foot of the file reads, and recording
+ * beats a list for one reason: a list can go on naming a colour after the
+ * assertion that named it has been deleted. Coverage then reports a palette
+ * fully audited by a test that no longer exists — the same shape of vacuous
+ * pass as every hole this file was written to close.
+ */
+const MEASURED_BY: Record<ThemeName, Set<string>> = { dark: new Set(), light: new Set() }
+let MEASURED = MEASURED_BY.dark
+
+/** Run `body` against one palette, and put the previous one back. */
+function inTheme(theme: ThemeName, body: () => void): void {
+  const previous = CURRENT
+  CURRENT = theme
+  VARS = PALETTES[theme]
+  MEASURED = MEASURED_BY[theme]
+  try {
+    body()
+  } finally {
+    CURRENT = previous
+    VARS = PALETTES[previous]
+    MEASURED = MEASURED_BY[previous]
+  }
+}
 
 /*
  * What used to stand here: an assertion that `--color-*`, `--text-*` and
@@ -191,18 +265,6 @@ test('no Tailwind default colour is named in the renderer', () => {
   )
 })
 
-/*
- * Every token some assertion in this file actually resolved, recorded as it is
- * read rather than listed by hand.
- *
- * This is what the coverage test at the foot of the file reads, and recording
- * beats a list for one reason: a list can go on naming a colour after the
- * assertion that named it has been deleted. Coverage then reports a palette
- * fully audited by a test that no longer exists — the same shape of vacuous
- * pass as every hole this file was written to close.
- */
-const MEASURED = new Set<string>()
-
 /**
  * A colour from `@theme`, as sRGB.
  *
@@ -230,7 +292,7 @@ const MEASURED = new Set<string>()
 function colorOf(name: string): [number, number, number] {
   MEASURED.add(name)
   const raw = VARS.get(name)
-  assert.ok(raw, `${name} is not defined in @theme`)
+  assert.ok(raw, `${name} is not defined in the ${CURRENT} palette`)
   return resolveColor(raw, name, 0)
 }
 
@@ -250,7 +312,7 @@ function resolveColor(raw: string, name: string, depth: number): [number, number
   const ref = /^var\(\s*(--[a-z0-9-]+)\s*\)$/i.exec(text)
   if (ref) {
     const inner = VARS.get(ref[1])
-    assert.ok(inner, `${name} is built from ${ref[1]}, which @theme does not define`)
+    assert.ok(inner, `${name} is built from ${ref[1]}, which the ${CURRENT} palette does not define`)
     return resolveColor(inner, ref[1], depth + 1)
   }
 
@@ -335,102 +397,120 @@ function assertAtLeast(fg: string, bg: string, min: number): void {
 
 /* ------------------------------------------------------------------ */
 
-describe('text contrast', () => {
-  /*
-   * The three surfaces text actually lands on. --color-bg-3 is deliberately
-   * absent: it is a hover/emphasis layer, and the only text drawn on it is
-   * --color-fg or --color-fg-dim, both of which clear 4.5 there with room to
-   * spare. Adding it would pin --color-fg-faint to a combination that has no
-   * instance in the product.
-   */
-  const LAYERS = ['--color-bg', '--color-bg-1', '--color-bg-2'] as const
-
-  for (const weight of ['--color-fg', '--color-fg-dim', '--color-fg-faint'] as const) {
-    test(`${weight} clears AA on every background layer`, () => {
-      for (const layer of LAYERS) assertAtLeast(weight, layer, 4.5)
+/*
+ * The contrast floors, held for **both** palettes.
+ *
+ * Everything inside runs twice, once per theme, and the palette it reads is
+ * switched by `inTheme` around each assertion. A floor that only the dark theme
+ * clears is the failure this loop exists to make impossible — the light palette
+ * would otherwise be a set of colours no assertion in this file had ever looked
+ * at, which is precisely the state every other guard here was written to end.
+ */
+for (const theme of THEMES) {
+  /** `test`, run against this loop's palette. See `inTheme`. */
+  const themedTest = (name: string, body: () => void): void => {
+    test(`${name} [${theme}]`, () => {
+      inTheme(theme, body)
     })
   }
 
-  test('the three weights stay in order and stay apart', () => {
-    // A ladder whose rungs are 0.3 apart is one weight wearing three names.
-    const ratios = (['--color-fg', '--color-fg-dim', '--color-fg-faint'] as const).map((w) =>
-      contrast(w, '--color-bg-1'),
-    )
-    assert.ok(ratios[0] > ratios[1], '--color-fg must read stronger than --color-fg-dim')
-    assert.ok(ratios[1] > ratios[2], '--color-fg-dim must read stronger than --color-fg-faint')
-    assert.ok(ratios[0] - ratios[1] >= 1.5, 'fg and fg-dim are too close to tell apart')
-    assert.ok(ratios[1] - ratios[2] >= 1.5, 'fg-dim and fg-faint are too close to tell apart')
-  })
+  describe('text contrast', () => {
+    /*
+     * The three surfaces text actually lands on. --color-bg-3 is deliberately
+     * absent: it is a hover/emphasis layer, and the only text drawn on it is
+     * --color-fg or --color-fg-dim, both of which clear 4.5 there with room to
+     * spare. Adding it would pin --color-fg-faint to a combination that has no
+     * instance in the product.
+     */
+    const LAYERS = ['--color-bg', '--color-bg-1', '--color-bg-2'] as const
 
-  test('semantic colours are readable on the surfaces they appear on', () => {
-    for (const c of ['--color-accent', '--color-ok', '--color-warn', '--color-err'] as const) {
-      assertAtLeast(c, '--color-bg-1', 4.5)
+    for (const weight of ['--color-fg', '--color-fg-dim', '--color-fg-faint'] as const) {
+      themedTest(`${weight} clears AA on every background layer`, () => {
+        for (const layer of LAYERS) assertAtLeast(weight, layer, 4.5)
+      })
     }
-  })
-})
 
-describe('non-text contrast', () => {
-  test('--color-border-strong clears 3:1, because it outlines real controls', () => {
-    // WCAG 1.4.11: the boundary of a control has to be distinguishable. This is
-    // the variable on inputs, buttons and selects — at its old value (1.62 on
-    // --color-bg-1) a text field was a rumour.
-    // All three layers: a segmented control sits on --color-bg-2 inside the
-    // settings dialog, an input on --color-bg inside a modal, a button on
-    // --color-bg-1 in a toolbar.
-    assertAtLeast('--color-border-strong', '--color-bg', 3)
-    assertAtLeast('--color-border-strong', '--color-bg-1', 3)
-    assertAtLeast('--color-border-strong', '--color-bg-2', 3)
-  })
+    themedTest('the three weights stay in order and stay apart', () => {
+      // A ladder whose rungs are 0.3 apart is one weight wearing three names.
+      const ratios = (['--color-fg', '--color-fg-dim', '--color-fg-faint'] as const).map((w) =>
+        contrast(w, '--color-bg-1'),
+      )
+      assert.ok(ratios[0] > ratios[1], '--color-fg must read stronger than --color-fg-dim')
+      assert.ok(ratios[1] > ratios[2], '--color-fg-dim must read stronger than --color-fg-faint')
+      assert.ok(ratios[0] - ratios[1] >= 1.5, 'fg and fg-dim are too close to tell apart')
+      assert.ok(ratios[1] - ratios[2] >= 1.5, 'fg-dim and fg-faint are too close to tell apart')
+    })
 
-  test('--color-danger-border clears 3:1 too, and is the only red border in the codebase', () => {
-    // Same clause, same reasoning as --color-border-strong: it outlines a control.
-    //
-    // This assertion exists because of a specific escape. Three rules
-    // (.confirm-danger, .chat-perm-reject, .chat-stop) each hard-coded #7a3f3f,
-    // which measures 1.91:1 on --color-bg-2 — under two thirds of the floor the
-    // theme had already committed to. It was never caught because this test reads
-    // the token block, and a literal inside a rule is somewhere it structurally
-    // cannot look. The token is the fix; the sweep in `nothing paints with a
-    // literal colour` is what keeps the literal from coming back. That sweep
-    // used to live inside this test, which is how it ended up only looking at
-    // borders — see the note above it.
-    assertAtLeast('--color-danger-border', '--color-bg', 3)
-    assertAtLeast('--color-danger-border', '--color-bg-1', 3)
-    assertAtLeast('--color-danger-border', '--color-bg-2', 3)
+    themedTest('semantic colours are readable on the surfaces they appear on', () => {
+      for (const c of ['--color-accent', '--color-ok', '--color-warn', '--color-err'] as const) {
+        assertAtLeast(c, '--color-bg-1', 4.5)
+      }
+    })
   })
 
-  test('--color-err-border groups an error block without pretending to be a control', () => {
-    // Found by the literal sweep: #5c2f2f appeared three times, and two of
-    // those rules (.view-error, .chat-msg-error) were the same error box
-    // declared twice in two stylesheets. It is decoration — the `--color-err`
-    // text inside is what carries the meaning — so it answers to
-    // --color-border's 1.45, not to 3:1, and only on the two layers an error
-    // block actually lands on.
-    const onBg = contrast('--color-err-border', '--color-bg')
-    const onPanel = contrast('--color-err-border', '--color-bg-1')
-    assert.ok(onBg >= 1.45, `--color-err-border on --color-bg is ${onBg.toFixed(2)}:1, too faint to bound anything`)
-    assert.ok(
-      onPanel >= 1.45,
-      `--color-err-border on --color-bg-1 is ${onPanel.toFixed(2)}:1, too faint to bound anything`,
-    )
-    assert.ok(
-      contrast('--color-err', '--color-err-bg') >= 4.5,
-      'the text inside an error block is what carries the meaning; it has to clear AA on that block',
-    )
-  })
+  describe('non-text contrast', () => {
+    themedTest('--color-border-strong clears 3:1, because it outlines real controls', () => {
+      // WCAG 1.4.11: the boundary of a control has to be distinguishable. This is
+      // the variable on inputs, buttons and selects — at its old value (1.62 on
+      // --color-bg-1) a text field was a rumour.
+      // All three layers: a segmented control sits on --color-bg-2 inside the
+      // settings dialog, an input on --color-bg inside a modal, a button on
+      // --color-bg-1 in a toolbar.
+      assertAtLeast('--color-border-strong', '--color-bg', 3)
+      assertAtLeast('--color-border-strong', '--color-bg-1', 3)
+      assertAtLeast('--color-border-strong', '--color-bg-2', 3)
+    })
 
-  test('--color-border stays decorative, and stays visible', () => {
-    // Grid lines and panel outlines group things; they do not announce anything
-    // interactive, so 3:1 is not required. But 1.32 (the old value) was close
-    // enough to invisible that a table read as one undivided field.
-    const ratio = contrast('--color-border', '--color-bg')
-    assert.ok(ratio >= 1.45, `--color-border on --color-bg is ${ratio.toFixed(2)}:1, too faint to divide anything`)
-    assert.ok(
-      ratio < 3,
-      '--color-border has drifted into --color-border-strong territory; one of them is redundant',
-    )
+    themedTest('--color-danger-border clears 3:1 too, and is the only red border in the codebase', () => {
+      // Same clause, same reasoning as --color-border-strong: it outlines a control.
+      //
+      // This assertion exists because of a specific escape. Three rules
+      // (.confirm-danger, .chat-perm-reject, .chat-stop) each hard-coded #7a3f3f,
+      // which measures 1.91:1 on --color-bg-2 — under two thirds of the floor the
+      // theme had already committed to. It was never caught because this test reads
+      // the token block, and a literal inside a rule is somewhere it structurally
+      // cannot look. The token is the fix; the sweep in `nothing paints with a
+      // literal colour` is what keeps the literal from coming back. That sweep
+      // used to live inside this test, which is how it ended up only looking at
+      // borders — see the note above it.
+      assertAtLeast('--color-danger-border', '--color-bg', 3)
+      assertAtLeast('--color-danger-border', '--color-bg-1', 3)
+      assertAtLeast('--color-danger-border', '--color-bg-2', 3)
+    })
+
+    themedTest('--color-err-border groups an error block without pretending to be a control', () => {
+      // Found by the literal sweep: #5c2f2f appeared three times, and two of
+      // those rules (.view-error, .chat-msg-error) were the same error box
+      // declared twice in two stylesheets. It is decoration — the `--color-err`
+      // text inside is what carries the meaning — so it answers to
+      // --color-border's 1.45, not to 3:1, and only on the two layers an error
+      // block actually lands on.
+      const onBg = contrast('--color-err-border', '--color-bg')
+      const onPanel = contrast('--color-err-border', '--color-bg-1')
+      assert.ok(onBg >= 1.45, `--color-err-border on --color-bg is ${onBg.toFixed(2)}:1, too faint to bound anything`)
+      assert.ok(
+        onPanel >= 1.45,
+        `--color-err-border on --color-bg-1 is ${onPanel.toFixed(2)}:1, too faint to bound anything`,
+      )
+      assert.ok(
+        contrast('--color-err', '--color-err-bg') >= 4.5,
+        'the text inside an error block is what carries the meaning; it has to clear AA on that block',
+      )
+    })
+
+    themedTest('--color-border stays decorative, and stays visible', () => {
+      // Grid lines and panel outlines group things; they do not announce anything
+      // interactive, so 3:1 is not required. But 1.32 (the old value) was close
+      // enough to invisible that a table read as one undivided field.
+      const ratio = contrast('--color-border', '--color-bg')
+      assert.ok(ratio >= 1.45, `--color-border on --color-bg is ${ratio.toFixed(2)}:1, too faint to divide anything`)
+      assert.ok(
+        ratio < 3,
+        '--color-border has drifted into --color-border-strong territory; one of them is redundant',
+      )
+    })
   })
-})
+}
 
 /* ==================================================================
  * The literal, the first way past this test — and the one that was still open.
@@ -458,8 +538,9 @@ describe('non-text contrast', () => {
  * "The `@theme` block" used to be spelled "the file called theme.css", which was
  * the same statement while there were eight sheets. There is one now (§11.1), so
  * a filename would have exempted every rule in the product. The exemption is by
- * *offset* into the sheet instead — see THEME_BLOCK — which is what it always
- * meant and is the only spelling that stays narrow.
+ * *offset* into the sheet instead — see THEME_BLOCKS — which is what it always
+ * meant and is the only spelling that stays narrow. There are two such blocks
+ * since the light palette arrived, and both are exempted the same way.
  *
  * What it found when it stopped watching borders, all of them real and all of
  * them now tokens: a zebra stripe with grid text on it, the two hues that mark
@@ -609,12 +690,7 @@ describe('nothing paints with a literal colour', () => {
         // there — bounded by the block's offsets, not by a filename, because
         // there is only one file now and its name would exempt everything.
         // `decomment` preserves length, so an offset into it indexes THEME too.
-        if (
-          sheet === SHEET &&
-          property.startsWith('--') &&
-          m.index >= THEME_BLOCK.start &&
-          m.index < THEME_BLOCK.end
-        ) {
+        if (sheet === SHEET && property.startsWith('--') && inPaletteBlock(m.index)) {
           continue
         }
         const line = css.slice(0, m.index).split('\n').length
@@ -797,13 +873,18 @@ describe('nothing paints with a literal colour', () => {
     // `stylesheets()` carries its own non-empty guard, so this is the other
     // half: a sweep that matches nothing anywhere reports no offenders, and
     // from the assertion above that is indistinguishable from a clean tree.
-    // The @theme block is the one region guaranteed to be full of colour
-    // literals; slicing it out is also a check that THEME_BLOCK found something.
-    const theme = decomment(THEME).slice(THEME_BLOCK.start, THEME_BLOCK.end)
-    assert.ok(
-      [...theme.matchAll(COLOUR_LITERAL)].length > 20,
-      'the literal pattern no longer matches the palette itself; it has stopped matching colours',
-    )
+    // The palette blocks are the regions guaranteed to be full of colour
+    // literals; slicing them out is also a check that both were found. Asserted
+    // per block rather than over the pair, so an override block that stopped
+    // being located cannot hide behind the `@theme` block's own count.
+    for (const block of THEME_BLOCKS) {
+      const body = decomment(THEME).slice(block.start, block.end)
+      assert.ok(
+        [...body.matchAll(COLOUR_LITERAL)].length > 20,
+        `the literal pattern no longer matches the ${block.what} palette itself; it has stopped ` +
+          `matching colours`,
+      )
+    }
   })
 })
 
@@ -956,14 +1037,19 @@ const SURFACES: readonly Surface[] = [
   },
   {
     on: '--color-accent-dim',
-    inks: ['--color-fg'],
+    // `--color-on-accent`, which was `--color-fg` until there were two themes.
+    // Same value in this one — the token was split precisely because the two
+    // questions ("the window's foreground" and "the ink that goes on the
+    // accent") only had one answer while the foreground happened to be light.
+    // The light palette is where they diverge. See §2.5 of the design record.
+    inks: ['--color-on-accent'],
     where:
       'The resting `primary` button, the chosen option of a segmented control, and the "changed this ' +
       'window" badge on a mutating tool call.',
   },
   {
     on: '--color-primary-active',
-    inks: ['--color-fg'],
+    inks: ['--color-on-accent'],
     where: 'The `primary` button and the chosen segmented option, pressed.',
   },
   {
@@ -1011,6 +1097,73 @@ const SURFACES: readonly Surface[] = [
   },
 ]
 
+/*
+ * The seven pairs the dark theme owes a debt on and the light theme does not.
+ *
+ * Every one of them is in `DARK_BELOW_FLOOR` with a pinned ratio and a repair
+ * order; measured against the light palette, all seven clear 4.5. They are the
+ * *same elements* — the primary button hovered, the danger button hovered, the
+ * faint weight on a hovered row — so leaving them out of the light theme's table
+ * would leave three of its surfaces (`--color-primary-hover`,
+ * `--color-danger-hover`, `--color-rownum-sel`) measured by nothing at all,
+ * which the census at the foot of this file catches and refuses.
+ *
+ * Kept as a separate list rather than merged into SURFACES because the two
+ * tables must stay disjoint per theme: a pair cannot be both "clears the floor"
+ * and "is a known breach", and the assertion that says so is the reason either
+ * table can be believed.
+ *
+ * The asymmetry is not luck. Six of the seven are interaction states derived by
+ * mixing, and the note on `DARK_BELOW_FLOOR` says why they went unmeasured for a
+ * whole theme; the light palette was written *after* that was known, and against
+ * the assertions rather than before them.
+ */
+const LIGHT_ONLY_SURFACES: readonly Surface[] = [
+  {
+    on: '--color-primary-hover',
+    inks: ['--color-on-accent'],
+    where: 'The `primary` button and the chosen segmented option, hovered.',
+  },
+  {
+    on: '--color-danger-hover',
+    inks: ['--color-err'],
+    where: 'The `danger` button hovered — Stop in the composer, Reject in a permission prompt.',
+  },
+  {
+    on: '--color-bg-hover',
+    inks: ['--color-err', '--color-fg-faint'],
+    where:
+      'The `danger` and `ghost` buttons hovered, and the faint weight on a hovered row. The other two ' +
+      'inks on this surface are in SURFACES above, where they clear the floor in both themes.',
+  },
+  {
+    on: '--color-bg-sel',
+    inks: ['--color-fg-faint'],
+    where: 'A NULL in the focused cell.',
+  },
+  {
+    on: '--color-row-sel',
+    inks: ['--color-fg-faint'],
+    where: 'A NULL cell in a row staged for the chat.',
+  },
+  {
+    on: '--color-rownum-sel',
+    inks: ['--color-accent'],
+    where: 'The row number itself in a staged row.',
+  },
+]
+
+/**
+ * What each theme is held to.
+ *
+ * The dark theme's table is the shared one; the light theme's is that plus the
+ * seven pairs above, which it clears and the dark theme does not.
+ */
+const SURFACES_BY: Record<ThemeName, readonly Surface[]> = {
+  dark: SURFACES,
+  light: [...SURFACES, ...LIGHT_ONLY_SURFACES],
+}
+
 interface Breach {
   readonly ink: string
   readonly on: string
@@ -1037,9 +1190,9 @@ interface Breach {
  * with the number pinned so the next person inherits a decision rather than a
  * discovery.
  */
-const BELOW_FLOOR: readonly Breach[] = [
+const DARK_BELOW_FLOOR: readonly Breach[] = [
   {
-    ink: '--color-fg',
+    ink: '--color-on-accent',
     on: '--color-primary-hover',
     measured: 3.92,
     where: 'The label of the `primary` button, and of the chosen segmented option, while hovered.',
@@ -1129,6 +1282,25 @@ const BELOW_FLOOR: readonly Breach[] = [
   },
 ]
 
+/**
+ * The debts, per palette — and the light one has none.
+ *
+ * That asymmetry is the fact worth recording. These seven are the dark theme's,
+ * every one of them found by writing SURFACES and running it, and none of them
+ * repaired by the change that added the light palette (adding a theme is not the
+ * moment to restyle the product — §3.6 of the design record). The light palette
+ * was measured against the same floors *before* it was written down, and its
+ * first draft breached seventeen of them; what ships breaches none.
+ *
+ * An empty table is therefore a claim, not a gap: it says every light pair in
+ * SURFACES clears 4.5, and the assertion below goes red the moment one stops —
+ * with no `measured` number to soften it into a known debt.
+ */
+const BELOW_FLOOR: Record<ThemeName, readonly Breach[]> = {
+  dark: DARK_BELOW_FLOOR,
+  light: [],
+}
+
 interface Uninked {
   readonly token: string
   readonly why: string
@@ -1198,62 +1370,77 @@ const DECORATIVE_ONLY: readonly Uninked[] = [
   },
 ]
 
-describe('every colour is measured against what it lands on', () => {
-  test('the surfaces hold the floor for every ink drawn on them', () => {
-    const under: string[] = []
-    for (const surface of SURFACES) {
-      for (const ink of surface.inks) {
-        const r = contrast(ink, surface.on)
-        if (r < TEXT_FLOOR) under.push(`${ink} on ${surface.on} is ${r.toFixed(2)}:1 — ${surface.where}`)
-      }
-    }
-    assert.deepEqual(
-      under,
-      [],
-      `These pairs are drawn in the product and no longer clear ${TEXT_FLOOR.toFixed(1)}:1:\n${under.join('\n')}\n\n` +
-        `Fix the colour. Moving it to BELOW_FLOOR is for a breach that already existed and has a ` +
-        `repair order written against it, not for one this edit just introduced — and the floor ` +
-        `itself is WCAG 2.1 SC 1.4.3, so it is not the number to change.`,
-    )
-  })
+/*
+ * The pair tables, held for both palettes — same loop, same reason as the floors
+ * above. `BELOW_FLOOR` is keyed by theme because the two have different debts:
+ * the dark theme's seven, and the light theme's none.
+ */
+for (const theme of THEMES) {
+  const themedTest = (name: string, body: () => void): void => {
+    test(`${name} [${theme}]`, () => {
+      inTheme(theme, body)
+    })
+  }
+  const below = BELOW_FLOOR[theme]
+  const surfaces = SURFACES_BY[theme]
 
-  test('the sub-floor pairs are still exactly as bad as they were written down', () => {
-    const drifted: string[] = []
-    for (const b of BELOW_FLOOR) {
-      const now = Number(contrast(b.ink, b.on).toFixed(2))
-      if (now >= TEXT_FLOOR) {
-        drifted.push(
-          `${b.ink} on ${b.on} now measures ${now.toFixed(2)}:1 and clears the floor. Move it into ` +
-            `SURFACES — a repair order for a repair that has happened is a comment that lies.`,
+  describe('every colour is measured against what it lands on', () => {
+    themedTest('the surfaces hold the floor for every ink drawn on them', () => {
+      const under: string[] = []
+      for (const surface of surfaces) {
+        for (const ink of surface.inks) {
+          const r = contrast(ink, surface.on)
+          if (r < TEXT_FLOOR) under.push(`${ink} on ${surface.on} is ${r.toFixed(2)}:1 — ${surface.where}`)
+        }
+      }
+      assert.deepEqual(
+        under,
+        [],
+        `These pairs are drawn in the product and no longer clear ${TEXT_FLOOR.toFixed(1)}:1:\n${under.join('\n')}\n\n` +
+          `Fix the colour. Moving it to BELOW_FLOOR is for a breach that already existed and has a ` +
+          `repair order written against it, not for one this edit just introduced — and the floor ` +
+          `itself is WCAG 2.1 SC 1.4.3, so it is not the number to change.`,
+      )
+    })
+
+    themedTest('the sub-floor pairs are still exactly as bad as they were written down', () => {
+      const drifted: string[] = []
+      for (const b of below) {
+        const now = Number(contrast(b.ink, b.on).toFixed(2))
+        if (now >= TEXT_FLOOR) {
+          drifted.push(
+            `${b.ink} on ${b.on} now measures ${now.toFixed(2)}:1 and clears the floor. Move it into ` +
+              `SURFACES — a repair order for a repair that has happened is a comment that lies.`,
+          )
+        } else if (now !== b.measured) {
+          drifted.push(
+            `${b.ink} on ${b.on} was recorded at ${b.measured.toFixed(2)}:1 and now measures ` +
+              `${now.toFixed(2)}:1 (${now < b.measured ? 'worse' : 'better, but still under the floor'}). ` +
+              `The number in the table is the whole value of the table: update it deliberately, or put ` +
+              `back whatever moved it.`,
+          )
+        }
+      }
+      assert.deepEqual(drifted, [], drifted.join('\n\n'))
+    })
+
+    themedTest('nothing is in both tables, and every breach says what would fix it', () => {
+      const passing = new Set(surfaces.flatMap((s) => s.inks.map((ink) => `${ink} on ${s.on}`)))
+      for (const b of below) {
+        assert.ok(
+          !passing.has(`${b.ink} on ${b.on}`),
+          `${b.ink} on ${b.on} is in SURFACES and in BELOW_FLOOR. One of the two is wrong, and the ` +
+            `table asserting it clears the floor is the one being believed.`,
         )
-      } else if (now !== b.measured) {
-        drifted.push(
-          `${b.ink} on ${b.on} was recorded at ${b.measured.toFixed(2)}:1 and now measures ` +
-            `${now.toFixed(2)}:1 (${now < b.measured ? 'worse' : 'better, but still under the floor'}). ` +
-            `The number in the table is the whole value of the table: update it deliberately, or put ` +
-            `back whatever moved it.`,
+        assert.ok(
+          b.fix.trim().length > 40,
+          `${b.ink} on ${b.on} is recorded as under the floor with no account of what would fix it. ` +
+            `A breach nobody can describe a repair for is a breach nobody intends to repair.`,
         )
       }
-    }
-    assert.deepEqual(drifted, [], drifted.join('\n\n'))
+    })
   })
-
-  test('nothing is in both tables, and every breach says what would fix it', () => {
-    const passing = new Set(SURFACES.flatMap((s) => s.inks.map((ink) => `${ink} on ${s.on}`)))
-    for (const b of BELOW_FLOOR) {
-      assert.ok(
-        !passing.has(`${b.ink} on ${b.on}`),
-        `${b.ink} on ${b.on} is in SURFACES and in BELOW_FLOOR. One of the two is wrong, and the ` +
-          `table asserting it clears the floor is the one being believed.`,
-      )
-      assert.ok(
-        b.fix.trim().length > 40,
-        `${b.ink} on ${b.on} is recorded as under the floor with no account of what would fix it. ` +
-          `A breach nobody can describe a repair for is a breach nobody intends to repair.`,
-      )
-    }
-  })
-})
+}
 
 describe('the scrollbar the grid draws by hand', () => {
   /*
@@ -2344,113 +2531,216 @@ test('the colour reader tells the four spellings apart, and alpha from opaque', 
  * ordering assumption has to be wrong in.
  * ================================================================== */
 
-test('every colour in the palette is measured, or is written off in a sentence', () => {
-  const palette = [...colourBearingTokens(VARS)].sort()
-  const written = new Map(DECORATIVE_ONLY.map((entry) => [entry.token, entry.why]))
-
-  // The ordering guard. A set this small means the tests above did not run,
-  // and every conclusion below would be an artefact of that rather than a fact
-  // about the palette.
-  assert.ok(
-    MEASURED.size > 20,
-    `only ${String(MEASURED.size)} colours were resolved by the whole file, so the assertions above ` +
-      `did not run before this one. Nothing here is a statement about the palette.`,
-  )
-
-  /*
-   * The aperture guard, and it is not padding either. Everything below reports
-   * "nothing uncovered" just as cheerfully when the palette it was handed is
-   * empty, and a reader that stops seeing colours is this repo's most repeated
-   * failure — the `> 20` above is the same guard pointed at the other end.
-   * Bounded from below by the namespace the census used to read, so this can
-   * only ever widen: if the value-shaped reading of the block ever finds fewer
-   * tokens than the name-shaped one did, it has regressed to the bug it fixed.
-   */
-  const named = [...VARS.keys()].filter((name) => name.startsWith('--color-'))
-  assert.ok(
-    palette.length >= named.length && palette.length > 20,
-    `the census found ${String(palette.length)} colour-bearing tokens where the --color- namespace ` +
-      `alone holds ${String(named.length)}. It reads values rather than names precisely so that it ` +
-      `is the larger of the two; a smaller number means \`colourTerms\` has stopped recognising ` +
-      `colours and every assertion below is now about whatever is left.`,
-  )
-
-  /*
-   * Covered, to a fixpoint: a token is covered if an assertion resolved it, if
-   * it is written off, or if every colour in it arrives by `var()` from a token
-   * that is itself covered. The third clause is the one that needs the reason —
-   * a token that states no colour of its own introduces nothing to measure, and
-   * the reference still has to land somewhere audited, so it is a derivation
-   * rather than an exemption. --shadow-gutter-sel is the only one today.
-   */
-  const covered = new Set([...MEASURED, ...written.keys()])
-  for (let pass = 0; pass < palette.length; pass += 1) {
-    const before = covered.size
-    for (const token of palette) {
-      if (covered.has(token)) continue
-      const terms = colourTerms(VARS.get(token) ?? '')
-      if (terms.length > 0 && terms.every((t) => t.ref !== null && covered.has(t.ref))) covered.add(token)
-    }
-    if (covered.size === before) break
+/*
+ * The census, once per palette.
+ *
+ * It has to run per theme rather than over the union: "every colour is measured"
+ * is a claim about the set of values a window can actually paint, and the light
+ * palette's values are a different set. A census over the union would report a
+ * token covered because its *dark* value was measured, which is the shape of
+ * vacuous pass this whole file exists to refuse.
+ */
+for (const theme of THEMES) {
+  const themedTest = (name: string, body: () => void): void => {
+    test(`${name} [${theme}]`, () => {
+      inTheme(theme, body)
+    })
   }
 
-  const uncovered = palette.filter((name) => !covered.has(name))
-  assert.deepEqual(
-    uncovered,
-    [],
-    `These tokens paint something and no assertion in this file has ever looked at them:\n` +
-      `${uncovered.join('\n')}\n\n` +
-      `A closed palette is not an audited palette. The two fences above prove there is no colour ` +
-      `beyond this list; it proves nothing about the ones on it — --color-code-string was set to a ` +
-      `value 1.03:1 against the block it is drawn on and this suite stayed green.\n\n` +
-      `Nor is a colour only a colour when the token is named like one: five box shadows carried a ` +
-      `hard-coded black through three rounds of this file for exactly that reason.\n\n` +
-      `Add it to SURFACES with the ink drawn on it and the element where that happens, or — if ` +
-      `nothing is ever read on it or in it — to DECORATIVE_ONLY with the sentence saying so.`,
-  )
+  themedTest('every colour in the palette is measured, or is written off in a sentence', () => {
+    const palette = [...colourBearingTokens(VARS)].sort()
+    const written = new Map(DECORATIVE_ONLY.map((entry) => [entry.token, entry.why]))
 
-  /*
-   * A written-off colour has to be one that could not have been measured.
-   * Otherwise DECORATIVE_ONLY is a way to opt a measurable colour out of the
-   * audit by writing a paragraph, which is the shape of every hole above.
-   * `colorOf` already refuses an alpha for this reason and says so; this is the
-   * same sentence, enforced from the other side.
-   */
-  const measurable: string[] = []
-  for (const token of written.keys()) {
-    for (const term of colourTerms(VARS.get(token) ?? '')) {
-      if (term.ref !== null || term.translucent) continue
-      measurable.push(`${token} → ${term.text}`)
-    }
-  }
-  assert.deepEqual(
-    measurable,
-    [],
-    `DECORATIVE_ONLY says nothing is ever read on these, and each of them states an *opaque* ` +
-      `colour:\n${measurable.join('\n')}\n\n` +
-      `"Nothing is read on it" is the reason a scrim or a drop shadow is written off, and it works ` +
-      `because a colour with an alpha has no ratio until it lands on something — that is the same ` +
-      `sentence \`colorOf\` refuses one with. An opaque colour has a ratio wherever it is drawn, so ` +
-      `it can be measured and therefore has to be: put it in SURFACES against what it is drawn on. ` +
-      `If it genuinely is a shadow, it is the wrong colour for one.`,
-  )
-
-  const gone = [...written.keys()].filter((token) => !palette.includes(token))
-  assert.deepEqual(gone, [], `DECORATIVE_ONLY writes off colours @theme no longer defines:\n${gone.join('\n')}`)
-
-  const both = [...written.keys()].filter((token) => MEASURED.has(token))
-  assert.deepEqual(
-    both,
-    [],
-    `DECORATIVE_ONLY says nothing is ever read on these, and an assertion above measures them:\n` +
-      `${both.join('\n')}\n\nOne of the two is wrong, and it is not the measurement.`,
-  )
-
-  for (const [token, why] of written) {
+    // The ordering guard. A set this small means the tests above did not run,
+    // and every conclusion below would be an artefact of that rather than a fact
+    // about the palette.
     assert.ok(
-      why.trim().length > 40,
-      `${token} is written off without a reason worth reading. The same demand ALPHA_SITES makes: ` +
-        `being outside the audit has to be a sentence somebody wrote.`,
+      MEASURED.size > 20,
+      `only ${String(MEASURED.size)} colours were resolved by the whole file, so the assertions above ` +
+        `did not run before this one. Nothing here is a statement about the palette.`,
     )
-  }
+
+    /*
+     * The aperture guard, and it is not padding either. Everything below reports
+     * "nothing uncovered" just as cheerfully when the palette it was handed is
+     * empty, and a reader that stops seeing colours is this repo's most repeated
+     * failure — the `> 20` above is the same guard pointed at the other end.
+     * Bounded from below by the namespace the census used to read, so this can
+     * only ever widen: if the value-shaped reading of the block ever finds fewer
+     * tokens than the name-shaped one did, it has regressed to the bug it fixed.
+     */
+    const named = [...VARS.keys()].filter((name) => name.startsWith('--color-'))
+    assert.ok(
+      palette.length >= named.length && palette.length > 20,
+      `the census found ${String(palette.length)} colour-bearing tokens where the --color- namespace ` +
+        `alone holds ${String(named.length)}. It reads values rather than names precisely so that it ` +
+        `is the larger of the two; a smaller number means \`colourTerms\` has stopped recognising ` +
+        `colours and every assertion below is now about whatever is left.`,
+    )
+
+    /*
+     * Covered, to a fixpoint: a token is covered if an assertion resolved it, if
+     * it is written off, or if every colour in it arrives by `var()` from a token
+     * that is itself covered. The third clause is the one that needs the reason —
+     * a token that states no colour of its own introduces nothing to measure, and
+     * the reference still has to land somewhere audited, so it is a derivation
+     * rather than an exemption. --shadow-gutter-sel is the only one today.
+     */
+    const covered = new Set([...MEASURED, ...written.keys()])
+    for (let pass = 0; pass < palette.length; pass += 1) {
+      const before = covered.size
+      for (const token of palette) {
+        if (covered.has(token)) continue
+        const terms = colourTerms(VARS.get(token) ?? '')
+        if (terms.length > 0 && terms.every((t) => t.ref !== null && covered.has(t.ref))) covered.add(token)
+      }
+      if (covered.size === before) break
+    }
+
+    const uncovered = palette.filter((name) => !covered.has(name))
+    assert.deepEqual(
+      uncovered,
+      [],
+      `These tokens paint something and no assertion in this file has ever looked at them:\n` +
+        `${uncovered.join('\n')}\n\n` +
+        `A closed palette is not an audited palette. The two fences above prove there is no colour ` +
+        `beyond this list; it proves nothing about the ones on it — --color-code-string was set to a ` +
+        `value 1.03:1 against the block it is drawn on and this suite stayed green.\n\n` +
+        `Nor is a colour only a colour when the token is named like one: five box shadows carried a ` +
+        `hard-coded black through three rounds of this file for exactly that reason.\n\n` +
+        `Add it to SURFACES with the ink drawn on it and the element where that happens, or — if ` +
+        `nothing is ever read on it or in it — to DECORATIVE_ONLY with the sentence saying so.`,
+    )
+
+    /*
+     * A written-off colour has to be one that could not have been measured.
+     * Otherwise DECORATIVE_ONLY is a way to opt a measurable colour out of the
+     * audit by writing a paragraph, which is the shape of every hole above.
+     * `colorOf` already refuses an alpha for this reason and says so; this is the
+     * same sentence, enforced from the other side.
+     */
+    const measurable: string[] = []
+    for (const token of written.keys()) {
+      for (const term of colourTerms(VARS.get(token) ?? '')) {
+        if (term.ref !== null || term.translucent) continue
+        measurable.push(`${token} → ${term.text}`)
+      }
+    }
+    assert.deepEqual(
+      measurable,
+      [],
+      `DECORATIVE_ONLY says nothing is ever read on these, and each of them states an *opaque* ` +
+        `colour:\n${measurable.join('\n')}\n\n` +
+        `"Nothing is read on it" is the reason a scrim or a drop shadow is written off, and it works ` +
+        `because a colour with an alpha has no ratio until it lands on something — that is the same ` +
+        `sentence \`colorOf\` refuses one with. An opaque colour has a ratio wherever it is drawn, so ` +
+        `it can be measured and therefore has to be: put it in SURFACES against what it is drawn on. ` +
+        `If it genuinely is a shadow, it is the wrong colour for one.`,
+    )
+
+    const gone = [...written.keys()].filter((token) => !palette.includes(token))
+    assert.deepEqual(gone, [], `DECORATIVE_ONLY writes off colours @theme no longer defines:\n${gone.join('\n')}`)
+
+    const both = [...written.keys()].filter((token) => MEASURED.has(token))
+    assert.deepEqual(
+      both,
+      [],
+      `DECORATIVE_ONLY says nothing is ever read on these, and an assertion above measures them:\n` +
+        `${both.join('\n')}\n\nOne of the two is wrong, and it is not the measurement.`,
+    )
+
+    for (const [token, why] of written) {
+      assert.ok(
+        why.trim().length > 40,
+        `${token} is written off without a reason worth reading. The same demand ALPHA_SITES makes: ` +
+          `being outside the audit has to be a sentence somebody wrote.`,
+      )
+    }
+  })
+}
+
+/* ==================================================================
+ * The failure mode a second palette introduces, and the only one nothing above
+ * would catch.
+ *
+ * Every assertion in this file asks "is this value good enough". None of them
+ * asks "is this value *there*" — and it never had to, because a token missing
+ * from a single palette is a token missing from the product, which fails loudly
+ * the first time anything reads it.
+ *
+ * With two palettes it fails silently instead. A colour the override block
+ * forgets does not become undefined: it keeps the value from `@theme`, one
+ * cascade layer up. So a forgotten token is a *dark* colour, correctly defined,
+ * resolving cleanly, measured by every test above — sitting in the middle of a
+ * light window. It would be found by a person looking at the screen, which is
+ * the state this file was written to end.
+ *
+ * The census cannot see it either: the light palette is built by overlay, so the
+ * forgotten token is present in the map with the dark value, and "measured"
+ * comes back true.
+ *
+ * Hence a different kind of assertion — about the *shape* of the two palettes
+ * rather than the quality of either. Every colour-bearing token stated in
+ * `@theme` must be restated in the override, and the exceptions are not a list
+ * of names but a rule with a reason: a token whose value is *derived* states no
+ * colour of its own, so it follows its inputs and restating it would be the
+ * duplication §2.2 measured its way out of.
+ * ================================================================== */
+
+test('the two palettes define the same colours, so none can silently keep the dark one', () => {
+  const dark = colourBearingTokens(PALETTES.dark)
+  const override = declarations(THEME_BLOCKS[1].body)
+
+  /*
+   * Derived tokens are exempt, and the test is whether the value **moves with
+   * the palette**: a token that names another one through `var()` is re-resolved
+   * against whichever palette is live, so it cannot be left holding a dark
+   * colour. That is the mechanism the override block leans on, and it was
+   * measured in Electron before any of this was written.
+   *
+   * One `var()` is enough — it does not have to be the whole value.
+   * `--color-primary-active` is `color-mix(…, var(--color-accent-dim) 82%, #000)`
+   * and the black is a *direction* (a press goes darker), not an identity: it
+   * means the same thing in both themes, and the half that carries the hue is
+   * the reference. A value with no reference at all is a fixed colour however it
+   * is spelled, and is not exempt.
+   *
+   * Read out of the dark block rather than listed, so a token that stops being
+   * derived stops being exempt on the same edit that changed it.
+   */
+  const derived = new Set(
+    [...dark].filter((token) => colourTerms(PALETTES.dark.get(token) ?? '').some((t) => t.ref !== null)),
+  )
+
+  const forgotten = [...dark].filter((token) => !derived.has(token) && !override.has(token)).sort()
+
+  assert.deepEqual(
+    forgotten,
+    [],
+    `These tokens state a colour of their own in @theme and are not restated in the light ` +
+      `override:\n${forgotten.join('\n')}\n\n` +
+      `Each one therefore keeps its **dark** value on a light window — defined, resolvable, and ` +
+      `measured as fine by every other assertion in this file, because the light palette is built ` +
+      `by laying the override over the dark one. Nothing here can tell that apart from a colour ` +
+      `somebody chose. Give it a light value, or make it derive from one that has.`,
+  )
+
+  // The other direction, and the cheaper bug: an override entry naming a token
+  // the theme no longer has is dead weight that reads as coverage.
+  const orphans = [...override.keys()].filter((token) => !PALETTES.dark.has(token)).sort()
+  assert.deepEqual(
+    orphans,
+    [],
+    `The light override defines tokens @theme does not:\n${orphans.join('\n')}\n\n` +
+      `An override with nothing above it is not an override — either the name is a typo, or the ` +
+      `token was removed from @theme and its light half was left behind.`,
+  )
+
+  // The aperture guard every other census here carries, pointed at this one: an
+  // empty `dark` set makes both assertions above pass without reading anything.
+  assert.ok(
+    dark.size > 20,
+    `the census found ${String(dark.size)} colour-bearing tokens in @theme, so neither assertion ` +
+      `above examined a palette. See the same guard at the foot of the census.`,
+  )
 })

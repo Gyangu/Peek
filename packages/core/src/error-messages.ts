@@ -121,6 +121,23 @@ export const ERROR_MESSAGES = {
     "A permission prompt is answered by the person at the keyboard, or by an operator driving peek from outside — not by peek's own chat panel",
   'error.chat.agentUnavailable': 'The chat agent is not available',
 
+  /* ---- The agent asking a question (the `ask` tool) ----------------- */
+  'error.chat.noPendingQuestion': 'The conversation is not waiting for an answer',
+  'error.chat.askDuplicateOption': 'Two answers share one optionId; each has to be distinct',
+  'error.chat.questionStale':
+    'Question {requestId} is no longer the one being asked (it is now {actual}); read the conversation again',
+  'error.chat.answerRejected':
+    'That is not a valid answer to this question; the choices are {options}, and a single-choice question takes one of them',
+  /**
+   * The third policy check on this bus, beside `modeNotAllowed` and
+   * `permissionNotAnswerableByAgent` — and the strictest. Answering a permission
+   * prompt on the user's behalf leaks an authorisation; answering a *question*
+   * on their behalf fabricates their judgement, and the model then builds on an
+   * answer it wrote itself. See `2026-08-15-agent-asks-a-question.md` §2.6.
+   */
+  'error.chat.answerNotAnswerableByAgent':
+    'A question peek asked on the agent’s behalf is answered by the person at the keyboard, or by an operator driving peek from outside — never by an agent',
+
   /* ---- Queries and result sets ------------------------------------- */
   'error.query.emptyText': 'The statement is empty',
   'error.query.needViewOrConn': 'Provide either viewId, or connId together with text',

@@ -5,6 +5,8 @@
  *   messages.ts       message-formatting primitives (interpolation, plurals)
  *   error-messages.ts canonical English catalog for peek-authored errors
  *   errors.ts         structured errors
+ *   logger.ts         the logging contract: level, namespace, record, sink.
+ *                     Pure — the half that opens a file is main's
  *   ids.ts            branded types and id generation
  *   chunk.ts          columnar result-stream protocol + performance-budget constants
  *   values.ts         canonical JS representation of a cell, per LogicalType
@@ -32,6 +34,7 @@
 export * from './messages'
 export * from './error-messages'
 export * from './errors'
+export * from './logger'
 export * from './untrusted-text'
 export * from './ids'
 export * from './chunk'

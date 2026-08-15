@@ -5,10 +5,12 @@ import { openSettings } from '../state/settingsDialogStore'
 import { ChatSessionsRail } from './chat'
 import { LayoutTree } from './LayoutTree'
 import { SettingsDialog } from './settings'
+import { ShortcutSheet } from './ShortcutSheet'
 import { Sidebar } from './Sidebar'
 import { StatusBar } from './StatusBar'
 import { Toasts } from './Toasts'
 import { Button } from '../ui/Button'
+import { Icon } from '../ui/Icon'
 
 export function App(): ReactElement {
   const t = useT()
@@ -76,7 +78,7 @@ export function App(): ReactElement {
                   openSettings()
                 }}
               >
-                ⚙
+                <Icon name="settings.open" />
               </Button>
             </span>
           </>
@@ -101,6 +103,7 @@ export function App(): ReactElement {
           first-run guide, and it must outlive any of them unmounting. Renders
           nothing while closed. */}
       <SettingsDialog />
+      <ShortcutSheet />
       <Toasts />
       <LiveRegion />
     </div>

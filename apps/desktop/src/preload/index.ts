@@ -17,6 +17,7 @@ import type {
   ResultRowsRequestMessage,
   StatePatchMessage,
   StateSnapshotMessage,
+  ThemeChangedMessage,
 } from '../../../../packages/core/src/ipc'
 import type {
   ChatDelta,
@@ -69,10 +70,12 @@ interface InternalBridge {
   /** The same registry again, whenever a package is installed or uninstalled. */
   onPackagesChanged(handler: (installed: InstalledPackages) => void): Unsubscribe
   /** Native directory chooser for "Install…"; null when the user cancelled. */
-  pickPackageDir(): Promise<string | null>
+  pickDirectory(): Promise<string | null>
   onPatch(handler: (msg: StatePatchMessage) => void): Unsubscribe
   onNotify(handler: (msg: NotifyMessage) => void): Unsubscribe
   onMenuAction(handler: (msg: MenuActionMessage) => void): Unsubscribe
+  /** M→R: the window is painted the other way round now. See `IPC.THEME_CHANGED`. */
+  onThemeChanged(handler: (msg: ThemeChangedMessage) => void): Unsubscribe
   /** Non-command read-only RPCs: introspect / peekValue / keyValue */
   driverRpc(req: DriverRpcRequest): Promise<DriverRpcResponse>
   onResultRowsRequest(handler: (msg: ResultRowsRequestMessage) => void): Unsubscribe
@@ -144,8 +147,8 @@ const internal: InternalBridge = {
       ipcRenderer.off(IPC.PACKAGES_CHANGED, listener)
     }
   },
-  pickPackageDir() {
-    return ipcRenderer.invoke(IPC.PACKAGES_PICK_DIR) as Promise<string | null>
+  pickDirectory() {
+    return ipcRenderer.invoke(IPC.PICK_DIR) as Promise<string | null>
   },
   onPatch(handler) {
     const listener = (_event: IpcRendererEvent, msg: StatePatchMessage): void => {
@@ -172,6 +175,15 @@ const internal: InternalBridge = {
     ipcRenderer.on(IPC.MENU_ACTION, listener)
     return () => {
       ipcRenderer.off(IPC.MENU_ACTION, listener)
+    }
+  },
+  onThemeChanged(handler) {
+    const listener = (_event: IpcRendererEvent, msg: ThemeChangedMessage): void => {
+      handler(msg)
+    }
+    ipcRenderer.on(IPC.THEME_CHANGED, listener)
+    return () => {
+      ipcRenderer.off(IPC.THEME_CHANGED, listener)
     }
   },
   driverRpc(req) {
@@ -262,8 +274,8 @@ function bootstrapMainWorld(internalKey: string, relayKey: string, bridgeKey: st
     onPackagesChanged(handler) {
       return bridge.onPackagesChanged(handler)
     },
-    pickPackageDir() {
-      return bridge.pickPackageDir()
+    pickDirectory() {
+      return bridge.pickDirectory()
     },
     onPatch(handler) {
       return bridge.onPatch(handler)
@@ -283,6 +295,9 @@ function bootstrapMainWorld(internalKey: string, relayKey: string, bridgeKey: st
     },
     onMenuAction(handler) {
       return bridge.onMenuAction(handler)
+    },
+    onThemeChanged(handler) {
+      return bridge.onThemeChanged(handler)
     },
 
     introspect(connId: ConnId, parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]> {
@@ -387,12 +402,15 @@ if (!bootstrapped) {
     // failed main-world bootstrap leaves it perfectly reachable. An "Install…"
     // that does nothing is worse on a degraded window than on a healthy one —
     // it is the launch where the user is already looking for what broke.
-    pickPackageDir: () => internal.pickPackageDir(),
+    pickDirectory: () => internal.pickDirectory(),
     onPatch: (handler) => internal.onPatch(handler),
     onNotify: (handler) => internal.onNotify(handler),
     // Implemented here as well: the menu is main's, not the data plane's, so a
     // failed main-world bootstrap is no reason for `Settings…` to stop working.
     onMenuAction: (handler) => internal.onMenuAction(handler),
+    // Same clause: main owns the theme, so a failed main-world bootstrap is no
+    // reason for the window to be stuck in the wrong one.
+    onThemeChanged: (handler) => internal.onThemeChanged(handler),
     onResultPort: () => () => {
       // No port channel is available here
     },

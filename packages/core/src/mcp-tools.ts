@@ -7,6 +7,7 @@ import type {
   CommandSource,
 } from './commands'
 import type { ColumnDef } from './chunk'
+import type { LogLevel, Logger } from './logger'
 import type { NamespaceNode } from './capability'
 import type { PeekError } from './errors'
 import type { ConnId, ResultId } from './ids'
@@ -17,7 +18,7 @@ import type { WorkspaceSnapshot } from './workspace'
  *
  * ## Why this is in core rather than beside the executor that runs it
  *
- * It used to live in `apps/desktop/src/main/mcp/types.ts`, next to the thirteen
+ * It used to live in `apps/desktop/src/main/mcp/types.ts`, next to the fourteen
  * tools the kernel ships. That was right while the kernel was the only author. A
  * driver package cannot import the app — the dependency runs the other way, and
  * closing it into a cycle is the one thing the whole package boundary exists to
@@ -25,7 +26,7 @@ import type { WorkspaceSnapshot } from './workspace'
  * the *shape* of a tool has to be reachable from a package.
  *
  * Nothing here is new; every type is the one that was there, moved. The app's
- * `mcp/types.ts` re-exports this module, which is why the thirteen tool files,
+ * `mcp/types.ts` re-exports this module, which is why the fourteen tool files,
  * the executor, the registry, the server and their tests did not have to change
  * a single import.
  *
@@ -106,11 +107,20 @@ export type ResultRowsReader = (req: {
   timeoutMs?: number
 }) => Promise<ResultRowsSlice>
 
-export type McpLogLevel = 'debug' | 'info' | 'warn' | 'error'
-
-export interface McpLogger {
-  log(level: McpLogLevel, message: string, detail?: unknown): void
-}
+/**
+ * The logger a tool is handed.
+ *
+ * Both of these are now aliases of `logger.ts`, and the aliases are kept rather
+ * than replaced at every call site because this file is **frozen contract**: a
+ * package's `contrib.mjs` is written against `ToolContext.logger`, and renaming
+ * a type a package imports is a breaking change for a stranger's code. The
+ * aliases cost one line each and buy compatibility with everything already
+ * written; new code should reach for `Logger` / `LogLevel` directly.
+ *
+ * See `docs/design/2026-08-15-logging-and-audit.md` §3.2.
+ */
+export type McpLogLevel = LogLevel
+export type McpLogger = Logger
 
 /* ================================================================== */
 /* 2. What a tool call did to the window                                */

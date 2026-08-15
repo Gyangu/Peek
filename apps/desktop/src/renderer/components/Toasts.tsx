@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import { useT } from '../i18n'
 import { useNotifyStore } from '../state/notifyStore'
 import { Button } from '../ui/Button'
+import { Icon } from '../ui/Icon'
 
 /**
  * Bottom-right notifications: command failures, driver crashes, and NOTIFY
@@ -69,7 +70,7 @@ export function Toasts(): ReactElement | null {
                 dismiss(toast.id)
               }}
             >
-              ✕
+              <Icon name="close" size="sm" />
             </Button>
           </div>
           {toast.detail ? (

@@ -28,7 +28,7 @@ import { packageTools, type PackageToolCaller } from '../package-tools'
  *
  * That sentence is the whole property. `mcp/package-tools.ts` builds a stand-in
  * spec whose callbacks are round trips and hands it to the same
- * `defineCommandTool` the kernel's thirteen go through — so the second
+ * `defineCommandTool` the kernel's fourteen go through — so the second
  * validation pass, the `uiEffects` block and the never-crash catch apply to a
  * package tool because of *where the code lives*, not because anyone remembered
  * to reimplement them on the far side. Each test below is one of those

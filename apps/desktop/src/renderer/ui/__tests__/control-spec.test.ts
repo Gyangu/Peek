@@ -1688,6 +1688,41 @@ describe('an agent cannot be handed its own permission prompt', () => {
         `build that reader inherits it rather than rediscovers it. See ${DOC} §2.6.`,
     )
   })
+
+  /**
+   * The same boundary around the agent's *own question*, and the stricter half.
+   *
+   * A permission prompt answered by an agent leaks an authorisation. A question
+   * answered by an agent fabricates **a person's judgement**: the user is later
+   * shown a decision that reads as theirs — "you said weekly" — when nobody ever
+   * looked at it, and every step the model takes afterwards rests on an answer
+   * it wrote itself. `chat.answer` refuses `source: 'agent'` on the bus; this is
+   * the DOM half of the same rule, in place before any reader of
+   * `data-peek-exposure` exists.
+   *
+   * See `docs/design/2026-08-15-agent-asks-a-question.md` §2.6.
+   */
+  test('every control in the question prompt stays human-only', () => {
+    const file = join(RENDERER, 'components', 'chat', 'QuestionPrompt.tsx')
+    const attrs = openingTags(readFileSync(file, 'utf8'), 'Button')
+
+    assert.ok(
+      attrs.length > 0,
+      `QuestionPrompt.tsx no longer renders any <Button>. Either it was reverted to bare ` +
+        `<button> — which puts it outside every rule in this file — or the prompt moved and this ` +
+        `test needs to follow it. Do not delete the test to make it pass.`,
+    )
+
+    const exposed = attrs.filter((a) => attr(a, 'exposure') !== 'human-only')
+    assert.equal(
+      exposed.length,
+      0,
+      `A button in the question prompt is not marked human-only.\n\n` +
+        `Asserted as "every one of them says human-only", not merely "none says agent-ok", because ` +
+        `here the default is the dangerous answer: an unmarked button is one nobody decided about, ` +
+        `and this is the surface where the decision is the whole point.`,
+    )
+  })
 })
 
 /* ------------------------------------------------------------------
@@ -1716,12 +1751,12 @@ describe('an agent cannot be handed its own permission prompt', () => {
  */
 const NOT_CONTROLS: readonly { where: string; count: number; reason: string }[] = [
   {
-    where: 'components/chat/AttachmentBar.tsx',
+    where: 'components/chat/AttachMenu.tsx',
     count: 1,
     reason:
-      'A menu item, in the attach dropdown. The `<Menu>` primitive that took the context menu\'s two ' +
-      'items anchors to a *point*, and this one anchors to a button, so adopting it would mean ' +
-      'inventing element anchoring for a single caller — deferred on purpose in the menu design record.',
+      'A listbox option, in the @-mention list. The `<Menu>` primitive that took the context menu\'s ' +
+      'two items anchors to a *point* and takes focus; this list is aimed by the composer while ' +
+      'focus stays in the textarea, which is a different element entirely.',
   },
   {
     where: 'components/chat/ToolCallCard.tsx',

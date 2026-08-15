@@ -245,7 +245,7 @@ export function defineReadTool<S extends z.ZodType>(spec: ReadToolSpec<S>): Peek
  * have none of it, which is why `@peek/core` exports the *spec* type and not
  * these constructors (see `core/mcp-tools.ts`).
  *
- * The kernel's thirteen tools call `defineCommandTool` / `defineReadTool`
+ * The kernel's fourteen tools call `defineCommandTool` / `defineReadTool`
  * directly at their own module scope; this exists for the tools that arrive as
  * data, from a list, with no module of their own to call from.
  */

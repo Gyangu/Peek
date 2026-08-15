@@ -30,7 +30,6 @@ export interface AutoRefreshMenuOptions {
 
 export function autoRefreshMenuNodes(options: AutoRefreshMenuOptions): MenuNode[] {
   const { currentMs, stoppedBy, labels, onSelect } = options
-  const mark = (active: boolean, text: string): string => (active ? `✓ ${text}` : `   ${text}`)
 
   const nodes: MenuNode[] = []
   // The explanation goes first, because the state it explains — the control
@@ -42,7 +41,8 @@ export function autoRefreshMenuNodes(options: AutoRefreshMenuOptions): MenuNode[
   nodes.push({
     kind: 'item',
     id: 'off',
-    label: mark(currentMs === null, labels.off),
+    label: labels.off,
+    checked: currentMs === null,
     onSelect: () => {
       onSelect(null)
     },
@@ -52,7 +52,8 @@ export function autoRefreshMenuNodes(options: AutoRefreshMenuOptions): MenuNode[
     nodes.push({
       kind: 'item',
       id: `ms-${ms}`,
-      label: mark(currentMs === ms, labels.interval(ms)),
+      label: labels.interval(ms),
+      checked: currentMs === ms,
       onSelect: () => {
         onSelect(ms)
       },

@@ -6,12 +6,12 @@ import { useConnection, useViews } from '../../state/workspaceStore'
 import { formatCount } from '../../util/format'
 import { Button } from '../../ui/Button'
 import { ViewError } from '../ViewError'
-import { AttachmentBar } from './AttachmentBar'
 import { cancelChat, clearChat, sendChat, setChatMode } from './chatCommands'
 import { Composer } from './Composer'
 import { MessageList } from './MessageList'
 import { isPermissiveMode, needsModeConfirmation } from './permissionOptions'
 import { PermissionPrompt } from './PermissionPrompt'
+import { QuestionPrompt } from './QuestionPrompt'
 import { composerDisabled, strandedOnSnapshot, transcriptState } from './panelState'
 import { restoreChat, retryLoad, useChatChannelReady, useChatMessageCount } from './transcriptStore'
 
@@ -41,6 +41,7 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
 
   const busy = view.streamingMessageId !== null || view.agentStatus === 'streaming'
   const blocked = view.pendingPermission !== undefined || view.agentStatus === 'awaiting-permission'
+  const asking = view.pendingQuestion !== undefined || view.agentStatus === 'awaiting-answer'
   /**
    * States in which the composer genuinely cannot accept a message.
    *
@@ -181,6 +182,18 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
               </option>
             ))}
           </select>
+          {/* Where this mode came from, and the reason settings may hold a mode
+              that stops asking at all (`AGENT_DEFAULT_PERMISSION_MODES`). Shown
+              only while nobody has touched the dropdown here: after that the
+              mode is this conversation's own and there is nothing to disclose.
+
+              Text, not a colour or an icon — it is a sentence about provenance,
+              and the ⚠ beside it already carries the severity. */}
+          {view.permissionModeInherited && view.permissionMode !== 'default' ? (
+            <span className="text-fg-faint" title={t('chat.mode.inheritedTitle')}>
+              {t('chat.mode.inherited')}
+            </span>
+          ) : null}
         </label>
 
         {conn ? (
@@ -311,16 +324,26 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
         <PermissionPrompt viewId={view.id} permission={view.pendingPermission} />
       ) : null}
 
-      <AttachmentBar viewId={view.id} attachments={view.attachments} views={views} />
+      {/* Below the permission prompt, and never both: the agent cannot be
+          blocked on a tool call and on a question of its own at the same moment
+          — it asked one of them and is suspended in it. */}
+      {view.pendingQuestion ? (
+        <QuestionPrompt viewId={view.id} question={view.pendingQuestion} />
+      ) : null}
 
       {/* The recovery placeholder below invites the user to send, which is right
           for a crashed agent and wrong for a stranded snapshot — there, sending
           is the one thing that must not happen. */}
       <Composer
+        viewId={view.id}
+        attachments={view.attachments}
+        views={views}
         busy={busy}
         disabled={composerDisabled(view)}
         {...(blocked
           ? { disabledReason: t('chat.status.awaiting-permission') }
+          : asking
+            ? { disabledReason: t('chat.status.awaiting-answer') }
           : stranded
             ? { disabledReason: t('chat.snapshot.composer') }
             : notReady
@@ -423,6 +446,9 @@ const STATUS_DOT: Record<ChatAgentStatus, string> = {
   authenticating: `bg-accent ${PULSE}`,
   streaming: `bg-accent ${PULSE}`,
   'awaiting-permission': `bg-warn ${PULSE}`,
+  // The same amber as a permission prompt, because to the person glancing at the
+  // tab strip the two mean one thing: it stopped, and it stopped for you.
+  'awaiting-answer': `bg-warn ${PULSE}`,
   error: 'bg-err',
   // Replaying a conversation off disk. Quiet on purpose — it is the one busy
   // state the user did not ask for and cannot hurry.
@@ -437,6 +463,7 @@ type StatusKey =
   | 'chat.status.ready'
   | 'chat.status.streaming'
   | 'chat.status.awaiting-permission'
+  | 'chat.status.awaiting-answer'
   | 'chat.status.error'
 
 type ModeKey =
@@ -463,6 +490,8 @@ function statusKey(status: ChatAgentStatus): StatusKey {
       return 'chat.status.streaming'
     case 'awaiting-permission':
       return 'chat.status.awaiting-permission'
+    case 'awaiting-answer':
+      return 'chat.status.awaiting-answer'
     case 'error':
       return 'chat.status.error'
   }

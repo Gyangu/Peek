@@ -1,28 +1,56 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, type WebContents } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  safeStorage,
+  type WebContents,
+} from 'electron'
 import type {
   ChatPermissionMode,
   ConnId,
+  Logger,
+  LogLevel,
   MenuActionMessage,
   NamespaceNode,
   NotifyLevel,
   NotifyMessage,
+  ResolvedTheme,
+  ThemeChangedMessage,
+  UiTheme,
   WorkspaceSnapshot,
 } from '@peek/core'
-import { IPC, stepUiZoom, toPeekError, UI_ZOOM_DEFAULT } from '@peek/core'
+import {
+  IPC,
+  noopLogger,
+  parseLogLevel,
+  resolveNotifications,
+  stepUiZoom,
+  toPeekError,
+  UI_THEME_DEFAULT,
+  UI_ZOOM_DEFAULT,
+} from '@peek/core'
+import { createLogging, type Logging } from './logging'
 import { installAppMenu } from './menu'
 import { hardenWindow } from './window-hardening'
 import { createAutoRefreshScheduler } from './auto-refresh'
+import { createConnectionWake } from './connection-wake'
 import {
   createCommandBus,
   type CommandBus,
   type CommandDeps,
   type PackageAdminService,
 } from './bus'
+import { CommandLog, COMMAND_LOG_CAPACITY } from './bus/command-log'
 import {
+  createAppHandlers,
+  createAskHandlers,
   createChatEventSink,
   createChatHandlers,
+  createLogHandlers,
   createViewHandlers,
   watchChatViews,
   type ChatRuntime,
@@ -34,7 +62,14 @@ import {
   sendNotify,
   sendPackagesChanged,
 } from './bus/ipc-main'
-import { AcpManager, chatRootDir, defaultAcpConfig, type McpEndpointInfo } from './acp'
+import {
+  AcpManager,
+  chatRootDir,
+  defaultAcpConfig,
+  ensureChatWorkdir,
+  type McpEndpointInfo,
+  type UserMcpServer,
+} from './acp'
 import { DEFAULT_DELTA_BUDGET } from './agent'
 import { EndpointManager } from './agent/endpoint/loop'
 import { ENDPOINT_THREAD_DIR, EndpointThreadStore } from './agent/endpoint/thread-store'
@@ -47,8 +82,12 @@ import {
   createSafeStorageVault,
   createSettingsStore,
   packagesDir,
+  readWorkspaceFile,
   resolveConfigDir,
+  settingsFilePath,
+  workspaceFilePath,
   type ConnectionBook,
+  type SecretVault,
   type McpController,
   type SettingsStore,
   type StoredDisplay,
@@ -59,7 +98,12 @@ import {
   createContextSource,
   createDeltaEmitter,
   createEndpointChatRuntime,
+  describeTurnNotice,
+  type TurnNotice,
 } from './chat-host'
+import { QuestionBroker, watchQuestions } from './agent/questions'
+import { createNotifier, unavailableNotifier, type Notifier } from './notifications'
+import { electronSystemNotifier } from './notifications-electron'
 import { ConnectionManager, setTimeoutSettings } from './connections'
 import { collectTools, createMcpServer, generateToken, type PackageToolCaller } from './mcp'
 import { installedPackages as installedSnapshot } from '../drivers/installed'
@@ -82,6 +126,8 @@ import { installPackageProtocol, registerPackageScheme } from './packages/protoc
 import { WorkspaceStore, createResultEventSink } from './store'
 import { installDriverRpc, type DriverRpcOptions } from './driver-rpc'
 import { createResultRowsBroker, type ResultRowsBroker } from './result-rows'
+import { createWorkspacePersister } from './workspace-persist'
+import { restoreWorkspace, type RestoreReport } from './workspace-restore'
 
 /**
  * Assembly of peek's main process (PLAN sections 3, 6 and 7).
@@ -213,6 +259,40 @@ let mainWindow: BrowserWindow | null = null
 let mcp: McpController | null = null
 
 /**
+ * Where every subsystem's log ends up.
+ *
+ * Module-level and nullable for the same reason `mcp` is: the four channels that
+ * feed it are subscribed from functions that run before `bootstrap` and after
+ * it, and a `null` here means "not assembled yet", which is a state a log call
+ * has to survive rather than one it should crash on. Assembled first thing in
+ * `bootstrap`, so the window in which it is null is measured in microseconds.
+ */
+let logging: Logging | null = null
+
+/**
+ * The captured level, read straight off the settings file before any store
+ * exists.
+ *
+ * A deliberate duplicate of what `SettingsStore.read()` would answer, and the
+ * duplication is the point: the store is assembled two hundred lines into
+ * `bootstrap`, and the stretch before it — package scan, vault, connection book
+ * — is the hardest part of a launch to debug precisely because nothing is
+ * listening yet. Reading one small JSON file twice is what buys logging over
+ * that stretch. A malformed file reads as "no preference", exactly as it does in
+ * `project()`.
+ */
+function readStoredLogLevel(): LogLevel | null {
+  try {
+    const raw = readFileSync(settingsFilePath(resolveConfigDir()), 'utf8')
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null) return null
+    return parseLogLevel((parsed as Record<string, unknown>)['logLevel'])
+  } catch {
+    return null
+  }
+}
+
+/**
  * How large the window is drawn, and the store that remembers it.
  *
  * Module-level because three places need it and they run at different times:
@@ -224,9 +304,79 @@ let mcp: McpController | null = null
 let uiZoom = UI_ZOOM_DEFAULT
 let settingsStore: SettingsStore | null = null
 
+/**
+ * The process's one vault, at module level for the same reason `settingsStore`
+ * is: `currentUserMcpServers` runs each time a conversation starts, long after
+ * the assembly that built it.
+ *
+ * Null until `assemble` has run, and a null one costs credentials rather than
+ * the feature — see `currentUserMcpServers`, which sends the server anyway.
+ */
+let secretVault: SecretVault | null = null
+
 function applyUiZoom(factor: number): void {
   uiZoom = factor
   mainWindow?.webContents.setZoomFactor(factor)
+}
+
+/**
+ * Which way round the window is painted, and the two colours it starts as.
+ *
+ * The colours are the *pre-paint* backgrounds — what Chromium shows between the
+ * window appearing and the renderer's first frame. They are deliberately not
+ * read from the stylesheet: main cannot parse `styles.css`, and a second copy of
+ * `--color-bg` is the price of not having a black flash. The dark one is the
+ * value that shipped before this window had a choice; the light one is the light
+ * palette's `--color-bg`.
+ *
+ * Module-level for the same reason `uiZoom` is: `createWindow`, the
+ * `settings.write` handler and the `nativeTheme` subscription all need it and
+ * all run at different times.
+ */
+const THEME_BACKGROUND: Record<ResolvedTheme, string> = {
+  dark: '#141414',
+  light: '#f2f4f7',
+}
+
+let uiTheme: UiTheme = UI_THEME_DEFAULT
+
+/**
+ * What `uiTheme` means right now.
+ *
+ * `nativeTheme.shouldUseDarkColors` is the OS's answer *after* `themeSource` has
+ * been applied, so this reads correctly for all three values and there is no
+ * branch on `system` here — which is the point of resolving in one place. See
+ * `design/2026-08-15-light-and-dark-theme.md` §3.1.
+ */
+function resolvedTheme(): ResolvedTheme {
+  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+}
+
+/**
+ * Adopt a theme: tell Chromium, repaint the window's ground, tell the renderer.
+ *
+ * `themeSource` is set first and everything after it reads back through
+ * `resolvedTheme()` rather than through the argument, because `system` has no
+ * answer of its own — and because that is also the path the OS takes when it
+ * flips underneath us, so both routes run identical code.
+ */
+function applyUiTheme(theme: UiTheme): void {
+  uiTheme = theme
+  // Also what repaints the traffic lights: the window is `titleBarStyle:
+  // 'hidden'`, so the three dots are drawn by the OS off this value and are
+  // unreachable from the renderer.
+  nativeTheme.themeSource = theme
+  broadcastTheme()
+}
+
+/** Repaint the window ground and tell the window, from wherever the theme now stands. */
+function broadcastTheme(): void {
+  const resolved = resolvedTheme()
+  mainWindow?.setBackgroundColor(THEME_BACKGROUND[resolved])
+  const wc = mainWindow?.webContents
+  if (!wc || wc.isDestroyed()) return
+  const message: ThemeChangedMessage = { theme: uiTheme, resolved }
+  wc.send(IPC.THEME_CHANGED, message)
 }
 
 /**
@@ -247,6 +397,63 @@ function applyUiZoom(factor: number): void {
  */
 function currentPermissionMode(): ChatPermissionMode {
   return settingsStore?.read().agent?.permissionMode ?? 'default'
+}
+
+/**
+ * Where the next new conversation works, as of right now.
+ *
+ * A thunk for the same reason `currentPermissionMode` is, and *unlike* the tool
+ * switch beside it in assembly. The distinction is where the value has to be
+ * when it takes effect: the sandbox rides in `session/new`'s `_meta` for one
+ * agent and in the process environment for the other, so changing it cannot
+ * reach a child already running. A working directory is a `session/new`
+ * parameter on both, so the next conversation can have a different one without
+ * anything being restarted — and a setting that only applied after a relaunch,
+ * with nothing on screen saying so, is precisely the bug
+ * `design/2026-08-13-permission-mode-takes-effect.md` was written about.
+ *
+ * Undefined is "the file does not say", which `ensureChatWorkdir` reads as
+ * peek's own chat directory.
+ */
+function currentAgentWorkdir(): string | undefined {
+  // `null` is the store's erase signal and never survives a write, but the type
+  // admits it — normalised here so no caller has to know that.
+  return settingsStore?.read().agent?.agentWorkdir ?? undefined
+}
+
+/**
+ * The user's own MCP servers, unsealed, as of right now.
+ *
+ * **This is the only place a stored MCP credential becomes plaintext**, and it is
+ * in main because main is the only process that can call `safeStorage`. What
+ * leaves here is a value somebody decided to hand to an agent; everything
+ * downstream holds it because it was given, not because it can reach a keychain.
+ *
+ * A row whose credential will not unseal keeps its other fields and loses the
+ * header. That is the honest failure: the server is still configured, the
+ * request goes out unauthenticated, and the agent reports what the server says
+ * about that — which beats dropping the row and leaving the user looking for a
+ * server they can see in their settings.
+ *
+ * Disabled rows are filtered here rather than downstream, so "off" costs one
+ * comparison in the place that already reads the file.
+ */
+function currentUserMcpServers(): UserMcpServer[] {
+  const stored = settingsStore?.read().agent?.mcpServers ?? []
+  const vault = secretVault
+  return stored
+    .filter((server) => server.enabled)
+    .map((server) => {
+      const value = server.authValueSealed && vault ? vault.open(server.authValueSealed) : null
+      return {
+        name: server.name,
+        transport: server.transport,
+        target: server.target,
+        ...(server.args ? { args: server.args } : {}),
+        ...(server.authHeader ? { authHeader: server.authHeader } : {}),
+        ...(value ? { authValue: value } : {}),
+      }
+    })
 }
 
 /**
@@ -351,6 +558,45 @@ function notify(message: NotifyMessage): void {
   const tag = `[peek/${message.level}]`
   if (message.level === 'error') console.error(tag, message.message, message.detail ?? '')
   else if (message.level === 'warn') console.warn(tag, message.message, message.detail ?? '')
+}
+
+/**
+ * The outlet that can leave the window, assembled once the pieces it reads exist.
+ *
+ * Module-level and mutable for the same reason `settingsStore` is: the things it
+ * needs come up at different times, and the callers — the `app.notify` handler,
+ * both chat backends — are wired before or after depending on which backend the
+ * user picked. Until `bootstrap` replaces it, notices simply do not leave the
+ * process, which is what `unavailableNotifier` reports.
+ *
+ * Everything it reads is read *per call*, not captured: the window may not exist
+ * yet, and a preference flipped in the dialog has to hold on the next notice
+ * rather than the next launch.
+ */
+let notifier: Notifier = unavailableNotifier
+
+/**
+ * "It is your turn now", when the user is not there to see it.
+ *
+ * Both chat backends hand their state patches to `createChatStateApplier`, so
+ * this one function covers the embedded agent however it is being run — and a
+ * third backend would get it without a line here.
+ *
+ * `whenFocused: 'nothing'` is the whole of the noise budget: peek decided to say
+ * this, nobody asked for it, and if the user is looking at the panel the reply
+ * is already in front of them. What is left is exactly the case the feature
+ * exists for — they walked away, and something is waiting.
+ */
+function announceTurn(notice: TurnNotice): void {
+  if (!resolveNotifications(settingsStore?.read().notifications).agentTurnEnd) return
+  const { message, detail } = describeTurnNotice(notice)
+  notifier({
+    level: 'info',
+    message,
+    ...(detail === undefined ? {} : { detail }),
+    focusViewId: notice.viewId,
+    whenFocused: 'nothing',
+  })
 }
 
 /** Hand the startup notices to the window that just came up, in the order they happened. */
@@ -644,11 +890,13 @@ function wireConnectionEvents(): void {
     }),
 
     events.on('log', ({ connId, level, message, detail }) => {
+      // Recorded first, whatever the level, and **tagged with the connection**:
+      // this channel has carried `connId` since it was written, which is what
+      // makes "everything that happened on that connection" one filter rather
+      // than a manual read-through. It is also where `LogRecord.tag` came from.
+      logging?.logger('driver').with(connId).log(level, message, detail)
       // A driver host's stdout/stderr is noisy; only warn and above bother the user
-      if (level === 'info') {
-        console.log('[peek/driver]', message, detail ?? '')
-        return
-      }
+      if (level === 'info') return
       notify({ level, message, connId, ...(detail === undefined ? {} : { detail }) })
     }),
 
@@ -717,7 +965,10 @@ function createWindow(): BrowserWindow {
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 12, y: 9 } }
       : {}),
-    backgroundColor: '#141414',
+    // The ground Chromium shows until the renderer's first frame. Read from the
+    // theme rather than fixed, so launching in light mode does not flash black —
+    // `bootstrap` has already adopted the stored preference by the time this runs.
+    backgroundColor: THEME_BACKGROUND[resolvedTheme()],
     ...(hasIcon ? { icon: iconPath } : {}),
     webPreferences: {
       // Security baseline: no Node in the renderer, context isolation on, sandbox on
@@ -746,15 +997,27 @@ function createWindow(): BrowserWindow {
       detail: 'Connections and driver processes are still alive; reopening the window restores everything.',
     })
   })
-  // Errors are forwarded in every build, not just in dev: a render failure now
-  // shows the user a reload screen instead of a blank window (renderer's
-  // ErrorBoundary), and the stack trace it logs is the only trace that failure
-  // leaves anywhere — main's own state stayed valid throughout, so nothing else
-  // reports a problem. Everything below error level stays behind the dev flag.
-  const forwardAll = isDev || process.env['PEEK_FORWARD_CONSOLE'] === '1'
+  /*
+   * Everything the window says reaches main; what happens to it afterwards is
+   * two separate decisions.
+   *
+   * This used to drop anything below `error` unless a dev flag was set, and that
+   * was the wrong place to decide. **A line discarded at the point of collection
+   * cannot be recovered**, and the lines somebody reporting a bug wants are the
+   * warnings from just before the failure — in a packaged build, which is
+   * exactly where the old rule threw them away. The level filter belongs to the
+   * sink, which can be turned down to `debug` after the fact (design §3.3).
+   *
+   * `PEEK_FORWARD_CONSOLE` survives with a narrower job: whether these also go
+   * to main's stdout. Recording and echoing are different questions, and one
+   * flag should not answer both.
+   */
+  const echoToTerminal = isDev || process.env['PEEK_FORWARD_CONSOLE'] === '1'
   win.webContents.on('console-message', (details) => {
-    if (!forwardAll && details.level !== 'error') return
-    console.log(`[peek/renderer:${details.level}]`, details.message)
+    logging?.logger('renderer').log(rendererLevel(details.level), details.message, sourceOf(details))
+    if (echoToTerminal || details.level === 'error') {
+      console.log(`[peek/renderer:${details.level}]`, details.message)
+    }
   })
 
   // attachRenderer performs the data-plane handover, and it **must wait for the
@@ -770,6 +1033,11 @@ function createWindow(): BrowserWindow {
     // every load, so remembering it once at startup is not enough — a dev-server
     // hot reload would silently undo the user's setting.
     win.webContents.setZoomFactor(uiZoom)
+    // Same clause as the notices above: before `did-finish-load` the renderer has
+    // not subscribed, so a theme sent earlier goes on the floor. The window reads
+    // the stored preference itself through `settings.read` for its very first
+    // paint; this is what makes a *reload* land in the right theme.
+    broadcastTheme()
   })
 
   win.on('closed', () => {
@@ -798,6 +1066,65 @@ function createWindow(): BrowserWindow {
 /* 5. MCP HTTP Server                                                  */
 /* ================================================================== */
 
+/* ------------------------------------------------------------------ */
+/* Logging helpers                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A logger for the MCP surface, resolved per call.
+ *
+ * Per call rather than captured once, because `buildMcpController` runs inside
+ * `assemble` while `logging` is assigned at the top of `bootstrap` — and a
+ * captured `null` would stay null for the life of the process. The lookup is a
+ * property read; the tool path it sits on is an HTTP round trip.
+ */
+function mcpLogger(): Logger {
+  return logging?.logger('mcp') ?? noopLogger
+}
+
+/** The ACP backend's, resolved per call for the same reason as `mcpLogger`. */
+function acpLog(): Logger {
+  return logging?.logger('acp') ?? noopLogger
+}
+
+/**
+ * The logging system, for the callers that run after `bootstrap` assembled it.
+ *
+ * The optional-chaining above is right for a subscription that may fire before
+ * assembly; this is right for the handlers, which are registered *by* the
+ * assembly. Throwing here would mean bootstrap ran out of order, which is a bug
+ * in this file rather than a state to degrade through.
+ */
+function requireLogging(): Logging {
+  if (logging === null) throw new Error('logging is read before bootstrap assembled it')
+  return logging
+}
+
+/**
+ * Chromium's four names for a severity, as peek's four.
+ *
+ * Only `warning` differs, and `verbose` (which the deprecated numeric form still
+ * reports) never reaches the object form. Mapped rather than passed through so
+ * that a level filter set to `warn` in the panel means the same thing whether
+ * the line came from main or from the window.
+ */
+function rendererLevel(level: 'info' | 'warning' | 'error' | 'debug'): LogLevel {
+  return level === 'warning' ? 'warn' : level
+}
+
+/**
+ * Where in the window it was said.
+ *
+ * Kept because a forwarded console line loses every bit of context a devtools
+ * pane would have given it — without the source there is no way back from
+ * "Cannot read properties of undefined" to a file. Omitted for a line with no
+ * source, which is what `console.log` from an injected script looks like.
+ */
+function sourceOf(details: { sourceId: string; lineNumber: number }): string | undefined {
+  if (details.sourceId === '') return undefined
+  return `${details.sourceId}:${String(details.lineNumber)}`
+}
+
 function buildMcpController(
   commandBus: CommandBus,
   rows: ResultRowsBroker,
@@ -815,8 +1142,17 @@ function buildMcpController(
     configDir,
     settings,
     ...(Number.isInteger(portOverride) && portOverride > 0 ? { forcedPort: portOverride } : {}),
-    create: ({ port, token }) =>
-      createMcpServer({
+    create: ({ port, token }) => {
+      // The one place both tokens are certainly current — a rotation comes
+      // through here — so it is where they are registered as literals to mask.
+      //
+      // This is a **backstop and not the rule**. PLAN §7's "token 不进日志" is
+      // kept by never handing a token to a log call in the first place; the file
+      // this writes to is persistent and its readers are wide, so the accident
+      // is worth catching even though the design is that it cannot happen.
+      logging?.rememberSecret(token)
+      logging?.rememberSecret(agentToken)
+      return createMcpServer({
         port,
         configDir,
         ...(token === undefined ? {} : { token }),
@@ -834,17 +1170,12 @@ function buildMcpController(
         // default has no way to reach a package host: a tool would list and then
         // refuse to run.
         callPackageTool,
-        logger: {
-          log: (level, message, detail) => {
-            if (level === 'error') console.error('[peek/mcp]', message, detail ?? '')
-            else if (level === 'warn') console.warn('[peek/mcp]', message, detail ?? '')
-            else if (level === 'info') console.log('[peek/mcp]', message)
-          },
-        },
-      }),
+        logger: mcpLogger(),
+      })
+    },
     notify,
     log: (line) => {
-      console.log('[peek/mcp]', line)
+      mcpLogger().log('info', line)
     },
     // The ACP host reads this at session-creation time; a null endpoint is what
     // stops it from handing the user a Claude that silently cannot see the window.
@@ -863,13 +1194,41 @@ function buildMcpController(
 /* ================================================================== */
 
 function bootstrap(): void {
+  // First, before anything that might want to say something.
+  //
+  // The level is read from `settings.json` here rather than from the
+  // `SettingsStore` assembled two hundred lines below, because that store does
+  // not exist yet and the assembly in between is exactly the stretch where a
+  // launch failure is hardest to diagnose. One extra read of a small JSON file
+  // buys logging that covers the whole of `bootstrap`.
+  logging = createLogging({
+    configDir: resolveConfigDir(),
+    ...(readStoredLogLevel() === null ? {} : { settingsLevel: readStoredLogLevel() as LogLevel }),
+    isDev,
+  })
+  const appLog = logging.logger('app')
+  appLog.log('info', `peek ${app.getVersion()} starting`, { level: logging.level(), logFile: logging.diagnosticPath })
+
   const packageOptions = createPackageCommandOptions()
   // Wrapped rather than passed as `packageHosts.dispose`, which would arrive
   // unbound. One binding for both callers: an install and an uninstall have to
   // reach the same registry, or one of them kills a host the other still has.
   const disposeHost = (packageId: string): Promise<void> => packageHosts.dispose(packageId)
   const packages = createPackageAdmin(packageOptions, disposeHost)
-  const commandBus = createCommandBus({ store, deps: createDeps(packages) })
+  // The audit stream is wired in at construction rather than attached later, so
+  // there is no window in which commands run and are not recorded — the first
+  // ones dispatched are the workspace restore's, which is precisely the sequence
+  // somebody debugging a bad `workspace.json` wants to read back.
+  const commandLog = new CommandLog(COMMAND_LOG_CAPACITY, (entry) => {
+    logging?.audit(entry)
+  })
+  const commandBus = createCommandBus({ store, deps: createDeps(packages), log: commandLog })
+
+  // The two read-only log commands, replacing the `unavailableLogHandlers`
+  // stubs. Registered here rather than beside the config handlers because they
+  // need nothing that is assembled below — `logging` exists by the first line of
+  // this function, and `commandLog` is the instance the bus was just given.
+  commandBus.registerAll(createLogHandlers({ logging: requireLogging(), commandLog }))
 
   // Overwrites the `createUnavailablePackageViews` stubs `createCommandBus`
   // registered, exactly as the chat handlers below are overwritten. Until this
@@ -892,6 +1251,51 @@ function bootstrap(): void {
   // through `mcp` at call time.
   commandBus.registerAll(createPackageHandlers(packageOptions, disposeHost))
 
+  // The outlet that can leave the window, and the verb that uses it. Registered
+  // here, beside the package verbs, because it depends on nothing assembled
+  // below either: the window, the settings file and the user's preference are
+  // all read at the moment a notice is raised, never captured.
+  notifier = createNotifier({
+    toast: notify,
+    window: () => mainWindow,
+    systemEnabled: () => resolveNotifications(settingsStore?.read().notifications).system,
+    activateView: (viewId) => {
+      // `source: 'system'` — the click is the user's, but the command is peek's
+      // own follow-through, the same way the workspace restore's are.
+      void commandBus.dispatch('view.activate', { viewId }, 'system')
+    },
+    system: electronSystemNotifier(),
+  })
+  commandBus.registerAll(createAppHandlers(notifier))
+
+  /*
+   * The agent asking a person a question.
+   *
+   * One broker per window, not per backend — unlike `PermissionBroker`, which
+   * each agent backend owns. A permission request comes from a backend protocol;
+   * a question comes from a *tool call*, which may equally be the embedded agent
+   * or a Claude Code in a terminal, and neither belongs to a backend. See
+   * `design/2026-08-15-agent-asks-a-question.md` §2.4.
+   *
+   * Its own event sink: `createChatEventSink` holds no state, and taking one
+   * here rather than reaching for `wireChatHost`'s keeps the assembly order free
+   * — questions work before any agent backend has been chosen.
+   */
+  const questionSink = createChatEventSink(store)
+  const questions = new QuestionBroker({
+    onActive: (chatId, pending) => {
+      questionSink.onQuestionActive(chatId, pending)
+    },
+  })
+  commandBus.registerAll(createAskHandlers({ broker: questions }))
+  // Settles anything the window has stopped showing — a closed chat view, or a
+  // turn the user cancelled out from under the question. Without it those
+  // `chat.ask` calls hang until their timeout.
+  disposers.push(watchQuestions(store, questions))
+  disposers.push(() => {
+    questions.cancelAll(null, 'shutdown')
+  })
+
   const configDir = resolveConfigDir()
 
   // The one place peek is allowed to keep a credential. `safeStorage` hands the
@@ -902,6 +1306,7 @@ function bootstrap(): void {
   // One vault for the process: connection passwords and the chat panel's endpoint
   // API key are the same kind of secret and go through the same seal.
   const vault = createSafeStorageVault(safeStorage)
+  secretVault = vault
 
   book = createConnectionBook({
     configDir,
@@ -933,6 +1338,14 @@ function bootstrap(): void {
   const autoRefresh = createAutoRefreshScheduler({ store, bus: commandBus })
   disposers.push(() => {
     autoRefresh.dispose()
+  })
+
+  // "This connection is up now — fetch the views that were waiting for it."
+  // Registered before anything opens a connection, because the restore below
+  // builds a whole layout on connections that are still dialling.
+  const connectionWake = createConnectionWake({ store, bus: commandBus })
+  disposers.push(() => {
+    connectionWake.dispose()
   })
 
   // MCP's run_query owes the AI a few sample rows, and row data lives only in the renderer cache
@@ -973,6 +1386,24 @@ function bootstrap(): void {
   // already the right size rather than snapping a moment after it appears.
   uiZoom = settings.read().uiZoom ?? UI_ZOOM_DEFAULT
 
+  // Likewise, and for a sharper reason: `createWindow` reads `resolvedTheme()`
+  // for the window's `backgroundColor`, so adopting the preference after the
+  // window exists would mean every light-mode launch flashes black first.
+  //
+  // Assigned rather than routed through `applyUiTheme`, which broadcasts to a
+  // window that does not exist yet. The `did-finish-load` handler is what tells
+  // the renderer.
+  uiTheme = settings.read().theme ?? UI_THEME_DEFAULT
+  nativeTheme.themeSource = uiTheme
+
+  // The OS crossing into dark mode at sunset is the reason `IPC.THEME_CHANGED`
+  // exists: nobody asked a question, so nothing would otherwise repaint. Fires
+  // for every `themeSource` write too, which is harmless — `broadcastTheme` is
+  // idempotent and the renderer compares before touching the DOM.
+  nativeTheme.on('updated', () => {
+    broadcastTheme()
+  })
+
   // Timeouts are a module-level singleton in `connections/timeouts.ts`, applied
   // rather than injected. This must happen before any connection is opened —
   // hence here, ahead of `createWindow()`. Invalid entries are dropped by
@@ -995,12 +1426,129 @@ function bootstrap(): void {
       configDir,
       version: app.getVersion(),
       applyZoom: applyUiZoom,
+      applyTheme: applyUiTheme,
+      readResolvedTheme: resolvedTheme,
+      // Takes effect on the next line written, with nothing to restart: this is
+      // what makes "turn debug on, then reproduce it" a workflow rather than a
+      // relaunch that loses the state you were trying to look at.
+      applyLogLevel: (level) => {
+        logging?.setLevel(level)
+      },
+      readLogLevel: () => logging?.level() ?? 'info',
     }),
   )
 
-  createWindow()
+  // The desk as it was left. It goes back before the window exists, so the first
+  // frame is the restored workspace rather than an empty one that fills in a
+  // beat later — and `createWindow` moves inside it for that reason alone.
+  void restoreDesk(commandBus, book, configDir)
 
   void controller.start()
+}
+
+/**
+ * Put the workspace back, then open the window, then start saving it again.
+ *
+ * That order is the whole function. The window comes last so the first frame is
+ * the restored desk; saving starts last so the intermediate states a restore
+ * passes through — a bare tree, then one tab, then two — never reach the file.
+ *
+ * **Nothing in here may throw.** A workspace that will not load is a bad
+ * morning; a launch that does not finish is a broken app. So the window is
+ * created in a `finally`, and every failure below degrades to a notice plus an
+ * empty desk.
+ *
+ * `PEEK_NO_RESTORE=1` skips the restore *and the saving*. It exists for one
+ * specific hole: a restored view that crashes the window would otherwise crash
+ * it on every launch, with no window left to fix it from. Not saving is the
+ * other half of that — an escape hatch that quietly overwrote the file with the
+ * empty workspace it just started would destroy the thing it was opened to
+ * rescue.
+ */
+async function restoreDesk(bus: CommandBus, savedConnections: ConnectionBook | null, configDir: string): Promise<void> {
+  const path = workspaceFilePath(configDir)
+
+  if (process.env['PEEK_NO_RESTORE'] === '1') {
+    console.log('[peek/info] PEEK_NO_RESTORE is set: starting empty, and not saving over', path)
+    createWindow()
+    return
+  }
+
+  try {
+    const outcome = readWorkspaceFile(path)
+    if (outcome.kind === 'corrupt') {
+      notify({
+        level: 'warn',
+        message: 'The saved workspace could not be read, so peek started with an empty one.',
+        detail:
+          outcome.movedTo === null
+            ? `${path}: ${outcome.reason}`
+            : `${outcome.reason}; the file was moved to ${outcome.movedTo}`,
+      })
+    } else if (outcome.kind === 'ok' && savedConnections !== null) {
+      const report = await restoreWorkspace({
+        workspace: outcome.workspace,
+        bus,
+        book: savedConnections,
+        notify: (message, detail) => {
+          notify({ level: 'warn', message, ...(detail === undefined ? {} : { detail }) })
+        },
+      })
+      reportRestore(report)
+    }
+  } catch (error) {
+    const failure = toPeekError(error)
+    console.error('[peek/error] the workspace could not be restored', failure)
+    notify({
+      level: 'error',
+      message: 'The saved workspace could not be restored, so peek started with an empty one.',
+      detail: failure.detail ?? failure.message,
+    })
+  } finally {
+    createWindow()
+
+    const persister = createWorkspacePersister({
+      store,
+      path,
+      onError: (message, detail) => {
+        notify({ level: 'warn', message, detail })
+      },
+    })
+    // Flushed before it is disposed, and disposers run first in `shutdown` —
+    // so the last thing the user did lands, even though the debounce timer for
+    // it never fired.
+    disposers.push(() => {
+      persister.flush()
+      persister.dispose()
+    })
+  }
+}
+
+/** Only what somebody can act on: a clean restore says nothing. */
+function reportRestore(report: RestoreReport): void {
+  if (report.layoutError !== undefined) {
+    notify({
+      level: 'warn',
+      message: 'The saved layout was refused, so peek started with an empty workspace.',
+      detail: report.layoutError,
+    })
+    return
+  }
+  if (report.connectionsMissing.length > 0) {
+    notify({
+      level: 'warn',
+      message:
+        `${String(report.connectionsMissing.length)} saved connection(s) are no longer in the ` +
+        'connection book; the views that were reading them were not restored.',
+      detail: report.connectionsMissing.join(', '),
+    })
+  }
+  if (report.viewsFailed > 0) {
+    notify({
+      level: 'warn',
+      message: `${String(report.viewsFailed)} saved view(s) could not be reopened.`,
+    })
+  }
 }
 
 /* ================================================================== */
@@ -1078,7 +1626,7 @@ function wireEndpointBackend(
 
   const manager = new EndpointManager(
     {
-      applyState: createChatStateApplier(store),
+      applyState: createChatStateApplier(store, announceTurn),
       emitDeltas: createDeltaEmitter(renderers, sendChatDeltas),
       notify,
       // The same tools an external MCP client sees, called in-process rather than
@@ -1089,13 +1637,7 @@ function wireEndpointBackend(
         dispatch: (name, input, callSource) => commandBus.dispatch(name, input, callSource) as never,
         getSnapshot: (): WorkspaceSnapshot => store.getSnapshot(),
         readResultRows: (req) => rows.read(req),
-        logger: {
-          log: (level, message, detail) => {
-            if (level === 'error') console.error('[peek/agent]', message, detail ?? '')
-            else if (level === 'warn') console.warn('[peek/agent]', message, detail ?? '')
-            else console.log('[peek/agent]', message)
-          },
-        },
+        logger: logging?.logger('agent') ?? noopLogger,
         now: () => Date.now(),
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       },
@@ -1104,8 +1646,12 @@ function wireEndpointBackend(
       // backend, so nobody enumerates anybody else's files.
       threads: new EndpointThreadStore(
         join(chatRootDir(process.env['PEEK_CONFIG_DIR']), ENDPOINT_THREAD_DIR),
+        logging?.logger('agent') ?? noopLogger,
       ),
       sessionIndex,
+      // What the loop says about its own insides — which events arrived, which
+      // it could not use, and why. Tagged per conversation inside the loop.
+      logger: logging?.logger('agent') ?? noopLogger,
     },
     {
       settings: config,
@@ -1130,7 +1676,7 @@ function wireEndpointBackend(
 
 function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
   const sink = createChatEventSink(store)
-  const applyState = createChatStateApplier(store)
+  const applyState = createChatStateApplier(store, announceTurn)
   const source = createContextSource({ store, connections, rows })
   const onError = (chatId: Parameters<typeof sink.onAgentError>[0], error: Parameters<typeof sink.onAgentError>[1]): void => {
     sink.onAgentError(chatId, error)
@@ -1163,7 +1709,16 @@ function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
   }
 
   const acpConfig = defaultAcpConfig(chosen?.acpProfile)
-  if (chosen?.acpExecutablePath) acpConfig.agentConfig = { executablePath: chosen.acpExecutablePath }
+  // Both agent-facing settings in one object, and read from the boot snapshot
+  // rather than per conversation on purpose: the sandbox travels in `session/new`
+  // for Claude Code and in the *process environment* for Codex, so a switch
+  // flipped mid-session could not reach the child that is already running.
+  // Which agent runs is fixed for the life of the process and says so in the
+  // panel; what it may do is fixed the same way, and for a harder reason.
+  acpConfig.agentConfig = {
+    ...(chosen?.acpExecutablePath ? { executablePath: chosen.acpExecutablePath } : {}),
+    ...(chosen?.acpFullTools ? { fullTools: true } : {}),
+  }
   // The mode a new conversation starts in. The panel's own dropdown still moves it
   // per conversation — this only decides where it starts.
   //
@@ -1173,6 +1728,16 @@ function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
   // and says so in the panel; where a conversation *starts* is not, and used to
   // behave as though it were.
   acpConfig.permissionMode = currentPermissionMode
+  // Where it works, on the same terms. `chosen` is a conversation that was
+  // already pinned — a resumed one, whose cwd is how `session/load` finds the
+  // transcript — and it wins over the setting: moving the setting must not
+  // strand the conversations that were started under the old one.
+  acpConfig.resolveCwd = (chosen) =>
+    ensureChatWorkdir(
+      process.env['PEEK_CONFIG_DIR'],
+      acpConfig.profile.workdirSegment,
+      chosen ?? currentAgentWorkdir(),
+    )
 
   const manager = new AcpManager(
     {
@@ -1180,6 +1745,7 @@ function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
       emitDeltas: createDeltaEmitter(renderers, sendChatDeltas),
       notify,
       resolveMcpEndpoint: () => mcpEndpoint,
+      resolveUserMcpServers: currentUserMcpServers,
       sessionIndex,
       // Pictures of ACP conversations, so opening one from the rail draws
       // immediately instead of waiting out `session/load`. A sibling of the
@@ -1197,12 +1763,10 @@ function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
   // Diagnostics, not state: the host reports its own process lifecycle here, and
   // only the terminal case is worth interrupting the user for.
   manager.events.on('log', ({ level, message, detail }) => {
-    if (level === 'error') console.error('[peek/acp]', message, detail ?? '')
-    else if (level === 'warn') console.warn('[peek/acp]', message, detail ?? '')
-    else console.log('[peek/acp]', message, detail ?? '')
+    acpLog().log(level, message, detail)
   })
   manager.events.on('ready', ({ pid, agentName, agentVersion }) => {
-    console.log(`[peek/acp] agent ready: ${agentName} ${agentVersion} (pid ${pid ?? '?'})`)
+    acpLog().log('info', `agent ready: ${agentName} ${agentVersion} (pid ${pid ?? '?'})`)
   })
   manager.events.on('gaveUp', ({ error }) => {
     notify({
@@ -1281,7 +1845,25 @@ async function shutdown(): Promise<void> {
   await packageHosts.disposeAll().catch((error: unknown) => {
     console.error('[peek/error] failed to reclaim package host processes', error)
   })
+  // After everything above, because every step of it is worth recording and a
+  // closed writer records nothing. The buffered tail is written synchronously
+  // here; `process.on('exit')` below is the belt for the paths that never reach
+  // this function.
+  logging?.logger('app').log('info', 'peek is shutting down')
+  logging?.close()
 }
+
+/**
+ * The belt for `shutdown`'s braces.
+ *
+ * `before-quit` covers the ordinary quit; this covers what it cannot — a
+ * `process.exit` from somewhere else, and the window of time before `bootstrap`
+ * has installed the handler at all. Synchronous IO is the only kind permitted in
+ * an `exit` listener, which is exactly what the writer does.
+ */
+process.on('exit', () => {
+  logging?.close()
+})
 
 // Single instance: the MCP port and the local state are both singletons, so a second window would be meaningless
 if (!app.requestSingleInstanceLock()) {
@@ -1345,11 +1927,12 @@ if (!app.requestSingleInstanceLock()) {
       event.returnValue = installedSnapshot()
     })
 
-    // The window half of "Install…". It picks and stops there — validating the
-    // directory and copying it in is `packages.install`, which the window sends
-    // next, so a hand-typed path and a picked one meet exactly the same checks.
-    // See `IPC.PACKAGES_PICK_DIR` for why this is not itself a command.
-    ipcMain.handle(IPC.PACKAGES_PICK_DIR, async (event): Promise<string | null> => {
+    // The window half of anything that needs an absolute directory — "Install…"
+    // in the packages panel, the chat panel's working directory. It picks and
+    // stops there; validating the path is the caller's own command, which the
+    // window sends next, so a hand-typed path and a picked one meet exactly the
+    // same checks. See `IPC.PICK_DIR` for why this is not itself a command.
+    ipcMain.handle(IPC.PICK_DIR, async (event): Promise<string | null> => {
       const parent = BrowserWindow.fromWebContents(event.sender)
       // Sheet-modal to the window that asked, when there is one: the dialog is
       // an answer to a click in that window, and a detached chooser on macOS is

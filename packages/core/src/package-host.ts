@@ -1,6 +1,7 @@
 import type { CollectionRef, ConnectionConfig, DriverId } from './capability'
 import type { Command } from './commands'
 import { peekError, toPeekError, type PeekError } from './errors'
+import { createLogger, formatLogLine } from './logger'
 import type { DriverDisplay } from './manifest'
 import type { CommandDispatch, CommandOutcome, ToolContext, ToolOutput, ToolSpec } from './mcp-tools'
 import type {
@@ -336,11 +337,21 @@ function packageToolContext(snapshot: WorkspaceSnapshot): ToolContext {
   return {
     dispatch,
     getSnapshot: () => snapshot,
-    logger: {
-      log: (level, message, detail) => {
-        console.error(`[peek/${level}] ${message}`, detail ?? '')
+    // Still stderr, because a package host has no event plane and no file of its
+    // own — main's process wrapper forwards stdio, and that forwarding is what
+    // gets these lines into `peek.log`. What changed is the *shape*: rendered by
+    // `formatLogLine`, so a package's line is laid out like every other line in
+    // that file instead of being the one that reads differently.
+    logger: createLogger({
+      ns: 'package',
+      sink: (record) => {
+        console.error(formatLogLine(record))
       },
-    },
+      // No level control in here: the host is a child process with no access to
+      // the user's setting, and dropping a line at the source is exactly the
+      // mistake the renderer forwarding used to make. main filters what it keeps.
+      minLevel: () => 'debug',
+    }),
     now: () => Date.now(),
     sleep: (ms) =>
       new Promise((resolve) => {

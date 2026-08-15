@@ -13,6 +13,8 @@ import { connCapabilities } from '../../state/capabilities'
 import { dispatch } from '../../state/dispatch'
 import { invalidateConnection, loadChildren, useNodes } from '../../state/namespaceStore'
 import { useConnection } from '../../state/workspaceStore'
+import { Icon } from '../../ui/Icon'
+import type { IconName } from '../../ui/icons'
 import { Menu } from '../../ui/Menu'
 import { useContextMenu } from '../../ui/useContextMenu'
 import { ViewError } from '../ViewError'
@@ -89,8 +91,9 @@ export function TreeView({ view }: { view: TreeViewState }): ReactElement {
       <div className="flex h-bar flex-none items-center gap-tight overflow-hidden shadow-rule-b bg-bg-1 px-snug text-fg-dim">
         <span>{conn?.label ?? connId}</span>
         <span className="h-divider w-px flex-none bg-border-strong" />
-        <button className="ghost" onClick={refresh} disabled={!hasChannel}>
-          ⟳ {t('tree.refresh')}
+        <button className="ghost inline-flex items-center gap-tight" onClick={refresh} disabled={!hasChannel}>
+          <Icon name="refresh" size="sm" />
+          {t('tree.refresh')}
         </button>
         <span className="flex-1" />
         <span className="text-fg-faint">{t('tree.openHint')}</span>
@@ -235,21 +238,25 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
                   is no rung under it (§30.5). What survives is the part that does
                   not need a font size: a fixed 14px column, and the whole 24px row
                   rather than the glyph as the click target. */}
-              <span className="w-glyph shrink-0 text-center text-fg-faint text-mark">
-                {node.hasChildren ? (open ? '▾' : '▸') : ''}
+              <span className="w-glyph shrink-0 flex justify-center text-fg-faint">
+                {node.hasChildren ? <Icon name={open ? 'disclosure.open' : 'disclosure.closed'} size="sm" /> : null}
               </span>
-              {/* The node-kind glyph is now the same 12px as the caret above it,
-                  and that is a real distinction being lost rather than a tidy-up.
-                  The caret has two states and they differ by 90°; these are
-                  ⛁ ❏ ▦ ◫ ◪ ⧉ ◇ — a set the reader is meant to tell apart, where
-                  ◫ and ◪ differ only by which half is filled. It was sized *above*
-                  the floor for that reason and the caret *below* it, one rung each
-                  way. A two-rung default scale has neither rung, so the sizes met
-                  in the middle. If these ever become hard to tell apart, this is
-                  the note that says it was foreseen and what the fix is: a size,
-                  not a different glyph. */}
-              <span className="w-glyph shrink-0 text-center text-fg-dim text-body">
-                {iconOf(node.kind)}
+              {/*
+                The note that used to sit here said this set — ⛁ ❏ ▦ ◫ ◪ ⧉ ◇ —
+                asked the reader to separate symbols differing only by which half
+                was filled, that the type scale had squeezed it to the same rung
+                as the caret, and that if they ever became hard to tell apart the
+                fix would be *a size, not a different glyph*.
+
+                The fix turned out to be neither. Both halves of that diagnosis
+                were downstream of one fact: Unicode does not contain these
+                concepts, so the glyphs were chosen for being the nearest
+                available shape, and a set assembled that way cannot be rescued
+                by sizing it. What it needed was a set that contains them —
+                and a size that is not the type scale's to squeeze.
+              */}
+              <span className="w-glyph shrink-0 flex justify-center text-fg-dim">
+                <Icon name={iconOf(node.kind)} />
               </span>
               <span className="truncate">{node.name}</span>
               {elided ?? node.detail ? (
@@ -403,31 +410,31 @@ from information_schema.tables
 where table_schema not in ('pg_catalog', 'information_schema')
 order by table_schema, table_name`
 
-function iconOf(kind: NamespaceNodeKind): string {
+function iconOf(kind: NamespaceNodeKind): IconName {
   switch (kind) {
     case 'database':
-      return '⛁'
+      return 'node.database'
     case 'schema':
     case 'folder':
     case 'keyPrefix':
-      return '❏'
+      return 'node.folder'
     case 'table':
-      return '▦'
+      return 'node.table'
     case 'view':
-      return '◫'
+      return 'node.view'
     case 'materializedView':
-      return '◪'
+      return 'node.materializedView'
     case 'keyspace':
-      return '⧉'
+      return 'node.keyspace'
     case 'key':
-      return '·'
+      return 'node.key'
     case 'collection':
-      return '◇'
+      return 'node.collection'
     case 'index':
-      return '⌗'
+      return 'node.index'
     case 'column':
-      return '│'
+      return 'node.column'
     default:
-      return '·'
+      return 'node.key'
   }
 }

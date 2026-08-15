@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ReactElement } from 'react'
+import type { CommandLogEntry, LogRecord } from '@peek/core'
 import { useErrorText, useT, type TFunction } from '../../i18n'
 import {
   clearErrorLog,
@@ -12,8 +13,12 @@ import {
   type ErrorEntry,
   type ErrorSource,
 } from './errorLog'
+import { CommandsTabView, LogTabView, useLogPolling } from './LogPanels'
+import { formatEntries, formatRecords, setLogTab, useLogTabs, type LogTab } from './logTabs'
 import { Button } from '../../ui/Button'
+import { Icon } from '../../ui/Icon'
 import { Menu } from '../../ui/Menu'
+import { Segmented } from '../../ui/Segmented'
 import type { MenuNode } from '../../ui/menuModel'
 import { useContextMenu } from '../../ui/useContextMenu'
 
@@ -75,8 +80,9 @@ export function ErrorCenterButton(): ReactElement | null {
         aria-expanded={open}
         onClick={toggleErrorCenter}
       >
-        <span className={unseen > 0 ? 'text-err' : undefined}>
-          ⚠ {unseen > 0 ? t('app.errors.unseen', { count: unseen }) : t('app.errors.count', { count })}
+        <span className={unseen > 0 ? 'text-err inline-flex items-center gap-tight' : 'inline-flex items-center gap-tight'}>
+          <Icon name="warn" />
+          {unseen > 0 ? t('app.errors.unseen', { count: unseen }) : t('app.errors.count', { count })}
         </span>
       </Button>
       {open ? <ErrorCenterPanel /> : null}
@@ -91,7 +97,12 @@ export function ErrorCenterButton(): ReactElement | null {
 function ErrorCenterPanel(): ReactElement {
   const t = useT()
   const entries = useErrorLog((s) => s.entries)
+  const tab = useLogTabs((s) => s.tab)
+  const records = useLogTabs((s) => s.records)
+  const commands = useLogTabs((s) => s.entries)
   const [copied, setCopied] = useState<number | 'all' | null>(null)
+
+  useLogPolling(tab !== 'errors')
 
   const copy = (text: string, mark: number | 'all'): void => {
     void navigator.clipboard
@@ -119,44 +130,95 @@ function ErrorCenterPanel(): ReactElement {
       style={PANEL_SIZE}
     >
       <div className="flex h-bar flex-none items-center gap-tight overflow-hidden shadow-rule-b bg-bg-1 px-snug text-fg-dim">
-        <strong>{t('app.errors.title')}</strong>
+        {/*
+         * Three tabs, one shell.
+         *
+         * The panel used to be the error centre and nothing else, and its title
+         * said so. It now also holds main's diagnostic stream and the command
+         * audit — so the strip replaces the title, because a panel with a
+         * Commands tab in it is not an error centre. The badge that opens it
+         * still counts failures only, which is why the trigger and the panel
+         * disagree about what this thing is: the trigger is an alarm, the panel
+         * is a record.
+         */}
+        <Segmented
+          size="sm"
+          label={t('app.logs.title')}
+          value={tab}
+          options={[
+            { value: 'errors' as const, label: t('app.logs.tab.errors') },
+            { value: 'logs' as const, label: t('app.logs.tab.diagnostics') },
+            { value: 'commands' as const, label: t('app.logs.tab.commands') },
+          ]}
+          onChange={setLogTab}
+        />
         <span className="flex-1" />
         <Button
           variant="ghost"
           onClick={() => {
-            copy(formatErrorLog(entries), 'all')
+            copy(copyTextFor(tab, entries, records, commands), 'all')
           }}
         >
           {copied === 'all' ? t('app.errors.copied') : t('app.errors.copyAll')}
         </Button>
-        <Button variant="ghost" onClick={clearErrorLog}>
-          {t('app.errors.clear')}
-        </Button>
-        <Button variant="ghost" title={t('app.errors.close')} onClick={closeErrorCenter}>
-          ✕
+        {/*
+         * Clear empties this window's failure ring, which only the error tab
+         * shows. Deliberately absent on the other two: they are views of main's
+         * log, and a button here that appeared to erase it would either lie or
+         * destroy the record somebody opened the panel to read.
+         */}
+        {tab === 'errors' ? (
+          <Button variant="ghost" onClick={clearErrorLog}>
+            {t('app.errors.clear')}
+          </Button>
+        ) : null}
+        <Button variant="ghost" icon label={t('app.errors.close')} onClick={closeErrorCenter}>
+          <Icon name="close" />
         </Button>
       </div>
 
-      <div className="overflow-y-auto overflow-x-hidden">
-        {ordered.length === 0 ? (
-          <div className="p-snug text-fg-faint">{t('app.errors.empty')}</div>
-        ) : (
-          ordered.map((entry) => (
-            <ErrorRow
-              key={entry.id}
-              entry={entry}
-              onCopy={() => {
-                copy(formatEntry(entry), entry.id)
-              }}
-              onCopyAll={() => {
-                copy(formatErrorLog(entries), 'all')
-              }}
-            />
-          ))
-        )}
-      </div>
+      {tab === 'logs' ? <LogTabView /> : null}
+      {tab === 'commands' ? <CommandsTabView /> : null}
+      {tab === 'errors' ? (
+        <div className="overflow-y-auto overflow-x-hidden">
+          {ordered.length === 0 ? (
+            <div className="p-snug text-fg-faint">{t('app.errors.empty')}</div>
+          ) : (
+            ordered.map((entry) => (
+              <ErrorRow
+                key={entry.id}
+                entry={entry}
+                onCopy={() => {
+                  copy(formatEntry(entry), entry.id)
+                }}
+                onCopyAll={() => {
+                  copy(formatErrorLog(entries), 'all')
+                }}
+              />
+            ))
+          )}
+        </div>
+      ) : null}
     </div>
   )
+}
+
+/**
+ * What the header's copy button puts on the clipboard.
+ *
+ * Per tab, because "copy all" means the thing being looked at. All three formats
+ * are unlocalized for the reason `formatErrorLog` gives: this text is pasted
+ * somewhere it has to read identically to whoever opens it.
+ */
+function copyTextFor(
+  tab: LogTab,
+  entries: readonly ErrorEntry[],
+  records: readonly LogRecord[],
+  commands: readonly CommandLogEntry[],
+): string {
+  if (tab === 'logs') return formatRecords(records)
+  if (tab === 'commands') return formatEntries(commands)
+  return formatErrorLog(entries)
 }
 
 /**

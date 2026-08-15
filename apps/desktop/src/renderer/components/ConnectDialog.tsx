@@ -5,6 +5,7 @@ import type { DriverId, SavedConnection } from '@peek/core'
 import { driverCapabilities, manifestDriverIds } from '../../drivers/manifests'
 import { useModalDialog } from '../hooks'
 import { Button } from '../ui/Button'
+import { Icon } from '../ui/Icon'
 import { Form, FormHint, FormRow } from '../ui/Form'
 import { Segmented } from '../ui/Segmented'
 import { useLocale, useT } from '../i18n'
@@ -349,7 +350,7 @@ function DialogShell({ shellRef, title, onClose, children }: DialogShellProps): 
           <span className={MODAL_TITLE}>{title}</span>
           <span className="flex-1" />
           <Button variant="ghost" icon label={t('app.errors.close')} onClick={onClose}>
-            ✕
+            <Icon name="close" />
           </Button>
         </div>
         {children}

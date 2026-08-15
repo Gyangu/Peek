@@ -19,6 +19,7 @@
 
 import type { WebContents } from 'electron'
 import type {
+  ChatAgentStatus,
   ChatDelta,
   ChatId,
   ChatPermissionMode,
@@ -72,13 +73,16 @@ import type { WorkspaceStore } from './store'
  */
 export function createChatStateApplier(
   store: WorkspaceStore,
+  announce?: TurnAnnouncer,
 ): (patch: ChatAgentStatePatch) => Promise<void> {
   return (patch) => {
     // Read before writing: a patch for a conversation whose view has been closed
     // costs no rev bump and no patch broadcast. Notifications keep arriving until
     // the agent process actually stops, and churning the renderer for a view that
     // no longer exists is pure waste.
-    if (findChatView(store.getState(), patch.chatId) === undefined) return Promise.resolve()
+    const before = findChatView(store.getState(), patch.chatId)
+    if (before === undefined) return Promise.resolve()
+    const previousStatus = before.agentStatus
 
     store.apply((draft) => {
       const view = findChatDraft(draft, patch.chatId)
@@ -105,7 +109,136 @@ export function createChatStateApplier(
       if (patch.status !== undefined && patch.status !== 'error') delete view.error
     }, { source: 'system' })
 
+    // After the write, and from the store rather than from the patch: what the
+    // user should be told about is the conversation's state, and the patch is
+    // only the part of it that changed. A `status` that arrives without a
+    // `lastMessagePreview` still has one, from the delta that landed before it.
+    if (announce !== undefined && patch.status !== undefined) {
+      const after = findChatView(store.getState(), patch.chatId)
+      const notice = after === undefined ? null : turnNotice(previousStatus, after)
+      if (notice !== null) announce(notice)
+    }
+
     return Promise.resolve()
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* "It is your turn now"                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A turn that has stopped needing the agent and started needing the user.
+ *
+ * Three kinds, because there are three ways a person's attention becomes the
+ * thing the conversation is waiting on, and they read differently on a lock
+ * screen: the agent answered; the agent is blocked on a permission; the agent
+ * asked a question and is holding a tool call open until it gets an answer.
+ */
+export interface TurnNotice {
+  viewId: ViewId
+  /** The tab title, when the conversation has one. */
+  label?: string
+  kind: 'replied' | 'permission' | 'question'
+  /** First ~200 chars of the reply, for `kind: 'replied'`. */
+  preview?: string
+  /** The tool waiting for a decision, for `kind: 'permission'`. */
+  toolName?: string
+  /** What was asked, for `kind: 'question'`. */
+  question?: string
+}
+
+export type TurnAnnouncer = (notice: TurnNotice) => void
+
+/** Statuses that mean the agent is working, i.e. that nothing is expected of the user. */
+const BUSY: ReadonlySet<ChatAgentStatus> = new Set<ChatAgentStatus>(['starting', 'streaming'])
+/** Statuses that mean the turn is over. */
+const RESTING: ReadonlySet<ChatAgentStatus> = new Set<ChatAgentStatus>(['idle', 'ready'])
+
+/**
+ * Decide whether this state change is worth interrupting someone for.
+ *
+ * **A transition, not a state.** `ready` on its own says nothing — a panel sits
+ * in it for as long as nobody types. What is worth a notification is the
+ * *moment* it stopped being the agent's turn, and that moment is exactly one
+ * patch wide.
+ *
+ * Which is also why `loading → ready` is not it. Opening a stored conversation
+ * replays its history through this same applier (see `ChatAgentStatus`), and it
+ * ends in `ready` having answered nothing: a user who clicked a session in the
+ * rail does not need to be told their click worked.
+ *
+ * `error` is left out too. A failed turn already surfaces in the panel and in
+ * the error centre, and "the agent crashed" is not news the way "the agent is
+ * waiting for you" is. That is a judgement, and reversing it means adding one
+ * line here.
+ *
+ * Exported for its own test: the whole feature's noise budget is this function.
+ */
+export function turnNotice(previous: ChatAgentStatus, view: ChatViewState): TurnNotice | null {
+  if (!BUSY.has(previous)) return null
+  const base = {
+    viewId: view.id,
+    ...(view.title === undefined || view.title.trim() === '' ? {} : { label: view.title.trim() }),
+  }
+  if (RESTING.has(view.agentStatus)) {
+    return {
+      ...base,
+      kind: 'replied',
+      ...(view.lastMessagePreview === undefined ? {} : { preview: view.lastMessagePreview }),
+    }
+  }
+  if (view.agentStatus === 'awaiting-permission') {
+    return {
+      ...base,
+      kind: 'permission',
+      ...(view.pendingPermission === undefined ? {} : { toolName: view.pendingPermission.toolName }),
+    }
+  }
+  // The third "your turn", and the one with a clock on it: an unanswered
+  // question expires after five minutes and the agent then carries on without
+  // it. Being told late about a finished turn costs nothing; being told late
+  // about this costs the answer.
+  if (view.agentStatus === 'awaiting-answer') {
+    return {
+      ...base,
+      kind: 'question',
+      ...(view.pendingQuestion === undefined ? {} : { question: view.pendingQuestion.question }),
+    }
+  }
+  return null
+}
+
+/**
+ * A `TurnNotice` as something to read on a lock screen.
+ *
+ * Separate from `turnNotice` so that "is this worth saying" and "how is it said"
+ * can be read, and changed, apart. English for the reason given atop
+ * `notifications.ts`: main has no language.
+ */
+export function describeTurnNotice(notice: TurnNotice): { message: string; detail?: string } {
+  const subject = notice.label === undefined ? 'The agent' : `${notice.label}: the agent`
+  if (notice.kind === 'question') {
+    return {
+      message: `${subject} is asking you something`,
+      // The question itself, because it is short by construction (300 chars in
+      // the schema) and because a banner saying only "it asked something" makes
+      // the person open the window to find out whether it was worth opening.
+      ...(notice.question === undefined ? {} : { detail: notice.question }),
+    }
+  }
+  if (notice.kind === 'permission') {
+    return {
+      message: `${subject} needs your decision`,
+      detail:
+        notice.toolName === undefined
+          ? 'A tool call is waiting for permission.'
+          : `${notice.toolName} is waiting for permission.`,
+    }
+  }
+  return {
+    message: `${subject} has replied`,
+    ...(notice.preview === undefined ? {} : { detail: notice.preview }),
   }
 }
 

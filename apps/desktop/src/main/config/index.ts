@@ -3,7 +3,7 @@
  * management").
  *
  * The README used to say "Persistence: none. The only file written is
- * `~/.peek/mcp.json`". Three files now live there, and the reason each one broke
+ * `~/.peek/mcp.json`". Four files now live there, and the reason each one broke
  * that promise is worth keeping visible:
  *
  *   connections.json  a connection you cannot save is a connection you retype,
@@ -12,9 +12,14 @@
  *   settings.json     the MCP port had to be a preference rather than an
  *                     environment variable, and a preference that does not
  *                     survive a restart is not one.
+ *   workspace.json    a restart used to mean rebuilding the desk by hand: the
+ *                     splits, the tabs, the statement half-written in an editor.
+ *                     What it stores is what a view **is** and never what
+ *                     happened to it — see `workspace-file.ts`, which is where
+ *                     that line is actually drawn.
  *   mcp.json          unchanged: the endpoint and its bearer token.
  *
- * Layout, open views, query text and results are still in memory only.
+ * Result sets stay in memory, by design and permanently.
  *
  * ## Wiring (main/index.ts)
  *
@@ -25,6 +30,7 @@
  * const settings = createSettingsStore(configDir)
  * const mcp = createMcpController({ configDir, settings, create, notify, log, onEndpoint })
  * commandBus.registerAll(createConfigHandlers({ book, mcp }))
+ * // and, once the desk is back: createWorkspacePersister({ store, path })
  * ```
  */
 
@@ -45,12 +51,30 @@ export {
   CONNECTIONS_FILE_NAME,
   PACKAGES_DIR_NAME,
   SETTINGS_FILE_NAME,
+  WORKSPACE_FILE_NAME,
+  WORKSPACE_QUARANTINE_SUFFIX,
   connectionsFilePath,
   packagesDir,
   resolveConfigDir,
   settingsFilePath,
+  workspaceFilePath,
 } from './paths'
 export { createSafeStorageVault, unavailableVault } from './secrets'
 export type { SafeStorageLike, SecretVault } from './secrets'
 export { createSettingsStore } from './settings'
 export type { PeekSettings, SettingsStore } from './settings'
+export {
+  parseWorkspaceFile,
+  readWorkspaceFile,
+  writeWorkspaceFile,
+  WORKSPACE_FILE_VERSION,
+} from './workspace-file'
+export type {
+  PersistedConnection,
+  PersistedNode,
+  PersistedPanel,
+  PersistedSplit,
+  PersistedView,
+  PersistedWorkspace,
+  WorkspaceReadOutcome,
+} from './workspace-file'

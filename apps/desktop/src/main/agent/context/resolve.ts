@@ -56,7 +56,7 @@ import {
   renderSchema,
 } from './serialize'
 import type { ContextSource, TabularSlice } from './types'
-import { queryUri, resultCellUri, resultRowsUri, schemaUri, workspaceUri } from './uri'
+import { queryUri, resultCellUri, resultCellsUri, resultRowsUri, schemaUri, workspaceUri } from './uri'
 
 /**
  * A resolved attachment.
@@ -209,6 +209,8 @@ async function resolveInner(
       return resolveResult(attachment, options, budget)
     case 'cell':
       return resolveCell(attachment, options, budget)
+    case 'cells':
+      return resolveCells(attachment, options, budget)
     case 'schema':
       return resolveSchema(attachment, options)
     case 'query':
@@ -310,6 +312,91 @@ async function resolveResult(
     rowLabel: 'the first rows of the result',
   })
   return ok(a, resultRowsUri(a.resultId), doc.text, doc.notice)
+}
+
+/* --- cells: a rectangle the user dragged out ----------------------- */
+
+/**
+ * A closed row interval, narrowed to the columns the selection covered.
+ *
+ * The column projection happens **here**, on rows that have already arrived —
+ * `readResultRows` reads whole rows and knows nothing about this, exactly as it
+ * does for a single `cell`. Nothing is pushed down to a driver.
+ */
+async function resolveCells(
+  a: Extract<ChatAttachment, { kind: 'cells' }>,
+  options: ResolveOptions,
+  budget: ContextBudget,
+): Promise<ResolvedAttachment> {
+  const span = a.r1 - a.r0 + 1
+  if (span <= 0 || a.columns.length === 0) {
+    return failed(a, peekError('BAD_REQUEST', 'This cell selection is empty.'))
+  }
+  // The renderer clamps long before this; the guard is for callers over MCP.
+  if (span > MAX_ROW_SPAN) {
+    return failed(
+      a,
+      peekError(
+        'BAD_REQUEST',
+        `The selection spans ${span.toLocaleString('en-US')} rows (row ${a.r0} to row ${a.r1}), `
+        + 'which is more than peek will read for one attachment. Select fewer rows.',
+      ),
+    )
+  }
+
+  const slice = await options.source.readResultRows({
+    resultId: a.resultId,
+    offset: a.r0,
+    limit: span,
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+  })
+
+  // Names, not positions: a re-run with a different projection is the case this
+  // is guarding, and a missing name is the only way to notice it happened.
+  const picked: { name: string; index: number }[] = []
+  const missing: string[] = []
+  for (const name of a.columns) {
+    const index = slice.columns.findIndex((c) => c.name === name)
+    if (index < 0) missing.push(name)
+    else picked.push({ name, index })
+  }
+  if (picked.length === 0) {
+    return failed(
+      a,
+      peekError(
+        'NOT_FOUND',
+        `None of the selected columns (${a.columns.join(', ')}) are in this result set. `
+        + 'It may have been re-run with a different projection.',
+      ),
+    )
+  }
+
+  const body: TabularSlice = {
+    columns: picked.map((p) => {
+      const column = slice.columns[p.index]
+      if (column === undefined) throw new Error(`column ${p.name} vanished between lookup and read`)
+      return column
+    }),
+    rows: slice.rows.map((row) => picked.map((p) => row[p.index])),
+    totalRows: slice.rows.length,
+    truncated: slice.rows.length < span,
+  }
+
+  const facts = [
+    `Source: result \`${a.resultId}\` · view \`${a.viewId}\` · rows ${a.r0}–${a.r1}`,
+    missing.length === 0 ? '' : `Not in the result set any more: ${missing.join(', ')}.`,
+  ].filter((s) => s.length > 0)
+
+  const doc = renderTabular({
+    title: `Selected cells · ${picked.length} column(s) × ${span} row(s)`,
+    facts,
+    slice: body,
+    budget,
+    // Contiguous by construction, so the interval says it exactly — no need for
+    // the index summary `resolveRows` has to build.
+    rowLabel: `rows ${a.r0}–${a.r1}`,
+  })
+  return ok(a, resultCellsUri(a.resultId, a.r0, a.r1, a.columns), doc.text, doc.notice)
 }
 
 /* --- cell: one value, in full ------------------------------------- */
@@ -660,6 +747,8 @@ export function defaultAttachmentLabel(a: ChatAttachment): string {
       return 'Query result'
     case 'cell':
       return `Cell ${a.column} (row ${a.rowIndex})`
+    case 'cells':
+      return `${a.columns.length} column(s) × ${a.r1 - a.r0 + 1} row(s)`
     case 'schema':
       return `Structure of ${collectionRefLabel(a.ref)}`
     case 'query':

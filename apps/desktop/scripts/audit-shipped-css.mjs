@@ -185,17 +185,28 @@ const FOREIGN_DOM = {}
  * Everything here is one case, and it is the mirror of FOREIGN_DOM: a
  * declaration Tailwind writes, in a namespace this codebase does not author.
  */
-const TAILWIND_INTERNALS = [
-  {
-    site: '--tw-ring-offset-color',
-    colour: '#fff',
-    why:
-      "Tailwind's own default for the ring-offset variable, seeded in its reset and in the " +
-      '`@property` that types it. It is a fallback, not a paint: it only reaches a pixel through a ' +
-      '`ring-offset-*` utility, no element wears one, and `ring` itself is struck off in ' +
-      '`@source not inline(…)`. Naming it in `@theme` would put a white into a palette that has none.',
-  },
-]
+const TAILWIND_INTERNALS = []
+
+/*
+ * The list is empty, and the entry it used to hold is worth a sentence because
+ * its removal was not a cleanup — the fact under it changed.
+ *
+ * It excused `--tw-ring-offset-color: #fff`, Tailwind's own default for the
+ * ring-offset variable: a fallback rather than a paint, reaching no pixel
+ * because no element wears a `ring-offset-*` utility. The closing argument was
+ * that naming it in `@theme` "would put a white into a palette that has none".
+ *
+ * The light palette has one. `--color-bg-1` is `#ffffff` there — it is the
+ * raised panel, the surface most of the window's text lands on — so the colour
+ * is now accounted for by a token that was chosen, measured against the contrast
+ * floors, and is under the census. The exemption stopped being used on that
+ * edit, and this file's own staleness check is what said so.
+ *
+ * Kept as an empty array rather than deleted outright: the assertion below tells
+ * anyone who trips over an unaccounted `--tw-*` colour to add an entry here, and
+ * a named empty list is a better landing place for that than a symbol that no
+ * longer exists.
+ */
 
 /* ---------------------------------------------------------------- reading */
 

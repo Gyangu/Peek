@@ -31,7 +31,7 @@ import { Button } from '../../ui/Button'
 import { Segmented } from '../../ui/Segmented'
 
 <Button variant="danger" size="sm" onClick={forget}>Remove</Button>
-<Button variant="ghost" icon label="Close tab" onClick={close}>✕</Button>
+<Button variant="ghost" icon label="Close tab" onClick={close}><Icon name="close" /></Button>
 
 <Segmented
   label="Language"
@@ -40,6 +40,47 @@ import { Segmented } from '../../ui/Segmented'
   onChange={setLocale}
 />
 ```
+
+## Icons
+
+**Never type a character to draw a picture.** Every icon comes from `icons.ts`
+through `<Icon>`, and a test refuses the alternative.
+
+```tsx
+import { Icon } from '../../ui/Icon'
+
+<Icon name="refresh" />                       // md, the default
+<Icon name="close" size="sm" />               // inside a 20px control
+```
+
+The reason is not tidiness. Unicode does not contain most of what a UI needs, so
+a glyph picked from it is the *nearest available shape* rather than the right
+one — which is how the panel strip spent months drawing "split left/right" as
+`⊞`, a symbol whose ordinary meaning is add-or-expand, paired with `⊟`
+(collapse) to express two orthogonal directions. The tree's eleven node kinds
+had the same problem and its own comment had already predicted it would get
+worse.
+
+Three rules, all of them decided inside `<Icon>` so no call site decides them:
+
+- **Names are semantic, never shapes.** `close`, not `x`. Swapping a glyph or the
+  whole library then touches `icons.ts` and nothing else. Action-shaped names
+  reuse the Command Bus vocabulary, so `panel.splitRow` is at once the i18n key,
+  the `data-peek-action` handle and the icon.
+- **The size is the rung's**, from `ICON_SIZES`. A call site cannot pass pixels,
+  for the reason `CONTROL_SIZES` exists.
+- **The colour is `currentColor` and it is `aria-hidden`.** The name comes from
+  the `<Button>`'s `label`. Inheriting the text colour is also what puts icons
+  *inside* the contrast audits rather than beside them.
+
+Adding one: import it in `icons.ts`, give it a semantic key, use it. The table is
+static, so an entry nobody wears ships for nothing — and a test says so.
+
+There is no `<IconButton>`, deliberately. `<Button variant icon label>` is
+already the one entrance, and this layer exists because that entrance was missing
+once.
+
+Design record: [icon set](../../../../../docs/design/2026-08-15-icon-set.md)
 
 `<Menu>` is the popup menu, and `useContextMenu` is the gesture that opens one:
 

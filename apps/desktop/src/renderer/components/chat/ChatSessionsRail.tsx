@@ -13,6 +13,7 @@ import { setChatRailCollapsed, useChatRailStore } from './railStore'
 import { sessionCursorKey } from './sessionKeys'
 import { LIST_HEAD, LIST_HEAD_TITLE } from '../shellClasses'
 import { Button } from '../../ui/Button'
+import { Icon } from '../../ui/Icon'
 import { Menu } from '../../ui/Menu'
 import type { MenuNode } from '../../ui/menuModel'
 import { useContextMenu } from '../../ui/useContextMenu'
@@ -157,7 +158,7 @@ export function ChatSessionsRail(): ReactElement {
             setChatRailCollapsed(false)
           }}
         >
-          ‹
+          <Icon name="chat.sessions.expand" />
         </Button>
       </div>
     )
@@ -265,22 +266,22 @@ export function ChatSessionsRail(): ReactElement {
         <span className={LIST_HEAD_TITLE}>{t('chat.sessions.title')}</span>
         <Button
           variant="ghost"
-          title={t('chat.sessions.new')}
-          aria-label={t('chat.sessions.new')}
+          icon
+          label={t('chat.sessions.new')}
           onClick={() => {
             void dispatch('view.open', { spec: { kind: 'chat' } })
           }}
         >
-          ＋
+          <Icon name="create" />
         </Button>
         <Button
           variant="ghost"
+          icon
+          label={t('chat.sessions.refresh')}
           disabled={busy}
-          title={t('chat.sessions.refresh')}
-          aria-label={t('chat.sessions.refresh')}
           onClick={refresh}
         >
-          ↻
+          <Icon name="refresh" />
         </Button>
         <Button
           variant="ghost"
@@ -291,7 +292,7 @@ export function ChatSessionsRail(): ReactElement {
             setChatRailCollapsed(true)
           }}
         >
-          ›
+          <Icon name="chat.sessions.collapse" />
         </Button>
       </div>
 
@@ -344,6 +345,7 @@ export function ChatSessionsRail(): ReactElement {
               session={session}
               t={t}
               locale={locale}
+              homeCwd={state.cwd}
               index={index}
               cursor={cursor}
               onCursor={setCursor}
@@ -370,6 +372,14 @@ interface RowProps {
   session: ChatSessionInfo
   t: TFunction
   locale: string
+  /**
+   * peek's own chat directory, so a row can tell whether it needs to say where
+   * it works.
+   *
+   * Passed rather than compared in the list, because the answer is per row and
+   * the question only has a point once conversations can live somewhere else.
+   */
+  homeCwd: string | null
   /** Non-null when this conversation is already open somewhere in the window. */
   openViewId: ViewId | null
   /** Row position, and where the list's single keyboard cursor is. */
@@ -382,7 +392,21 @@ interface RowProps {
 }
 
 function SessionRow(props: RowProps): ReactElement {
-  const { session, t, locale, openViewId, index, cursor } = props
+  const { session, t, locale, homeCwd, openViewId, index, cursor } = props
+  /**
+   * The directory this conversation works in, when it is not peek's own.
+   *
+   * Silent for the default, which is where most conversations are and which
+   * would otherwise print the same path on every row — a label that never
+   * varies is one nobody reads. A conversation pinned to a project is the
+   * exception worth showing, and it is worth showing *here* rather than only
+   * once it is open: with file tools on, the directory is what the conversation
+   * can change.
+   *
+   * Last segment only, full path in the tooltip. The rail is narrow and the tail
+   * is the part that identifies a project.
+   */
+  const where = session.cwd && session.cwd !== homeCwd ? session.cwd : null
   const busy = openViewId !== null
   const menu = useContextMenu<null>()
   const el = useRef<HTMLDivElement | null>(null)
@@ -517,6 +541,15 @@ function SessionRow(props: RowProps): ReactElement {
             scan's aperture rather than a real hazard. Fixing it means blanking
             comments there, which is that test's file to change. */}
         <span className="text-micro text-fg-faint">{formatWhen(session.updatedAt, locale)}</span>
+        {where === null ? null : (
+          // `metaText` for the same reason the title above gets it: this string
+          // came off disk and its last segment is a directory name somebody else
+          // chose. React escapes the markup; this is what stops a path from
+          // forging a second line of the row.
+          <span className="text-micro text-fg-faint truncate" title={where}>
+            {metaText(lastSegment(where), { maxLen: 40, truncationMark: '…' })}
+          </span>
+        )}
         {/* "Already open" survives the strip's removal as a *reading* rather
             than a disabled button. It was never an action — it was the reason
             the action was unavailable — and this list is scanned, so it has to
@@ -546,4 +579,19 @@ function formatWhen(iso: string | undefined, locale: string): string {
   const ms = Date.parse(iso)
   if (Number.isNaN(ms)) return ''
   return new Date(ms).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })
+}
+
+/**
+ * The last segment of a path, for a rail too narrow to show the whole thing.
+ *
+ * Both separators, because a path in the route index was written by whichever
+ * platform recorded it and this list is the one place a Windows path could turn
+ * up in a build reading it. Falls back to the whole string when there is no
+ * separator, and when the tail would be empty — a trailing slash should not
+ * render as nothing.
+ */
+function lastSegment(path: string): string {
+  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  const tail = cut === -1 ? path : path.slice(cut + 1)
+  return tail.length > 0 ? tail : path
 }

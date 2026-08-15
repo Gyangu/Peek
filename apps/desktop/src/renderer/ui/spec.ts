@@ -101,7 +101,10 @@ export const BUTTON_VARIANTS = {
   primary: {
     intent: 'The one action this view exists for — submitting a form, confirming a dialog.',
     rule: 'At most one per visual container. Not checked mechanically: static analysis cannot tell what "one container" means across conditionals, loops and composition.',
-    classes: 'border-accent text-fg',
+    /* `text-on-accent`, not `text-fg`: the label sits on a solid accent, which is
+       a different question from "the window's foreground" and only had the same
+       answer while there was one theme. See --color-on-accent in styles.css. */
+    classes: 'border-accent text-on-accent',
     surface: 'bg-accent-dim hover:not-disabled:bg-primary-hover active:not-disabled:bg-primary-active',
   },
   default: {
@@ -231,8 +234,14 @@ export const MENU_TONE_NAMES = Object.keys(MENU_TONES) as readonly MenuTone[]
  * the popup's own padding. The arrow keys move real focus between these lines,
  * so without it the menu is unusable without a pointer.
  */
+/*
+ * `flex`, not `block`: an item that can carry a tick has two cells, and the tick
+ * column is reserved on *every* item of such a menu so the labels line up. The
+ * shape it replaced padded the unticked items with three spaces, which lines up
+ * in a monospaced font and in nothing else — this menu is set in the UI face.
+ */
 export const MENU_ITEM_BASE =
-  'block w-full min-h-0 px-snug py-tight border-0 rounded-control text-left cursor-pointer ' +
+  'flex items-center gap-tight w-full min-h-0 px-snug py-tight border-0 rounded-control text-left cursor-pointer ' +
   'disabled:opacity-45 disabled:cursor-default ' +
   'focus-visible:outline-1 focus-visible:outline-accent focus-visible:-outline-offset-1'
 
@@ -319,6 +328,31 @@ export const CONTROL_SIZES = {
 export type ControlSize = keyof typeof CONTROL_SIZES
 
 export const CONTROL_SIZE_NAMES = Object.keys(CONTROL_SIZES) as readonly ControlSize[]
+
+/**
+ * How big an icon is, per control rung.
+ *
+ * Keyed by `ControlSize` on purpose: an icon inside a `sm` button is the `sm`
+ * icon, and nobody has to decide that twice. `<Button>` passes its own rung
+ * down, so a call site writes a name and nothing else.
+ *
+ * The numbers are derived from the box, not picked. A 24px icon button minus
+ * two 1px strokes leaves 22px of interior; 14px fills about 58% of the button's
+ * width, which is the ordinary density for a stroked icon in a square control —
+ * bigger crowds the edge, smaller floats as a dot in a box it does not fill.
+ * The 20px rung takes the same proportion down to 12.
+ *
+ * **These ship as element attributes, never as classes.** A Tailwind size class
+ * would compile to a real rule, and `audit-shipped-css.mjs` holds every shipped
+ * rule to having a wearer. Sizing through `width`/`height` keeps the icon layer
+ * out of the stylesheet's ledger entirely — it adds not one line to it.
+ *
+ * Design record: docs/design/2026-08-15-icon-set.md
+ */
+export const ICON_SIZES: Record<ControlSize, number> = {
+  md: 14,
+  sm: 12,
+}
 
 /* ------------------------------------------------------------------
  * States
@@ -516,7 +550,9 @@ export const SEGMENTED = {
     'focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-1 ' +
     'focus-visible:relative focus-visible:z-2',
   off: 'bg-bg-2 border-border-strong hover:not-disabled:bg-bg-hover active:not-disabled:bg-bg-1',
-  on: 'bg-accent-dim border-accent text-fg relative z-1 hover:not-disabled:bg-primary-hover active:not-disabled:bg-primary-active',
+  // `text-on-accent` for the same reason as the primary button above: a selected
+  // segment is filled with the accent, so its label is ink-on-accent.
+  on: 'bg-accent-dim border-accent text-on-accent relative z-1 hover:not-disabled:bg-primary-hover active:not-disabled:bg-primary-active',
 } as const
 
 /* ------------------------------------------------------------------

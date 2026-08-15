@@ -25,6 +25,20 @@ export interface MenuItemNode {
   disabled?: boolean
   tone?: MenuTone
   /**
+   * This item is the one currently in effect — a menu of alternatives, not of
+   * actions. `<Menu>` draws the tick and reserves its column on every item, and
+   * the item announces itself as a `menuitemradio`.
+   *
+   * It is a field rather than something a caller prefixes onto `label` because
+   * that is how it was written first, and both halves of that were wrong.
+   * A tick glued to a string cannot be an element, so it had to be a character;
+   * and the unticked items were padded with **three spaces** to line up, which
+   * only lines up in a monospaced font — the menu is not set in one. Worse, a
+   * screen reader was told the selected state by hearing a tick pronounced,
+   * which is to say it was not told.
+   */
+  checked?: boolean
+  /**
    * Turns this item into a two-step act.
    *
    * Choosing it does **not** call `onSelect`. The menu replaces its whole

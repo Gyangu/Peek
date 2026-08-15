@@ -16,9 +16,9 @@
  * 3. `DataGrid` renders `<SelectionActionBar>` as a sibling of `.grid-scroll` (it is
  *    `position: absolute`, so inside the horizontal scroll container it would
  *    slide away), and `<ContextMenu>` on right-click;
- * 4. the chat panel's own `AttachmentBar` covers the other direction — the user
- *    is looking at the conversation rather than at the grid — and goes through
- *    `useContextActions` too, so the disclosure gate is the same one.
+ * 4. the composer's own `@` (`chat/AttachMenu.tsx`) covers the other direction —
+ *    the user is looking at the conversation rather than at the grid — and goes
+ *    through `useContextActions` too, so the disclosure gate is the same one.
  *
  * `detailFor` is consumed by the transcript's attachment receipts
  * (`chat/MessageItem.tsx`): the chip strip shows what is *staged*, and what was
@@ -29,6 +29,7 @@ export {
   EMPTY_SELECTION,
   MAX_SELECTION_SPAN,
   applyRowClick,
+  applyRowDrag,
   clearSelection,
   isRowSelected,
   selectAllRows,

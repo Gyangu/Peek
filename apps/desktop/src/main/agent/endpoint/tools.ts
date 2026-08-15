@@ -33,7 +33,7 @@
 
 import { z } from 'zod'
 import { Type, type Tool } from '@earendil-works/pi-ai'
-import type { CommandSource } from '@peek/core'
+import { noopLogger, type CommandSource, type Logger } from '@peek/core'
 import type { PeekTool, ToolContext } from '../../mcp/types'
 import { PEEK_MCP_SERVER_NAME } from '../../acp/session-config'
 
@@ -59,11 +59,11 @@ export interface EndpointTool extends Tool {
  * arguments an external client would, described the same way, and a schema fix
  * lands in both places at once.
  */
-export function buildEndpointTools(tools: readonly PeekTool[]): EndpointTool[] {
+export function buildEndpointTools(tools: readonly PeekTool[], logger: Logger = noopLogger): EndpointTool[] {
   return tools.map((tool) => ({
     name: `${TOOL_PREFIX}${tool.name}`,
     description: tool.description,
-    parameters: toParameters(tool),
+    parameters: toParameters(tool, logger),
     peek: tool,
   }))
 }
@@ -109,13 +109,20 @@ export async function runEndpointTool(
  * and dropping it silently would leave the agent unable to see part of the
  * window with nothing anywhere saying why.
  */
-function toParameters(tool: PeekTool): Tool['parameters'] {
+function toParameters(tool: PeekTool, logger: Logger): Tool['parameters'] {
   try {
     // `io: 'input'` matters: a schema with defaults or transforms describes a
     // different shape going in than coming out, and what the model is being asked
     // to produce is the input side.
     return z.toJSONSchema(tool.inputSchema, { io: 'input' }) as Tool['parameters']
-  } catch {
+  } catch (error) {
+    // The comment above argues that dropping the tool silently would leave the
+    // agent unable to see part of the window "with nothing anywhere saying why".
+    // That argument applies to this fallback too, and for a long time it did not
+    // get one: the model receives a tool that takes no arguments, calls it,
+    // fails, and the reason — known right here, at the moment the conversion
+    // threw — was discarded. The empty schema is still the right degradation.
+    logger.log('warn', `tool ${tool.name}: its schema could not be described to the model, so it takes no arguments`, error)
     return Type.Object({})
   }
 }

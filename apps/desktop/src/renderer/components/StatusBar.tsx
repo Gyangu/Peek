@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import type { ViewState } from '@peek/core'
 import { RESULT_CACHE_MAX_BYTES, collectPanels, collectionRefLabel, describeView, findPanel } from '@peek/core'
 import { isMacPlatform, shortcutHints } from '../hooks'
+import { useBindings } from '../keys/store'
 import { useT, type TFunction } from '../i18n'
 import { dispatch, useBusyStore } from '../state/dispatch'
 import { useCacheStats, useResult } from '../state/useResult'
@@ -161,13 +162,17 @@ export function StatusBar(): ReactElement {
 function PanelPosition(): ReactElement | null {
   const t = useT()
   const ws = useWorkspace()
+  const bindings = useBindings()
   if (!ws) return null
   const panels = collectPanels(ws.layout)
   if (panels.length < 2) return null
   const index = panels.findIndex((p) => p.id === ws.focusedPanel)
   if (index < 0) return null
 
-  const hints = shortcutHints(isMacPlatform())
+  // The live bindings, not the defaults: these two tooltips are the window's
+  // shortest written record of the keyboard, and a user who rebound the panel
+  // family needs them to say so.
+  const hints = shortcutHints(isMacPlatform(), bindings)
   return (
     <>
       <span className="h-divider w-px flex-none bg-border-strong" />
@@ -200,13 +205,17 @@ function PanelPosition(): ReactElement | null {
 function TabPosition(): ReactElement | null {
   const t = useT()
   const ws = useWorkspace()
+  const bindings = useBindings()
   if (!ws?.focusedPanel) return null
   const panel = findPanel(ws.layout, ws.focusedPanel)
   if (!panel || panel.viewIds.length < 2 || panel.activeViewId === null) return null
   const index = panel.viewIds.indexOf(panel.activeViewId)
   if (index < 0) return null
 
-  const hints = shortcutHints(isMacPlatform())
+  // The live bindings, not the defaults: these two tooltips are the window's
+  // shortest written record of the keyboard, and a user who rebound the panel
+  // family needs them to say so.
+  const hints = shortcutHints(isMacPlatform(), bindings)
   return (
     <>
       <span className="h-divider w-px flex-none bg-border-strong" />

@@ -99,8 +99,10 @@ export {
   chatRootDir,
   PEEK_MCP_SERVER_NAME,
   buildPeekMcpServer,
+  buildUserMcpServers,
   ensureChatWorkdir,
   type PeekMcpServerDescriptor,
+  type UserMcpServer,
 } from './session-config'
 export {
   AUTH_HELP,

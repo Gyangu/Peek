@@ -11,6 +11,7 @@ import { DataGrid } from '../DataGrid'
 import { ViewError } from '../ViewError'
 import { AutoRefreshControl, CacheGapNotice, CancelButton } from './ResultControls'
 import { Button } from '../../ui/Button'
+import { Icon } from '../../ui/Icon'
 import {
   findCollectionNodeId,
   namedVectorsOf,
@@ -91,7 +92,8 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
       {/* The shared strip, written out — see the same note in `QueryView.tsx`. */}
       <div className="flex h-bar flex-none items-center gap-tight overflow-hidden shadow-rule-b bg-bg-1 px-snug text-fg-dim">
         <Button variant="primary" disabled={!ready || running || !hasQuery} onClick={search}>
-          ▶ {t('vector.run')}
+          <Icon name="run" />
+          {t('vector.run')}
         </Button>
         {/* Always drawn now, including on drivers without the `cancel` capability —
             where it is disabled and carries the reason. Hiding it left a user

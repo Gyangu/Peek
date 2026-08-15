@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import type { ToolCallRecord, ToolCallStatus } from '@peek/core'
 import { useT, type TFunction } from '../../i18n'
 import { copyText } from '../../util/clipboard'
+import { Icon } from '../../ui/Icon'
 import { Menu } from '../../ui/Menu'
 import { useContextMenu } from '../../ui/useContextMenu'
 import { highlight } from './highlight'
@@ -99,7 +100,7 @@ export const ToolCallCard = memo(function ToolCallCard({
         <StatusMark status={call.status} />
         <span className="flex-none whitespace-nowrap text-fg">{displayName(parsed, t)}</span>
         {parsed.isPeek ? (
-          <span className={`${BADGE} ${mutating ? 'bg-accent-dim text-fg' : 'bg-bg-3 text-fg-dim'}`}>
+          <span className={`${BADGE} ${mutating ? 'bg-accent-dim text-on-accent' : 'bg-bg-3 text-fg-dim'}`}>
             {mutating ? t('chat.tool.actedOnWindow') : t('chat.tool.readWindow')}
           </span>
         ) : (
@@ -121,8 +122,8 @@ export const ToolCallCard = memo(function ToolCallCard({
         {elapsed === null ? null : (
           <span className={`font-mono tabular-nums ${META}`}>{t('chat.tool.elapsed', { ms: elapsed })}</span>
         )}
-        <span className={META} aria-hidden="true">
-          {open ? '▾' : '▸'}
+        <span className={`${META} flex`}>
+          <Icon name={open ? 'disclosure.open' : 'disclosure.closed'} size="sm" />
         </span>
       </button>
 
@@ -264,12 +265,24 @@ const TOOL_MARK: Record<ToolCallStatus, string> = {
 function StatusMark({ status }: { status: ToolCallStatus }): ReactElement {
   const t = useT()
   return (
-    <span
-      className={`flex-none w-3 text-center ${TOOL_MARK[status]}`}
-      title={t(statusKey(status))}
-      aria-hidden="true"
-    >
-      {status === 'completed' ? '✔' : status === 'failed' ? '✕' : status === 'in_progress' ? '◐' : '○'}
+    /*
+     * The old set leaned on `◐` for "running" — a half-*filled* circle, which
+     * reads as a state of fill rather than of motion. These four share one outer
+     * ring and differ by what sits inside it, so the row scans as one column.
+     */
+    <span className={`flex-none flex ${TOOL_MARK[status]}`} title={t(statusKey(status))}>
+      <Icon
+        name={
+          status === 'completed'
+            ? 'status.completed'
+            : status === 'failed'
+              ? 'status.failed'
+              : status === 'in_progress'
+                ? 'status.running'
+                : 'status.pending'
+        }
+        size="sm"
+      />
     </span>
   )
 }

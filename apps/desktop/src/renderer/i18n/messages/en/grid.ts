@@ -32,8 +32,17 @@ export const grid = {
   'grid.copy.cellTitle': 'The whole value, exactly as stored — not the preview the row shows',
   'grid.copy.rows': { one: 'Copy {count} row', other: 'Copy {count} rows' },
   'grid.copy.rowsTitle': 'Tab-separated with a header line: paste straight into a spreadsheet',
+  'grid.copy.cells': { one: 'Copy {count} cell', other: 'Copy {count} cells' },
+  'grid.copy.cellsTitle': 'The selected block as tab-separated text, with a header for its columns',
   'grid.copy.cellDone': 'Value copied.',
   'grid.copy.rowsDone': { one: 'Copied {count} row.', other: 'Copied {count} rows.' },
+  'grid.copy.cellsDone': { one: 'Copied {count} cell.', other: 'Copied {count} cells.' },
+  /* The other way a copied cell can be incomplete: the row it sits in has not
+     arrived from the stream yet, so a placeholder was copied in its place. */
+  'grid.copy.notLoaded': {
+    one: '{count} cell had not loaded yet.',
+    other: '{count} cells had not loaded yet.',
+  },
   /* Said out loud rather than left to be discovered when the paste will not
      parse: a large value only exists in this window as its first 4KB. */
   'grid.copy.previewOnly': {

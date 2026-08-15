@@ -67,6 +67,34 @@ export const app = {
   'app.errors.dataPlaneDownDetail':
     'Connecting, browsing and settings still work, because those travel a different channel. ' +
     'Restart peek. If it happens again, this is a bug worth reporting.',
+
+  /* ----------------------------------------------------------------
+   * The other two tabs of the same panel: main's diagnostic stream and
+   * the command audit. See docs/design/2026-08-15-logging-and-audit.md.
+   * ---------------------------------------------------------------- */
+  'app.logs.title': 'Logs',
+  'app.logs.tab.errors': 'Errors',
+  'app.logs.tab.diagnostics': 'Log',
+  'app.logs.tab.commands': 'Commands',
+  /* "Capture" is what is being written to the file; "show" is what this panel
+   * displays out of it. Two different questions, and conflating them is how a
+   * user turns the level down and wonders why nothing new appears. */
+  'app.logs.capture': 'Capture',
+  'app.logs.captureTitle':
+    'How much peek writes to its log file, from now on. Takes effect immediately; nothing already written is lost.',
+  'app.logs.show': 'Show',
+  'app.logs.showTitle': 'Filter what this panel displays. Does not change what is being written.',
+  'app.logs.filterAll': 'All',
+  'app.logs.source': 'Asked by',
+  'app.logs.empty': 'Nothing logged yet at this level',
+  'app.logs.emptyCommands': 'No commands yet',
+  'app.logs.clearTag': 'Show everything',
+  'app.logs.filterByTag': 'Show only this conversation',
+  'app.logs.elapsed': '{ms}ms',
+  /* Said where the oldest record is, because a panel showing the last 2000 of
+   * 50000 looks exactly like one showing all 2000 there ever were. */
+  'app.logs.truncated': 'Older records have been dropped from this view. The full log is at {path}',
+  'app.logs.viewForTurn': 'Show this conversation’s log',
 } as const
 
 export type AppMessages = typeof app

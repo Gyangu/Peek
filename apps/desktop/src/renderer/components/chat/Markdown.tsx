@@ -5,6 +5,7 @@ import { notify } from '../../state/notifyStore'
 import { highlight, normalizeLang, type TokenKind } from './highlight'
 import { parseMarkdown, type MdAlign, type MdBlock, type MdInline } from './mdParser'
 import { Button } from '../../ui/Button'
+import { Icon } from '../../ui/Icon'
 import { Menu } from '../../ui/Menu'
 import { useContextMenu } from '../../ui/useContextMenu'
 
@@ -143,12 +144,12 @@ function renderBlock(block: MdBlock, key: number): ReactElement {
             // banned; a 1px offset says the same thing in the vocabulary that
             // exists.
             <span
-              className={`inline-block relative top-px w-2.75 h-2.75 mr-tight rounded-mark border text-mark leading-mark text-center ${
+              className={`inline-flex items-center justify-center relative top-px w-3.5 h-3.5 mr-tight rounded-mark border ${
                 item.checked ? 'border-ok text-ok' : 'border-border-strong'
               }`}
               aria-hidden="true"
             >
-              {item.checked ? '✔' : ''}
+              {item.checked ? <Icon name="check" size="sm" /> : null}
             </span>
           )}
           {item.blocks.map((b, j) => renderBlock(b, j))}

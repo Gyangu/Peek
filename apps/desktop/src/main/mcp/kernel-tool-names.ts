@@ -20,12 +20,14 @@
  */
 export const KERNEL_TOOL_NAMES: readonly string[] = Object.freeze([
   'activate_view',
+  'ask',
   'cancel_query',
   'connect',
   'control_chat',
   'introspect',
   'list_connections',
   'move_view',
+  'notify',
   'open_view',
   'read_chat',
   'read_workspace',

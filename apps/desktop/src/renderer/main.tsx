@@ -6,6 +6,7 @@ import { App } from './components/App'
 import { startChat } from './components/chat'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { initLocale } from './i18n'
+import { startTheme } from './theme'
 import { startPackages } from './packages/register'
 import { startRenderer } from './state/sync'
 import './styles.css'
@@ -44,6 +45,11 @@ installPackages(tryBridge()?.installedPackages ?? { drivers: [], viewKinds: [], 
 
 // Before the first render, so the window never paints English and then swaps.
 initLocale()
+
+// Same clause, one property over: the cached theme goes on the root element
+// before React mounts, so a light-mode window never paints dark and flips. Also
+// subscribes to main, which owns the resolution — see `theme/store.ts`.
+startTheme()
 
 startRenderer()
 

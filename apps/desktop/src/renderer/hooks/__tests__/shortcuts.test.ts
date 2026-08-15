@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { buildBindings } from '../../keys/bindings'
 import { MAX_PANEL_DIGIT, MAX_TAB_DIGIT, resolveShortcut, shortcutHints, type KeyChord } from '../shortcuts'
 
 /* ==================================================================
@@ -342,5 +343,52 @@ describe('shortcutHints', () => {
     assert.deepEqual(resolveShortcut(chord({ key: 'w', meta: true, shift: true }), WINDOW), {
       kind: 'closePanel',
     })
+  })
+})
+
+describe('resolveShortcut — the user’s own bindings', () => {
+  it('answers to a rebound chord and stops answering to the old one', () => {
+    const table = buildBindings({ 'panel.splitRow': 'Mod+Alt+Backslash' })
+    assert.deepEqual(
+      resolveShortcut(chord({ key: '\\', code: 'Backslash', meta: true, alt: true }), WINDOW, table),
+      { kind: 'split', dir: 'row' },
+    )
+    assert.equal(
+      resolveShortcut(chord({ key: '\\', code: 'Backslash', meta: true }), WINDOW, table),
+      null,
+    )
+  })
+
+  it('a disabled shortcut is nobody’s, and takes nothing else down with it', () => {
+    const table = buildBindings({ 'tab.close': null })
+    assert.equal(resolveShortcut(chord({ key: 'w', meta: true }), WINDOW, table), null)
+    // ⌘⇧W is a separate binding and is untouched.
+    assert.deepEqual(resolveShortcut(chord({ key: 'W', meta: true, shift: true }), WINDOW, table), {
+      kind: 'closePanel',
+    })
+  })
+
+  it('carries the whole family when a family is rebound', () => {
+    // Rebinding "the tab digits" moves all nine at once, including the ninth's
+    // special meaning. Nine bindings that could drift apart would not be a
+    // keyboard model anyone could state.
+    const table = buildBindings({ 'tab.select': 'Mod+Alt+Shift+<digit>' })
+    assert.deepEqual(
+      resolveShortcut(chord({ key: '2', code: 'Digit2', meta: true, alt: true, shift: true }), WINDOW, table),
+      { kind: 'activateTab', index: 1 },
+    )
+    assert.deepEqual(
+      resolveShortcut(chord({ key: '9', code: 'Digit9', meta: true, alt: true, shift: true }), WINDOW, table),
+      { kind: 'activateTab', index: 'last' },
+    )
+  })
+
+  it('advertises the chord that is bound, not the one that shipped', () => {
+    // A hint that outlived its binding is worse than no hint, because it is
+    // believed. This is the reason `shortcutHints` reads the table at all.
+    const table = buildBindings({ 'panel.close': 'Mod+Alt+KeyQ', 'tab.close': null })
+    const hints = shortcutHints(true, table)
+    assert.equal(hints.closePanel, '⌘⌥Q')
+    assert.equal(hints.closeTab, '')
   })
 })

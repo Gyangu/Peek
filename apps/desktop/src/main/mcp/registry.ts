@@ -47,7 +47,7 @@ function isPeekTool(value: unknown): value is PeekTool {
 }
 
 /**
- * Collect every tool under tools/ automatically — the kernel's own thirteen.
+ * Collect every tool under tools/ automatically — the kernel's own fourteen.
  *
  * eager: true — expanded statically at build time, so it still works once bundled
  * (no reliance on the filesystem at runtime).

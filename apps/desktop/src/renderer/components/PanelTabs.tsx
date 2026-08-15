@@ -14,6 +14,7 @@ import { beginViewDrag, registerPanelHeadEl, usePanelTabCaret } from './dragStor
 import { viewTitleOf } from './panelTitle'
 import { tabMenuNodes } from './tabMenu'
 import { Button } from '../ui/Button'
+import { Icon } from '../ui/Icon'
 import { Menu } from '../ui/Menu'
 import { useContextMenu } from '../ui/useContextMenu'
 
@@ -168,10 +169,10 @@ export function PanelTabs({ panel, focus }: PanelTabsProps): ReactElement {
         ))}
       </div>
       {/*
-        The glyph is decorative, so it is hidden and the label carries the name.
+        The icon is decorative, so it is hidden and the label carries the name.
         Element content outranks `title` when an accessible name is computed, so
         a bare glyph plus a `title` would have a screen reader announce the
-        glyph and never the title.
+        glyph and never the title. `<Icon>` is `aria-hidden` by construction.
       */}
       {/* The fixed half: never scrolls away, however many tabs there are. The
           `panel-actions` name stays because `view-drag.test.ts` slices this file
@@ -184,7 +185,7 @@ export function PanelTabs({ panel, focus }: PanelTabsProps): ReactElement {
           tabIndex={focus.childTabIndex}
           onClick={split('row')}
         >
-          <span aria-hidden="true">⊞</span>
+          <Icon name="panel.splitRow" />
         </Button>
         <Button
           variant="ghost"
@@ -193,7 +194,7 @@ export function PanelTabs({ panel, focus }: PanelTabsProps): ReactElement {
           tabIndex={focus.childTabIndex}
           onClick={split('col')}
         >
-          <span aria-hidden="true">⊟</span>
+          <Icon name="panel.splitCol" />
         </Button>
         <Button
           variant="ghost"
@@ -202,7 +203,7 @@ export function PanelTabs({ panel, focus }: PanelTabsProps): ReactElement {
           tabIndex={focus.childTabIndex}
           onClick={closePanel}
         >
-          <span aria-hidden="true">✕</span>
+          <Icon name="close" />
         </Button>
       </div>
       {menu.state ? (
@@ -448,7 +449,7 @@ function PanelTab({ panelId, viewId, index, active, focus, roving, onContextMenu
         title={t('panel.tab.close', { title })}
         onClick={onClose}
       >
-        ✕
+        <Icon name="close" size="sm" />
       </Button>
     </div>
   )

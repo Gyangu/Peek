@@ -909,10 +909,17 @@ describe('structure — where the gesture lives', () => {
         `the ${key} button has no accessible name of its own`,
       )
     }
-    for (const glyph of ['⊞', '⊟', '✕']) {
+    // The mark itself arrives as `<Icon>`, which is `aria-hidden` by
+    // construction — the call site cannot forget it, and cannot opt out. That is
+    // the second time this assertion has been loosened by a migration that
+    // strengthened it, and the same lesson as the paragraph above: assert the
+    // property (the mark is not the name), never one spelling of it. A hand
+    // written `<span aria-hidden="true">⊞</span>` would satisfy the old wording
+    // and could still drop the attribute on the next edit; an `<Icon>` cannot.
+    for (const icon of ['panel.splitRow', 'panel.splitCol', 'close']) {
       assert.ok(
-        actions.includes(`<span aria-hidden="true">${glyph}</span>`),
-        `the ${glyph} glyph is exposed to the accessibility tree`,
+        actions.includes(`<Icon name="${icon}" />`),
+        `the ${icon} mark is not an <Icon>, so nothing keeps it out of the accessibility tree`,
       )
     }
   })

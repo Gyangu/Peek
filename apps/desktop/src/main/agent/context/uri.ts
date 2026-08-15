@@ -45,6 +45,9 @@ export const PEEK_URI_SCHEME = 'peek:' as const
  */
 const MAX_URI_ROW_INDEXES = 12
 
+/** The same ceiling, for a rectangle's column names. */
+const MAX_URI_COLUMNS = 12
+
 function encodeSegment(raw: string): string {
   // encodeURIComponent leaves `.` alone, which keeps `public.orders` readable,
   // and escapes `/` and `?`, which is what actually matters for parsing.
@@ -60,6 +63,23 @@ export function resultRowsUri(resultId: ResultId, rowIndexes?: readonly number[]
 
 export function resultCellUri(resultId: ResultId, rowIndex: number, column: string): string {
   return `peek://result/${encodeSegment(resultId)}/cell/${rowIndex}/${encodeSegment(column)}`
+}
+
+/**
+ * A rectangle: a closed row interval and the columns it covers.
+ *
+ * The column list degrades to a count past `MAX_URI_COLUMNS` for the reason the
+ * row list does — a URI that cannot be read at a glance has stopped being one.
+ */
+export function resultCellsUri(
+  resultId: ResultId,
+  r0: number,
+  r1: number,
+  columns: readonly string[],
+): string {
+  const base = `peek://result/${encodeSegment(resultId)}/cells?r=${r0}-${r1}`
+  if (columns.length > MAX_URI_COLUMNS) return `${base}&c=n${columns.length}`
+  return `${base}&c=${columns.map(encodeSegment).join(',')}`
 }
 
 export function schemaUri(connId: ConnId, ref: CollectionRef): string {

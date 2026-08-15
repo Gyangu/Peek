@@ -21,6 +21,7 @@ import {
   MCP_DEFAULT_PORT,
   MCP_HTTP_PATH,
   isPeekError,
+  noopLogger as coreNoopLogger,
   peekError,
   toPeekError,
   type PeekError,
@@ -160,7 +161,14 @@ export interface McpServerHandle {
   close(): Promise<void>
 }
 
-const noopLogger: McpLogger = { log: () => {} }
+/**
+ * Core's, rather than a local `{ log: () => {} }`.
+ *
+ * Two spellings of "discard everything" is one more than the codebase needs, and
+ * the local one shadowed the exported name — which reads, at a glance, as though
+ * this file had a reason to differ.
+ */
+const noopLogger: McpLogger = coreNoopLogger
 
 /* ================================================================== */
 /* Implementation                                                       */

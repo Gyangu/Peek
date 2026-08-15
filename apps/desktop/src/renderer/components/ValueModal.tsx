@@ -7,6 +7,7 @@ import { useModalDialog } from '../hooks'
 import { tStatic, useT, type TFunction } from '../i18n'
 import { notify } from '../state/notifyStore'
 import { Button } from '../ui/Button'
+import { Icon } from '../ui/Icon'
 import { formatBytes, fullValueText } from '../util/format'
 import { MODAL_BODY, MODAL_HEAD, MODAL_MASK, MODAL_SHELL, MODAL_SIZE, MODAL_TITLE } from './modalClasses'
 
@@ -101,7 +102,7 @@ export function ValueModal(props: ValueModalProps): ReactElement {
               screen reader it was a button called "✕". `icon` makes the label
               mandatory, which is the whole reason that prop is a type union. */}
           <Button variant="ghost" icon label={t('app.errors.close')} onClick={onClose}>
-            ✕
+            <Icon name="close" />
           </Button>
         </div>
         <div className={MODAL_BODY}>

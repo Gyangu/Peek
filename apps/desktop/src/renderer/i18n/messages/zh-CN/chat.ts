@@ -30,6 +30,7 @@ export const chat: CatalogFor<ChatMessages> = {
   'chat.status.ready': '就绪',
   'chat.status.streaming': '正在回复…',
   'chat.status.awaiting-permission': '等待你确认',
+  'chat.status.awaiting-answer': '等你回答',
   'chat.status.error': '出错',
 
   /* ---- Permission mode --------------------------------------------- */
@@ -41,6 +42,8 @@ export const chat: CatalogFor<ChatMessages> = {
   'chat.mode.dontAsk': '不再询问',
   'chat.mode.bypassPermissions': '跳过全部检查',
   'chat.mode.title': '由谁来批准 agent 要调用的工具',
+  'chat.mode.inherited': '来自设置',
+  'chat.mode.inheritedTitle': '这个对话按「设置 → Agent」里的档位起步。在这里改只影响这一个对话。',
 
   /* ---- Transcript -------------------------------------------------- */
   'chat.empty.title': '问问你正在看的数据',
@@ -114,7 +117,7 @@ export const chat: CatalogFor<ChatMessages> = {
   'chat.composer.send': '发送',
   'chat.composer.stop': '停止',
   'chat.composer.stopTitle': '取消正在进行的这一轮',
-  'chat.composer.hint': '⏎ 发送 · ⇧⏎ 换行',
+  'chat.composer.hint': '⏎ 发送 · ⇧⏎ 换行 · @ 添加上下文',
   'chat.composer.busy': 'Claude 还在回复',
   'chat.composer.notReady': 'agent 还没准备好',
 
@@ -123,23 +126,26 @@ export const chat: CatalogFor<ChatMessages> = {
   'chat.retry.placeholder': '发送消息以重新连接…',
 
   /* ---- Context attachments ----------------------------------------- */
-  'chat.attach.label': '上下文',
   'chat.attach.add': '添加上下文',
   'chat.attach.addTitle': '把你正在看的内容附加到下一条消息',
   'chat.attach.remove': '移除',
-  'chat.attach.empty': '暂无附件',
   'chat.attach.count': { other: '{count} 个附件' },
   'chat.attach.kind.rows': '行',
   'chat.attach.kind.result': '结果集',
   'chat.attach.kind.cell': '单元格',
+  'chat.attach.kind.cells': '单元格区块',
   'chat.attach.kind.schema': '表结构',
   'chat.attach.kind.query': '查询',
   'chat.attach.kind.workspace': '工作区',
+  'chat.attach.option.selection': '当前选中的内容',
+  'chat.attach.option.selectionRowsHint': { one: '{source} · {count} 行', other: '{source} · {count} 行' },
+  'chat.attach.option.selectionCellsHint': '{source} · {columns} 列 × {rows} 行',
+  /* `@` 后面打出来的词，不能含空白 —— 见 mentionToken。 */
+  'chat.attach.token.selection': '选区',
   'chat.attach.option.workspace': '当前工作区',
   'chat.attach.option.workspaceHint': '布局、已打开的视图和连接',
   'chat.attach.option.result': '{view} 的结果',
   'chat.attach.option.query': '{view} 的 SQL',
-  'chat.attach.noCandidates': '目前没有可附加的内容',
   'chat.attach.sentWith': '随这条消息一起发送',
 
   /* ---- Permission prompt ------------------------------------------- */
@@ -154,6 +160,14 @@ export const chat: CatalogFor<ChatMessages> = {
   'chat.permission.kind.reject_always': '始终拒绝',
   'chat.permission.waiting': '在你做出选择之前，对话会一直暂停。',
   'chat.permission.label': '工具权限请求',
+
+  /* ---------------- agent 自己提的问题（ask 工具） ---------------- */
+  'chat.question.label': 'agent 的提问',
+  'chat.question.waiting': '你回答之前，agent 会一直等在这里。',
+  'chat.question.waitingMulti': '符合的都选上，然后发送。',
+  'chat.question.other': '都不是，我自己说…',
+  'chat.question.otherPlaceholder': '用你自己的话回答',
+  'chat.question.send': '发送回答',
   'chat.md.linkCopied': '已复制链接。',
   'chat.md.linkCopyFailed': '剪贴板拒绝了这次复制。',
   'chat.permission.alwaysNote':

@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import type { ReactElement } from 'react'
 import { useT } from '../../i18n'
+import { Icon } from '../../ui/Icon'
 import type { PlanEntry } from './toolCalls'
 
 /**
@@ -32,9 +33,21 @@ export const PlanCard = memo(function PlanCard({ entries }: { entries: PlanEntry
       </div>
       <ul className="m-0 py-tight list-none">
         {entries.map((entry, i) => (
-          <li key={i} className="flex items-baseline gap-snug px-snug py-inset">
-            <span className={`flex-none w-2.5 ${MARK[entry.status]}`} aria-hidden="true">
-              {entry.status === 'completed' ? '✔' : entry.status === 'in_progress' ? '▸' : '○'}
+          /* `items-baseline` was the glyphs' requirement — they sat on the text
+             baseline. An icon has no baseline to sit on, so the row centres its
+             first line instead. */
+          <li key={i} className="flex items-center gap-snug px-snug py-inset">
+            <span className={`flex-none flex ${MARK[entry.status]}`}>
+              <Icon
+                name={
+                  entry.status === 'completed'
+                    ? 'status.completed'
+                    : entry.status === 'in_progress'
+                      ? 'status.active'
+                      : 'status.pending'
+                }
+                size="sm"
+              />
             </span>
             <span
               className={`flex-1 min-w-0 break-words${

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ReactElement } from 'react'
 
 import { Button } from './Button'
+import { Icon } from './Icon'
 import { CONTROL_SIZE_NAMES, BUTTON_VARIANTS, BUTTON_VARIANT_NAMES } from './spec'
 
 /**
@@ -72,7 +73,7 @@ export function Gallery(): ReactElement {
                   label={`${variant} icon, ${size}`}
                   onClick={() => setPressed(`${variant} / ${size} / icon`)}
                 >
-                  ✕
+                  <Icon name="close" size={size} />
                 </Button>
                 <span className="text-fg-faint font-mono text-micro">{size}</span>
               </div>

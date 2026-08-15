@@ -15,7 +15,14 @@ import type {
 } from './capability'
 import type { ChatDelta } from './chat'
 import type { ColumnDef, ResultPause } from './chunk'
-import type { CommandInput, CommandName, CommandResultFor, CommandSource } from './commands'
+import type {
+  CommandInput,
+  CommandName,
+  CommandResultFor,
+  CommandSource,
+  ResolvedTheme,
+  UiTheme,
+} from './commands'
 import type { PeekError } from './errors'
 import type { ChatId, ConnId, ResultId, ViewId } from './ids'
 import type { InstalledPackages } from './package-manifest'
@@ -98,18 +105,25 @@ export const IPC = {
   /**
    * R→M: open the native directory chooser, and answer with what was picked.
    *
-   * `packages.install` takes an absolute path and a window has none. The DOM
-   * cannot supply one either — a `<input type="file" webkitdirectory>` yields
-   * relative entry names, and the absolute path behind them is only reachable
-   * through a main-world Electron API. So the picker itself runs in main.
+   * Callers need an absolute path and a window has none. The DOM cannot supply
+   * one either — a `<input type="file" webkitdirectory>` yields relative entry
+   * names, and the absolute path behind them is only reachable through a
+   * main-world Electron API. So the picker itself runs in main.
    *
    * **Not a command**, for the reason `MENU_ACTION` next door is not one: what
    * crosses is a piece of window chrome, not a change to the source of truth.
    * Cancelling a file dialog is not an action anybody should find in the command
    * log; the `packages.install` that may follow it is, and that one goes through
    * the bus like everything else. Design §2.8(c).
+   *
+   * Named for the chooser rather than for its first caller. It was
+   * `packages:pickDir` while installing a package was the only thing in peek
+   * that needed a directory; the chat panel's working directory needs the same
+   * dialog with the same properties, and a second channel would have been the
+   * same eleven lines under a different name. Nothing about it was ever specific
+   * to packages — it takes no arguments and knows nothing of what follows.
    */
-  PACKAGES_PICK_DIR: 'peek:packages:pickDir',
+  PICK_DIR: 'peek:pickDir',
 
   /** M→R: immer patch broadcast */
   STATE_PATCH: 'peek:state:patch',
@@ -132,6 +146,28 @@ export const IPC = {
    * See `docs/design/2026-08-04-settings-into-app-menu.md` §2.2.
    */
   MENU_ACTION: 'peek:menu:action',
+
+  /**
+   * M→R: the window is painted the other way round now.
+   *
+   * Sent when the user picks a theme *and* when the OS flips underneath a
+   * `system` choice — the second is why this channel exists at all. A reply to
+   * `settings.write` would carry the first perfectly well, but nothing asks a
+   * question when macOS crosses into dark mode at sunset, so the window has to
+   * be told.
+   *
+   * Carries the **resolved** theme rather than the preference: main owns the
+   * `system` → `dark | light` resolution because only main can see
+   * `nativeTheme`, and a second copy of that rule in the renderer would be a
+   * second answer to the same question. See
+   * `design/2026-08-15-light-and-dark-theme.md` §2.1, §3.1.
+   *
+   * Not a state patch: which way round the window is painted is window chrome,
+   * not the source of truth. The same clause `MENU_ACTION` above stands on — the
+   * Workspace knows nothing about it, and the AI reading the workspace should
+   * not have to reason about a theme revision.
+   */
+  THEME_CHANGED: 'peek:theme:changed',
 
   /**
    * R→M: read-only RPC that is not a command (lazy-loading the namespace tree /
@@ -243,6 +279,19 @@ export interface ResultPortMessage {
  */
 export interface MenuActionMessage {
   action: 'openSettings'
+}
+
+/**
+ * What travels on `IPC.THEME_CHANGED`.
+ *
+ * Both halves, not just the resolved one: the settings dialog has to show which
+ * of the three the user picked, and it may be open while the OS flips. Sending
+ * only the resolution would leave its picker pointing at `dark` for a window
+ * that is following the system and merely happens to be dark right now.
+ */
+export interface ThemeChangedMessage {
+  theme: UiTheme
+  resolved: ResolvedTheme
 }
 
 export type NotifyLevel = 'info' | 'warn' | 'error'
@@ -389,7 +438,7 @@ export interface PeekBridge {
   onPackagesChanged(handler: (installed: InstalledPackages) => void): () => void
 
   /**
-   * Ask the user for a package directory; `null` means they cancelled.
+   * Ask the user for a directory; `null` means they cancelled.
    *
    * Required rather than optional, on the same grounds as `onMenuAction` and
    * `onPackagesChanged`: it is one `ipcRenderer.invoke` with no main world
@@ -397,11 +446,12 @@ export interface PeekBridge {
    * feature-detected picker would give the settings panel an "Install…" button
    * that silently does nothing on exactly the launches that are already broken.
    *
-   * It does **not** install. The path comes back, the window sends
-   * `packages.install`, and the refusals arrive in that command's receipt — see
-   * `IPC.PACKAGES_PICK_DIR` for why the two halves are not one call.
+   * It only picks. What follows is the caller's own command — `packages.install`
+   * for a package, `settings.write` for the chat panel's working directory — and
+   * the refusals arrive in that command's receipt, so a hand-typed path and a
+   * picked one meet exactly the same checks. See `IPC.PICK_DIR`.
    */
-  pickPackageDir(): Promise<string | null>
+  pickDirectory(): Promise<string | null>
 
   onPatch(handler: (msg: StatePatchMessage) => void): () => void
 
@@ -419,6 +469,17 @@ export interface PeekBridge {
    * menu item silently does nothing is worse than one without the item.
    */
   onMenuAction(handler: (msg: MenuActionMessage) => void): () => void
+
+  /**
+   * The window is painted the other way round now.
+   *
+   * Required and implemented on the degraded path too, on exactly the clause
+   * above: one `ipcRenderer.on`, no main world involved. And the stake is higher
+   * here than for a menu item — a window that stops hearing this keeps painting
+   * dark after the user picked light, which reads as the setting being broken
+   * rather than as the data plane being down.
+   */
+  onThemeChanged(handler: (msg: ThemeChangedMessage) => void): () => void
 
   /* ---------------- Read-only, non-command channel ---------------- */
   /*

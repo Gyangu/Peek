@@ -60,7 +60,7 @@ export function sanitizeLine(text: string, maxLen = 400): string {
  */
 const URL_CREDENTIALS_RE = /(:\/\/[^:/@\s]*):[^@\s]*@/g
 
-function maskUrlCredentials(text: string): string {
+export function maskUrlCredentials(text: string): string {
   return text.replace(URL_CREDENTIALS_RE, `$1:${REDACTED}@`)
 }
 

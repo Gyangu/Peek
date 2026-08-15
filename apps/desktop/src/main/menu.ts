@@ -40,6 +40,14 @@
  *
  * The item is macOS-only. Windows and Linux keep the gear, because their menu
  * bar is not the place anyone looks for preferences — §3.3 of that document.
+ *
+ * **Every accelerator written below is registered** in `renderer/keys/registry.ts`
+ * with `scope: 'menu'`, and a test reads this file to prove it. That is what
+ * turns the warning two paragraphs up from prose into something enforced: an
+ * accelerator added here that collides with a window chord now fails a test
+ * instead of silently taking the chord away. `Command+,` is registered as the
+ * window's `app.settings` rather than as a menu entry of its own, because it is
+ * the same action reached through a second door.
  */
 
 import { Menu, app, type MenuItemConstructorOptions } from 'electron'

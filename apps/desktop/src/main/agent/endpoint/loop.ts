@@ -31,6 +31,7 @@ import { randomUUID } from 'node:crypto'
 import { Agent, type AgentMessage, type AgentTool } from '@earendil-works/pi-agent-core'
 import {
   applyChatDeltaToMessages,
+  noopLogger,
   peekError,
   toPeekError,
   transcriptToDeltas,
@@ -41,8 +42,10 @@ import {
   type ChatMessageId,
   type ChatPermissionMode,
   type CommandSource,
+  type Logger,
   type NotifyMessage,
   type PeekError,
+  type TaggedLogger,
 } from '@peek/core'
 import type { ChatAgentStatePatch, DeltaBatchBudget } from '../../acp/types'
 import type { ChatStateDelta } from '../../acp/translate'
@@ -110,6 +113,20 @@ export interface EndpointHostDeps {
   threads: EndpointThreadStore
   /** Records the route so the conversation appears in the catalogue at all. */
   sessionIndex?: SessionIndex
+  /**
+   * Where this loop says what happened inside it.
+   *
+   * Optional and defaulting to a no-op, so every existing test construction
+   * keeps compiling — but assembly always supplies it, and what it carries is
+   * the answer to the question this backend could not answer before: **what did
+   * the model actually send us, and what did we do with it.**
+   *
+   * A `TaggedLogger` rather than a plain `Logger` because the tag is the whole
+   * point: one turn's records have to be separable from every other
+   * conversation's, and `.with(chatId)` is what makes the panel's filter a
+   * single click. See `docs/design/2026-08-15-logging-and-audit.md` §3.7.
+   */
+  logger?: TaggedLogger
 }
 
 export interface EndpointHostConfig {
@@ -158,6 +175,8 @@ interface Session {
   /** Tool calls the user refused, so the executor knows to skip rather than run. */
   blocked: Set<string>
   unsubscribe: () => void
+  /** This conversation's logger — `deps.logger` with `chatId` already stamped on it. */
+  log: Logger
 }
 
 /* ================================================================== */
@@ -182,10 +201,17 @@ export class EndpointManager {
   readonly #tools: EndpointTool[]
   #disposed = false
 
+  get #log(): TaggedLogger {
+    return this.#deps.logger ?? noopLogger
+  }
+
   constructor(deps: EndpointHostDeps, config: EndpointHostConfig) {
     this.#deps = deps
     this.#config = config
-    this.#tools = buildEndpointTools(deps.tools)
+    // Untagged: this happens once at construction, before any conversation
+    // exists, so there is no `chatId` to attribute it to — and a schema that
+    // will not convert is a fact about the build, not about a turn.
+    this.#tools = buildEndpointTools(deps.tools, this.#log)
   }
 
   /* ---------------- Commands ---------------- */
@@ -431,6 +457,7 @@ export class EndpointManager {
       permissionMode: this.#config.permissionMode(),
       blocked: new Set(),
       unsubscribe: () => undefined,
+      log: this.#log.with(chatId),
     }
 
     session.agent = new Agent({
@@ -584,6 +611,22 @@ export class EndpointManager {
         this.#settle(session, 'cancelled')
         return
       case 'ignored':
+        /*
+         * This used to be a bare `return`, and that one line was the whole of
+         * peek's blindness to its own agent.
+         *
+         * `classifyAgentEvent` computes a reason for every event it drops —
+         * eleven of them, including `unknown:${type}`, which means the SDK or the
+         * model sent a shape this build does not handle. All eleven were thrown
+         * away here, so the symptoms (a turn that ends empty, a tool call the
+         * model announces but the transcript never shows) had no cause anywhere.
+         *
+         * The level travels with the outcome rather than being decided here; see
+         * `AgentEventOutcome`. Nothing about the *content* of the event is
+         * recorded — only its shape — which is the rule §3.6 of the design note
+         * sets for this whole file.
+         */
+        session.log.log(outcome.level, `event ignored: ${outcome.reason}`)
         return
     }
   }
@@ -669,8 +712,14 @@ export class EndpointManager {
   }
 
   #patch(chatId: ChatId, state: ChatStateDelta): void {
-    void this.#deps.applyState({ chatId, ...state }).catch(() => {
-      // The applier swallows its own failures by contract; this is the belt.
+    void this.#deps.applyState({ chatId, ...state }).catch((error: unknown) => {
+      // The applier swallows its own failures by contract; this is the belt —
+      // and now the belt has a counter. "Allowed to happen" and "happened with
+      // nobody knowing" are different things, and the consequence here is one
+      // the user sees: the transcript and the real state have diverged, so the
+      // panel is showing something that is no longer true. `error` rather than
+      // `warn` for that reason.
+      this.#log.with(chatId).log('error', 'the chat state patch could not be applied', error)
     })
   }
 }

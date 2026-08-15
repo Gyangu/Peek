@@ -34,6 +34,23 @@
  *   binaries outright, so this is not a Gatekeeper nicety — an unsigned build
  *   simply will not launch. Packager renames the helper bundles, which breaks
  *   the signatures Electron ships with, so the app is re-signed here.
+ *
+ *   **No hardened runtime, and that is a measurement rather than an oversight.**
+ *   `--options runtime` is the standard answer to `DYLD_INSERT_LIBRARIES`
+ *   injection, which matters here more than it looks: an injected dylib does not
+ *   change the main binary's cdhash, so the keychain ACL that guards every saved
+ *   database password waves it through as peek. It was tried. Under an ad-hoc
+ *   signature it does nothing — with `runtime`, and again with
+ *   `runtime,restrict`, the probe still loaded into the main process and all
+ *   three helpers. A Developer ID-signed Electron app of the same shape (VS Code,
+ *   flags=0x10000) refuses the identical probe. These limits are enforced by
+ *   AMFI, and AMFI only honours them for a signing identity it trusts; ad-hoc
+ *   buys a cdhash check and nothing else. Setting the flag anyway would put a
+ *   claim in `codesign -dvvv` output that the binary does not keep.
+ *
+ *   The measurement, the two entitlements it would need, and the trigger for
+ *   revisiting this (the first published .dmg — where Gatekeeper, not security,
+ *   forces the issue) are in `docs/design/2026-08-15-hardened-runtime.md`.
  */
 
 import { execFileSync } from 'node:child_process'

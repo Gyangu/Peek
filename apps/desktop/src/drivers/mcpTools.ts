@@ -43,15 +43,15 @@ import { installedTools } from './installed'
  *
  * It is not a new verb. All 32 Command names are kernel-generic and none of them
  * belongs to a database (`core/commands.ts`, and design §2.3bis(c)); a package
- * tool is the same thin shell over the same bus that the kernel's thirteen are,
+ * tool is the same thin shell over the same bus that the kernel's fourteen are,
  * differing only in that it knows something about one database that the kernel
  * has no business knowing — that a `graph` view is expanded by writing an
  * `elementId` into `focus`, say.
  *
  * So the shape here mirrors view kinds exactly. The kernel keeps its own
- * thirteen tools in `main/mcp/tools/`, a package contributes the fourteenth, and
+ * fourteen tools in `main/mcp/tools/`, a package contributes the fifteenth, and
  * neither list is the other's subset. Anyone reading design §2.6ter as "the
- * thirteen should move into packages" should read §2.4bis(a) first: moving
+ * fourteen should move into packages" should read §2.4bis(a) first: moving
  * `set_layout` into `db-postgres` would be asserting that arranging panes is
  * a property of PostgreSQL.
  * ================================================================== */

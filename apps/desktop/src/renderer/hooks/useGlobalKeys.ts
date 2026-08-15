@@ -16,16 +16,27 @@
 
 import { useEffect } from 'react'
 import { findPanel, type PanelNode } from '@peek/core'
+import { loadBindings, readBindings } from '../keys/store'
 import { dispatch } from '../state/dispatch'
 import { openSettings } from '../state/settingsDialogStore'
+import { toggleShortcutSheet } from '../state/shortcutSheetStore'
 import { readWorkspace } from '../state/workspaceStore'
 import { directionPlacement, findPanelInDirection, panelIdAt, type Direction } from './layout-nav'
 import { chordOf, resolveShortcut, type ShortcutAction } from './shortcuts'
 
 export function useGlobalKeys(): void {
   useEffect(() => {
+    // The user's own bindings, once. The listener below reads the table on every
+    // keystroke rather than closing over it, so a rebinding made in settings
+    // takes effect on the next key — no re-registration, no stale closure.
+    void loadBindings()
+
     const onKey = (e: KeyboardEvent): void => {
-      const action = resolveShortcut(chordOf(e), { textEntry: isTextEntry(eventElement(e)) })
+      const action = resolveShortcut(
+        chordOf(e),
+        { textEntry: isTextEntry(eventElement(e)) },
+        readBindings(),
+      )
       if (!action) return
       if (action.kind === 'leaveTextEntry') {
         // No preventDefault: Esc may mean something to whatever else is listening
@@ -34,11 +45,16 @@ export function useGlobalKeys(): void {
         return
       }
       e.preventDefault()
-      // The one action here that is not a Command. "A dialog is open" is not
+      // The two actions here that are not Commands. "A dialog is open" is not
       // Workspace state — nothing persistent changes, and MCP has no use for the
       // panel a human would have clicked through. See `settingsDialogStore`.
       if (action.kind === 'openSettings') {
         openSettings()
+        return
+      }
+      if (action.kind === 'openShortcuts') {
+        // Toggles: ⌘/ is how the sheet is dismissed as well as summoned.
+        toggleShortcutSheet()
         return
       }
       runAction(action)

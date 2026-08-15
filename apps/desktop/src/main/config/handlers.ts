@@ -18,18 +18,30 @@
  * the note on `McpController`.
  */
 
-import { clampUiZoom, MCP_DEFAULT_HOST, MCP_DEFAULT_PORT, MCP_HTTP_PATH, UI_ZOOM_DEFAULT } from '@peek/core'
+import {
+  clampUiZoom,
+  MCP_DEFAULT_HOST,
+  MCP_DEFAULT_PORT,
+  MCP_HTTP_PATH,
+  NOTIFICATION_DEFAULTS,
+  resolveNotifications,
+  UI_THEME_DEFAULT,
+  UI_ZOOM_DEFAULT,
+} from '@peek/core'
 import type {
   AgentSettingsReadResult,
   CommandInput,
   ConnBookForgetResult,
   ConnBookListResult,
   ExecutionBudgets,
+  LogLevel,
   McpConfigureResult,
   McpReadResult,
   McpStatus,
+  ResolvedTheme,
   SettingsReadResult,
   SettingsWriteResult,
+  UiTheme,
 } from '@peek/core'
 import type { CommandHandlerMap } from '../bus/types'
 // Straight at the module, not through `../connections`: that barrel re-exports
@@ -38,11 +50,12 @@ import type { CommandHandlerMap } from '../bus/types'
 // itself touches neither a file nor Electron, by its own contract.
 import { getTimeoutSettings, setTimeoutSettings } from '../connections/timeouts'
 import { ACP_PROFILES, profileById, type AcpAgentProfile } from '../acp/profiles'
+import { chatRootDir } from '../acp/session-config'
 import type { ConnectionBook } from './connection-book'
 import type { McpController } from './mcp-controller'
 import { connectionsFilePath, settingsFilePath } from './paths'
 import type { SecretVault } from './secrets'
-import type { PeekAgentSettings, SettingsStore } from './settings'
+import type { PeekAgentSettings, SettingsStore, StoredMcpServer } from './settings'
 
 export interface ConfigHandlerOptions {
   book: ConnectionBook
@@ -60,10 +73,53 @@ export interface ConfigHandlerOptions {
    * the setting is still persisted in that case — the next window will read it.
    */
   applyZoom?: (factor: number) => void
+  /**
+   * Change what is being captured, now.
+   *
+   * Injected on the same grounds as `applyZoom`: the logging system owns two
+   * open file handles and this module must stay loadable in a plain Node test.
+   * Absent in an assembly with no logging attached — the level is still
+   * persisted in that case, and the next launch reads it.
+   */
+  applyLogLevel?: (level: LogLevel) => void
+  /** What is being captured right now, for the two settings receipts. */
+  readLogLevel?: () => LogLevel
+  /**
+   * Paint the window this way round, now.
+   *
+   * Injected on the same grounds as `applyZoom`: `nativeTheme` is Electron. It
+   * also broadcasts to the window, which is why the handler does not — see
+   * `main/index.ts`'s `applyUiTheme`.
+   */
+  applyTheme?: (theme: UiTheme) => void
+  /**
+   * What the theme resolves to right now.
+   *
+   * Absent in an assembly with no window, where `system` cannot be resolved at
+   * all — there is no `nativeTheme` to ask. Both receipts fall back to `dark`
+   * there, which is the same answer `UI_THEME_DEFAULT` gives and is inert: a bus
+   * with no window paints nothing.
+   */
+  readResolvedTheme?: () => ResolvedTheme
 }
 
 export function createConfigHandlers(options: ConfigHandlerOptions): CommandHandlerMap {
-  const { book, mcp, settings, vault, configDir, version, applyZoom } = options
+  const {
+    book,
+    mcp,
+    settings,
+    vault,
+    configDir,
+    version,
+    applyZoom,
+    applyLogLevel,
+    readLogLevel,
+    applyTheme,
+    readResolvedTheme,
+  } = options
+  // The stored preference is the fallback, not the answer: `PEEK_LOG_LEVEL` can
+  // override it for this run, and only the logging system knows that.
+  const currentLogLevel = (): LogLevel => readLogLevel?.() ?? settings.read().logLevel ?? 'info'
 
   return {
     'conn.book.list': {
@@ -105,20 +161,33 @@ export function createConfigHandlers(options: ConfigHandlerOptions): CommandHand
     },
 
     'settings.read': {
-      read: (): SettingsReadResult => ({
-        execution: executionBudgets(),
-        paths: {
-          configDir,
-          settingsFile: settingsFilePath(configDir),
-          connectionsFile: connectionsFilePath(configDir),
-          // Owned by the MCP server, which writes it; asking the controller
-          // keeps one spelling of that path in the process rather than two.
-          mcpFile: mcp.status().configFile,
-        },
-        version,
-        uiZoom: settings.read().uiZoom ?? UI_ZOOM_DEFAULT,
-        agent: readAgentSettings(settings, vault),
-      }),
+      read: (): SettingsReadResult => {
+        const stored = settings.read()
+        return {
+          execution: executionBudgets(),
+          paths: {
+            configDir,
+            settingsFile: settingsFilePath(configDir),
+            connectionsFile: connectionsFilePath(configDir),
+            // Owned by the MCP server, which writes it; asking the controller
+            // keeps one spelling of that path in the process rather than two.
+            mcpFile: mcp.status().configFile,
+          },
+          version,
+          uiZoom: stored.uiZoom ?? UI_ZOOM_DEFAULT,
+          theme: stored.theme ?? UI_THEME_DEFAULT,
+          // Resolved here rather than by the caller: `system` is only answerable
+          // where `nativeTheme` is, and this is the reply the window paints its
+          // *first* frame from — before any `THEME_CHANGED` has been sent.
+          resolvedTheme: readResolvedTheme?.() ?? 'dark',
+          agent: readAgentSettings(settings, vault),
+          // Uninterpreted, and absent when the user changed nothing. The window
+          // parses these; main only remembers them. See `PeekSettings`.
+          ...(stored.keybindings === undefined ? {} : { keybindings: stored.keybindings }),
+          logLevel: currentLogLevel(),
+          notifications: resolveNotifications(stored.notifications),
+        }
+      },
     },
 
     'settings.write': {
@@ -153,9 +222,44 @@ export function createConfigHandlers(options: ConfigHandlerOptions): CommandHand
           settings.update({ uiZoom })
         }
 
+        // Apply, then persist — the order every setting above follows. `applyTheme`
+        // is also what broadcasts the change to the window, so a theme picked here
+        // reaches the DOM without this handler knowing an IPC channel exists.
+        if (input.theme !== undefined) {
+          applyTheme?.(input.theme)
+          settings.update({ theme: input.theme })
+        }
+
         if (input.agent) writeAgentSettings(settings, vault, input.agent)
 
-        return { execution, uiZoom, agent: readAgentSettings(settings, vault) }
+        // Whole-record, not merged: see `SettingsStore.update`. An empty record
+        // is how the window says "everything is back to its default".
+        if (input.keybindings !== undefined) settings.update({ keybindings: input.keybindings })
+
+        // Apply first, then persist — the same order as the timeouts and the
+        // zoom above, and for the same reason: the file must not record a level
+        // the running process is not honouring.
+        if (input.logLevel !== undefined) {
+          applyLogLevel?.(input.logLevel)
+          settings.update({ logLevel: input.logLevel })
+        }
+
+        // No apply step, unlike the four above: nothing holds these switches at
+        // run time. `createNotifier` reads them per call (see `NotifierDeps`),
+        // so persisting *is* applying and a change is live on the next notice.
+        if (input.notifications !== undefined) settings.update({ notifications: input.notifications })
+
+        const keybindings = settings.read().keybindings
+        return {
+          execution,
+          uiZoom,
+          theme: settings.read().theme ?? UI_THEME_DEFAULT,
+          resolvedTheme: readResolvedTheme?.() ?? 'dark',
+          agent: readAgentSettings(settings, vault),
+          ...(keybindings === undefined ? {} : { keybindings }),
+          logLevel: currentLogLevel(),
+          notifications: resolveNotifications(settings.read().notifications),
+        }
       },
     },
   }
@@ -187,12 +291,38 @@ function readAgentSettings(settings: SettingsStore, vault: SecretVault): AgentSe
     // Resolved, not echoed: a file naming an agent this build does not have gets
     // the default, and the form should show what will actually run.
     acpProfile: profile.id,
+    // Each candidate's tier is resolved against the tool switch, not read off
+    // the profile: the picker is where a user compares agents, and comparing
+    // them at a sandbox none of them currently has would be showing the wrong
+    // thing on exactly the screen where the switch lives.
     profiles: ACP_PROFILES.map((candidate) => ({
       id: candidate.id,
       displayName: candidate.displayName,
-      sandbox: candidate.sandbox,
+      sandbox: candidate.sandbox({ fullTools: stored.acpFullTools === true }),
+      baseSandbox: candidate.sandbox({}) === 'enforced' ? 'enforced' : 'unverified',
       available: isProfileAvailable(candidate),
     })),
+    acpFullTools: stored.acpFullTools === true,
+    // The path itself, not a placeholder. The form has to be able to say "your
+    // conversations run here" for the default too, and it cannot compose that
+    // path: `chatRootDir` reads an environment variable the window does not have.
+    agentWorkdirDefault: chatRootDir(process.env['PEEK_CONFIG_DIR']),
+    // Whether, never what — the same rule `endpointApiKeySet` follows. The sealed
+    // value does not cross back even to the renderer, so a form can show
+    // "configured" without ever holding the secret.
+    mcpServers: (stored.mcpServers ?? []).map((server) => ({
+      name: server.name,
+      transport: server.transport,
+      target: server.target,
+      enabled: server.enabled,
+      authValueSet: server.authValueSealed !== undefined,
+      ...(server.args ? { args: server.args } : {}),
+      ...(server.authHeader ? { authHeader: server.authHeader } : {}),
+    })),
+    // `null` is the erase signal on the way in and never lands in the file, so
+    // it is not a state the form has to render — both spellings of "unset"
+    // arrive here as an absent field.
+    ...(stored.agentWorkdir ? { agentWorkdir: stored.agentWorkdir } : {}),
     ...(stored.acpExecutablePath === undefined ? {} : { acpExecutablePath: stored.acpExecutablePath }),
     ...(stored.endpoint === undefined ? {} : { endpoint: stored.endpoint }),
     // Whether, never what. The value does not cross back even to the renderer.
@@ -210,7 +340,18 @@ function writeAgentSettings(
   if (input.permissionMode !== undefined) patch.permissionMode = input.permissionMode
   if (input.acpProfile !== undefined) patch.acpProfile = profileById(input.acpProfile).id
   if (input.acpExecutablePath !== undefined) patch.acpExecutablePath = input.acpExecutablePath
+  if (input.acpFullTools !== undefined) patch.acpFullTools = input.acpFullTools
+  // An empty string is how the form says "back to peek's own directory". It
+  // becomes the store's `null` erase signal here rather than travelling as one:
+  // a form field that has been cleared *is* an empty string, and asking the
+  // window to send a null instead would be asking it to speak the file's dialect.
+  if (input.agentWorkdir !== undefined) {
+    patch.agentWorkdir = input.agentWorkdir === '' ? null : input.agentWorkdir
+  }
   if (input.endpoint !== undefined) patch.endpoint = input.endpoint
+  if (input.mcpServers !== undefined) {
+    patch.mcpServers = sealMcpServers(settings, vault, input.mcpServers)
+  }
   // An empty string is how a form says "forget it" — distinct from omitting the
   // field, which means "leave whatever is stored alone".
   if (input.endpointApiKey !== undefined) {
@@ -226,6 +367,56 @@ function writeAgentSettings(
   }
 
   if (Object.keys(patch).length > 0) settings.update({ agent: patch })
+}
+
+/**
+ * Seal the credentials in an incoming MCP list, keeping the ones not resent.
+ *
+ * The list arrives whole — that is the only shape in which removing a row is
+ * expressible — but the credentials do not, because they never crossed back to
+ * the form in the first place. So a row that omits `authValue` means "the one
+ * you already have", matched by name against what is stored. Without that,
+ * editing a server's URL would silently clear its token, and the failure would
+ * arrive later as an authentication error against a server that was working.
+ *
+ * An empty string is the deliberate erase, distinct from omitting the field —
+ * the same convention `endpointApiKey` uses.
+ */
+function sealMcpServers(
+  settings: SettingsStore,
+  vault: SecretVault,
+  incoming: NonNullable<CommandInput<'settings.write'>['agent']>['mcpServers'] & object,
+): StoredMcpServer[] {
+  const stored = new Map((settings.read().agent?.mcpServers ?? []).map((s) => [s.name, s]))
+  const out: StoredMcpServer[] = []
+  const seen = new Set<string>()
+  for (const row of incoming) {
+    // The schema already refused a malformed name; this refuses a *repeated*
+    // one, which the schema cannot see. First occurrence wins, as on read.
+    if (seen.has(row.name)) continue
+    seen.add(row.name)
+    const previous = stored.get(row.name)
+    const kept: StoredMcpServer = {
+      name: row.name,
+      transport: row.transport,
+      target: row.target,
+      enabled: row.enabled,
+      ...(row.args && row.args.length > 0 ? { args: row.args } : {}),
+      ...(row.authHeader ? { authHeader: row.authHeader } : {}),
+    }
+    if (row.authValue === undefined) {
+      // Not resent: carry the stored one forward.
+      if (previous?.authValueSealed) kept.authValueSealed = previous.authValueSealed
+    } else if (row.authValue !== '') {
+      const sealed = vault.seal(row.authValue)
+      // A vault that cannot seal must not fall back to plaintext. The credential
+      // is dropped and `authValueSet` stays false, so the form says it was not
+      // stored rather than leaving one readable in a text file.
+      if (sealed !== null) kept.authValueSealed = sealed
+    }
+    out.push(kept)
+  }
+  return out
 }
 
 /** Whether the agent's package is actually installed in this build. */
@@ -302,7 +493,11 @@ export const unavailableConfigHandlers = {
       paths: { configDir: '', settingsFile: '', connectionsFile: '', mcpFile: '' },
       version: '',
       uiZoom: UI_ZOOM_DEFAULT,
+      theme: UI_THEME_DEFAULT,
+      resolvedTheme: 'dark',
       agent: UNCONFIGURED_AGENT,
+      logLevel: 'info',
+      notifications: NOTIFICATION_DEFAULTS,
     }),
   },
   'settings.write': {
@@ -318,7 +513,14 @@ export const unavailableConfigHandlers = {
         // Nothing to draw and nothing to write, so the honest answer is the
         // value that would take effect, not a claim that one did.
         uiZoom: clampUiZoom(input.uiZoom ?? UI_ZOOM_DEFAULT),
+        theme: input.theme ?? UI_THEME_DEFAULT,
+        // Same clause as the zoom above: nothing painted it, so this is the value
+        // that *would* take effect. `system` cannot be resolved with no window, so
+        // the default's own resolution is the only honest answer.
+        resolvedTheme: 'dark',
         agent: UNCONFIGURED_AGENT,
+        logLevel: input.logLevel ?? 'info',
+        notifications: resolveNotifications(input.notifications),
       }
     },
   },
@@ -335,11 +537,17 @@ const UNCONFIGURED_AGENT: AgentSettingsReadResult = {
   backend: 'acp',
   permissionMode: 'default',
   acpProfile: profileById(undefined).id,
+  // No config dir means no switch to have been set, so every tier here is the
+  // one the agent ships with.
   profiles: ACP_PROFILES.map((candidate) => ({
     id: candidate.id,
     displayName: candidate.displayName,
-    sandbox: candidate.sandbox,
+    sandbox: candidate.sandbox({}),
+    baseSandbox: candidate.sandbox({}) === 'enforced' ? 'enforced' : 'unverified',
     available: isProfileAvailable(candidate),
   })),
+  acpFullTools: false,
+  agentWorkdirDefault: chatRootDir(process.env['PEEK_CONFIG_DIR']),
+  mcpServers: [],
   endpointApiKeySet: false,
 }

@@ -10,6 +10,8 @@ export const settings: CatalogFor<SettingsMessages> = {
   'settings.sections': '设置分类',
   'settings.section.mcp': 'MCP 端点',
   'settings.section.appearance': '外观',
+  'settings.section.notifications': '通知',
+  'settings.section.keyboard': '键盘',
   'settings.section.timeouts': '查询与超时',
   'settings.section.about': '关于',
 
@@ -78,8 +80,23 @@ export const settings: CatalogFor<SettingsMessages> = {
   /* ---------------- 外观 ---------------- */
   'settings.language': '语言',
   'settings.languageHint': '立即生效，并记在这台机器上。',
+  'settings.theme': '外观',
+  'settings.themeHint': '选「跟随系统」后，会随 macOS 的浅色/深色一起切换。',
+  'settings.themeDark': '夜间',
+  'settings.themeLight': '日间',
+  'settings.themeSystem': '跟随系统',
   'settings.zoom': '界面大小',
   'settings.zoomHint': '整体缩放窗口——文字、行高、控件一起放大，{keys} 是同一件事。',
+
+  /* ---------------- 通知 ---------------- */
+  'settings.notifications.system': '系统通知',
+  'settings.notifications.systemHint':
+    'peek 的窗口不在最前面时，让它通过系统通知中心找到你。你正看着 peek 时，它只在应用内提示。',
+  'settings.notifications.turnEnd': 'agent 结束时通知',
+  'settings.notifications.turnEndHint':
+    '你在别处忙的时候，聊天回合结束、或者停下来等你授权时告诉你一声。agent 自己也能在它认为值得打断你的时候通知你。',
+  'settings.notifications.on': '开',
+  'settings.notifications.off': '关',
 
   /* ---------------- 查询与超时 ---------------- */
   'settings.timeouts.intro': '一个请求最多能跑多久，超过就放弃。没有人显式指定期限时用这里的值。',
@@ -109,14 +126,51 @@ export const settings: CatalogFor<SettingsMessages> = {
   'settings.agent.mode.auto': '自动判断',
   'settings.agent.mode.acceptEdits': '自动接受修改',
   'settings.agent.mode.plan': '仅制定计划',
+  'settings.agent.mode.dontAsk': '⚠ 不要问我',
+  'settings.agent.mode.bypassPermissions': '⚠ 跳过全部检查',
   'settings.agent.modeHint.default': '每次工具调用都等你回答。这是 peek 的默认。',
   'settings.agent.modeHint.auto': '由 agent 自己的分类器代你批准。它能碰到的仍然只有 peek 的那些工具。',
   'settings.agent.modeHint.acceptEdits': '修改类调用直接放行，其余的仍然等你。',
   'settings.agent.modeHint.plan': 'agent 只做计划和解释，在你切走之前什么都不执行。',
+  'settings.agent.modeHint.dontAsk': '工具调用不再问你。每个新对话会在档位旁边标出「来自设置」。',
+  'settings.agent.modeHint.bypassPermissions': '不检查，也不问。每个新对话会在档位旁边标出「来自设置」。',
   'settings.agent.modeDangerNote':
-    '两个「跳过检查」的档留在面板自己的下拉里，按对话临时切 —— 不放在这里，因为放在这里会悄悄套用到以后每一个对话。',
+    '最后两档会让你在以后每一个新对话里都不再被问到。用这两档起步的对话会在面板上标出来，你仍然可以在那里单独改这一个对话的档位。',
   'settings.agent.which': '用哪个',
   'settings.agent.missing': '未安装',
+  'settings.agent.mcp': '你的 MCP server',
+  'settings.agent.mcp.none': '还没有',
+  'settings.agent.mcp.count': { other: '{count} 个' },
+  'settings.agent.mcp.unnamed': '新 server',
+  'settings.agent.mcp.name': '名字',
+  'settings.agent.mcp.namePlaceholder': '小写名字',
+  'settings.agent.mcp.transport': '接入方式',
+  'settings.agent.mcp.transport.http': 'HTTP',
+  'settings.agent.mcp.transport.stdio': '本地命令',
+  'settings.agent.mcp.enabled': '启用',
+  'settings.agent.mcp.target': '地址',
+  'settings.agent.mcp.targetPlaceholder.http': 'https://example.com/mcp',
+  'settings.agent.mcp.targetPlaceholder.stdio': '/绝对路径/到/可执行文件',
+  'settings.agent.mcp.authHeader': 'header 名',
+  'settings.agent.mcp.authValue': 'header 值',
+  'settings.agent.mcp.authValuePlaceholder': 'Bearer …',
+  'settings.agent.mcp.add': '添加一个',
+  'settings.agent.mcp.remove': '移除',
+  'settings.agent.mcp.discard': '放弃改动',
+  'settings.agent.mcp.invalid':
+    '每个 server 都要有地址，名字要唯一且只含小写字母、数字、- 或 _。这个名字会成为 agent 调用它时的工具前缀。',
+  'settings.agent.mcp.hint':
+    '它们会和 peek 自己的工具一起交给 agent。peek 不管它们做什么——工具调用仍然会问你，但你同意之后发生的事是 agent 和那个 server 之间的事。',
+  'settings.agent.workdir': '工作目录',
+  'settings.agent.workdirPick': '选择…',
+  'settings.agent.workdirReset': '用 peek 自己的',
+  'settings.agent.workdirHint':
+    '新对话在哪里工作。指向一个项目，agent 就能读写那个项目；已经开始的对话仍然留在它当初的目录里。',
+  'settings.agent.fullTools': '文件与命令工具',
+  'settings.agent.fullTools.off': '关',
+  'settings.agent.fullTools.on': '开',
+  'settings.agent.relaxed':
+    'agent 可以在这台机器上读文件、改文件、跑命令，因此它也能读到 peek 自己的 MCP token，进而自己批准自己的工具调用。权限提示不再是一道闸，只是一条通知。peek 拦不住这件事，也不打算拦——这是你自己关掉的。',
   'settings.agent.enforced':
     'peek 会对真实 agent 跑一遍探针来检查它的沙箱：没有 shell、没有文件工具，也不带入你自己的 Claude Code 配置。',
   'settings.agent.unverified':

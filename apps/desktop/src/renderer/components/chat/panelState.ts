@@ -85,14 +85,20 @@ export function strandedOnSnapshot(
  * Deliberately **not** disabled on `error` alone: see `strandedOnSnapshot`.
  */
 export function composerDisabled(
-  view: Pick<ChatViewState, 'agentStatus' | 'pendingPermission' | 'showingSnapshot'>,
+  view: Pick<ChatViewState, 'agentStatus' | 'pendingPermission' | 'pendingQuestion' | 'showingSnapshot'>,
 ): boolean {
   if (strandedOnSnapshot(view)) return true
   if (view.pendingPermission !== undefined) return true
+  // A question locks the composer for a reason a permission prompt does not
+  // share: the agent is waiting on *this answer*, and a message typed past the
+  // prompt would be a second, unrelated turn queued behind a suspended one. The
+  // free-text box on the prompt is where words go while a question is standing.
+  if (view.pendingQuestion !== undefined) return true
   return (
     view.agentStatus === 'starting' ||
     view.agentStatus === 'authenticating' ||
     view.agentStatus === 'awaiting-permission' ||
+    view.agentStatus === 'awaiting-answer' ||
     view.agentStatus === 'loading'
   )
 }

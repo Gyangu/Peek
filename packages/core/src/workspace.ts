@@ -36,6 +36,7 @@ import type {
   ChatPermissionMode,
   ChatUsage,
   PendingPermission,
+  PendingQuestion,
 } from './chat'
 import type {
   PackageViewText,
@@ -323,6 +324,25 @@ export interface ChatViewState extends ViewBase {
   /** Permission mode in effect. peek defaults to a restrictive one, never `bypassPermissions`. */
   permissionMode: ChatPermissionMode
   /**
+   * True while `permissionMode` is still the one this conversation started with,
+   * taken from the user's settings rather than chosen here.
+   *
+   * **This is the price of letting settings hold any mode at all.** Until
+   * 2026-08-15 the two modes that stop asking could not be persisted as a
+   * default, on the grounds that a settings file is where a decision goes to be
+   * forgotten. They can now, and this flag is what replaced that refusal: a
+   * conversation running on an inherited mode says so in the panel, so "this one
+   * will not ask you" is visible before it matters rather than after.
+   *
+   * Cleared the moment the mode is set from anywhere — from then on the mode is
+   * this conversation's own, whatever it happens to equal. Comparing values
+   * instead would have called a mode the user picked by hand "inherited", which
+   * is a different sentence about where a decision came from.
+   *
+   * See `docs/design/2026-08-15-chat-panel-full-capability.md` §2.1.
+   */
+  permissionModeInherited: boolean
+  /**
    * The message currently streaming, or null between turns. Its presence is what
    * a "stop" button binds to, and what tells the AI a turn is already in flight.
    */
@@ -358,6 +378,14 @@ export interface ChatViewState extends ViewBase {
   attachments: ChatAttachment[]
   /** Set while the agent is blocked on a human decision. Small, modal, and the AI must see it. */
   pendingPermission?: PendingPermission
+  /**
+   * Set while the agent is blocked on a question it asked.
+   *
+   * Beside `pendingPermission` rather than sharing it: the two are different
+   * kinds of waiting and, decisively, have different rules about who may answer.
+   * See `PendingQuestion`.
+   */
+  pendingQuestion?: PendingQuestion
   /** Context-window usage the agent last reported. */
   usage?: ChatUsage
   /**
@@ -1029,6 +1057,8 @@ export interface ChatViewSummary {
   chatId: ChatId
   agentStatus: ChatAgentStatus
   permissionMode: ChatPermissionMode
+  /** See {@link ChatViewState.permissionModeInherited}. */
+  permissionModeInherited: boolean
   /** True while a turn is in flight; `chat.send` refuses a second one. */
   streaming: boolean
   messageCount: number
@@ -1036,6 +1066,8 @@ export interface ChatViewSummary {
   attachments: ChatAttachment[]
   /** Set while the conversation is blocked on a human decision. */
   pendingPermission?: PendingPermission
+  /** Set while the conversation is blocked on a question the agent asked. */
+  pendingQuestion?: PendingQuestion
   usage?: ChatUsage
 }
 
@@ -1150,6 +1182,10 @@ export function describeView(view: ViewState, lookup?: ViewKindLookup): string {
       // model that wrote it is both expensive and circular.
       const parts = [`Chat · ${view.messageCount} message(s) · ${view.agentStatus}`]
       if (view.pendingPermission) parts.push(`awaiting permission for ${view.pendingPermission.toolName}`)
+      // Says who it is waiting on as well as what it asked, because the reader
+      // may be a model that could answer the line above and must not answer this
+      // one — see `PendingQuestion`.
+      if (view.pendingQuestion) parts.push(`awaiting the user's answer to "${view.pendingQuestion.question}"`)
       if (view.attachments.length > 0) parts.push(`${view.attachments.length} attachment(s) staged`)
       return parts.join(' · ')
     }
@@ -1217,10 +1253,12 @@ function summarizeChat(view: ChatViewState): ChatViewSummary {
     chatId: view.chatId,
     agentStatus: view.agentStatus,
     permissionMode: view.permissionMode,
+    permissionModeInherited: view.permissionModeInherited,
     streaming: view.streamingMessageId !== null,
     messageCount: view.messageCount,
     attachments: view.attachments,
     ...(view.pendingPermission === undefined ? {} : { pendingPermission: view.pendingPermission }),
+    ...(view.pendingQuestion === undefined ? {} : { pendingQuestion: view.pendingQuestion }),
     ...(view.usage === undefined ? {} : { usage: view.usage }),
   }
 }

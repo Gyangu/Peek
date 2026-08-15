@@ -1,8 +1,8 @@
 import type { ReactElement } from 'react'
-import type { ResultId, ViewId } from '@peek/core'
+import type { ResultId, ViewId, ViewState } from '@peek/core'
 import { useT } from '../../i18n'
 import { ConsentDialog } from './ConsentDialog'
-import { rowsAttachment } from './descriptors'
+import { rowsAttachment, rowsChipLabel } from './descriptors'
 import { MAX_SELECTION_SPAN, selectedIndexes, selectionSpan, type RowSelection } from './selection'
 import { useContextActions } from './useContextActions'
 import { Button } from '../../ui/Button'
@@ -25,7 +25,12 @@ import { Button } from '../../ui/Button'
  * the two things the user can actually do about it.
  */
 export interface SelectionActionBarProps {
-  viewId: ViewId
+  /**
+   * The grid's view — the whole state, not just its id, because the chip this
+   * bar stages is named after the view (`orders · 16 rows`) and `viewTitleOf`
+   * needs the view to say what it is called.
+   */
+  view: ViewState
   resultId: ResultId | undefined
   selection: RowSelection
   onClear: () => void
@@ -34,7 +39,7 @@ export interface SelectionActionBarProps {
 }
 
 export function SelectionActionBar(props: SelectionActionBarProps): ReactElement | null {
-  const { viewId, resultId, selection, onClear, chatViewId = null } = props
+  const { view, resultId, selection, onClear, chatViewId = null } = props
   const t = useT()
   const actions = useContextActions()
 
@@ -49,7 +54,12 @@ export function SelectionActionBar(props: SelectionActionBarProps): ReactElement
   const span = selectionSpan(selection)
   const tooWide = span > MAX_SELECTION_SPAN
 
+  // Two strings, on purpose: the button is a sentence you can act on, the chip
+  // is the name of a thing. They were one string until §2.2 of
+  // design/2026-08-14-composer-inline-context.md, which is how a chip came to
+  // read "Rows · Add 16 rows to chat".
   const label = t('context.float.add', { count })
+  const chipLabel = rowsChipLabel(t, view, count)
 
   return (
     /*
@@ -83,7 +93,7 @@ export function SelectionActionBar(props: SelectionActionBarProps): ReactElement
         variant="primary"
         disabled={tooWide}
         onClick={() => {
-          void actions.add(rowsAttachment(viewId, resultId, indexes, label), chatViewId)
+          void actions.add(rowsAttachment(view.id, resultId, indexes, chipLabel), chatViewId)
         }}
       >
         {label}

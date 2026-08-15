@@ -192,6 +192,58 @@ describe('resolveAttachment · result', () => {
   })
 })
 
+describe('resolveAttachment · cells', () => {
+  const cells = (over: Partial<Extract<ChatAttachment, { kind: 'cells' }>> = {}): ChatAttachment => ({
+    id: asAttachmentId('att_x'),
+    label: 'block',
+    kind: 'cells',
+    viewId: VIEW,
+    resultId: RESULT,
+    r0: 1,
+    r1: 3,
+    columns: ['id', 'note'],
+    ...over,
+  })
+
+  it('reads the closed interval and keeps only the selected columns', async () => {
+    let asked: { offset: number; limit: number } | null = null
+    const source = stubSource({
+      rows: (offset, limit) => {
+        asked = { offset, limit }
+        return slice([[1, 'lisbon', 'a'], [2, 'porto', 'b'], [3, 'faro', 'c']])
+      },
+    })
+    const out = await resolveAttachment(cells(), { source })
+    assert.deepEqual(asked, { offset: 1, limit: 3 }, 'r0..r1 inclusive is three rows from offset 1')
+    assert.equal(out.error, undefined)
+    assert.ok(out.text.includes('note'))
+    assert.ok(!out.text.includes('city'), 'a column outside the rectangle must not be sent')
+    assert.ok(!out.text.includes('lisbon'))
+  })
+
+  it('fails loudly when the projection changed under it', async () => {
+    // The case column *names* exist to catch: indexes would have pointed at
+    // whatever now sits in that position, and said nothing.
+    const source = stubSource({ rows: () => slice([[1, 'x', 'y']]) })
+    const out = await resolveAttachment(cells({ columns: ['gone', 'missing'] }), { source })
+    assert.ok(out.error)
+    assert.match(out.text, /projection/i)
+  })
+
+  it('sends what it can and names what it could not, on a partial match', async () => {
+    const source = stubSource({ rows: () => slice([[1, 'x', 'y']]) })
+    const out = await resolveAttachment(cells({ columns: ['id', 'vanished'] }), { source })
+    assert.equal(out.error, undefined)
+    assert.match(out.text, /vanished/)
+  })
+
+  it('refuses a span wider than it will read, rather than reading it', async () => {
+    const out = await resolveAttachment(cells({ r0: 0, r1: 900_000 }), { source: stubSource() })
+    assert.ok(out.error)
+    assert.match(out.text, /900,001|Select fewer rows/)
+  })
+})
+
 describe('resolveAttachment · cell', () => {
   const attachment: ChatAttachment = {
     id: asAttachmentId('att_c'),
@@ -410,6 +462,7 @@ describe('defaultAttachmentLabel', () => {
       rowsAttachment([1, 2]),
       { id: asAttachmentId('x'), label: '', kind: 'result', viewId: VIEW, resultId: RESULT, maxRows: 1 },
       { id: asAttachmentId('x'), label: '', kind: 'cell', viewId: VIEW, resultId: RESULT, rowIndex: 1, column: 'c' },
+      { id: asAttachmentId('x'), label: '', kind: 'cells', viewId: VIEW, resultId: RESULT, r0: 0, r1: 2, columns: ['c'] },
       { id: asAttachmentId('x'), label: '', kind: 'schema', connId: CONN, ref: { kind: 'relation', schema: 's', name: 't' } },
       { id: asAttachmentId('x'), label: '', kind: 'query', viewId: VIEW },
       { id: asAttachmentId('x'), label: '', kind: 'workspace' },

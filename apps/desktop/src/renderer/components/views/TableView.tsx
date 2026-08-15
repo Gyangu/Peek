@@ -10,6 +10,7 @@ import { ViewError } from '../ViewError'
 import { AutoRefreshControl, CacheGapNotice, CancelButton } from './ResultControls'
 import { tableControls } from './browseControls'
 import { Button } from '../../ui/Button'
+import { Icon } from '../../ui/Icon'
 
 const PAGE_SIZES = [100, 200, 500, 1000, 5000]
 
@@ -122,7 +123,8 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
           onClick={refresh}
           title={controls.offsetPager ? t('table.refreshTitle') : t('table.refreshCursorTitle')}
         >
-          ⟳ {t('table.refresh')}
+          <Icon name="refresh" />
+          {t('table.refresh')}
         </Button>
         {/* A collection scan is the longest-running thing peek does — a million-row
             table walks for minutes — and this view was the one with no way to stop
@@ -146,7 +148,8 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
                 setOffset(page.offset - page.limit)
               }}
             >
-              ← {t('table.prevPage')}
+              <Icon name="page.prev" />
+              {t('table.prevPage')}
             </Button>
             <span className="font-mono tabular-nums">
               {page.offset + 1} – {page.offset + page.limit}
@@ -157,7 +160,8 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
                 setOffset(page.offset + page.limit)
               }}
             >
-              {t('table.nextPage')} →
+              {t('table.nextPage')}
+              <Icon name="page.next" />
             </Button>
           </>
         ) : (
@@ -171,7 +175,8 @@ export function TableView({ view }: { view: TableViewState }): ReactElement {
               onClick={nextCursorPage}
               title={cursorToken === undefined ? t('table.noMorePages') : t('table.cursorPagedTitle')}
             >
-              {t('table.nextPage')} →
+              {t('table.nextPage')}
+              <Icon name="page.next" />
             </Button>
           </>
         )}

@@ -1,13 +1,15 @@
 import { memo, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { ChatAttachment, ChatAttachmentReceipt, ChatMessage } from '@peek/core'
+import type { ChatAttachment, ChatAttachmentReceipt, ChatId, ChatMessage } from '@peek/core'
 import { useErrorText, useT } from '../../i18n'
 import { copyText } from '../../util/clipboard'
+import { Icon } from '../../ui/Icon'
 import { Menu } from '../../ui/Menu'
 import { useContextMenu } from '../../ui/useContextMenu'
 import { detailFor } from '../context-actions/chipDetail'
+import { openLogsForTag } from '../error-center/logTabs'
 import { attachmentKindKey, attachmentLabel } from './attachments'
-import { chipClasses } from './AttachmentBar'
+import { chipClasses } from './AttachmentStrip'
 import { Markdown } from './Markdown'
 import { ToolCallCard } from './ToolCallCard'
 
@@ -20,8 +22,18 @@ import { ToolCallCard } from './ToolCallCard'
  */
 export const MessageItem = memo(function MessageItem({
   message,
+  chatId,
 }: {
   message: ChatMessage
+  /**
+   * Which conversation this belongs to, for the context menu's one non-copy
+   * action.
+   *
+   * Passed down rather than read from a store because `MessageRow` already has
+   * it — and because it is stable for the life of the row, so `memo` is
+   * unaffected.
+   */
+  chatId: ChatId
 }): ReactElement {
   const t = useT()
   const errorText = useErrorText(message.error)
@@ -113,6 +125,25 @@ export const MessageItem = memo(function MessageItem({
                 copyText(messageText(message))
               },
             },
+            {
+              /*
+               * The route from "this answer is wrong" to what the loop actually
+               * received.
+               *
+               * Without it the tag filter is a text box asking the user to know
+               * a `chatId`, which is the same as not having shipped it. The
+               * records it opens are the agent's internals for this
+               * conversation — which events arrived, which could not be used,
+               * how the turn ended. Turn the capture level down to `debug`
+               * first if the turn to be examined has not happened yet.
+               */
+              kind: 'item',
+              id: 'message.logs',
+              label: t('app.logs.viewForTurn'),
+              onSelect: () => {
+                openLogsForTag(chatId)
+              },
+            },
           ]}
           onClose={menu.close}
         />
@@ -180,7 +211,7 @@ function ThoughtBlock({ text }: { text: string }): ReactElement {
         aria-expanded={open}
         title={open ? t('chat.thought.hide') : t('chat.thought.show')}
       >
-        <span aria-hidden="true">{open ? '▾' : '▸'}</span> {t('chat.thought')}
+        <Icon name={open ? 'disclosure.open' : 'disclosure.closed'} size="sm" /> {t('chat.thought')}
       </button>
       {open ? (
         <div className="mt-inset ml-snug px-snug py-tight border-l-2 border-l-border-strong text-fg-dim italic whitespace-pre-wrap break-words">

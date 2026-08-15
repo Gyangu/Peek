@@ -21,7 +21,8 @@ import {
   type ChatSessionInfo,
 } from './chat'
 import { MAX_PAGE_LIMIT } from './chunk'
-import { peekErrorMsg, zodIssueLines, type PeekError } from './errors'
+import { peekErrorMsg, zodIssueLines, type PeekError, type PeekErrorCode } from './errors'
+import type { LogLevel, LogRecord } from './logger'
 import {
   AttachmentIdSchema,
   ConnIdSchema,
@@ -71,7 +72,11 @@ export const COMMAND_NAMES = [
   'chat.setMode',
   'chat.sessions.list',
   'chat.sessions.delete',
+  'chat.ask',
+  'chat.answer',
   'state.read',
+  'log.read',
+  'log.readCommands',
   'conn.book.list',
   'conn.book.forget',
   'mcp.read',
@@ -82,6 +87,7 @@ export const COMMAND_NAMES = [
   'packages.install',
   'packages.uninstall',
   'packages.restore',
+  'app.notify',
 ] as const
 
 export type CommandName = (typeof COMMAND_NAMES)[number]
@@ -267,6 +273,18 @@ export const ChatAttachmentSpecSchema = z.discriminatedUnion('kind', [
     label: z.string().min(1).max(120).optional(),
   }),
   z.object({
+    kind: z.literal('cells'),
+    viewId: ViewIdSchema,
+    resultId: ResultIdSchema,
+    r0: z.number().int().nonnegative(),
+    r1: z.number().int().nonnegative(),
+    columns: z.array(z.string().min(1)).min(1),
+    label: z.string().min(1).max(120).optional(),
+  }).refine((v) => v.r1 >= v.r0, { message: 'r1 must not be less than r0' })
+    .refine((v) => v.r1 - v.r0 + 1 <= MAX_CHAT_ATTACHMENT_ROWS, {
+      message: `A cell rectangle may span at most ${MAX_CHAT_ATTACHMENT_ROWS} rows`,
+    }),
+  z.object({
     kind: z.literal('schema'),
     connId: ConnIdSchema,
     ref: CollectionRefSchema,
@@ -350,7 +368,17 @@ export const ChatViewSpecSchema = z.object({
  */
 export const PackageViewSpecSchema = z.object({
   kind: z.literal('package'),
-  /** Which package view to open — must match a registered kind, or main answers BAD_REQUEST. */
+  /**
+   * Which package view to open.
+   *
+   * A kind nobody registers is **not** refused — this said it was, and main has
+   * never checked. Keeping the tolerant behaviour is deliberate: the view opens,
+   * stays idle because no package can be asked what it should fetch, and the
+   * window draws `view.packageMissing` over it. That is what a package which was
+   * installed yesterday and uninstalled today has to look like, and it is what
+   * lets a persisted workspace containing one still be restored as a whole
+   * (`bus/handlers/shared.ts`'s note on `autoFetch` returning undefined).
+   */
   packageKind: z.string().min(1),
   connId: ConnIdSchema,
   state: z.record(z.string(), z.unknown()).optional(),
@@ -1101,6 +1129,87 @@ export const ChatRespondPermissionInputSchema = z.object({
   optionId: z.string().min(1),
 })
 
+/* ------------------------------------------------------------------ */
+/* The agent asking a question, and the person answering it            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Ask the user a question and **wait** for the answer.
+ *
+ * The only command in this table that blocks on a person. That is safe here and
+ * would not be for `chat.send`, and the difference is who is waiting: this one
+ * suspends **the agent's own tool call**, while a blocking `chat.send` would
+ * suspend a peek command for an entire turn — during which the agent calls back
+ * into this same bus. The bus does not serialise across commands, so a suspended
+ * `chat.ask` holds nothing up: the user can still run queries, drag panes and
+ * open other conversations while it hangs.
+ *
+ * See `docs/design/2026-08-15-agent-asks-a-question.md` §2.3.
+ */
+export const ChatAskInputSchema = z.object({
+  /**
+   * Where to ask. **Required here**, though the `ask` tool lets a caller omit
+   * it: opening a conversation mints an id, and a command cannot both mint and
+   * use one in the same call. The tool opens first and passes the id along,
+   * exactly as `send_chat` already does.
+   */
+  viewId: ViewIdSchema,
+  /** One line. It is the largest text on the panel and the first thing read. */
+  question: z.string().min(1).max(300),
+  /** A short category chip, e.g. "Aggregation". Optional. */
+  header: z.string().min(1).max(24).optional(),
+  /**
+   * Two to four answers.
+   *
+   * The floor is two because a one-option question is not a question. The
+   * ceiling is four because past that a person stops choosing and starts
+   * scanning — and because a decision needing five distinct answers usually
+   * wants to be asked as two questions in sequence, each of which this tool can
+   * ask once the first is answered.
+   *
+   * A free-text escape hatch is **not** declared here; the UI always adds one.
+   * See `OTHER_OPTION_ID`.
+   */
+  options: z
+    .array(
+      z.object({
+        optionId: z.string().min(1).max(64),
+        label: z.string().min(1).max(120),
+        description: z.string().max(400).optional(),
+      }),
+    )
+    .min(2)
+    .max(4),
+  /** Let the user pick more than one. Default single-select. */
+  multiSelect: z.boolean().optional(),
+})
+
+/**
+ * Answer the question the agent is blocked on.
+ *
+ * **Refused for `source: 'agent'`**, unconditionally — the third place on this
+ * bus where `source` decides an outcome, and the one with the shortest argument:
+ * an agent answering its own question manufactures a decision that reads as a
+ * person's and never was. `chat.respondPermission` is refused on related but
+ * weaker grounds; see `2026-08-02-agent-source-and-permission-scope.md` §2.3bis.
+ */
+export const ChatAnswerInputSchema = z
+  .object({
+    viewId: ViewIdSchema,
+    /** Same stale-answer guard as `chat.respondPermission`, and for the same race. */
+    requestId: z.string().min(1).optional(),
+    /**
+     * Which options were chosen. Empty is allowed **only** alongside `other`:
+     * that is the user saying none of them fit.
+     */
+    optionIds: z.array(z.string().min(1)).default([]),
+    /** What the user typed into "Other". */
+    other: z.string().min(1).max(2000).optional(),
+  })
+  .refine((value) => value.optionIds.length > 0 || value.other !== undefined, {
+    message: 'chat.answer needs at least one option or an "other" text',
+  })
+
 /**
  * Change how tool calls are gated.
  *
@@ -1144,6 +1253,60 @@ export const StateReadInputSchema = z.object({
   include: z.array(z.enum(['layout', 'views', 'connections', 'results'])).optional(),
   /** Pass a view id when only that view matters; `views` in the response then holds just this one */
   viewId: ViewIdSchema.optional(),
+})
+
+/* ------------------------------------------------------------------ */
+/* Reading the logs                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The diagnostic log, most recent entries last.
+ *
+ * ## Why this is a Command and not an IPC channel
+ *
+ * PLAN §10 turned down "send main's command log to the renderer" on the grounds
+ * that it costs an IPC channel plus a `PeekBridge` member. That price is real,
+ * and it is not paid here: `log.read` travels the Command Bus like everything
+ * else, so the window reads it through the `invoke` it already has and preload
+ * does not change by one line.
+ *
+ * ## Why adding to a table PLAN §6 calls closed is not a contradiction
+ *
+ * That sentence is about **packages** — "包不能往里加动词" — and its reasoning is
+ * that every name in the table is kernel-general. These two are as well; they
+ * sit beside `state.read`, `settings.read` and `mcp.read`, which are the same
+ * kind of thing: a read-only question about the app itself.
+ *
+ * ## The consequence worth knowing
+ *
+ * Being a Command means an MCP client can call it. That is deliberate — an agent
+ * that can read what it just did, and what the human just did, is the point of
+ * both surfaces sharing one bus — and it is also why `CommandLog` skips `log.*`
+ * when recording: a panel polling this every two seconds would otherwise fill
+ * the audit with its own reads.
+ */
+export const LogReadInputSchema = z.object({
+  /** How many records, counting back from the newest. */
+  limit: z.number().int().min(1).max(2000).optional(),
+  /** Drop anything less severe than this. */
+  minLevel: z.enum(['debug', 'info', 'warn', 'error']).optional(),
+  /** Only this subsystem. */
+  ns: z.string().min(1).optional(),
+  /** Only records carrying this correlation key — a `chatId`, a `connId`, a `resultId`. */
+  tag: z.string().min(1).optional(),
+})
+
+/**
+ * The command audit, most recent entries last.
+ *
+ * `source` is the filter that makes this worth a tab of its own: the Command Bus
+ * has recorded who asked for every command since M2 (`ui` / `mcp` / `agent` /
+ * `system`), and until this existed the only place that distinction surfaced was
+ * a label on failures in the error centre.
+ */
+export const LogReadCommandsInputSchema = z.object({
+  limit: z.number().int().min(1).max(500).optional(),
+  source: z.enum(['ui', 'mcp', 'agent', 'system']).optional(),
 })
 
 /* ------------------------------------------------------------------ */
@@ -1229,6 +1392,50 @@ export const UI_ZOOM_STEPS = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const
 
 const UiZoomSchema = z.number().min(UI_ZOOM_MIN).max(UI_ZOOM_MAX)
 
+/**
+ * Which way round the window is painted.
+ *
+ * `system` is a *third* value rather than the absence of a choice, because the
+ * absence already means something here: absent is `dark`, on the same principle
+ * as every other member of the settings file — a user who never chose keeps
+ * following the default. peek's default is dark because that is what it has
+ * always been, and an upgrade is not the moment to hand somebody a white window
+ * they did not ask for. See `design/2026-08-15-light-and-dark-theme.md` §3.4.
+ */
+export const UI_THEMES = ['dark', 'light', 'system'] as const
+export type UiTheme = (typeof UI_THEMES)[number]
+
+export const UI_THEME_DEFAULT: UiTheme = 'dark'
+
+const UiThemeSchema = z.enum(UI_THEMES)
+
+/**
+ * What `system` resolved to — the answer everything downstream actually paints
+ * with, and the reason `theme` alone is never enough on the wire.
+ *
+ * Resolved in main, once, and sent down rather than recomputed per consumer:
+ * the window, the traffic lights and every package iframe have to agree, and
+ * `prefers-color-scheme` is unreachable from main while `nativeTheme` is
+ * unreachable from a frame. One answer, three consumers. §3.1.
+ */
+export type ResolvedTheme = 'dark' | 'light'
+
+/**
+ * The user's keyboard overrides: shortcut id → chord, or `null` to turn it off.
+ *
+ * Deliberately opaque here. The chord syntax and the set of shortcut ids belong
+ * to the window (`renderer/keys/`), which is where every one of these chords is
+ * resolved; main only persists the record and hands it back. Validating the
+ * strings in core would put a second, necessarily lagging copy of the keyboard
+ * model in the process that does not use it — and the window already has to
+ * validate them anyway, because the file is hand-editable.
+ *
+ * The whole record is sent on every write, not a patch: it is small, and it is
+ * the only shape in which "reset this one to its default" (the key disappears)
+ * is expressible at all.
+ */
+const KeybindingsSchema = z.record(z.string(), z.string().nullable())
+
 /* ================================================================== */
 /* The chat panel's agent                                              */
 /* ================================================================== */
@@ -1261,22 +1468,31 @@ export type AgentEndpointApi = (typeof AGENT_ENDPOINT_APIS)[number]
 const AgentBackendSchema = z.enum(AGENT_BACKENDS)
 
 /**
- * The permission modes a user may set as their **default**.
+ * The permission modes a user may set as their **default**: all of them.
  *
- * A subset of `CHAT_PERMISSION_MODES` on purpose. `dontAsk` and
- * `bypassPermissions` are still reachable from the panel's own dropdown, where
- * they are a deliberate act on one conversation the user is looking at. As a
- * persisted default they are something else: a setting made once and forgotten,
- * that silently applies to every future conversation. The panel is where you say
- * "for this, I know what I am doing"; settings.json is not.
+ * This was a strict subset until 2026-08-15, excluding `dontAsk` and
+ * `bypassPermissions` on the grounds that the panel is where you say "for this,
+ * I know what I am doing" and a settings file is not — a default is set once and
+ * then forgotten, and applies to every conversation after it.
  *
- * `auto` is included. It hands approval to the agent's own classifier rather than
- * to a person, which peek does not choose *for* anyone — but a user who has
- * decided that for their own read-only database viewer is making an informed
- * choice, and it is one they currently have to re-make on every new conversation.
+ * The reasoning was sound and the conclusion was still wrong, because it read
+ * "set once and forgotten" as the failure mode when for this user it is the
+ * *feature*. Re-picking a mode on every new conversation was the single most
+ * repeated manual step in the panel; refusing to persist the choice did not
+ * prevent anyone from making it, it only made them make it again tomorrow.
+ *
+ * What replaced the exclusion is visibility, which is the same trade
+ * `2026-08-14-agent-write-switch.md` §2.6 made for the write switch: **the
+ * panel's dropdown marks a mode it inherited from settings**, so a conversation
+ * that will not ask says so before it does anything. Forgetting is answered by
+ * keeping the thing in sight, not by refusing to store it.
+ *
+ * That marker is not optional decoration — it is the half of this change that
+ * makes the other half safe. See
+ * `docs/design/2026-08-15-chat-panel-full-capability.md` §2.1.
  */
-export const AGENT_DEFAULT_PERMISSION_MODES = ['auto', 'default', 'acceptEdits', 'plan'] as const
-export type AgentDefaultPermissionMode = (typeof AGENT_DEFAULT_PERMISSION_MODES)[number]
+export const AGENT_DEFAULT_PERMISSION_MODES = CHAT_PERMISSION_MODES
+export type AgentDefaultPermissionMode = ChatPermissionMode
 
 /**
  * The endpoint backend's configuration, minus the API key.
@@ -1297,6 +1513,78 @@ export const AgentEndpointSettingsSchema = z.object({
 
 export type AgentEndpointSettings = z.infer<typeof AgentEndpointSettingsSchema>
 
+/**
+ * Transports peek will describe an MCP server over.
+ *
+ * `sse` is deliberately absent even though ACP has it: support differs between
+ * the two agents peek ships, and a transport that works with one of them is a
+ * setting that fails depending on a choice made on another screen. See
+ * `docs/design/2026-08-15-chat-panel-full-capability.md` §4.3.
+ */
+export const AGENT_MCP_TRANSPORTS = ['http', 'stdio'] as const
+export type AgentMcpTransport = (typeof AGENT_MCP_TRANSPORTS)[number]
+
+/**
+ * One MCP server the user added to the chat panel.
+ *
+ * ## Why the name is this strict
+ *
+ * It becomes a tool prefix: every tool the server offers arrives at the agent as
+ * `mcp__<name>__<tool>`. A space or a double underscore in there does not produce
+ * a badly-named tool, it produces a name the agent cannot address — and the
+ * failure surfaces as "the model ignored your server", which is nobody's idea of
+ * a validation error.
+ *
+ * ## Why the credential is one header and not a list
+ *
+ * A general `headers` array was the first design and bought very little: every
+ * value in it is a secret, so each one needs sealing, a "stored" indicator and a
+ * never-echo rule of its own, and the form grows a nested editor to hold them.
+ * Practically every HTTP MCP server authenticates with a single header —
+ * `Authorization: Bearer …`, or an `X-API-Key` — so peek takes the header's name
+ * and one sealed value, and the user writes the scheme into the value themselves.
+ */
+export const AgentMcpServerSchema = z.object({
+  /** Tool prefix and display name. Lowercase, and unique across the list. */
+  name: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9_-]+$/),
+  transport: z.enum(AGENT_MCP_TRANSPORTS),
+  /** `http`: the server's URL. `stdio`: an absolute path to its executable. */
+  target: z.string().min(1).max(4096),
+  /** `stdio` only. */
+  args: z.array(z.string().max(4096)).max(64).optional(),
+  /** `http` only. Defaults to `Authorization` when a value is stored. */
+  authHeader: z.string().max(128).optional(),
+  /**
+   * `http` only. Sealed by the OS keychain on arrival and never read back — the
+   * same treatment `endpointApiKey` gets, for the same reason. An empty string
+   * clears it.
+   */
+  authValue: z.string().max(4096).optional(),
+  /**
+   * Off keeps the row and stops sending it. Deleting a server the user is only
+   * debugging would make them retype a URL to test a hunch.
+   */
+  enabled: z.boolean(),
+})
+
+export type AgentMcpServerInput = z.infer<typeof AgentMcpServerSchema>
+
+/** One row of the MCP list, as the settings form needs to describe it. */
+export interface AgentMcpServerInfo {
+  name: string
+  transport: AgentMcpTransport
+  target: string
+  args?: string[]
+  authHeader?: string
+  /** Whether a credential is stored. The value itself never crosses back. */
+  authValueSet: boolean
+  enabled: boolean
+}
+
 export const AgentSettingsSchema = z.object({
   backend: AgentBackendSchema.optional(),
   /** The mode every new conversation starts in. See `AGENT_DEFAULT_PERMISSION_MODES`. */
@@ -1305,6 +1593,18 @@ export const AgentSettingsSchema = z.object({
   acpProfile: z.string().min(1).max(64).optional(),
   /** Overrides the selected ACP agent's own executable. */
   acpExecutablePath: z.string().max(4096).optional(),
+  /** Let the ACP agent use its own file and command tools. See the design doc §2.5. */
+  acpFullTools: z.boolean().optional(),
+  /** Where a new conversation works. An empty string restores peek's own directory. */
+  agentWorkdir: z.string().max(4096).optional(),
+  /**
+   * The user's own MCP servers, sent whole rather than as a patch.
+   *
+   * Same reasoning as `keybindings`: removing a row has to be expressible, and a
+   * member-wise merge can only ever add. The form always holds the full list, so
+   * the file cannot lose a row the sender still had.
+   */
+  mcpServers: z.array(AgentMcpServerSchema).max(32).optional(),
   endpoint: AgentEndpointSettingsSchema.optional(),
   /**
    * Written to the OS keychain, never to `settings.json`, and never read back.
@@ -1337,6 +1637,66 @@ export function stepUiZoom(from: number, direction: 1 | -1): number {
   return UI_ZOOM_STEPS[next] ?? UI_ZOOM_STEPS[index]
 }
 
+/* ------------------------------------------------------------------ */
+/* Notifications                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Whether peek may speak outside its own window, and whether it does so on its
+ * own initiative.
+ *
+ * Two switches rather than one, because they answer different questions. `system`
+ * is about the channel — "may peek put things in my notification centre at all" —
+ * and covers the `notify` tool as much as anything peek decides itself.
+ * `agentTurnEnd` is about the initiative: peek raising a notification nobody
+ * asked for, when a turn ends or stalls on a permission prompt.
+ *
+ * A user who wants to be told only what an agent chose to tell them turns the
+ * second off and keeps the first. There is no combination that silences the tool
+ * while keeping the automatic ones, because a user who does not want to be
+ * interrupted does not want it from the tool either.
+ *
+ * See `docs/design/2026-08-15-notifications.md` §2.5.
+ */
+export const NotificationSettingsSchema = z.object({
+  system: z.boolean().optional(),
+  agentTurnEnd: z.boolean().optional(),
+})
+
+export interface NotificationSettings {
+  /** May peek raise system notifications at all. */
+  system: boolean
+  /** Announce a finished turn, or one blocked on a permission prompt, unasked. */
+  agentTurnEnd: boolean
+}
+
+/**
+ * Both on.
+ *
+ * Materialized here rather than left absent-means-default in the reader, because
+ * unlike `mcpPort` these are booleans: "absent" and "false" are one keystroke
+ * apart in a hand-edited file, and a default that is computed in three places is
+ * a default that will disagree with itself.
+ */
+export const NOTIFICATION_DEFAULTS: NotificationSettings = Object.freeze({
+  system: true,
+  agentTurnEnd: true,
+})
+
+/**
+ * What the user has stored, over the defaults.
+ *
+ * One function so that "unset means on" is stated once. Both readers need it —
+ * the settings handler answering the form, and the notifier deciding whether to
+ * raise a banner — and two spellings of a default is how the dialog ends up
+ * disagreeing with what the app actually does.
+ */
+export function resolveNotifications(
+  stored: Partial<NotificationSettings> | undefined,
+): NotificationSettings {
+  return { ...NOTIFICATION_DEFAULTS, ...stored }
+}
+
 /**
  * Change the settings that live in `~/.peek/settings.json`.
  *
@@ -1363,13 +1723,32 @@ export const SettingsWriteInputSchema = z
       .optional(),
     /** Whole-window zoom factor. See `UI_ZOOM_MIN`. */
     uiZoom: UiZoomSchema.optional(),
+    /** Dark, light, or follow the OS. See `UI_THEMES`. */
+    theme: UiThemeSchema.optional(),
     /** Which agent answers in the chat panel, and how to reach it. */
     agent: AgentSettingsSchema.optional(),
+    /** The user's keyboard overrides, whole. An empty record means "all defaults". */
+    keybindings: KeybindingsSchema.optional(),
+    /**
+     * How much is written to `peek.log`.
+     *
+     * Here rather than in a settings dialog because of *when* it is changed: the
+     * log panel's picker sends this mid-session, after the thing worth debugging
+     * has already happened once. It takes effect immediately and is persisted,
+     * so the next launch starts where the user left it.
+     */
+    logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional(),
+    /** Whether peek may notify outside its window, and whether it does so unasked. */
+    notifications: NotificationSettingsSchema.optional(),
   })
   .refine(
     (value) =>
       value.uiZoom !== undefined ||
+      value.theme !== undefined ||
+      value.keybindings !== undefined ||
+      value.logLevel !== undefined ||
       (value.agent !== undefined && Object.keys(value.agent).length > 0) ||
+      (value.notifications !== undefined && Object.keys(value.notifications).length > 0) ||
       (value.execution !== undefined && Object.keys(value.execution).length > 0),
     { message: 'settings.write needs at least one setting to change' },
   )
@@ -1471,6 +1850,61 @@ export const PackagesUninstallInputSchema = z.object({
  */
 export const PackagesRestoreInputSchema = z.object({})
 
+/* ------------------------------------------------------------------ */
+/* The application talking to the person                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Tell the user something, in a way that reaches them when peek is not the
+ * window they are looking at.
+ *
+ * ## Why this is a command at all
+ *
+ * Every other verb in this table changes something peek owns — a connection, a
+ * view, the layout, a conversation, a preference. This one changes **the user's
+ * attention**, which peek does not own and cannot roll back. That asymmetry is
+ * the argument for putting it here rather than handing the notifier straight to
+ * whoever wants it: an action with no undo should at least leave a record, and
+ * `bus/command-log.ts` is the record every command already gets for free.
+ *
+ * It writes nothing into the Workspace, so it bumps no `rev` and broadcasts no
+ * patch. That is not novel — `state.read`, `conn.book.list` and `settings.read`
+ * are all in this table without touching Workspace state. The bus carries
+ * intent, not only mutation.
+ *
+ * See `docs/design/2026-08-15-notifications.md`.
+ */
+export const AppNotifyInputSchema = z.object({
+  /**
+   * One line. It becomes the notification's title, so it has to survive being
+   * read alone in a banner with everything else cut off.
+   */
+  message: z.string().min(1).max(200),
+  /** The body. Optional because a good `message` often needs no second line. */
+  detail: z.string().max(2000).optional(),
+  /** Defaults to `info`; `warn` and `error` also colour the in-app toast. */
+  level: z.enum(['info', 'warn', 'error']).optional(),
+  /**
+   * A view to bring forward when the user clicks the notification. Left out, the
+   * click just brings peek back to the front — which is the honest default,
+   * because most notifications are about something that is already on screen.
+   */
+  focusViewId: ViewIdSchema.optional(),
+})
+
+/**
+ * Compile-time tie between this schema's `level` and the notification level the
+ * rest of peek speaks. A type-only import, so the module cycle
+ * (`ipc.ts` imports this file) is erased before it can exist at runtime.
+ */
+type _AssertNotifyLevel = z.infer<typeof AppNotifyInputSchema>['level'] extends
+  | import('./ipc').NotifyLevel
+  | undefined
+  ? true
+  : never
+const _assertNotifyLevel: _AssertNotifyLevel = true
+void _assertNotifyLevel
+
 /* ================================================================== */
 /* 3. Registry: command name → input schema                            */
 /* ================================================================== */
@@ -1506,7 +1940,11 @@ export const commandSchemas = {
   'chat.setMode': ChatSetModeInputSchema,
   'chat.sessions.list': ChatSessionsListInputSchema,
   'chat.sessions.delete': ChatSessionsDeleteInputSchema,
+  'chat.ask': ChatAskInputSchema,
+  'chat.answer': ChatAnswerInputSchema,
   'state.read': StateReadInputSchema,
+  'log.read': LogReadInputSchema,
+  'log.readCommands': LogReadCommandsInputSchema,
   'conn.book.list': ConnBookListInputSchema,
   'conn.book.forget': ConnBookForgetInputSchema,
   'mcp.read': McpReadInputSchema,
@@ -1517,6 +1955,7 @@ export const commandSchemas = {
   'packages.install': PackagesInstallInputSchema,
   'packages.uninstall': PackagesUninstallInputSchema,
   'packages.restore': PackagesRestoreInputSchema,
+  'app.notify': AppNotifyInputSchema,
 } as const satisfies Record<CommandName, z.ZodType>
 
 export type CommandSchemas = typeof commandSchemas
@@ -1755,6 +2194,32 @@ export interface ChatSetModeResult extends ChatResultBase {
 }
 
 /**
+ * What the user said — or that they said nothing.
+ *
+ * `answered: false` is a first-class outcome, not an error, on the same grounds
+ * `app.notify` reports rather than throws: an errored tool call invites a retry,
+ * and re-asking a question nobody was there to answer is precisely the wrong
+ * response. The agent is meant to read this and *decide* — carry on with a
+ * stated assumption, or stop and say what it needs.
+ */
+export interface ChatAskResult extends ChatResultBase {
+  requestId: string
+  answered: boolean
+  /** The options chosen, echoed with their labels so the agent need not re-map ids. */
+  selected: { optionId: string; label: string }[]
+  /** What the user typed instead of, or alongside, choosing. */
+  other?: string
+  /** Why there is no answer. Absent when `answered` is true. */
+  reason?: 'timeout' | 'cancelled'
+}
+
+export interface ChatAnswerResult extends ChatResultBase {
+  requestId: string
+  /** False when the question had already gone away — a click on a stale prompt. */
+  answered: boolean
+}
+
+/**
  * The agent's conversation catalogue.
  *
  * `supported: false` is a first-class answer, not an error. An ACP agent is not
@@ -1788,6 +2253,59 @@ export interface ChatSessionsDeleteResult {
 
 export interface StateReadResult {
   snapshot: WorkspaceSnapshot
+}
+
+/**
+ * One entry of the Command log.
+ *
+ * Lives in core rather than beside `CommandLog` in main because it now crosses a
+ * process boundary: `log.readCommands` hands these to the window, and the panel
+ * renders them. Everything in it was already core vocabulary
+ * (`CommandName` / `CommandSource` / `PeekErrorCode`), so this is the shape
+ * arriving where its members already were.
+ */
+export interface CommandLogEntry {
+  /** Per-process counter, starting at 1. */
+  seq: number
+  commandId: string
+  ts: number
+  source: CommandSource
+  name: CommandName
+  /** Redacted input — a `conn.open` password never reaches this log or the disk. */
+  input: unknown
+  ok: boolean
+  /** The rev after the change landed. */
+  rev: number
+  elapsedMs: number
+  errorCode?: PeekErrorCode
+  errorMessage?: string
+}
+
+export interface LogReadResult {
+  records: LogRecord[]
+  /**
+   * The level records are currently being captured at.
+   *
+   * Returned with every read so the panel's level picker cannot show something
+   * different from what main is doing — the alternative is a second round trip
+   * whose answer can already be stale when it arrives.
+   */
+  level: LogLevel
+  /** Absolute path of `peek.log`, so the panel can tell the user where to find it. */
+  path: string
+  /**
+   * `true` when the ring has dropped records this session.
+   *
+   * Worth saying out loud in the UI: a panel that silently shows the last 2000
+   * of 50000 records looks exactly like one showing all 2000 there ever were.
+   */
+  truncated: boolean
+}
+
+export interface LogReadCommandsResult {
+  entries: CommandLogEntry[]
+  /** Absolute path of `commands.jsonl`. */
+  path: string
 }
 
 /* ------------------------------------------------------------------ */
@@ -1954,8 +2472,26 @@ export interface SettingsReadResult {
   version: string
   /** Whole-window zoom factor; `UI_ZOOM_DEFAULT` when the user has never set one. */
   uiZoom: number
+  /** What the user chose; `UI_THEME_DEFAULT` when they never did. */
+  theme: UiTheme
+  /**
+   * What that choice currently means. Equal to `theme` unless it is `system`,
+   * in which case this is what the OS says right now — so a reader that only
+   * wants to paint never has to know `system` exists.
+   */
+  resolvedTheme: ResolvedTheme
   /** Which agent the chat panel uses, and what it can be switched to. */
   agent: AgentSettingsReadResult
+  /**
+   * Only the shortcuts the user changed. Absent entirely when they changed
+   * none, which is the state the window starts in and the one it returns to
+   * when everything is reset.
+   */
+  keybindings?: Record<string, string | null>
+  /** What is being captured into `peek.log` right now. */
+  logLevel: LogLevel
+  /** Both switches, resolved — never absent, so no reader has to know the defaults. */
+  notifications: NotificationSettings
 }
 
 /** One ACP agent this build can run, as the settings form needs to describe it. */
@@ -1963,11 +2499,30 @@ export interface AgentProfileInfo {
   id: string
   displayName: string
   /**
-   * Whether peek has actually verified this agent's sandbox holds, or only asked
-   * for it. `unverified` is shown on screen and blocks the automatic permission
-   * mode — an agent peek cannot vouch for must not also be unwatched.
+   * Whether peek has actually verified this agent's sandbox holds, only asked
+   * for it, or is not asking at all.
+   *
+   * `unverified` is shown on screen and blocks the automatic permission mode —
+   * an agent peek cannot vouch for must not also be unwatched. `relaxed` means
+   * the user turned the restrictions off; it is shown and blocks nothing, since
+   * the person it would be protecting is the one who decided.
+   *
+   * **Resolved against the current settings, not a property of the agent.** The
+   * same agent reports a different tier once the switch is on, which is the
+   * whole point of sending it.
    */
-  sandbox: 'enforced' | 'unverified'
+  sandbox: 'enforced' | 'unverified' | 'relaxed'
+  /**
+   * The tier this agent has when nothing is switched off — i.e. whether peek
+   * ever had a probe for it.
+   *
+   * Sent because `relaxed` swallows that fact and the two are not the same
+   * sentence. "You turned the sandbox off" and "peek never verified this agent's
+   * sandbox in the first place" are both true of a Codex session with the switch
+   * on, and a panel that could only say the first would be quietly dropping the
+   * one peek was already admitting to.
+   */
+  baseSandbox: 'enforced' | 'unverified'
   /** False when the agent's package is not installed in this build. */
   available: boolean
 }
@@ -1980,6 +2535,20 @@ export interface AgentSettingsReadResult {
   /** Every agent this build knows about, for the picker. */
   profiles: AgentProfileInfo[]
   acpExecutablePath?: string
+  /** Whether the ACP agent may use its own file and command tools. */
+  acpFullTools: boolean
+  /**
+   * Where a new conversation works, when the user chose a directory.
+   *
+   * Absent means peek's own chat directory, and the form says which one that is
+   * rather than showing an empty field — "nothing here" and "somewhere you
+   * cannot see from this screen" look identical otherwise.
+   */
+  agentWorkdir?: string
+  /** peek's own chat directory, so the form can name the default it falls back to. */
+  agentWorkdirDefault: string
+  /** The user's own MCP servers, credentials replaced by whether one is stored. */
+  mcpServers: AgentMcpServerInfo[]
   endpoint?: AgentEndpointSettings
   /**
    * Whether an API key is in the keychain. The key itself never comes back —
@@ -1997,12 +2566,21 @@ export interface SettingsWriteResult {
   execution: ExecutionBudgets
   /** Likewise: the zoom after clamping, which is what the window is drawing at. */
   uiZoom: number
+  /** The choice as it now stands, and what it currently resolves to. */
+  theme: UiTheme
+  resolvedTheme: ResolvedTheme
   /**
    * The agent settings as they now stand, on the same principle: an unknown
    * profile id is replaced by the default rather than rejected, so this is the
    * only honest answer to "which agent will the next conversation use".
    */
   agent: AgentSettingsReadResult
+  /** The overrides as they now stand in the file. */
+  keybindings?: Record<string, string | null>
+  /** The level now in force — which, unlike the others here, took effect without a restart. */
+  logLevel: LogLevel
+  /** Both switches as they now stand; live from the next notice, nothing to restart. */
+  notifications: NotificationSettings
 }
 
 /**
@@ -2107,6 +2685,27 @@ export interface PackagesRestoreResult {
   packages: PackageListing[]
 }
 
+/**
+ * Where the message actually went.
+ *
+ * Both members are reported rather than assumed, because both are decided after
+ * the caller has spoken: `system` turns on whether the window was in the
+ * background *at that moment* and whether the user allows system notifications,
+ * `toast` on whether the caller asked to be silent while peek is in front.
+ *
+ * A caller that gets `{ system: false, toast: true }` has not failed — it has
+ * been told the user is looking at peek right now. That distinction is why this
+ * command reports instead of erroring when notifications are switched off: a
+ * tool call that fails invites a model to retry, and retrying is the one thing
+ * an unwanted notification must not do.
+ */
+export interface AppNotifyResult {
+  /** A system notification was raised (the user was elsewhere, and allows them). */
+  system: boolean
+  /** An in-app toast was pushed. */
+  toast: boolean
+}
+
 export interface CommandResultMap {
   'conn.open': ConnOpenResult
   'conn.close': ConnCloseResult
@@ -2133,7 +2732,11 @@ export interface CommandResultMap {
   'chat.setMode': ChatSetModeResult
   'chat.sessions.list': ChatSessionsListResult
   'chat.sessions.delete': ChatSessionsDeleteResult
+  'chat.ask': ChatAskResult
+  'chat.answer': ChatAnswerResult
   'state.read': StateReadResult
+  'log.read': LogReadResult
+  'log.readCommands': LogReadCommandsResult
   'conn.book.list': ConnBookListResult
   'conn.book.forget': ConnBookForgetResult
   'mcp.read': McpReadResult
@@ -2144,6 +2747,7 @@ export interface CommandResultMap {
   'packages.install': PackagesInstallResult
   'packages.uninstall': PackagesUninstallResult
   'packages.restore': PackagesRestoreResult
+  'app.notify': AppNotifyResult
 }
 
 /** Compile-time assertion: every command needs a result type — miss one and this line goes red */

@@ -6,6 +6,7 @@ import { useT } from '../../i18n'
 import { MessageItem } from './MessageItem'
 import { subscribeChat, useChatMessage, useChatMessageIds } from './transcriptStore'
 import { Button } from '../../ui/Button'
+import { Icon } from '../../ui/Icon'
 
 /* ==================================================================
  * The transcript list.
@@ -157,7 +158,8 @@ export function MessageList({ chatId }: { chatId: ChatId }): ReactElement {
             scrollToBottom()
           }}
         >
-          ↓ {t('chat.jumpToLatest')}
+          <Icon name="arrow.down" />
+          {t('chat.jumpToLatest')}
         </Button>
       ) : null}
     </div>
@@ -179,5 +181,5 @@ const MessageRow = memo(function MessageRow({
 }): ReactElement | null {
   const message = useChatMessage(chatId, messageId)
   if (!message) return null
-  return <MessageItem message={message} />
+  return <MessageItem message={message} chatId={chatId} />
 })

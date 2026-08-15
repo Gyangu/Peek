@@ -127,4 +127,12 @@ export const errors: CatalogFor<ErrorMessageCatalog> = {
   'error.chat.permissionNotAnswerableByAgent':
     '权限提示只能由键盘前的本人、或从外部驱动 peek 的 operator 来回答，peek 自己的聊天面板无权代答',
   'error.chat.agentUnavailable': '聊天助手当前不可用',
+
+  /* ---- agent 提问（ask 工具） ---- */
+  'error.chat.noPendingQuestion': '这个对话现在没有在等你回答',
+  'error.chat.askDuplicateOption': '有两个选项用了同一个 optionId，每个都得不一样',
+  'error.chat.questionStale': '问题 {requestId} 已经不是当前在问的那个了（现在是 {actual}），请重新读一次对话',
+  'error.chat.answerRejected': '这不是这个问题的有效答案；可选是 {options}，而单选题只能选一个',
+  'error.chat.answerNotAnswerableByAgent':
+    'agent 提的问题只能由键盘前的本人、或从外部驱动 peek 的 operator 来回答，agent 永远无权代答',
 }

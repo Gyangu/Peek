@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { asConnId, asResultId, asViewId, type ViewState } from '@peek/core'
+import { MAX_CHAT_ATTACHMENT_ROWS, asConnId, asResultId, asViewId, type ViewState } from '@peek/core'
 import { boundT, translate, type TFunction } from '../../../i18n'
 import {
   RESULT_ATTACHMENT_MAX_ROWS,
@@ -83,6 +83,19 @@ describe('contextActionsFor · what is offered', () => {
     assert.equal(out.length, 1)
   })
 
+  it('offers the rectangle in place of the single cell, never both', () => {
+    // `cell` describes one corner of the very same block: two lines, one thing.
+    const both = ids({
+      view: tableView,
+      resultId: RESULT,
+      cell: { rowIndex: 4, column: 'name' },
+      cellRange: { r0: 4, r1: 6, columns: ['name', 'score'] },
+    })
+    assert.ok(both.includes('cells'))
+    assert.ok(!both.includes('cell'))
+    assert.equal(both[0], 'cells', 'the most specific thing on screen leads')
+  })
+
   it('orders by specificity: the thing pointed at first, its container after', () => {
     const out = ids({
       view: tableView,
@@ -115,6 +128,40 @@ describe('contextActionsFor · the descriptors it builds', () => {
     assert.equal(built?.kind, 'result')
     if (built?.kind !== 'result') return
     assert.equal(built.maxRows, RESULT_ATTACHMENT_MAX_ROWS)
+  })
+
+  it('builds a rectangle descriptor addressing its columns by name', () => {
+    const built = contextActionsFor(
+      {
+        view: tableView,
+        resultId: RESULT,
+        cellRange: { r0: 4, r1: 9, columns: ['name', 'score'] },
+      },
+      t,
+    )
+      .find((a) => a.id === 'cells')
+      ?.build()
+    assert.equal(built?.kind, 'cells')
+    if (built?.kind !== 'cells') return
+    assert.equal(built.r0, 4)
+    assert.equal(built.r1, 9, 'a closed interval: both ends are rows that count')
+    assert.deepEqual(built.columns, ['name', 'score'])
+  })
+
+  it('clamps a rectangle to what an attachment may carry, and says so in the line', () => {
+    const target: ContextTarget = {
+      view: tableView,
+      resultId: RESULT,
+      cellRange: { r0: 0, r1: 2999, columns: ['name'] },
+    }
+    const action = contextActionsFor(target, t).find((a) => a.id === 'cells')
+    const built = action?.build()
+    assert.equal(built?.kind, 'cells')
+    if (built?.kind !== 'cells') return
+    assert.equal(built.r1 - built.r0 + 1, MAX_CHAT_ATTACHMENT_ROWS)
+    // The cap is in the words the user reads before clicking, not behind them.
+    assert.match(action?.label ?? '', /500/)
+    assert.match(action?.label ?? '', /3000|3,000/)
   })
 
   it('builds a cell descriptor addressing the row and column by name', () => {

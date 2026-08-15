@@ -33,14 +33,18 @@ describe('the interval menu', () => {
 
   test('marks the interval in force, and only that one', () => {
     const nodes = autoRefreshMenuNodes({ currentMs: 5_000, labels: LABELS, onSelect: () => {} })
-    const marked = items(nodes).filter((n) => n.label.startsWith('✓'))
+    // Was `label.startsWith('✓')`. The tick is a `checked` field now, so the
+    // assertion reads the state instead of a character glued to the copy — and
+    // it no longer passes for the wrong reason if a label happens to begin with
+    // one.
+    const marked = items(nodes).filter((n) => n.checked === true)
     assert.equal(marked.length, 1)
     assert.equal(marked[0].id, 'ms-5000')
   })
 
   test('with no interval it is Off that is marked', () => {
     const nodes = autoRefreshMenuNodes({ currentMs: null, labels: LABELS, onSelect: () => {} })
-    const marked = items(nodes).filter((n) => n.label.startsWith('✓'))
+    const marked = items(nodes).filter((n) => n.checked === true)
     assert.deepEqual(marked.map((n) => n.id), ['off'])
   })
 

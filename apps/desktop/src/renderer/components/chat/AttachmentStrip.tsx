@@ -1,154 +1,56 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { ChatAttachment, ViewId, ViewState } from '@peek/core'
+import type { ChatAttachment } from '@peek/core'
 import { useT } from '../../i18n'
-import { ConsentDialog } from '../context-actions/ConsentDialog'
-import { useContextActions } from '../context-actions/useContextActions'
-import { viewTitleOf } from '../panelTitle'
-import { attachCandidates, attachmentKindKey, attachmentLabel, stageableAttachment } from './attachments'
-import { detachFromChat } from './chatCommands'
+import { attachmentKindKey, attachmentLabel } from './attachments'
 import { copyText } from '../../util/clipboard'
 import { Button } from '../../ui/Button'
 import { Menu } from '../../ui/Menu'
 import { useContextMenu } from '../../ui/useContextMenu'
 
 /**
- * Staged context.
+ * Staged context: the chips, and nothing else.
  *
  * ## Where the data is (and is not)
  *
  * These chips are `ChatAttachment` descriptors read straight out of the
  * Workspace mirror — the panel keeps no copy and stages nothing locally. Adding
- * is `chat.attach`, removing is `chat.detach`, and the bar redraws when the
+ * is `chat.attach`, removing is `chat.detach`, and the strip redraws when the
  * patch comes back. That is not ceremony: it is what makes the AI's
  * `read_workspace` and the human's screen agree on what is pinned.
  *
- * ## Two entry points, on purpose
+ * ## Why this is a strip inside the composer and no longer a bar of its own
  *
- * A grid selection attaches itself (the data view owns that gesture — a chip bar
- * has no idea which rows are highlighted). This menu covers the other direction:
- * the user is looking at the *chat*, and wants to hand over the workspace, a
- * result set or the SQL of a query without going back to find it.
+ * An attachment's whole life is "the next message". Drawn as its own bar with
+ * its own edge it read as a sibling of the input box, when it is part of it —
+ * and it took a row of height saying "Nothing attached" for as long as nothing
+ * was. It renders nothing at all when the list is empty now; what a person can
+ * do about that is a line in the composer's hint, where they are already
+ * looking. See design/2026-08-14-composer-inline-context.md §2.1.
  *
- * ## Both entry points go through the same gate
+ * Adding lives in `Composer` (the `@` and the button both open `AttachMenu`),
+ * which is also where the disclosure dialog is held: `useContextActions` gates
+ * the *first* attachment of a user's life whichever gesture made it, and this
+ * strip makes none of them.
  *
- * Staging happens through `useContextActions`, not through `chat.attach`
- * directly, and that is the whole reason it is worth the indirection: the
- * disclosure that this data leaves the machine has to be shown before the *first*
- * attachment, whichever gesture made it. This menu used to dispatch straight past
- * it, which meant a user who only ever attached from here was never told.
+ * Removing is dispatched by `Composer` too, and that is not tidiness: a chip
+ * staged by `@` has a word in the draft, and taking the chip away has to take
+ * the word with it (design/2026-08-14-composer-inline-context.md §2.3.1). Only
+ * the composer holds the draft.
  */
-export function AttachmentBar({
-  viewId,
+export function AttachmentStrip({
   attachments,
-  views,
+  onRemove,
 }: {
-  viewId: ViewId
   attachments: readonly ChatAttachment[]
-  views: readonly ViewState[]
-}): ReactElement {
-  const t = useT()
-  const actions = useContextActions()
-  const [open, setOpen] = useState(false)
-  const boxRef = useRef<HTMLDivElement | null>(null)
-
-  const candidates = useMemo(
-    () =>
-      attachCandidates(views, {
-        workspace: t('chat.attach.option.workspace'),
-        workspaceHint: t('chat.attach.option.workspaceHint'),
-        resultOf: (view) => t('chat.attach.option.result', { view }),
-        queryOf: (view) => t('chat.attach.option.query', { view }),
-        viewName: (view) => viewTitleOf(t, view),
-      }),
-    [views, t],
-  )
-
-  // Dismiss on a click elsewhere or on Escape — the same two gestures every
-  // other transient surface in peek closes on.
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent): void => {
-      if (!boxRef.current?.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  const remove = useCallback(
-    (attachment: ChatAttachment) => {
-      void detachFromChat(viewId, [attachment.id])
-    },
-    [viewId],
-  )
+  onRemove: (attachment: ChatAttachment) => void
+}): ReactElement | null {
+  if (attachments.length === 0) return null
 
   return (
-    <div
-      className="relative flex-none flex flex-wrap items-center gap-tight px-snug py-inset min-h-head bg-bg-1 shadow-rule-t"
-      ref={boxRef}
-    >
-      <span className="mr-inset text-micro uppercase tracking-wider text-fg-faint">{t('chat.attach.label')}</span>
-
-      {attachments.length === 0 ? (
-        <span className="text-micro text-fg-faint">{t('chat.attach.empty')}</span>
-      ) : (
-        attachments.map((a) => (
-          <AttachmentChip key={a.id} attachment={a} onRemove={remove} />
-        ))
-      )}
-
-      <span className="flex-1" />
-
-      <Button
-        variant="ghost"
-        size="sm"
-        title={t('chat.attach.addTitle')}
-        aria-expanded={open}
-        onClick={() => {
-          setOpen((v) => !v)
-        }}
-      >
-        + {t('chat.attach.add')}
-      </Button>
-
-      {open ? (
-        <div className="absolute right-2 bottom-full z-20 mb-tight p-inset min-w-60 max-w-90 max-h-70 overflow-auto rounded-control bg-bg-2 border border-border-strong shadow-menu">
-          {candidates.length === 0 ? (
-            <div className="px-tight py-tight text-micro text-fg-faint">{t('chat.attach.noCandidates')}</div>
-          ) : (
-            candidates.map((c) => (
-              // A menu line, not a control — see NOT_CONTROLS. `base.css` gives
-              // it the hit height and the focus ring; these strip the button
-              // shape off it and lay the label over its hint.
-              <button
-                key={c.key}
-                type="button"
-                className="flex flex-col items-start gap-inset w-full px-tight py-inset text-left rounded-control border-0 bg-transparent hover:not-disabled:bg-bg-hover"
-                onClick={() => {
-                  setOpen(false)
-                  void actions.add(stageableAttachment(c.spec, c.label), viewId)
-                }}
-              >
-                <span>{c.label}</span>
-                {c.hint ? <span className="font-mono tabular-nums max-w-full truncate text-micro text-fg-faint">{c.hint}</span> : null}
-              </button>
-            ))
-          )}
-        </div>
-      ) : null}
-
-      {/* Held, not dropped: accepting stages the attachment the user asked for,
-          so the gesture survives reading the disclosure. */}
-      {actions.consentPending ? (
-        <ConsentDialog onAccept={actions.acceptConsent} onCancel={actions.cancelConsent} />
-      ) : null}
+    <div className="flex flex-wrap items-center gap-tight pb-tight">
+      {attachments.map((a) => (
+        <AttachmentChip key={a.id} attachment={a} onRemove={onRemove} />
+      ))}
     </div>
   )
 }

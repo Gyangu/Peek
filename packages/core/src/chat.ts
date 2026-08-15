@@ -336,6 +336,18 @@ export type ChatAttachment = { id: AttachmentId; label: string } & (
   | { kind: 'result'; viewId: ViewId; resultId: ResultId; maxRows: number }
   /** One cell — the case where a truncated preview is not enough. */
   | { kind: 'cell'; viewId: ViewId; resultId: ResultId; rowIndex: number; column: string }
+  /**
+   * A rectangle of cells — what a drag-selection in the grid produces.
+   *
+   * Rows are a closed interval and not a list of indexes, because a rectangle is
+   * contiguous by definition: `rows` above is the one that carries hand-picked
+   * scattered indexes, and that is the whole of what distinguishes them. Columns
+   * are names and not indexes for the reason `cell` uses a name — a result
+   * re-run with a different projection leaves an index pointing silently at the
+   * wrong column, where a name can fail to resolve and say so.
+   * See design/2026-08-15-cell-range-attachment.md §2.1.
+   */
+  | { kind: 'cells'; viewId: ViewId; resultId: ResultId; r0: number; r1: number; columns: string[] }
   /** DDL / column list for a table, keyspace or collection. */
   | { kind: 'schema'; connId: ConnId; ref: CollectionRef }
   /** The SQL currently in a query editor. */
@@ -434,6 +446,18 @@ export type ChatAgentStatus =
   | 'ready'
   | 'streaming'
   | 'awaiting-permission'
+  /**
+   * Blocked on a question the agent asked (the `ask` tool), as opposed to on a
+   * permission it requested.
+   *
+   * A state of its own rather than a second use of `awaiting-permission`,
+   * because the two say different things to both readers of this field: on
+   * screen it is "waiting for your answer" rather than "waiting for your
+   * approval", and to a model reading `read_workspace` it is the difference
+   * between a prompt it may answer on an operator's behalf and one it may never
+   * answer at all. See `PendingQuestion`.
+   */
+  | 'awaiting-answer'
   | 'error'
 
 /**
@@ -460,6 +484,55 @@ export interface PermissionOption {
   name: string
   kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always'
 }
+
+/**
+ * A question the agent asked, and is blocked on.
+ *
+ * In Workspace for the same three reasons `PendingPermission` is — small, modal,
+ * and the most important fact about the window while it is set. It is a
+ * **second** field rather than a variant of that one because the two are not the
+ * same kind of interruption, and the difference decides who may answer:
+ *
+ *   permission — "may I do this": the answer is an authorisation, and an
+ *                external operator driving peek may legitimately give it;
+ *   question   — "which way should I go": the answer is a *judgement*, and an
+ *                agent answering its own question would manufacture a decision
+ *                that reads as a person's and never was.
+ *
+ * See `docs/design/2026-08-15-agent-asks-a-question.md` §2.6.
+ */
+export interface PendingQuestion {
+  /** Correlates `chat.answer` back to the tool call that is hanging on it. */
+  requestId: string
+  /** The question itself — one line, and the largest text on the panel. */
+  question: string
+  /** A 3–12 character category label, shown as a chip. Optional. */
+  header?: string
+  options: QuestionOption[]
+  /** Whether more than one option may be chosen. */
+  multiSelect: boolean
+  askedAt: number
+}
+
+export interface QuestionOption {
+  optionId: string
+  label: string
+  /** What this option means, or what it costs. */
+  description?: string
+}
+
+/**
+ * Why an "other" option is deliberately **not** in `options`.
+ *
+ * The free-text escape hatch is added by the UI, unconditionally, and the agent
+ * has no say in it. It is not one of the answers on offer — it is the mechanism
+ * admitting it may not have thought of the right one. Letting the agent decide
+ * whether to include it would hand it the one decision it is least qualified to
+ * make: a question with three wrong options and no way out forces a person to
+ * pick the least wrong one, and the agent then proceeds confidently on an answer
+ * nobody meant.
+ */
+export const OTHER_OPTION_ID = '__other__'
 
 /** Token budget the agent reports; `size` is the context window. */
 export interface ChatUsage {

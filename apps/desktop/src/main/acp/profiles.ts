@@ -38,10 +38,23 @@ import { peekError } from '@peek/core'
  * and the permission mode cannot be relaxed to the automatic setting: an agent
  * peek cannot vouch for must not also be one nobody is watching.
  *
+ * `relaxed` — **the user turned the sandbox off.** Not a third degree of peek's
+ * confidence; a different kind of statement altogether. `unverified` is peek
+ * claiming something it has not checked, which is a gap to be closed by writing
+ * a probe. `relaxed` has nothing to check: the restrictions are not being asked
+ * for. Sharing a tier with `unverified` would have said peek was still trying,
+ * and the UI copy would have had nowhere honest to stand.
+ *
+ * Consequently `relaxed` does **not** inherit `unverified`'s restriction on the
+ * automatic permission mode. That rule exists because an agent peek cannot vouch
+ * for should not also be one nobody is watching — and here somebody is watching:
+ * they went to settings and turned it off. See
+ * `docs/design/2026-08-15-chat-panel-full-capability.md` §3.3.
+ *
  * See `docs/design/2026-08-03-pluggable-agent-backends.md` §2 for the per-agent
  * account of what each sandbox rests on.
  */
-export type AcpSandbox = 'enforced' | 'unverified'
+export type AcpSandbox = 'enforced' | 'unverified' | 'relaxed'
 
 /** Per-agent settings a user can change. Kept small on purpose. */
 export interface AcpAgentUserConfig {
@@ -52,6 +65,26 @@ export interface AcpAgentUserConfig {
    * this one field rather than two.
    */
   executablePath?: string
+  /**
+   * Let the agent use its own file and command tools.
+   *
+   * Off by default, and "off" means the object every profile produced before
+   * this field existed — `profiles.test.ts` pins that byte for byte.
+   *
+   * On, it gives up a guarantee rather than loosening one, and the guarantee is
+   * larger than the tool list. `2026-08-02-agent-source-and-permission-scope.md`
+   * §2.2 rests the embedded agent's isolation on *this agent having no way to
+   * read a file*: the strong bearer token sits in `~/.peek/mcp.json` in the
+   * clear, and an agent that can read it stops being `source: 'agent'` and can
+   * answer its own permission prompts. One `Read` is the whole chain, which is
+   * why there is no per-tool version of this switch — see the design doc §4.2.
+   *
+   * peek does not defend against that. It reports it: the tier becomes
+   * `relaxed`, and the settings panel says plainly what was handed over. Same
+   * trade M8 made for packages — what you install runs, and the note beside the
+   * button is the whole of the protection. See the design doc §2.5.
+   */
+  fullTools?: boolean
 }
 
 /** What to run, and how. */
@@ -77,6 +110,15 @@ export interface AcpAgentProfile {
   /** Extra environment for the child process. */
   env: (config: AcpAgentUserConfig) => Record<string, string>
   /**
+   * How far peek vouches for this agent **as configured**.
+   *
+   * A function rather than a constant since 2026-08-15: the answer stopped being
+   * a property of the agent once the user could turn its restrictions off. A
+   * stored constant would have gone on reporting `enforced` for a session that
+   * had a shell in it.
+   */
+  sandbox: (config: AcpAgentUserConfig) => AcpSandbox
+  /**
    * Subdirectory of `~/.peek/chat` this agent works in, or `undefined` for the
    * chat directory itself.
    *
@@ -84,6 +126,15 @@ export interface AcpAgentProfile {
    * in its own format and reads that directory back through its own
    * `session/list`; sharing one would have every agent enumerating files written
    * by the others.
+   *
+   * **This separates the default only.** Since 2026-08-15 a conversation can be
+   * pinned to a directory the user chose, and two agents pointed at one project
+   * will see each other's session files there — the segment is not applied to a
+   * chosen path (`ensureChatWorkdir`), because it is the user's directory and
+   * peek does not get to lay out its insides. That is a consequence of saying
+   * "work here" twice rather than a hole to plug: what it costs is unreadable
+   * rows in one catalogue, and `AcpManager.listSessions` already discards rows a
+   * chosen directory holds that peek did not record.
    *
    * **Claude Code deliberately has none.** It was the only agent for the whole
    * life of the chat panel, so every conversation that exists today sits in the
@@ -94,7 +145,6 @@ export interface AcpAgentProfile {
    * invisible to it either way.
    */
   workdirSegment?: string
-  sandbox: AcpSandbox
   /** Shown when authentication fails: what the user should go and do. */
   authHelp: string
 }
@@ -218,13 +268,27 @@ export const claudeCodeProfile: AcpAgentProfile = {
    * It is not a substitute for the permission gate. The agent still asks before
    * every `mcp__peek__*` call in `default` mode; this only decides what it is able
    * to ask *for*.
+   *
+   * ## What `fullTools` moves, and what it cannot
+   *
+   * Only the two tool fields. `settingSources: []` is **not** part of the switch
+   * and never becomes one: it is what keeps the panel behaving the same on every
+   * machine, which is what lets the permission dialog mean what it says. The
+   * thing users actually wanted from inheritance — their own MCP servers — comes
+   * through peek's own list instead, which is a set of servers someone chose
+   * rather than whatever happened to be configured on that machine. See
+   * `docs/design/2026-08-15-chat-panel-full-capability.md` §2.3.
    */
-  buildSessionMeta: () => ({
+  buildSessionMeta: (config) => ({
     claudeCode: {
       options: {
         settingSources: [],
-        tools: [...CLAUDE_TOOL_PRESET],
-        disallowedTools: [...CLAUDE_DISALLOWED_TOOLS],
+        // Both fields together or neither. `tools` replaces and
+        // `disallowedTools` accumulates, so a half-applied pair is not a middle
+        // position — it is a session with tools nobody decided on.
+        ...(config.fullTools
+          ? {}
+          : { tools: [...CLAUDE_TOOL_PRESET], disallowedTools: [...CLAUDE_DISALLOWED_TOOLS] }),
         mcpServers: {},
       },
     },
@@ -238,7 +302,7 @@ export const claudeCodeProfile: AcpAgentProfile = {
     if (path) env['CLAUDE_CODE_EXECUTABLE'] = path
     return env
   },
-  sandbox: 'enforced',
+  sandbox: (config) => (config.fullTools ? 'relaxed' : 'enforced'),
   authHelp:
     'peek reuses the Claude Code login already on this machine and never handles credentials itself. ' +
     'Run `claude` in a terminal, sign in there, then send the message again.',
@@ -268,11 +332,18 @@ export const codexProfile: AcpAgentProfile = {
   buildSessionMeta: () => ({}),
   env: (config) => {
     const env: Record<string, string> = {
-      // Codex's own sandbox tier. `read-only` is the one that matches what peek
-      // promises: the chat panel talks about the database, it does not edit files
-      // or run commands. The other tiers (`agent`, `agent-full-access`) are not
-      // offered — a database viewer has no use for them.
-      INITIAL_AGENT_MODE: 'read-only',
+      // Codex's own sandbox tier, and the counterpart to Claude Code's `_meta`.
+      //
+      // `read-only` is the default and the one that matches what peek promises:
+      // the panel talks about the database, it does not edit files or run
+      // commands. `agent` is what the same switch buys — Codex's own tier for
+      // editing and running things in a workspace.
+      //
+      // `agent-full-access` is **not** reachable from here at any setting. It
+      // drops the workspace boundary and the network restriction both, and
+      // nothing in what users asked for needs either; offering it would be
+      // peek adding a rung to somebody else's ladder.
+      INITIAL_AGENT_MODE: config.fullTools ? 'agent' : 'read-only',
       // peek has no terminal to run a browser login flow in, and declares no
       // `auth.terminal` capability for the same reason. Hiding the method keeps
       // the agent from offering a flow that cannot complete here.
@@ -281,17 +352,23 @@ export const codexProfile: AcpAgentProfile = {
     if (config.executablePath) env['CODEX_PATH'] = config.executablePath
     return env
   },
+  workdirSegment: 'codex',
   /**
-   * `unverified` until a probe exists.
+   * `unverified` until a probe exists, and `relaxed` once the switch is on.
    *
    * `INITIAL_AGENT_MODE=read-only` is documented and the semantics match what
    * peek needs, but no equivalent of `verify-chat-security.mjs` has been written
    * for Codex yet, so nothing has *checked* that a read-only Codex session really
    * cannot reach a shell. Until it has, peek says so rather than implying a
    * guarantee it has not tested.
+   *
+   * `relaxed` wins over `unverified` when both apply, and the order matters:
+   * "peek has not verified this sandbox" is beside the point once the sandbox is
+   * the one the user asked not to have. The panel still shows both sentences —
+   * see `settings.agent.relaxed` — but the tier reports the decision, not the
+   * gap.
    */
-  workdirSegment: 'codex',
-  sandbox: 'unverified',
+  sandbox: (config) => (config.fullTools ? 'relaxed' : 'unverified'),
   authHelp:
     'peek reuses the Codex login already on this machine and never handles credentials itself. ' +
     'Run `codex` in a terminal and sign in there, or set OPENAI_API_KEY in the environment, ' +
@@ -310,8 +387,10 @@ export const DEFAULT_ACP_PROFILE_ID = claudeCodeProfile.id
  * Look up a profile, falling back to the default.
  *
  * A settings file naming an agent this build does not have is a wrong setting,
- * not a reason to leave the user without a chat panel. The fallback is the
- * `enforced` one, so a bad id can never land on a weaker sandbox.
+ * not a reason to leave the user without a chat panel. The fallback is the agent
+ * whose sandbox is `enforced` at its default configuration, so a bad id can
+ * never by itself land on a weaker one. Only the switch does that, and only
+ * because someone set it.
  */
 export function profileById(id: string | undefined): AcpAgentProfile {
   return ACP_PROFILES.find((p) => p.id === id) ?? claudeCodeProfile

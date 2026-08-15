@@ -278,7 +278,7 @@ describe('a package peek cannot use is refused whole, and told why', () => {
     const report = loadPackages(root)
 
     // `tools/list` is one flat namespace across every package and the kernel's
-    // own thirteen, and a model picks by name alone — so two packages under one
+    // own fourteen, and a model picks by name alone — so two packages under one
     // name is a coin flip on a call that acts on the user's database. Within one
     // package the schema says the same thing; this is the half only a scan of
     // the whole directory can see.

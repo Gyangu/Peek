@@ -7,7 +7,12 @@
  * the arrow keys" — testable without a DOM, and it keeps the hook down to
  * translating an intent into a Command.
  *
- * The chords:
+ * **Where the chords themselves live.** In `keys/registry.ts`, with every other
+ * shortcut in the app, and the user's overrides on top of them (`keys/bindings`).
+ * This file used to hold them as a chain of `if`s; it now holds only the half
+ * that a table cannot express — which id means which `ShortcutAction`, and what
+ * `⌘9` means that `⌘8` does not. The chords below are the defaults, and a user
+ * who has rebound one will not see them here.
  *
  *   ⌘\            split the focused panel left/right   (empty panel, unchanged)
  *   ⌘⇧\           split the focused panel top/bottom   (empty panel, unchanged)
@@ -18,9 +23,10 @@
  *   ⌃Tab / ⌃⇧Tab  cycle forwards / backwards through that panel's tabs
  *   ⌘⌥1 … ⌘⌥9     focus the Nth panel in visual order
  *   ⌘⌥ ← ↑ ↓ →    move focus geometrically
- *   ⌘⇧ ← ↑ ↓ →    move the focused view into the panel that way (swap on arrival)
+ *   ⌘⇧ ← ↑ ↓ →    move the focused view into the panel that way
  *   ⌘⌥⇧ ← ↑ ↓ →   move the focused view *past* that panel, into a new one
  *   ⌘,            open settings
+ *   ⌘/            show every shortcut
  *   Esc           leave the text editor, so the chords above become reachable again
  *
  * ## Two chords changed meaning when panels grew tabs
@@ -49,8 +55,10 @@
  * (add cursor above/below) and `Mod-Shift-Arrow` (extend selection), so while a
  * text entry has focus every arrow chord here stands down — an editor that
  * cannot select a line because the window stole the key is a broken editor.
- * `Esc` is the way back out: it drops focus (and only when nothing else already
- * handled it, so closing an autocomplete popup still just closes the popup).
+ * That stand-down is `standDownInTextEntry` on the registry entry now, rather
+ * than a branch here. `Esc` is the way back out: it drops focus (and only when
+ * nothing else already handled it, so closing an autocomplete popup still just
+ * closes the popup).
  *
  * The tab chords deliberately do **not** stand down inside the editor, and that
  * is the point of them. CodeMirror binds none of `Mod`+digit, `Ctrl-Tab` or
@@ -62,36 +70,15 @@
  * ⌘⏎ is absent on purpose: the query view's own keymap owns it.
  */
 
-import { arrowDirection, type Direction } from './layout-nav'
+import type { BindingTable } from '../keys/bindings'
+import { DEFAULT_BINDINGS } from '../keys/bindings'
+import type { ChordPattern, KeyChord } from '../keys/chord'
+import { formatChord, formatMods, formatToken, matchChord } from '../keys/chord'
+import type { ShortcutId } from '../keys/registry'
+import { SHORTCUTS } from '../keys/registry'
+import type { Direction } from './layout-nav'
 
-/* ================================================================== */
-/* 1. Input                                                            */
-/* ================================================================== */
-
-/** The bits of a `KeyboardEvent` the map reads. */
-export interface KeyChord {
-  key: string
-  /** `KeyboardEvent.code`; layout-independent, which `key` is not. */
-  code: string
-  meta: boolean
-  ctrl: boolean
-  alt: boolean
-  shift: boolean
-  /** Another handler already claimed this event (CodeMirror calls `preventDefault`). */
-  defaultPrevented?: boolean
-}
-
-export function chordOf(e: KeyboardEvent): KeyChord {
-  return {
-    key: e.key,
-    code: e.code,
-    meta: e.metaKey,
-    ctrl: e.ctrlKey,
-    alt: e.altKey,
-    shift: e.shiftKey,
-    defaultPrevented: e.defaultPrevented,
-  }
-}
+export { chordOf, type KeyChord } from '../keys/chord'
 
 /** Where the keystroke landed. */
 export interface ShortcutContext {
@@ -100,7 +87,7 @@ export interface ShortcutContext {
 }
 
 /* ================================================================== */
-/* 2. Output                                                           */
+/* Output                                                              */
 /* ================================================================== */
 
 export type ShortcutAction =
@@ -121,8 +108,10 @@ export type ShortcutAction =
   | { kind: 'cycleTab'; delta: 1 | -1 }
   /** Drop DOM focus so the window's chords are reachable again. */
   | { kind: 'leaveTextEntry' }
-  /** Open the settings dialog. The one action here that is not a Command. */
+  /** Open the settings dialog. Not a Command; see `settingsDialogStore`. */
   | { kind: 'openSettings' }
+  /** Open the shortcut sheet. Not a Command either, and for the same reason. */
+  | { kind: 'openShortcuts' }
 
 /** Highest panel index reachable by a digit; ⌘⌥1 … ⌘⌥9. */
 export const MAX_PANEL_DIGIT = 9
@@ -134,86 +123,89 @@ export const MAX_PANEL_DIGIT = 9
 export const MAX_TAB_DIGIT = 9
 
 /* ================================================================== */
-/* 3. The map                                                          */
+/* The map                                                             */
 /* ================================================================== */
 
-export function resolveShortcut(chord: KeyChord, ctx: ShortcutContext): ShortcutAction | null {
+/** The window-scope entries, resolved once: the listener runs this per keystroke. */
+const WINDOW_SHORTCUTS = SHORTCUTS.filter((def) => def.scope === 'window')
+
+/**
+ * What this keystroke means, under these bindings.
+ *
+ * `bindings` defaults to the registry, so a caller with no user settings to hand
+ * — every test, and the window's first frames before `settings.read` answers —
+ * gets peek's own keyboard rather than an empty one.
+ */
+export function resolveShortcut(
+  chord: KeyChord,
+  ctx: ShortcutContext,
+  bindings: BindingTable = DEFAULT_BINDINGS,
+): ShortcutAction | null {
   // Someone downstream already handled it. Never fires twice on one key.
   if (chord.defaultPrevented === true) return null
 
-  const mod = chord.meta || chord.ctrl
-
-  if (!mod) {
-    // The only unmodified chord: Esc as the way out of a text editor.
-    if (chord.key === 'Escape' && !chord.alt && !chord.shift && ctx.textEntry) {
-      return { kind: 'leaveTextEntry' }
-    }
-    return null
+  for (const def of WINDOW_SHORTCUTS) {
+    if (def.standDownInTextEntry && ctx.textEntry) continue
+    const pattern = bindings.get(def.id)
+    if (!pattern) continue // unbound: the user turned this one off
+    const hit = matchChord(pattern, chord)
+    if (!hit) continue
+    const action = actionFor(def.id, hit, ctx)
+    if (action) return action
   }
-
-  // Ctrl+Tab is bound to the *real* Ctrl on both platforms, not to `mod`: macOS
-  // cycles tabs with ⌃Tab too (Safari, Chrome, Terminal all do), and ⌘Tab is the
-  // OS application switcher, which must never reach us.
-  if (chord.key === 'Tab' && chord.ctrl && !chord.meta && !chord.alt) {
-    return { kind: 'cycleTab', delta: chord.shift ? -1 : 1 }
-  }
-
-  const dir = arrowDirection(chord.key)
-  if (dir !== null) {
-    // Arrows belong to the editor while it has focus; see the file comment.
-    if (ctx.textEntry) return null
-    if (chord.alt && chord.shift) return { kind: 'splitWithViewDirection', dir }
-    if (chord.alt) return { kind: 'focusDirection', dir }
-    if (chord.shift) return { kind: 'moveViewDirection', dir }
-    return null
-  }
-
-  // ⌘, / Ctrl+, — settings, as in every desktop application. By `code` for the
-  // same reason as Backslash below, and deliberately **not** standing down
-  // inside a text editor: CodeMirror binds nothing on Mod+Comma, and "open
-  // settings" is not an editing operation that a query editor could own.
-  if (chord.code === 'Comma' && !chord.alt && !chord.shift) {
-    return { kind: 'openSettings' }
-  }
-
-  // Backslash by `code`, not by `key`: with Shift held a US layout reports '|',
-  // and on other layouts the character moves around entirely.
-  if (chord.code === 'Backslash' && !chord.alt) {
-    return { kind: 'split', dir: chord.shift ? 'col' : 'row' }
-  }
-
-  if ((chord.key === 'w' || chord.key === 'W') && !chord.alt) {
-    return chord.shift ? { kind: 'closePanel' } : { kind: 'closeTab' }
-  }
-
-  const digit = digitOf(chord)
-  if (digit !== null && !chord.shift) {
-    if (chord.alt) return { kind: 'focusIndex', index: digit - 1 }
-    return { kind: 'activateTab', index: digit === MAX_TAB_DIGIT ? 'last' : digit - 1 }
-  }
-
   return null
 }
 
 /**
- * The digit 1…9 a chord names, or `null`.
+ * The id, plus whatever the placeholder resolved to, as an intent.
  *
- * Read off `code` first, because `key` is not a digit once ⌥ is held on macOS —
- * ⌥1 arrives as `'¡'` — and the panel digits are an ⌥ chord. The `key` fallback
- * is what keeps synthetic events (and any keyboard that reports no `code`)
- * working, and it is only consulted with ⌥ up, where `key` is trustworthy.
+ * This is the part a table cannot hold: `⌘9` is the last tab rather than the
+ * ninth, `⌘⌥1` is a zero-based index, and Esc means nothing outside a text
+ * entry. Returning `null` here is "matched the chord, meant nothing" — which is
+ * why `resolveShortcut` keeps looking rather than stopping at the first match.
  */
-function digitOf(chord: KeyChord): number | null {
-  const physical = /^(?:Digit|Numpad)([1-9])$/.exec(chord.code)
-  if (physical) return Number(physical[1])
-  if (!chord.alt && chord.key.length === 1 && chord.key >= '1' && chord.key <= '9') {
-    return chord.key.charCodeAt(0) - '0'.charCodeAt(0)
+function actionFor(id: ShortcutId, hit: ReturnType<typeof matchChord>, ctx: ShortcutContext): ShortcutAction | null {
+  if (!hit) return null
+  switch (id) {
+    case 'panel.splitRow':
+      return { kind: 'split', dir: 'row' }
+    case 'panel.splitCol':
+      return { kind: 'split', dir: 'col' }
+    case 'panel.close':
+      return { kind: 'closePanel' }
+    case 'tab.close':
+      return { kind: 'closeTab' }
+    case 'panel.focusIndex':
+      return hit.kind === 'digit' ? { kind: 'focusIndex', index: hit.digit - 1 } : null
+    case 'tab.select':
+      if (hit.kind !== 'digit') return null
+      return { kind: 'activateTab', index: hit.digit === MAX_TAB_DIGIT ? 'last' : hit.digit - 1 }
+    case 'tab.cycleNext':
+      return { kind: 'cycleTab', delta: 1 }
+    case 'tab.cyclePrev':
+      return { kind: 'cycleTab', delta: -1 }
+    case 'panel.focusDirection':
+      return hit.kind === 'arrow' ? { kind: 'focusDirection', dir: hit.dir } : null
+    case 'view.moveDirection':
+      return hit.kind === 'arrow' ? { kind: 'moveViewDirection', dir: hit.dir } : null
+    case 'view.splitDirection':
+      return hit.kind === 'arrow' ? { kind: 'splitWithViewDirection', dir: hit.dir } : null
+    case 'app.settings':
+      return { kind: 'openSettings' }
+    case 'app.shortcuts':
+      return { kind: 'openShortcuts' }
+    case 'app.leaveTextEntry':
+      // Esc outside a text entry belongs to whatever else is listening — the
+      // modal stack, the grid's selection. Blurring the body achieves nothing
+      // and would consume a key three other things want.
+      return ctx.textEntry ? { kind: 'leaveTextEntry' } : null
+    default:
+      return null
   }
-  return null
 }
 
 /* ================================================================== */
-/* 4. Chord labels for the UI                                          */
+/* Chord labels for the UI                                             */
 /* ================================================================== */
 
 /**
@@ -223,9 +215,9 @@ function digitOf(chord: KeyChord): number | null {
  * keys in front of the user, and a translated modifier name would not match the
  * hardware. The arrow glyphs are language-neutral for the same reason.
  *
- * The status-bar tooltips are the only written record of the keyboard model, and
- * two of these chords changed meaning when panels grew tabs — so the digit
- * families are spelled out here rather than left to be rediscovered.
+ * Derived from the live bindings rather than written out, which is the point of
+ * the registry: a hint that outlived its chord is worse than no hint, and a user
+ * who rebound the panel family needs the status bar to say so.
  */
 export interface ShortcutHints {
   /** Move focus between panels. */
@@ -246,31 +238,39 @@ export interface ShortcutHints {
   closePanel: string
 }
 
-const ARROWS = '←↑↓→'
-const DIGITS = '1…9'
+export function shortcutHints(mac: boolean, bindings: BindingTable = DEFAULT_BINDINGS): ShortcutHints {
+  const hint = (id: ShortcutId): string => {
+    const pattern = bindings.get(id)
+    // An unbound chord gets an empty hint rather than its default: advertising a
+    // key the window no longer answers to is the one thing worse than silence.
+    return pattern ? formatChord(pattern, mac) : ''
+  }
+  return {
+    focus: hint('panel.focusDirection'),
+    move: hint('view.moveDirection'),
+    panelDigit: hint('panel.focusIndex'),
+    tabDigit: hint('tab.select'),
+    lastTab: lastTabHint(bindings.get('tab.select') ?? null, mac),
+    cycleTab: hint('tab.cycleNext'),
+    closeTab: hint('tab.close'),
+    closePanel: hint('panel.close'),
+  }
+}
 
-export function shortcutHints(mac: boolean): ShortcutHints {
-  return mac
-    ? {
-        focus: `⌘⌥ ${ARROWS}`,
-        move: `⌘⇧ ${ARROWS}`,
-        panelDigit: `⌘⌥${DIGITS}`,
-        tabDigit: `⌘${DIGITS}`,
-        lastTab: '⌘9',
-        cycleTab: '⌃Tab',
-        closeTab: '⌘W',
-        closePanel: '⌘⇧W',
-      }
-    : {
-        focus: `Ctrl+Alt ${ARROWS}`,
-        move: `Ctrl+Shift ${ARROWS}`,
-        panelDigit: `Ctrl+Alt+${DIGITS}`,
-        tabDigit: `Ctrl+${DIGITS}`,
-        lastTab: 'Ctrl+9',
-        cycleTab: 'Ctrl+Tab',
-        closeTab: 'Ctrl+W',
-        closePanel: 'Ctrl+Shift+W',
-      }
+/**
+ * `⌘9`, spelled out of the tab family it belongs to.
+ *
+ * The last-tab chord is not its own binding — it is the ninth member of
+ * `tab.select`, given a different meaning by `actionFor`. Writing it by hand
+ * would be the one hint that could survive a rebinding of the family it is part
+ * of.
+ */
+function lastTabHint(family: ChordPattern | null, mac: boolean): string {
+  if (!family) return ''
+  const mods = formatMods(family, mac)
+  const digit = formatToken(`Digit${String(MAX_TAB_DIGIT)}`)
+  if (mods === '') return digit
+  return `${mods}${mac ? '' : '+'}${digit}`
 }
 
 /** Whether the window is running on macOS, for the hint above. */

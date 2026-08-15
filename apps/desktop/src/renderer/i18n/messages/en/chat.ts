@@ -24,6 +24,9 @@ export const chat = {
   'chat.status.ready': 'Ready',
   'chat.status.streaming': 'Replying…',
   'chat.status.awaiting-permission': 'Waiting for you',
+  /* Says what it wants, not that it is stopped: the tab strip shows this next to
+     a dot, and "waiting" alone does not tell you whether you owe it anything. */
+  'chat.status.awaiting-answer': 'Waiting for your answer',
   'chat.status.error': 'Error',
 
   /* ---- Permission mode --------------------------------------------- */
@@ -35,6 +38,9 @@ export const chat = {
   'chat.mode.dontAsk': 'Never ask',
   'chat.mode.bypassPermissions': 'Bypass all checks',
   'chat.mode.title': 'Who approves the tools the agent wants to run',
+  'chat.mode.inherited': 'from settings',
+  'chat.mode.inheritedTitle':
+    'This conversation started in the mode set in Settings → Agent. Change it here and it applies to this conversation only.',
 
   /* ---- Transcript -------------------------------------------------- */
   'chat.empty.title': 'Ask about the data you are looking at',
@@ -131,7 +137,7 @@ export const chat = {
   'chat.composer.stop': 'Stop',
   'chat.composer.stopTitle': 'Cancel the turn in flight',
   /* Key notation, identical in every language — see the note in QueryView. */
-  'chat.composer.hint': '⏎ send · ⇧⏎ newline',
+  'chat.composer.hint': '⏎ send · ⇧⏎ newline · @ add context',
   'chat.composer.busy': 'Claude is still replying',
   'chat.composer.notReady': 'The agent is not ready yet',
 
@@ -142,23 +148,26 @@ export const chat = {
   'chat.retry.placeholder': 'Send a message to reconnect…',
 
   /* ---- Context attachments ----------------------------------------- */
-  'chat.attach.label': 'Context',
   'chat.attach.add': 'Add context',
   'chat.attach.addTitle': 'Attach what you are looking at to the next message',
   'chat.attach.remove': 'Remove',
-  'chat.attach.empty': 'Nothing attached',
   'chat.attach.count': { one: '{count} attachment', other: '{count} attachments' },
   'chat.attach.kind.rows': 'Rows',
   'chat.attach.kind.result': 'Result',
   'chat.attach.kind.cell': 'Cell',
+  'chat.attach.kind.cells': 'Cells',
   'chat.attach.kind.schema': 'Schema',
   'chat.attach.kind.query': 'Query',
   'chat.attach.kind.workspace': 'Workspace',
+  'chat.attach.option.selection': 'What is selected',
+  'chat.attach.option.selectionRowsHint': { one: '{source} · {count} row', other: '{source} · {count} rows' },
+  'chat.attach.option.selectionCellsHint': '{source} · {columns} cols × {rows} rows',
+  /* The word typed after `@`. Never contains whitespace — see `mentionToken`. */
+  'chat.attach.token.selection': 'selection',
   'chat.attach.option.workspace': 'This workspace',
   'chat.attach.option.workspaceHint': 'Layout, open views and connections',
   'chat.attach.option.result': 'Result of {view}',
   'chat.attach.option.query': 'SQL of {view}',
-  'chat.attach.noCandidates': 'Nothing here to attach yet',
   'chat.attach.sentWith': 'Sent with this message',
 
   /* ---- Permission prompt ------------------------------------------- */
@@ -173,6 +182,16 @@ export const chat = {
   'chat.permission.kind.reject_always': 'Always reject',
   'chat.permission.waiting': 'The conversation is paused until you decide.',
   'chat.permission.label': 'Tool permission request',
+
+  /* ---------------- The agent's own question (the ask tool) ---------------- */
+  'chat.question.label': 'A question from the agent',
+  'chat.question.waiting': 'The agent is waiting on your answer before it goes on.',
+  'chat.question.waitingMulti': 'Choose as many as apply, then send.',
+  /* Not "None of these" — the box is also where you answer *and* add a
+     condition, which is the most useful thing a person can type here. */
+  'chat.question.other': 'Something else…',
+  'chat.question.otherPlaceholder': 'Answer in your own words',
+  'chat.question.send': 'Send answer',
   'chat.md.linkCopied': 'Link copied.',
   'chat.md.linkCopyFailed': 'The clipboard refused the copy.',
   /* Spelled out because it is the only option here that changes anything beyond

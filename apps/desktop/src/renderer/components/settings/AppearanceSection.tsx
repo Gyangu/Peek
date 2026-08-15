@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
-import { UI_ZOOM_STEPS } from '@peek/core'
+import { UI_ZOOM_STEPS, type UiTheme } from '@peek/core'
 import { isMacPlatform } from '../../hooks'
 import { LOCALES, setLocale, useLocale, useT } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
+import { useThemePreference } from '../../theme'
 import { Form, FormRow } from '../../ui/Form'
 import { Segmented } from '../../ui/Segmented'
 
@@ -48,8 +49,51 @@ export function AppearanceSection(): ReactElement {
         />
       </FormRow>
 
+      <ThemeRow />
       <ZoomRow />
     </Form>
+  )
+}
+
+/**
+ * Dark, light, or follow the OS.
+ *
+ * Between the language and the zoom because the three read as one sentence in
+ * that order: what it is written in, how it looks, how big it is.
+ *
+ * Unlike the zoom below, the current value is **not** read on mount. It arrives
+ * on `IPC.THEME_CHANGED` and is held in `theme/store.ts`, which is subscribed
+ * for the whole session — so this stays correct while the dialog is open, which
+ * a mount-time read would not: the OS can cross into dark mode with the settings
+ * dialog on screen, and `system` is the one setting in this window that changes
+ * without anybody touching it.
+ *
+ * The write is still a `settings.write`, like the zoom: main owns the window's
+ * `backgroundColor`, the traffic lights and `nativeTheme`, and the answer comes
+ * back through the store rather than through the reply. No optimistic update for
+ * that reason — there is nothing to be optimistic about, the round trip is what
+ * repaints the window.
+ */
+function ThemeRow(): ReactElement {
+  const t = useT()
+  const theme = useThemePreference()
+
+  return (
+    <FormRow label={t('settings.theme')} hint={t('settings.themeHint')}>
+      <Segmented
+        className="grow-0 shrink-0 basis-auto min-w-50"
+        label={t('settings.theme')}
+        value={theme}
+        options={[
+          { value: 'dark', label: t('settings.themeDark') },
+          { value: 'light', label: t('settings.themeLight') },
+          { value: 'system', label: t('settings.themeSystem') },
+        ]}
+        onChange={(next: UiTheme) => {
+          void dispatch('settings.write', { theme: next })
+        }}
+      />
+    </FormRow>
   )
 }
 

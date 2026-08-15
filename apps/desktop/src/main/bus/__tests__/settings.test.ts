@@ -72,7 +72,37 @@ const inertDeps = {
   notify: () => {},
 } as unknown as CommandDeps
 
-function busWith(dir: string, applyZoom?: (factor: number) => void): CommandBus {
+/**
+ * A vault that seals, for the tests that are about what happens to a secret.
+ *
+ * The default one below refuses (`seal: () => null`), which is the right default
+ * — it is what a Linux box with no keyring does, and every path has to survive
+ * it. But "the credential was stored and did not land in the file as plaintext"
+ * cannot be checked against a vault that stores nothing, so those tests ask for
+ * this one.
+ *
+ * **It reverses rather than wrapping**, and that is not decoration. The point of
+ * those tests is `file.includes(secret) === false`, and a fake seal of
+ * `sealed(<value>)` contains the plaintext verbatim — so the assertion fails
+ * against a perfectly correct implementation, and the obvious way to make it
+ * pass is to weaken it. Ciphertext that does not contain its plaintext is what
+ * lets the assertion say what it means.
+ */
+const workingVault = {
+  available: true,
+  seal: (value: string) => `sealed:${[...value].reverse().join('')}`,
+  open: (value: string) => (value.startsWith('sealed:') ? [...value.slice(7)].reverse().join('') : null),
+}
+
+function busWith(
+  dir: string,
+  applyZoom?: (factor: number) => void,
+  vault: { available: boolean; seal: (v: string) => string | null; open: (v: string) => string | null } = {
+    available: false,
+    seal: () => null,
+    open: () => null,
+  },
+): CommandBus {
   const bus = new CommandBus({ store: new WorkspaceStore(createEmptyWorkspace()), deps: inertDeps })
   bus.registerAll(coreHandlers)
   const settings = createSettingsStore(dir)
@@ -82,7 +112,7 @@ function busWith(dir: string, applyZoom?: (factor: number) => void): CommandBus 
         configDir: dir,
         vault: { available: false, seal: () => null, open: () => null },
       }),
-      vault: { available: false, seal: () => null, open: () => null },
+      vault,
       mcp: createMcpController({
         configDir: dir,
         settings,
@@ -323,4 +353,167 @@ describe('the file is hand-editable, so it can be hand-broken', () => {
     writeFileSync(join(dir, SETTINGS_FILE_NAME), JSON.stringify({ executionTimeouts: [1, 2, 3] }))
     assert.deepEqual(createSettingsStore(dir).read(), {})
   })
+})
+
+describe('settings.write — keyboard bindings', () => {
+  test('persists the record whole, so a reset to default removes the key', async () => {
+    // Wholesale, unlike the timeouts next door, and deliberately: a shortcut put
+    // back to its default has to *disappear* from the file, which a member-wise
+    // merge could never express. The renderer always sends the full record.
+    const dir = tempConfigDir()
+    const bus = busWith(dir)
+    await bus.dispatch('settings.write', { keybindings: { 'panel.close': 'Mod+Alt+KeyQ' } }, 'ui')
+    const res = await bus.dispatch('settings.write', { keybindings: { 'tab.close': null } }, 'ui')
+
+    assert.ok(res.ok)
+    assert.deepEqual(res.data.keybindings, { 'tab.close': null })
+    assert.deepEqual(fileJson(dir)['keybindings'], { 'tab.close': null })
+  })
+
+  test('reads back what a restart would read', async () => {
+    const dir = tempConfigDir()
+    await busWith(dir).dispatch('settings.write', { keybindings: { 'panel.splitRow': 'Mod+Alt+Backslash' } }, 'ui')
+    const res = await busWith(dir).dispatch('settings.read', {}, 'ui')
+
+    assert.ok(res.ok)
+    assert.deepEqual(res.data.keybindings, { 'panel.splitRow': 'Mod+Alt+Backslash' })
+  })
+
+  test('drops a hand-edited entry that is not a chord string, and keeps the rest', async () => {
+    // Main does not know what a chord is — the window does — so all it can
+    // enforce is the shape. Anything that survives here and is still nonsense is
+    // dropped by `buildBindings` in the renderer, one entry at a time.
+    const dir = tempConfigDir()
+    writeFileSync(
+      join(dir, SETTINGS_FILE_NAME),
+      JSON.stringify({ version: 1, keybindings: { 'panel.close': 'Mod+KeyQ', 'tab.close': 42 } }),
+    )
+    const res = await busWith(dir).dispatch('settings.read', {}, 'ui')
+
+    assert.ok(res.ok)
+    assert.deepEqual(res.data.keybindings, { 'panel.close': 'Mod+KeyQ' })
+  })
+
+  test('is absent entirely when the user changed nothing', async () => {
+    const res = await busWith(tempConfigDir()).dispatch('settings.read', {}, 'ui')
+    assert.ok(res.ok)
+    assert.equal(res.data.keybindings, undefined)
+  })
+})
+
+
+/* ------------------------------------------------------------------ */
+/* The user's own MCP servers                                          */
+/* ------------------------------------------------------------------ */
+
+/** Write an agent patch and return the settings as main now reports them. */
+async function writeAgent(
+  bus: CommandBus,
+  agent: Record<string, unknown>,
+): Promise<{ mcpServers: { name: string; target: string; authValueSet: boolean }[] }> {
+  const res = await bus.dispatch('settings.write', { agent }, 'ui')
+  assert.ok(res.ok, `settings.write failed: ${JSON.stringify(res)}`)
+  return res.data.agent
+}
+
+test('an MCP credential is sealed on the way in and never comes back', async () => {
+  const dir = tempConfigDir()
+  const bus = busWith(dir, undefined, workingVault)
+
+  const agent = await writeAgent(bus, {
+    mcpServers: [
+      { name: 'docs', transport: 'http', target: 'https://example.com/mcp', authValue: 's3cret', enabled: true },
+    ],
+  })
+
+  // Whether, never what — the same rule the endpoint API key follows.
+  assert.equal(agent.mcpServers[0]?.authValueSet, true)
+  assert.equal((agent.mcpServers[0] as unknown as Record<string, unknown>)['authValue'], undefined)
+
+  // And the file holds ciphertext under a different key, so anything reading it
+  // that has not been taught about `authValueSealed` gets no credential rather
+  // than a readable one.
+  const raw = JSON.stringify(fileJson(dir))
+  assert.equal(raw.includes('s3cret'), false, 'the plaintext credential must not reach the file')
+  assert.ok(raw.includes('authValueSealed'), 'and what is there is the sealed field, not a stray key')
+})
+
+test('editing a server keeps the credential it did not resend', async () => {
+  const dir = tempConfigDir()
+  const bus = busWith(dir, undefined, workingVault)
+  const server = { name: 'docs', transport: 'http', target: 'https://old/mcp', enabled: true }
+
+  await writeAgent(bus, { mcpServers: [{ ...server, authValue: 's3cret' }] })
+  // The form never had the credential to resend — it is write-only — so an edit
+  // arrives without one. Reading that as "clear it" would silently break a
+  // server that was working, and the failure would surface much later as an
+  // authentication error nobody connected to renaming a URL.
+  const edited = await writeAgent(bus, { mcpServers: [{ ...server, target: 'https://new/mcp' }] })
+  assert.equal(edited.mcpServers[0]?.target, 'https://new/mcp')
+  assert.equal(edited.mcpServers[0]?.authValueSet, true)
+
+  // An empty string is the deliberate erase, and it is the only thing that is.
+  const cleared = await writeAgent(bus, { mcpServers: [{ ...server, authValue: '' }] })
+  assert.equal(cleared.mcpServers[0]?.authValueSet, false)
+})
+
+test('the MCP list is replaced wholesale, so a removed server is actually gone', async () => {
+  const dir = tempConfigDir()
+  const bus = busWith(dir, undefined, workingVault)
+  const a = { name: 'a', transport: 'http', target: 'https://a/mcp', enabled: true }
+  const b = { name: 'b', transport: 'stdio', target: '/bin/b', enabled: false }
+
+  await writeAgent(bus, { mcpServers: [a, b] })
+  // Member-wise merging is what every other field in this section gets, and it
+  // is exactly wrong here: it can only ever add, so removing a row would be
+  // inexpressible.
+  const after2 = await writeAgent(bus, { mcpServers: [a] })
+  assert.deepEqual(after2.mcpServers.map((s) => s.name), ['a'])
+})
+
+test('a repeated server name is refused rather than allowed to shadow the first', async () => {
+  const dir = tempConfigDir()
+  const bus = busWith(dir, undefined, workingVault)
+  // The name is a tool prefix, and the agent merges by it — a second row under
+  // one name would replace the first somewhere downstream, silently. Deciding it
+  // here means the form can show which row won.
+  const agent = await writeAgent(bus, {
+    mcpServers: [
+      { name: 'docs', transport: 'http', target: 'https://first/mcp', enabled: true },
+      { name: 'docs', transport: 'http', target: 'https://second/mcp', enabled: true },
+    ],
+  })
+  assert.equal(agent.mcpServers.length, 1)
+  assert.equal(agent.mcpServers[0]?.target, 'https://first/mcp')
+})
+
+test('a name that is not a legal tool prefix is refused by the schema, not stored', async () => {
+  const dir = tempConfigDir()
+  const bus = busWith(dir, undefined, workingVault)
+  // `mcp__My Server__tool` is not addressable. Refusing the write is better than
+  // storing a row whose failure mode is "the model ignored your server".
+  const res = await bus.dispatch(
+    'settings.write',
+    { agent: { mcpServers: [{ name: 'My Server', transport: 'http', target: 'https://x/mcp', enabled: true }] } },
+    'ui',
+  )
+  assert.equal(res.ok, false)
+  assert.equal(existsSync(join(dir, SETTINGS_FILE_NAME)), false)
+})
+
+test('a vault that cannot seal drops the credential rather than storing it in the clear', async () => {
+  const dir = tempConfigDir()
+  // The default vault refuses, which is what a machine with no keyring does.
+  const agent = await writeAgent(busWith(dir), {
+    mcpServers: [
+      { name: 'docs', transport: 'http', target: 'https://example.com/mcp', authValue: 's3cret', enabled: true },
+    ],
+  })
+
+  // The server is still configured — it just has no credential, and the form
+  // says so. The alternative is a readable secret in a file users paste into
+  // issues, which is not a trade peek makes anywhere.
+  assert.equal(agent.mcpServers.length, 1)
+  assert.equal(agent.mcpServers[0]?.authValueSet, false)
+  assert.equal(JSON.stringify(fileJson(dir)).includes('s3cret'), false)
 })

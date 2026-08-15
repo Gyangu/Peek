@@ -7,7 +7,7 @@ export const sidebar = {
   'sidebar.collapse': 'Collapse the connection list',
   'sidebar.expand': 'Show the connection list',
   'sidebar.empty': 'No connections yet',
-  'sidebar.emptyHint': 'Use ＋ in the top right to add one',
+  'sidebar.emptyHint': 'Add one from the top right',
 
   /* Tooltip on a row; the key glyph marks an entry whose password is in the vault. */
   'sidebar.secretStored': 'Password saved in the system keychain',

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import type { ColumnDef } from '@peek/core'
 import { truncatedValue } from '@peek/core'
-import { copyCellPlan, copyRowsPlan, tsvField, type GridCopySource } from '../gridCopy'
+import { copyCellPlan, copyRangePlan, copyRowsPlan, tsvField, type GridCopySource } from '../gridCopy'
+import { rangeAt, rangeFrom } from '../cellRange'
 
 /* ==================================================================
  * Getting values out of the grid.
@@ -99,6 +100,57 @@ describe('rows as TSV', () => {
     // The caller declines to copy at all in this case; this only pins that the
     // function itself does not throw or invent a row.
     assert.equal(copyRowsPlan(src, []).text, 'id\tname')
+  })
+})
+
+describe('a rectangle of cells', () => {
+  const src = sourceOf(
+    ['id', 'name', 'city', 'note'],
+    [
+      [1, 'ada', 'london', 'x'],
+      [2, 'grace', 'nyc', 'y'],
+      [3, 'alan', 'cambridge', 'z'],
+    ],
+  )
+
+  test('carries only the columns it covers, in grid order', () => {
+    // The header is the whole point: a block whose header names four columns
+    // over rows holding two is a table that lies about itself.
+    const plan = copyRangePlan(src, rangeFrom({ row: 0, col: 1 }, 1, 2, 0))
+    assert.equal(plan.text, 'name\tcity\nada\tlondon\ngrace\tnyc')
+  })
+
+  test('is unaffected by which corner the drag started from', () => {
+    const down = copyRangePlan(src, rangeFrom({ row: 0, col: 1 }, 1, 2, 0))
+    const up = copyRangePlan(src, rangeFrom({ row: 1, col: 2 }, 0, 1, 0))
+    assert.equal(down.text, up.text)
+  })
+
+  test('a single cell still comes with its header', () => {
+    // Unlike `copyCellPlan`, which gives back the bare value: the two are
+    // reached by different gestures, and a dragged block stays a block even
+    // when the drag covered one cell.
+    assert.equal(copyRangePlan(src, rangeAt(2, 0)).text, 'id\n3')
+  })
+
+  test('escapes fields the same way a row copy does', () => {
+    const messy = sourceOf(['a', 'b'], [[3, 'two\tfields?']])
+    assert.equal(copyRangePlan(messy, rangeFrom({ row: 0, col: 0 }, 0, 1, 0)).text, 'a\tb\n3\t"two\tfields?"')
+  })
+
+  test('reports truncated cells inside the block', () => {
+    const big = truncatedValue('head', 'utf8', { byteLength: 99_999 })
+    const partial = sourceOf(['a', 'b'], [[big, big], ['ok', 'ok']])
+    // The rectangle covers column a only, so exactly one of the two big values
+    // is in it — the count follows the block, not the row.
+    assert.equal(copyRangePlan(partial, rangeFrom({ row: 0, col: 0 }, 1, 0, 0)).truncated, 1)
+  })
+
+  test('columns past the end of the schema are ignored', () => {
+    // A rectangle outlives the result set it was drawn on for exactly as long
+    // as it takes a refresh to land with a narrower schema.
+    const plan = copyRangePlan(src, rangeFrom({ row: 0, col: 2 }, 0, 99, 0))
+    assert.equal(plan.text, 'city\tnote\nlondon\tx')
   })
 })
 

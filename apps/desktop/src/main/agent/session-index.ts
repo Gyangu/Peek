@@ -69,6 +69,23 @@ export interface SessionRoute {
    * has to an agent identity, and what the sessions rail shows on the row.
    */
   agentId: string
+  /**
+   * The working directory this conversation was created in, when it was not
+   * peek's own default.
+   *
+   * Route information in the strictest sense, and the reason it belongs in a
+   * file that deliberately stores nothing derivable: **the backend cannot answer
+   * it.** An ACP `session/load` needs the cwd as an *input* — it is how the
+   * agent finds the transcript — so a conversation started in a project
+   * directory and resumed against `~/.peek/chat` does not come back wrong, it
+   * does not come back at all.
+   *
+   * Absent means the default for that agent, which is what every conversation
+   * recorded before 2026-08-15 has and what a conversation that never left the
+   * default still gets. See
+   * `docs/design/2026-08-15-chat-panel-full-capability.md` §3.4.
+   */
+  cwd?: string
   /** Epoch millis, set once when the route is first recorded. */
   createdAt: number
   /** Endpoint backend only. Absent means the conversation has no name yet. */
@@ -144,6 +161,12 @@ export class SessionIndex {
       backend: route.backend,
       agentId: route.agentId,
       createdAt: route.createdAt ?? Date.now(),
+      // Field by field rather than a spread, so a caller cannot widen what the
+      // index stores by passing extra keys — the file's whole discipline is that
+      // it holds routing information and nothing that could be mistaken for a
+      // transcript. Which also means every new field has to be added here, and
+      // the one that was not is why this comment exists.
+      ...(route.cwd ? { cwd: route.cwd } : {}),
     }
     routes.set(created.sessionId, created)
     this.#save()
@@ -250,11 +273,18 @@ function asRoute(id: string, value: unknown): SessionRoute | null {
   const createdAt = record['createdAt']
   const title = record['title']
   const updatedAt = record['updatedAt']
+  const cwd = record['cwd']
   return {
     sessionId,
     backend,
     agentId,
     createdAt: typeof createdAt === 'number' && Number.isFinite(createdAt) ? createdAt : 0,
+    // Dropped rather than rejected when malformed, like `title` beside it: a
+    // conversation whose cwd is unreadable falls back to the default, where it
+    // may fail to load and say so. Refusing the whole route would instead take
+    // the conversation out of the catalogue, which is a worse answer to a
+    // hand-edited file.
+    ...(typeof cwd === 'string' && cwd.length > 0 ? { cwd } : {}),
     ...(typeof title === 'string' && title.length > 0 ? { title } : {}),
     ...(typeof updatedAt === 'number' && Number.isFinite(updatedAt) ? { updatedAt } : {}),
   }

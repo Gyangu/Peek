@@ -27,6 +27,71 @@ export const keyboard = {
   'keyboard.tabPosition': 'Tab {index}/{total}',
   'keyboard.tabPositionTitle':
     'Visible tab · {tabDigitKeys} select the Nth tab ({lastTabKey} is the last) · {cycleKeys} cycle · {closeTabKey} close',
+
+  /* ================================================================
+   * The registry's labels.
+   *
+   * One line per entry in `keys/registry.ts`, read by the shortcut sheet and by
+   * the keyboard section of settings. They describe what the shortcut *does*,
+   * never which keys it is — the keys come from the binding, which the user may
+   * have changed, and a description that named them would be the one string in
+   * the catalog that can become false.
+   * ================================================================ */
+  'keys.sheet.title': 'Keyboard shortcuts',
+
+  'keys.scope.window': 'Window',
+  'keys.scope.grid': 'Results grid',
+  'keys.scope.composer': 'Chat composer',
+  'keys.scope.nav': 'Lists, tabs and menus',
+  'keys.scope.modal': 'Dialogs',
+  'keys.scope.menu': 'Application menu',
+
+  'keys.panel.splitRow': 'Split the panel left and right',
+  'keys.panel.splitCol': 'Split the panel top and bottom',
+  'keys.panel.close': 'Close the panel and every tab in it',
+  'keys.panel.focusIndex': 'Focus the Nth panel',
+  'keys.panel.focusDirection': 'Move focus to the panel that way',
+
+  'keys.tab.close': 'Close the visible tab',
+  'keys.tab.select': 'Show the Nth tab (the last digit shows the last tab)',
+  'keys.tab.cycleNext': 'Show the next tab',
+  'keys.tab.cyclePrev': 'Show the previous tab',
+
+  'keys.view.moveDirection': 'Move the view into the panel that way',
+  'keys.view.splitDirection': 'Move the view past that panel, into a new one',
+
+  'keys.app.settings': 'Open settings',
+  'keys.app.shortcuts': 'Show the keyboard shortcuts',
+  'keys.app.leaveTextEntry': 'Leave the text editor',
+
+  'keys.menu.zoomActual': 'Actual size',
+  'keys.menu.zoomIn': 'Zoom in',
+  'keys.menu.zoomOut': 'Zoom out',
+
+  'keys.grid.selectAll': 'Select every row',
+  'keys.grid.copy': 'Copy the selection',
+  'keys.grid.jumpEdge': 'Jump to the first or last row',
+  'keys.grid.clearSelection': 'Clear the selection',
+
+  'keys.composer.send': 'Send the message',
+  'keys.composer.newline': 'Start a new line',
+  'keys.composer.mention': 'Mention a table, a view or a file',
+
+  'keys.nav.move': 'Move through the items',
+  'keys.nav.activate': 'Open the highlighted item',
+
+  'keys.modal.close': 'Close the dialog',
+  'keys.modal.cycleFocus': 'Move to the next control',
+
+  /* The keyboard section of settings. */
+  'keys.settings.record': 'Change the shortcut for {name}',
+  'keys.settings.recording': 'Press a chord…',
+  'keys.settings.reset': 'Reset',
+  'keys.settings.resetAll': 'Reset every shortcut',
+  'keys.settings.showSheet': 'Show the shortcut sheet',
+  'keys.settings.off': 'Off',
+  'keys.settings.conflict': 'Also bound to: {others}',
+  'keys.settings.readOnly': 'These come from the system. They cannot be changed.',
 } as const
 
 export type KeyboardMessages = typeof keyboard

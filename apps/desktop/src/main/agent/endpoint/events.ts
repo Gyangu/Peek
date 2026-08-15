@@ -45,6 +45,7 @@ import {
   type ToolCallRecord,
   type ToolCallStatus,
 } from '@peek/core'
+import type { LogLevel } from '@peek/core'
 import { sanitizeLine } from '../redact'
 import type { ChatStateDelta } from '../../acp/translate'
 
@@ -100,10 +101,35 @@ export type AgentEventOutcome =
   | { kind: 'failed'; message: string }
   /** The stream was aborted. Normally already settled by `cancel()`. */
   | { kind: 'aborted' }
-  /** An event peek knowingly does not render. Diagnostics only; never thrown. */
-  | { kind: 'ignored'; reason: string }
+  /**
+   * An event peek does not render. Diagnostics only; never thrown.
+   *
+   * `level` is decided **here**, not by whoever logs it, and that is deliberate.
+   * Six of the eleven reasons below are ordinary traffic — `message_start:user`
+   * and `turn_start` happen several times per turn — so recording them above
+   * `debug` would fill the log with normal operation, which is how a log stops
+   * being read. The other cases mean something different in kind, and only this
+   * function knows which is which: a caller matching on the reason string would
+   * be one rename away from getting it wrong, silently.
+   */
+  | { kind: 'ignored'; reason: string; level: LogLevel }
 
-const ignored = (reason: string): AgentEventOutcome => ({ kind: 'ignored', reason })
+/** Routine: peek recognises this event and has decided it draws nothing. */
+const ignored = (reason: string): AgentEventOutcome => ({ kind: 'ignored', reason, level: 'debug' })
+
+/**
+ * Not routine: peek could not use this event, and somebody should know.
+ *
+ * Two situations, and they share a consequence the user can see. An unrecognised
+ * `type` means the SDK or the model grew a shape this build does not handle — the
+ * exact case the ten named branches above exist to make noisy rather than
+ * silent, except that naming them only ever moved the silence here. A tool event
+ * with no `toolCallId` means a tool call vanished from the transcript: the user
+ * watches the model announce a call that never appears, and until now nothing
+ * anywhere said why.
+ */
+const unusable = (reason: string): AgentEventOutcome => ({ kind: 'ignored', reason, level: 'warn' })
+
 const feed = (event: EndpointEvent): AgentEventOutcome => ({ kind: 'event', event })
 
 /**
@@ -133,7 +159,7 @@ const feed = (event: EndpointEvent): AgentEventOutcome => ({ kind: 'event', even
  * unrecognised shape is reported, exactly as `acp/translate.ts` reports one.
  */
 export function classifyAgentEvent(raw: unknown): AgentEventOutcome {
-  if (typeof raw !== 'object' || raw === null) return ignored('non-object event')
+  if (typeof raw !== 'object' || raw === null) return unusable('non-object event')
   const event = raw as {
     type?: string
     message?: { role?: string; stopReason?: string; errorMessage?: string }
@@ -180,7 +206,7 @@ export function classifyAgentEvent(raw: unknown): AgentEventOutcome {
     }
 
     case 'tool_execution_start':
-      if (!event.toolCallId) return ignored('tool_execution_start without an id')
+      if (!event.toolCallId) return unusable('tool_execution_start without an id')
       return feed({
         type: 'tool_start',
         id: event.toolCallId,
@@ -189,7 +215,7 @@ export function classifyAgentEvent(raw: unknown): AgentEventOutcome {
       })
 
     case 'tool_execution_end':
-      if (!event.toolCallId) return ignored('tool_execution_end without an id')
+      if (!event.toolCallId) return unusable('tool_execution_end without an id')
       return feed({
         type: 'tool_end',
         id: event.toolCallId,
@@ -208,7 +234,7 @@ export function classifyAgentEvent(raw: unknown): AgentEventOutcome {
       return ignored(event.type)
 
     default:
-      return ignored(`unknown:${event.type ?? 'untyped'}`)
+      return unusable(`unknown:${event.type ?? 'untyped'}`)
   }
 }
 

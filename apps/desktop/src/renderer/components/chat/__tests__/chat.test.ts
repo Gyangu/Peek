@@ -626,7 +626,9 @@ test('the panel writes no state of its own', () => {
   // which is not state until it is sent.
   for (const file of [
     '../ChatView.tsx',
-    '../AttachmentBar.tsx',
+    '../AttachmentStrip.tsx',
+    '../AttachMenu.tsx',
+    '../Composer.tsx',
     '../PermissionPrompt.tsx',
     '../MessageList.tsx',
     '../MessageItem.tsx',
@@ -671,6 +673,7 @@ test('defaultChatViewId prefers the focused panel, then a visible chat, then any
     agentSessionId: null,
     agentStatus: 'ready',
     permissionMode: 'default',
+    permissionModeInherited: false,
     streamingMessageId: null,
     messageCount: 0,
     attachments: [],

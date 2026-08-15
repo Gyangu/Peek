@@ -29,8 +29,14 @@ export const grid: CatalogFor<GridMessages> = {
   'grid.copy.cellTitle': '完整的值，与库里存的一致——不是行里显示的那段预览',
   'grid.copy.rows': { other: '复制 {count} 行' },
   'grid.copy.rowsTitle': '制表符分隔，带表头，可直接粘进表格软件',
+  'grid.copy.cells': { other: '复制 {count} 个单元格' },
+  'grid.copy.cellsTitle': '选中的区块，制表符分隔，带对应列的表头',
   'grid.copy.cellDone': '已复制该值。',
   'grid.copy.rowsDone': { other: '已复制 {count} 行。' },
+  'grid.copy.cellsDone': { other: '已复制 {count} 个单元格。' },
+  'grid.copy.notLoaded': {
+    other: '有 {count} 个单元格尚未加载。',
+  },
   'grid.copy.previewOnly': {
     other: '有 {count} 个值太大，窗口里只留了预览，复制的是预览。',
   },

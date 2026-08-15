@@ -24,6 +24,7 @@ import { formatBytes, fullValueText } from '../../util/format'
 import { ViewError } from '../ViewError'
 import { nextKeyWindow, windowSize } from './keyWindow'
 import { Button } from '../../ui/Button'
+import { Icon } from '../../ui/Icon'
 
 /**
  * Single value / single row inspector.
@@ -134,7 +135,8 @@ export function InspectorView({ view }: { view: InspectorViewState }): ReactElem
                 fetchKeyValue(more)
               }}
             >
-              {t('inspector.nextWindow')} →
+              {t('inspector.nextWindow')}
+              <Icon name="page.next" />
             </Button>
           </>
         ) : null}
