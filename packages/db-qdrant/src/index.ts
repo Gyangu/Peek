@@ -30,11 +30,7 @@ export {
   parseCollectionNodeId,
   type ParsedCollectionNodeId,
 } from './collections'
-export {
-  QdrantPointCursor,
-  type QdrantPointCursorOptions,
-  type QdrantPointPage,
-} from './scroll'
+export { QdrantPointCursor, type QdrantPointCursorOptions, type QdrantPointPage } from './scroll'
 export {
   buildRowShape,
   pointFieldRef,

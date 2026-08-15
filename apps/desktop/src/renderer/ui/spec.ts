@@ -304,7 +304,8 @@ export const CONTROL_SIZES = {
   },
   sm: {
     px: 20,
-    intent: 'Inline inside a compact strip — a 24px row, a 30px tab bar, a chip. Below the hit floor on purpose, and only because the strip itself sets the ceiling.',
+    intent:
+      'Inline inside a compact strip — a 24px row, a 30px tab bar, a chip. Below the hit floor on purpose, and only because the strip itself sets the ceiling.',
     /*
      * The small rung belongs to the size, not to the caller.
      *
@@ -419,7 +420,8 @@ export const EXPOSURES = {
     intent: 'A person decides this. The default, and the default is the safe one on purpose.',
   },
   'agent-ok': {
-    intent: 'Safe for an agent to trigger on the user\'s behalf. Requires an `action` id — you cannot address what has no name.',
+    intent:
+      "Safe for an agent to trigger on the user's behalf. Requires an `action` id — you cannot address what has no name.",
   },
 } as const
 

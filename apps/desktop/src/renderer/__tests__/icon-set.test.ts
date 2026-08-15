@@ -75,8 +75,7 @@ const RENDERER = dirname(HERE)
  * rewritten: a list of spellings is only ever as long as somebody remembered,
  * and the next author will reach for a glyph nobody has typed here yet.
  */
-const PICTORIAL =
-  /[←-⇿⌀-⏿■-➿⬀-⯿\u{1F300}-\u{1FAFF}]/u
+const PICTORIAL = /[←-⇿⌀-⏿■-➿⬀-⯿\u{1F300}-\u{1FAFF}]/u
 
 /**
  * Characters that are not pictures but were being **used** as one.
@@ -222,7 +221,7 @@ describe('icons are icons, not characters', () => {
 const ICON_BUTTON_BY_HAND: Record<string, string> = {
   'components/PanelTabs.tsx':
     'The tab close is `aria-hidden` — the keyboard closes a tab with Delete/Backspace and exposing ' +
-    'it would double the strip\'s tab stops — so `icon`\'s mandatory label would be a name nothing ' +
+    "it would double the strip's tab stops — so `icon`'s mandatory label would be a name nothing " +
     'can read. It carries `title` alone, and its square shape comes from the `sm` rung plus its own ' +
     'layout classes rather than from the modifier.',
 }

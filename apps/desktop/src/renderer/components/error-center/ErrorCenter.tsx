@@ -80,7 +80,11 @@ export function ErrorCenterButton(): ReactElement | null {
         aria-expanded={open}
         onClick={toggleErrorCenter}
       >
-        <span className={unseen > 0 ? 'text-err inline-flex items-center gap-tight' : 'inline-flex items-center gap-tight'}>
+        <span
+          className={
+            unseen > 0 ? 'text-err inline-flex items-center gap-tight' : 'inline-flex items-center gap-tight'
+          }
+        >
           <Icon name="warn" />
           {unseen > 0 ? t('app.errors.unseen', { count: unseen }) : t('app.errors.count', { count })}
         </span>

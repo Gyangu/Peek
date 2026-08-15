@@ -32,11 +32,7 @@ export function useGlobalKeys(): void {
     void loadBindings()
 
     const onKey = (e: KeyboardEvent): void => {
-      const action = resolveShortcut(
-        chordOf(e),
-        { textEntry: isTextEntry(eventElement(e)) },
-        readBindings(),
-      )
+      const action = resolveShortcut(chordOf(e), { textEntry: isTextEntry(eventElement(e)) }, readBindings())
       if (!action) return
       if (action.kind === 'leaveTextEntry') {
         // No preventDefault: Esc may mean something to whatever else is listening
@@ -154,7 +150,7 @@ function cycleTab(panel: PanelNode, delta: 1 | -1): void {
   const count = panel.viewIds.length
   if (count < 2) return
   const current = panel.activeViewId === null ? 0 : panel.viewIds.indexOf(panel.activeViewId)
-  const viewId = panel.viewIds[(((current < 0 ? 0 : current) + delta) % count + count) % count]
+  const viewId = panel.viewIds[((((current < 0 ? 0 : current) + delta) % count) + count) % count]
   if (viewId === undefined || viewId === panel.activeViewId) return
   void dispatch('view.activate', { viewId, focusPanel: true })
 }

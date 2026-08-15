@@ -33,9 +33,8 @@ const stub: StorageStub = {
 
 ;(globalThis as { localStorage?: unknown }).localStorage = stub
 
-const { useChatRailStore, setChatRailCollapsed, toggleChatRail, resetChatRailForTest } = await import(
-  '../railStore'
-)
+const { useChatRailStore, setChatRailCollapsed, toggleChatRail, resetChatRailForTest } =
+  await import('../railStore')
 
 const KEY = 'peek.chatRail.collapsed'
 

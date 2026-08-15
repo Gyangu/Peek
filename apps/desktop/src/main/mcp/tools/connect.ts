@@ -32,7 +32,9 @@ const InputSchema = commandSchemas['conn.open']
  * was installed at that moment. `executor.ts`'s `baseFields` has the mechanism.
  */
 function connectExamples(): string {
-  return driverManifests().map((m) => `${m.displayName} ${m.mcpConnectExample}`).join('; ')
+  return driverManifests()
+    .map((m) => `${m.displayName} ${m.mcpConnectExample}`)
+    .join('; ')
 }
 
 /** Only these fields of the conn.open result are read; a loose schema narrows it without `any`. */
@@ -62,11 +64,15 @@ export default defineCommandTool({
     const parsed = ConnOpenResultShape.safeParse(outcomeData(outcomes, 'conn.open'))
     const snap = ctx.getSnapshot()
     if (!parsed.success) {
-      return { text: `The connect command ran, but its return value could not be parsed.\n\n${toJson(outcomes)}` }
+      return {
+        text: `The connect command ran, but its return value could not be parsed.\n\n${toJson(outcomes)}`,
+      }
     }
     const conn = snap.connections.find((c) => String(c.id) === parsed.data.connId)
     const brief = conn ? briefConnection(conn) : null
-    const treeNote = parsed.data.treeViewId ? `\nOpened namespace tree view ${parsed.data.treeViewId} automatically.` : ''
+    const treeNote = parsed.data.treeViewId
+      ? `\nOpened namespace tree view ${parsed.data.treeViewId} automatically.`
+      : ''
     return {
       text:
         `Connection ${parsed.data.connId} is ${brief?.status ?? 'unknown'}.${treeNote}\n\n` +

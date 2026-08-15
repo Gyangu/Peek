@@ -19,9 +19,7 @@ export function optionalDepStub(packageName: string, hint: string): object {
     {},
     {
       get(_target, prop) {
-        throw new Error(
-          `${packageName} is not bundled with peek (accessed "${String(prop)}"). ${hint}`,
-        )
+        throw new Error(`${packageName} is not bundled with peek (accessed "${String(prop)}"). ${hint}`)
       },
     },
   )

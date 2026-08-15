@@ -1,11 +1,5 @@
 import type { z } from 'zod'
-import type {
-  Command,
-  CommandInput,
-  CommandName,
-  CommandResultFor,
-  CommandSource,
-} from './commands'
+import type { Command, CommandInput, CommandName, CommandResultFor, CommandSource } from './commands'
 import type { ColumnDef } from './chunk'
 import type { LogLevel, Logger } from './logger'
 import type { NamespaceNode } from './capability'
@@ -271,11 +265,7 @@ export interface CommandToolSpec<S extends z.ZodType = z.ZodType> extends ToolSp
   /** Map the tool input onto a list of Commands; the executor dispatches them in order and stops at the first failure. */
   toCommands(input: z.output<S>, ctx: ToolContext): Command[] | Promise<Command[]>
   /** Optional: render the command results into the body shown to the AI; falls back to the default renderer. */
-  render?(
-    outcomes: CommandOutcome[],
-    input: z.output<S>,
-    ctx: ToolContext,
-  ): ToolOutput | Promise<ToolOutput>
+  render?(outcomes: CommandOutcome[], input: z.output<S>, ctx: ToolContext): ToolOutput | Promise<ToolOutput>
 }
 
 /** Read-only tool: reads the Workspace Store or an injected read-only channel, never dispatches. */
@@ -379,8 +369,7 @@ export type PackageToolMeta = ToolMeta & { readonly packageId: string }
 
 /** The half of a tool that is code — what a package's host process runs. */
 export type ToolCode<S extends z.ZodType = z.ZodType> =
-  | Pick<CommandToolSpec<S>, 'toCommands' | 'render'>
-  | Pick<ReadToolSpec<S>, 'read'>
+  Pick<CommandToolSpec<S>, 'toCommands' | 'render'> | Pick<ReadToolSpec<S>, 'read'>
 
 /**
  * Declare a tool's metadata in a driver package. Identity at runtime; the work

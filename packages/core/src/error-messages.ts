@@ -101,8 +101,7 @@ export const ERROR_MESSAGES = {
    * see `ChatSessionsDeleteResult` for why the delete does not close the view
    * itself.
    */
-  'error.chat.sessionOpen':
-    'Conversation {sessionId} is open in view {viewId}; close it before deleting',
+  'error.chat.sessionOpen': 'Conversation {sessionId} is open in view {viewId}; close it before deleting',
   'error.chat.permissionStale':
     'Permission request {requestId} is no longer the one being asked (it is now {actual}); read the conversation again',
   'error.chat.permissionOptionUnknown': 'No such permission option {optionId}; the choices are {options}',
@@ -168,8 +167,7 @@ export const ERROR_MESSAGES = {
 
   /* ---- Introspection ----------------------------------------------- */
   'error.introspect.unknownNodeId': 'Unrecognized node id: {nodeId}',
-  'error.introspect.collectionKindUnsupported':
-    'PostgreSQL only supports relation collections, got {kind}',
+  'error.introspect.collectionKindUnsupported': 'PostgreSQL only supports relation collections, got {kind}',
   'error.introspect.relationNotFound': 'Relation does not exist or has no visible columns: {name}',
   /**
    * The driver-neutral sibling of `collectionKindUnsupported`, which names

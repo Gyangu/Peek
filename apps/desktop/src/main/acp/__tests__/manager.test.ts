@@ -241,7 +241,10 @@ test('a stop pressed while the session is still coming up is honoured, not swall
       .filter((l) => l.trim())
       .map((l) => (JSON.parse(l) as { method: string }).method)
     assert.ok(methods.includes('session/new'), 'the session still comes up')
-    assert.ok(!methods.includes('session/prompt'), `the cancelled turn must never be sent; agent saw ${methods.join(', ')}`)
+    assert.ok(
+      !methods.includes('session/prompt'),
+      `the cancelled turn must never be sent; agent saw ${methods.join(', ')}`,
+    )
 
     // The user's own message is still recorded — they typed it — and the turn is
     // closed as cancelled rather than left spinning.
@@ -300,7 +303,11 @@ test('a human reading a permission dialog is not treated as a stalled turn', asy
     await sleep(1_500)
     assert.notEqual(h.status(), 'error', 'the turn was killed while a human was reading the dialog')
 
-    assert.equal(h.manager.respondPermission(requestId, 'allow'), true, 'the request expired under the watchdog')
+    assert.equal(
+      h.manager.respondPermission(requestId, 'allow'),
+      true,
+      'the request expired under the watchdog',
+    )
     await sleep(1_200)
 
     const { readFileSync } = await import('node:fs')
@@ -351,7 +358,11 @@ test('a stray update after the permission request does not restart the human clo
       'error',
       'a notification arriving after the request re-armed the idle watchdog behind the dialog',
     )
-    assert.equal(h.manager.respondPermission(requestId, 'allow'), true, 'the request expired under the watchdog')
+    assert.equal(
+      h.manager.respondPermission(requestId, 'allow'),
+      true,
+      'the request expired under the watchdog',
+    )
     await sleep(1_200)
     assert.equal(h.status(), 'ready')
   } finally {
@@ -543,7 +554,10 @@ test('spike 1: a turn that goes silent is cut off, not left to retry for minutes
     // this is the *only* place the user is told what happened. Without it the
     // panel went from a spinner to a red status with no sentence anywhere.
     const toast = h.notifications.find((n) => n.level === 'error')
-    assert.ok(toast, `the stalled turn was killed in silence; notifications: ${JSON.stringify(h.notifications)}`)
+    assert.ok(
+      toast,
+      `the stalled turn was killed in silence; notifications: ${JSON.stringify(h.notifications)}`,
+    )
     assert.match(toast.message, /400 ms/, 'the message must name the budget that was applied')
 
     // And the agent was actually told to stop, rather than peek merely giving up
@@ -575,7 +589,11 @@ test('spike 1b: a turn that keeps talking still has an end — promptMaxMs', asy
     // Named distinctly from the idle watchdog: "The reply" means it went quiet,
     // "The turn" means it did not. Reporting the wrong one sends whoever reads
     // the toast looking at the wrong thing.
-    assert.match(error?.message ?? '', /^The turn /, 'the ceiling and the idle watchdog must be distinguishable')
+    assert.match(
+      error?.message ?? '',
+      /^The turn /,
+      'the ceiling and the idle watchdog must be distinguishable',
+    )
     assert.match(error?.message ?? '', /900 ms/, 'the configured budget, not the remainder after a pause')
   } finally {
     await h.manager.dispose()
@@ -606,7 +624,11 @@ test('spike 1c: promptMaxMs is agent time — a human deciding does not spend it
 
     await sleep(1_500)
     assert.notEqual(h.status(), 'error', 'the absolute ceiling ran against a person reading a dialog')
-    assert.equal(h.manager.respondPermission(requestId, 'allow'), true, 'the request expired under the ceiling')
+    assert.equal(
+      h.manager.respondPermission(requestId, 'allow'),
+      true,
+      'the request expired under the ceiling',
+    )
     await sleep(1_000)
     assert.equal(h.status(), 'ready')
   } finally {
@@ -652,7 +674,9 @@ test('spike 3: no MCP endpoint means a loud warning, because session/new will no
     await h.manager.send({ chatId: h.chatId, text: 'hi', attachments: [] })
     await sleep(900)
 
-    const warning = h.notifications.find((n) => n.level === 'warn' && /cannot see this window/i.test(n.message))
+    const warning = h.notifications.find(
+      (n) => n.level === 'warn' && /cannot see this window/i.test(n.message),
+    )
     assert.ok(warning, `no warning was raised; notifications were ${JSON.stringify(h.notifications)}`)
     assert.match(String(warning.detail), /MCP/, 'the detail has to name what is missing')
 
@@ -667,7 +691,11 @@ test('spike 3: no MCP endpoint means a loud warning, because session/new will no
 test('spike 3b: a live endpoint reaches session/new as a bearer descriptor, and never a log', async () => {
   const log = logPath('mcp')
   const TOKEN = 'peek-test-bearer-token-0123456789abcdef'
-  const h = harness({ STUB_PROMPT_MS: '80', STUB_LOG: log }, {}, { url: 'http://127.0.0.1:7332/mcp', token: TOKEN })
+  const h = harness(
+    { STUB_PROMPT_MS: '80', STUB_LOG: log },
+    {},
+    { url: 'http://127.0.0.1:7332/mcp', token: TOKEN },
+  )
 
   const logLines: string[] = []
   h.manager.events.on('log', (e) => {
@@ -679,7 +707,11 @@ test('spike 3b: a live endpoint reaches session/new as a bearer descriptor, and 
     await sleep(900)
 
     const params = await paramsOf(log, 'session/new')
-    const servers = params?.['mcpServers'] as { name: string; url: string; headers: { name: string; value: string }[] }[]
+    const servers = params?.['mcpServers'] as {
+      name: string
+      url: string
+      headers: { name: string; value: string }[]
+    }[]
     assert.equal(servers.length, 1, 'the closed loop needs exactly peek’s own server')
     assert.equal(servers[0]?.name, 'peek')
     // `headers` is an array of {name, value}, not an object — getting this wrong
@@ -1033,7 +1065,10 @@ test('a stored snapshot is drawn first and then replaced by the agent’s own co
 
     await opening
     await sleep(400)
-    assert.equal(h.patches.some((p) => p.showingSnapshot === true), true)
+    assert.equal(
+      h.patches.some((p) => p.showingSnapshot === true),
+      true,
+    )
 
     // And afterwards it is gone, replaced rather than appended to. The stub's
     // replay is the only text left.
@@ -1044,7 +1079,10 @@ test('a stored snapshot is drawn first and then replaced by the agent’s own co
       .join('')
     assert.equal(text.includes('from the snapshot'), false, 'the picture must not survive the replay')
     assert.equal(text, 'what did I ask?replayed history')
-    assert.equal([...h.patches].reverse().find((p) => p.showingSnapshot !== undefined)?.showingSnapshot, false)
+    assert.equal(
+      [...h.patches].reverse().find((p) => p.showingSnapshot !== undefined)?.showingSnapshot,
+      false,
+    )
   } finally {
     await h.manager.dispose()
   }

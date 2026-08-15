@@ -162,7 +162,10 @@ async function handle(msg) {
         sessionId,
         modes: {
           currentModeId: 'auto',
-          availableModes: [{ id: 'auto', name: 'Auto' }, { id: 'default', name: 'Manual' }],
+          availableModes: [
+            { id: 'auto', name: 'Auto' },
+            { id: 'default', name: 'Manual' },
+          ],
         },
       },
     })
@@ -263,18 +266,25 @@ async function handle(msg) {
       // then expires against a person reading a dialog. Measured in the running
       // app: "The reply did not finish within 90000 ms", dialog still on screen.
       const chatter = Number(process.env.STUB_CHATTER_MS ?? '0')
-      const chatterTimer = chatter > 0
-        ? setTimeout(() => {
-          write({
-            jsonrpc: '2.0',
-            method: 'session/update',
-            params: { sessionId, update: { sessionUpdate: 'usage_update', used: 1234, size: 1_000_000 } },
-          })
-        }, chatter)
-        : null
+      const chatterTimer =
+        chatter > 0
+          ? setTimeout(() => {
+              write({
+                jsonrpc: '2.0',
+                method: 'session/update',
+                params: { sessionId, update: { sessionUpdate: 'usage_update', used: 1234, size: 1_000_000 } },
+              })
+            }, chatter)
+          : null
       const outcome = await ask('session/request_permission', {
         sessionId,
-        toolCall: { toolCallId, title: 'mcp__peek__read_workspace', kind: 'other', content: [], rawInput: {} },
+        toolCall: {
+          toolCallId,
+          title: 'mcp__peek__read_workspace',
+          kind: 'other',
+          content: [],
+          rawInput: {},
+        },
         options: [
           { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
           { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
@@ -290,12 +300,12 @@ async function handle(msg) {
     const talkTimer =
       !SILENT && talk > 0
         ? setInterval(() => {
-          write({
-            jsonrpc: '2.0',
-            method: 'session/update',
-            params: { sessionId, update: { sessionUpdate: 'usage_update', used: 1234, size: 1_000_000 } },
-          })
-        }, talk)
+            write({
+              jsonrpc: '2.0',
+              method: 'session/update',
+              params: { sessionId, update: { sessionUpdate: 'usage_update', used: 1234, size: 1_000_000 } },
+            })
+          }, talk)
         : null
 
     const done = new Promise((resolve) => {

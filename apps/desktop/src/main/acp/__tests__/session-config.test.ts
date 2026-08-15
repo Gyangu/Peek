@@ -190,7 +190,13 @@ test('a user server becomes an ACP descriptor of the right shape per transport',
 
 test('the credential is sent verbatim under the header the user named', () => {
   const [server] = buildUserMcpServers([
-    { name: 'api', transport: 'http', target: 'https://x/mcp', authHeader: 'X-API-Key', authValue: 'raw-key' },
+    {
+      name: 'api',
+      transport: 'http',
+      target: 'https://x/mcp',
+      authHeader: 'X-API-Key',
+      authValue: 'raw-key',
+    },
   ])
   // No scheme is prepended. A server expecting a bare key must get a bare key,
   // and peek cannot tell which kind it is talking to — so the user writes the

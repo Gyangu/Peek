@@ -31,7 +31,8 @@ export const views = {
   'autoRefresh.unitH': ' h',
   'autoRefresh.menuLabel': 'Auto-refresh interval',
   'autoRefresh.title': 'Auto-refresh: fetch this view again on a timer',
-  'autoRefresh.onTitle': 'Auto-refreshing every {interval}. The first fetch is one interval away — press Refresh for one now.',
+  'autoRefresh.onTitle':
+    'Auto-refreshing every {interval}. The first fetch is one interval away — press Refresh for one now.',
   'autoRefresh.stoppedPaged':
     'Auto-refresh switched off: this collection pages forward with a cursor, and a refresh restarts the scan from the first page.',
   'autoRefresh.stoppedError': 'Auto-refresh switched off after three failed attempts in a row.',
@@ -77,8 +78,7 @@ export const views = {
   /* Not a plural: "more" does not inflect, and one/other spelled identically
    * reads as an oversight rather than a decision. */
   'tree.elision.more': '{count} more, not shown',
-  'tree.elision.unknown':
-    'More here than this tree read — open this level as a table to see everything',
+  'tree.elision.unknown': 'More here than this tree read — open this level as a table to see everything',
   'tree.unavailable': 'The namespace tree is unavailable.',
   'tree.unavailableDetail':
     'The Command Bus has no introspect command, and preload exposes no introspect extension channel, so the renderer cannot reach the child nodes.',

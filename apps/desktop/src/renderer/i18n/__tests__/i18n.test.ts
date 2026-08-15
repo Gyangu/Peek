@@ -116,10 +116,7 @@ describe('plurals', () => {
     // reads like core's describeView(); the point is that zh-CN does not.
     const en = { kind: translate('en', 'view.kind.tree'), count: 3 }
     assert.equal(translate('en', 'view.describe.tree', en), 'Object tree · 3 nodes expanded')
-    assert.equal(
-      translate('en', 'view.describe.tree', { ...en, count: 1 }),
-      'Object tree · 1 node expanded',
-    )
+    assert.equal(translate('en', 'view.describe.tree', { ...en, count: 1 }), 'Object tree · 1 node expanded')
     assert.equal(
       translate('zh-CN', 'view.describe.tree', { kind: translate('zh-CN', 'view.kind.tree'), count: 3 }),
       '对象树 · 已展开 3 个节点',

@@ -363,8 +363,8 @@ export function normalizeNativeFilter(value: unknown): QdrantFilter {
   if (unknownKeys.length > 0) {
     throw peekError(
       'BAD_REQUEST',
-      `qdrant nativeFilter has unsupported key(s) ${unknownKeys.join(', ')};`
-        + ' only must, should, must_not and min_should are accepted',
+      `qdrant nativeFilter has unsupported key(s) ${unknownKeys.join(', ')};` +
+        ' only must, should, must_not and min_should are accepted',
     )
   }
   return value as QdrantFilter
@@ -400,10 +400,7 @@ function requireArray(spec: FilterSpec): unknown[] {
 function anyVariants(spec: FilterSpec, values: unknown[]): string[] | number[] {
   if (values.every((v) => typeof v === 'string')) return values as string[]
   if (values.every((v) => typeof v === 'number')) return values as number[]
-  throw peekError(
-    'BAD_REQUEST',
-    `Filter ${spec.column} in requires a list of all strings or all numbers`,
-  )
+  throw peekError('BAD_REQUEST', `Filter ${spec.column} in requires a list of all strings or all numbers`)
 }
 
 /** A range bound is a number, or an ISO-8601 timestamp (qdrant's DatetimeRange takes the same field). */
@@ -411,10 +408,7 @@ function rangeBound(spec: FilterSpec): number | string {
   const value = requireValue(spec)
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && !Number.isNaN(Date.parse(value))) return value
-  throw peekError(
-    'BAD_REQUEST',
-    `Filter ${spec.column} ${spec.op} requires a number or an ISO-8601 datetime`,
-  )
+  throw peekError('BAD_REQUEST', `Filter ${spec.column} ${spec.op} requires a number or an ISO-8601 datetime`)
 }
 
 /** Strip SQL wildcards: qdrant has no LIKE, only full-text match on an indexed text field. */
@@ -467,10 +461,7 @@ function pushSpec(spec: FilterSpec, out: ConditionBuckets, idColumn: string): vo
         return
       }
       default:
-        throw peekError(
-          'BAD_REQUEST',
-          `Filter on ${key} supports only eq, neq and in on a qdrant collection`,
-        )
+        throw peekError('BAD_REQUEST', `Filter on ${key} supports only eq, neq and in on a qdrant collection`)
     }
   }
 
@@ -479,10 +470,7 @@ function pushSpec(spec: FilterSpec, out: ConditionBuckets, idColumn: string): vo
     case 'neq': {
       const value = requireValue(spec)
       if (!isMatchValue(value)) {
-        throw peekError(
-          'BAD_REQUEST',
-          `Filter ${key} ${spec.op} requires a string, number or boolean`,
-        )
+        throw peekError('BAD_REQUEST', `Filter ${key} ${spec.op} requires a string, number or boolean`)
       }
       const cond: QdrantCondition = { key, match: { value } }
       if (spec.op === 'eq') out.must.push(cond)

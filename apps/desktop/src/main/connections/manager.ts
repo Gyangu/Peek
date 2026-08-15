@@ -129,11 +129,7 @@ export class ConnectionManager implements ConnectionEffects {
     if (options.hostDir !== undefined) {
       this.hostDir = options.hostDir
     } else {
-      const decision = resolveHostDir(
-        import.meta.dirname,
-        process.env,
-        options.allowHostDirOverride ?? false,
-      )
+      const decision = resolveHostDir(import.meta.dirname, process.env, options.allowHostDirOverride ?? false)
       this.hostDir = decision.dir
       // Loud, always. The whole point of the check is that this variable stops
       // being able to change where the plaintext-password process loads from
@@ -198,8 +194,8 @@ export class ConnectionManager implements ConnectionEffects {
     if (!existsSync(entryPath)) {
       throw peekErrorMsg('INTERNAL', 'error.driver.hostBuildMissing', undefined, {
         detail:
-          `${entryPath} not found; check that electron-vite's main.rollupOptions.input `
-          + 'still declares the driver-host entry.',
+          `${entryPath} not found; check that electron-vite's main.rollupOptions.input ` +
+          'still declares the driver-host entry.',
       })
     }
 
@@ -216,8 +212,8 @@ export class ConnectionManager implements ConnectionEffects {
     if (entries === null) {
       throw peekErrorMsg('INTERNAL', 'error.driver.hostBuildMissing', undefined, {
         detail:
-          `No installed package was found for driver '${config.driverId}'. It is in the registry, `
-          + 'so the scan accepted it and its directory has gone away since.',
+          `No installed package was found for driver '${config.driverId}'. It is in the registry, ` +
+          'so the scan accepted it and its directory has gone away since.',
       })
     }
 
@@ -260,11 +256,7 @@ export class ConnectionManager implements ConnectionEffects {
       this.deliverPort(entry)
 
       const connectTimeout = options.timeoutMs ?? configConnectTimeout(config) ?? this.timeouts.connectMs
-      const result = await host.call(
-        'connect',
-        { connId, config, timeoutMs: connectTimeout },
-        connectTimeout,
-      )
+      const result = await host.call('connect', { connId, config, timeoutMs: connectTimeout }, connectTimeout)
 
       entry.capabilities = [...result.capabilities]
       if (result.serverInfo !== undefined) entry.serverInfo = result.serverInfo
@@ -409,7 +401,11 @@ export class ConnectionManager implements ConnectionEffects {
           res = await entry.host.call('query.run', outbound as HostParams<'query.run'>, startTimeout)
           break
         case 'collection.scan':
-          res = await entry.host.call('collection.scan', outbound as HostParams<'collection.scan'>, startTimeout)
+          res = await entry.host.call(
+            'collection.scan',
+            outbound as HostParams<'collection.scan'>,
+            startTimeout,
+          )
           break
         case 'vector.search':
           res = await entry.host.call('vector.search', outbound as HostParams<'vector.search'>, startTimeout)
@@ -422,9 +418,7 @@ export class ConnectionManager implements ConnectionEffects {
       const error = classifyExecError(raw)
       // Timed out while starting: make a best effort to stop that resultId driver-side rather than leave a dangling cursor
       if (error.code === 'TIMEOUT' && entry.host.alive) {
-        void entry.host
-          .call('cancel', { resultId }, this.timeouts.cancelMs)
-          .catch(() => undefined)
+        void entry.host.call('cancel', { resultId }, this.timeouts.cancelMs).catch(() => undefined)
       }
       throw error
     }
@@ -456,11 +450,7 @@ export class ConnectionManager implements ConnectionEffects {
       entry.timedOutResults.add(resultId)
       const error = timeoutError('the request', ms)
       this.events.emit('result.error', { connId: entry.connId, resultId, error })
-      this.emitLog(
-        entry.connId,
-        'warn',
-        `Request ${resultId} passed its ${ms}ms deadline; stopping it`,
-      )
+      this.emitLog(entry.connId, 'warn', `Request ${resultId} passed its ${ms}ms deadline; stopping it`)
       void stopExpiredResult(
         {
           hostAlive: entry.host.alive,
@@ -664,9 +654,9 @@ export class ConnectionManager implements ConnectionEffects {
     // driver's own terminal event for it arrives second and is dropped, exactly
     // once — see `timedOutResults`.
     if (
-      entry
-      && (event.type === 'result.error' || event.type === 'result.done' || event.type === 'result.paused')
-      && entry.timedOutResults.delete(event.resultId)
+      entry &&
+      (event.type === 'result.error' || event.type === 'result.done' || event.type === 'result.paused') &&
+      entry.timedOutResults.delete(event.resultId)
     ) {
       this.deadlines.clear(event.resultId)
       return

@@ -101,10 +101,7 @@ describe('driver skills', () => {
     // character here is the one mechanical signal that somebody translated a
     // string that must not be translated.
     for (const m of WITH_SKILL) {
-      assert.ok(
-        !/[　-鿿＀-￯]/.test(m.skill ?? ''),
-        `${m.displayName}'s skill is not written in English`,
-      )
+      assert.ok(!/[　-鿿＀-￯]/.test(m.skill ?? ''), `${m.displayName}'s skill is not written in English`)
     }
   })
 

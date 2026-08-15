@@ -93,7 +93,6 @@ export type CommandPreparer<K extends CommandName> = (
   input: CommandInput<K>,
 ) => CommandPreparation | Promise<CommandPreparation>
 
-
 export type CommandReducer<K extends CommandName> = (
   draft: Draft<Workspace>,
   input: CommandInput<K>,

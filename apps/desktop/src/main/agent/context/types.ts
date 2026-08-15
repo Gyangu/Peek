@@ -80,7 +80,11 @@ export interface ContextSource {
   /** Rows from the renderer's result cache. Rejects when the result is gone. */
   readResultRows(req: ReadResultRowsRequest): Promise<TabularSlice>
   /** A collection's structure, straight from the driver. */
-  describeCollection(req: { connId: ConnId; ref: CollectionRef; timeoutMs?: number }): Promise<CollectionSchemaInfo>
+  describeCollection(req: {
+    connId: ConnId
+    ref: CollectionRef
+    timeoutMs?: number
+  }): Promise<CollectionSchemaInfo>
   /**
    * One large value in full — the point of a `cell` attachment.
    *

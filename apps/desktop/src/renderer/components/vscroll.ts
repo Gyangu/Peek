@@ -92,12 +92,7 @@ export const EMPTY_SCROLL: ScrollSnapshot = {
  * @param dpr Device pixel ratio: quantizes `top` onto the device pixel grid, so a
  *            fractional transform cannot blur the monospace text.
  */
-export function computeScroll(
-  rowCount: number,
-  viewportH: number,
-  rawTop: number,
-  dpr = 1,
-): ScrollSnapshot {
+export function computeScroll(rowCount: number, viewportH: number, rawTop: number, dpr = 1): ScrollSnapshot {
   const rows = Math.max(0, Math.floor(rowCount))
   const bodyH = Math.max(0, viewportH - HEAD_H)
   const maxTop = Math.max(0, rows * ROW_H - bodyH)
@@ -279,8 +274,7 @@ export class VScrollDriver {
   private commit(next: number, force: boolean): void {
     const prev = this.snap
     const snap = computeScroll(this.rowCount, this.viewportH, next, this.dpr)
-    if (!force && snap.top === prev.top && snap.rowCount === prev.rowCount
-      && snap.bodyH === prev.bodyH) {
+    if (!force && snap.top === prev.top && snap.rowCount === prev.rowCount && snap.bodyH === prev.bodyH) {
       return
     }
     this.snap = snap
@@ -298,11 +292,11 @@ export class VScrollDriver {
     // The row window did not move, so leave React alone: scrolling within a
     // screenful is nothing but the two style writes above
     if (
-      snap.renderFirst !== prev.renderFirst
-      || snap.renderLast !== prev.renderLast
-      || snap.origin !== prev.origin
-      || snap.rowCount !== prev.rowCount
-      || snap.maxTop !== prev.maxTop
+      snap.renderFirst !== prev.renderFirst ||
+      snap.renderLast !== prev.renderLast ||
+      snap.origin !== prev.origin ||
+      snap.rowCount !== prev.rowCount ||
+      snap.maxTop !== prev.maxTop
     ) {
       // viewSnap and the notification must move together: getSnapshot may only
       // return a new reference after subscribers have been told, or React reads

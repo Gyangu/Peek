@@ -248,11 +248,7 @@ test('an empty prompt with no attachments is rejected by the schema, before any 
 
 test('chat.send on a view that is not a conversation says so, rather than "not found"', async () => {
   const h = harness()
-  const conn = await h.bus.dispatch(
-    'conn.open',
-    { config: { driverId: 'sqlite', file: '/tmp/x.db' } },
-    'ui',
-  )
+  const conn = await h.bus.dispatch('conn.open', { config: { driverId: 'sqlite', file: '/tmp/x.db' } }, 'ui')
   assert.equal(conn.ok, true)
   if (!conn.ok) return
   const opened = await h.bus.dispatch(
@@ -597,11 +593,7 @@ test('clearing a running conversation stops the turn instead of refusing', async
 test('attaching the workspace is always resolvable, and is consumed by the turn it was staged for', async () => {
   const h = harness()
   const viewId = await openChat(h)
-  const attached = await h.bus.dispatch(
-    'chat.attach',
-    { viewId, attachments: [{ kind: 'workspace' }] },
-    'ui',
-  )
+  const attached = await h.bus.dispatch('chat.attach', { viewId, attachments: [{ kind: 'workspace' }] }, 'ui')
   assert.equal(attached.ok, true)
   if (!attached.ok) return
   assert.equal(attached.data.attachments.length, 1)
@@ -658,11 +650,7 @@ test('a bad attachment inside chat.send aborts the whole turn, leaving no half-s
 test('staging is capped, and the cap is enforced per conversation', async () => {
   const h = harness()
   const viewId = await openChat(h)
-  const conn = await h.bus.dispatch(
-    'conn.open',
-    { config: { driverId: 'sqlite', file: '/tmp/x.db' } },
-    'ui',
-  )
+  const conn = await h.bus.dispatch('conn.open', { config: { driverId: 'sqlite', file: '/tmp/x.db' } }, 'ui')
   assert.equal(conn.ok, true)
   if (!conn.ok) return
 
@@ -811,7 +799,10 @@ test('the command log tells the embedded assistant apart from a stranger and fro
   await h.bus.dispatch('chat.setMode', { viewId, mode: 'default' }, 'mcp')
 
   assert.deepEqual(
-    h.bus.log.entries().filter((e) => e.name === 'chat.setMode').map((e) => e.source),
+    h.bus.log
+      .entries()
+      .filter((e) => e.name === 'chat.setMode')
+      .map((e) => e.source),
     ['ui', 'agent', 'mcp'],
   )
 })
@@ -822,11 +813,7 @@ test('the command log tells the embedded assistant apart from a stranger and fro
 
 test('a chat opened onto an existing session says so, and starts at `loading`', async () => {
   const h = harness()
-  const res = await h.bus.dispatch(
-    'view.open',
-    { spec: { kind: 'chat', resumeSessionId: 'sess-a' } },
-    'ui',
-  )
+  const res = await h.bus.dispatch('view.open', { spec: { kind: 'chat', resumeSessionId: 'sess-a' } }, 'ui')
   assert.equal(res.ok, true)
   if (!res.ok) return
 

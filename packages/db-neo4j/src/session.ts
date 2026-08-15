@@ -220,8 +220,8 @@ export function requireNeo4jCollection(ref: CollectionRef): Neo4jCollection {
   }
   throw peekError(
     'BAD_REQUEST',
-    `A neo4j collection is addressed as schema "${NODE_NAMESPACE}" (a node label)`
-      + ` or schema "${REL_NAMESPACE}" (a relationship type); got "${ref.schema}"`,
+    `A neo4j collection is addressed as schema "${NODE_NAMESPACE}" (a node label)` +
+      ` or schema "${REL_NAMESPACE}" (a relationship type); got "${ref.schema}"`,
   )
 }
 
@@ -392,9 +392,7 @@ function likeRegex(pattern: string, caseInsensitive: boolean): string {
  */
 function renderFilter(spec: FilterSpec, target: Neo4jCollection, params: CypherParams): string {
   const v = target.variable
-  const prop = spec.column === ELEMENT_ID_COLUMN
-    ? `elementId(${v})`
-    : `${v}.${quoteLabel(spec.column)}`
+  const prop = spec.column === ELEMENT_ID_COLUMN ? `elementId(${v})` : `${v}.${quoteLabel(spec.column)}`
 
   switch (spec.op) {
     case 'isNull':
@@ -457,23 +455,21 @@ function renderWhere(
  * because "sorted, with the nulls somewhere else than you asked" is a result the
  * caller cannot tell apart from the one they wanted.
  */
-function renderOrderBy(
-  sorts: readonly SortSpec[] | undefined,
-  target: Neo4jCollection,
-): string | undefined {
+function renderOrderBy(sorts: readonly SortSpec[] | undefined, target: Neo4jCollection): string | undefined {
   if (!sorts || sorts.length === 0) return undefined
   const parts = sorts.map((spec) => {
     const natural = spec.dir === 'desc' ? 'first' : 'last'
     if (spec.nulls !== undefined && spec.nulls !== natural) {
       throw peekError(
         'BAD_REQUEST',
-        `Cypher always orders nulls ${natural} on a ${spec.dir} sort and cannot be asked`
-          + ` for nulls ${spec.nulls}`,
+        `Cypher always orders nulls ${natural} on a ${spec.dir} sort and cannot be asked` +
+          ` for nulls ${spec.nulls}`,
       )
     }
-    const expr = spec.column === ELEMENT_ID_COLUMN
-      ? `elementId(${target.variable})`
-      : `${target.variable}.${quoteLabel(spec.column)}`
+    const expr =
+      spec.column === ELEMENT_ID_COLUMN
+        ? `elementId(${target.variable})`
+        : `${target.variable}.${quoteLabel(spec.column)}`
     return `${expr} ${spec.dir === 'desc' ? 'DESC' : 'ASC'}`
   })
   return parts.join(', ')
@@ -584,15 +580,23 @@ function withDeadline<T>(
         reject(peekErrorMsg('CANCELLED', 'error.conn.connectCancelled'))
       })
     }
-    const timer = setTimeout(() => {
-      finish(() => {
-        reject(
-          peekErrorMsg('TIMEOUT', 'error.query.timedOut', { operation, ms: budgetMs }, {
-            retryable: true,
-          }),
-        )
-      })
-    }, Math.max(1, Math.trunc(budgetMs)))
+    const timer = setTimeout(
+      () => {
+        finish(() => {
+          reject(
+            peekErrorMsg(
+              'TIMEOUT',
+              'error.query.timedOut',
+              { operation, ms: budgetMs },
+              {
+                retryable: true,
+              },
+            ),
+          )
+        })
+      },
+      Math.max(1, Math.trunc(budgetMs)),
+    )
     signal?.addEventListener('abort', onAbort, { once: true })
     work.then(
       (value) => {
@@ -726,9 +730,10 @@ export class Neo4jCursor implements Cursor {
     const bolt = this.opts.openSession()
     this.bolt = bolt
     try {
-      const budget = this.opts.timeoutMs !== undefined && this.opts.timeoutMs > 0
-        ? Math.trunc(this.opts.timeoutMs)
-        : DEFAULT_TX_TIMEOUT_MS
+      const budget =
+        this.opts.timeoutMs !== undefined && this.opts.timeoutMs > 0
+          ? Math.trunc(this.opts.timeoutMs)
+          : DEFAULT_TX_TIMEOUT_MS
       const result = bolt.run(this.opts.text, boltParams(this.opts.params), {
         timeout: neo4j.int(budget),
       })
@@ -987,8 +992,7 @@ export class Neo4jSession implements DriverSession {
    */
   static async connect(cfg: Neo4jConnectionConfig, signal?: AbortSignal): Promise<Neo4jSession> {
     if (signal?.aborted) throw peekErrorMsg('CANCELLED', 'error.conn.connectCancelled')
-    const budget = clampInt(cfg.connectTimeoutMs, 100, MAX_CONNECT_TIMEOUT_MS)
-      ?? DEFAULT_CONNECT_TIMEOUT_MS
+    const budget = clampInt(cfg.connectTimeoutMs, 100, MAX_CONNECT_TIMEOUT_MS) ?? DEFAULT_CONNECT_TIMEOUT_MS
 
     let driver: BoltDriver
     try {
@@ -1014,12 +1018,7 @@ export class Neo4jSession implements DriverSession {
         signal,
         'Connect',
       )
-      const database = await withDeadline(
-        probeDatabase(driver, cfg.database),
-        budget,
-        signal,
-        'Connect',
-      )
+      const database = await withDeadline(probeDatabase(driver, cfg.database), budget, signal, 'Connect')
       // The agent is 'Neo4j/5.26.0'; the part after the slash is the version, and
       // an agent in any other shape is reported verbatim rather than sliced into
       // something that only looks like a version.
@@ -1064,10 +1063,7 @@ export class Neo4jSession implements DriverSession {
     this.closed = true
     const cursors = [...this.active.values()]
     this.active.clear()
-    await withBudget(
-      Promise.all(cursors.map((c) => c.close().catch(() => {}))),
-      CLOSE_CANCEL_BUDGET_MS,
-    )
+    await withBudget(Promise.all(cursors.map((c) => c.close().catch(() => {}))), CLOSE_CANCEL_BUDGET_MS)
     await this.driver.close().catch(() => {})
   }
 
@@ -1233,9 +1229,7 @@ export class Neo4jSession implements DriverSession {
   async describeCollection(ref: CollectionRef): Promise<CollectionSchemaInfo> {
     this.assertOpen()
     const target = requireNeo4jCollection(ref)
-    const known = target.namespace === NODE_NAMESPACE
-      ? await this.labelNames()
-      : await this.relTypeNames()
+    const known = target.namespace === NODE_NAMESPACE ? await this.labelNames() : await this.relTypeNames()
     if (!known.includes(target.name)) {
       throw peekErrorMsg('NOT_FOUND', 'error.collection.notFound', { name: target.name })
     }
@@ -1267,8 +1261,8 @@ export class Neo4jSession implements DriverSession {
   private async relTypeNames(): Promise<string[]> {
     if (this.relTypes === null) {
       const rows = await this.runEager(
-        'CALL db.relationshipTypes() YIELD relationshipType'
-          + ' RETURN relationshipType ORDER BY relationshipType',
+        'CALL db.relationshipTypes() YIELD relationshipType' +
+          ' RETURN relationshipType ORDER BY relationshipType',
       )
       this.relTypes = rows.map((r) => stringField(r, 'relationshipType'))
     }
@@ -1298,9 +1292,10 @@ export class Neo4jSession implements DriverSession {
   /** count() straight out of the count store; undefined when it does not fit a JS number */
   private async countOf(target: Neo4jCollection): Promise<number | undefined> {
     const token = quoteLabel(target.name)
-    const text = target.namespace === NODE_NAMESPACE
-      ? `MATCH (${NODE_COLUMN}:${token}) RETURN count(${NODE_COLUMN}) AS c`
-      : `MATCH ()-[${REL_COLUMN}:${token}]->() RETURN count(${REL_COLUMN}) AS c`
+    const text =
+      target.namespace === NODE_NAMESPACE
+        ? `MATCH (${NODE_COLUMN}:${token}) RETURN count(${NODE_COLUMN}) AS c`
+        : `MATCH ()-[${REL_COLUMN}:${token}]->() RETURN count(${REL_COLUMN}) AS c`
     const rows = await this.runEager(text)
     const first = rows[0]
     if (first === undefined) return undefined
@@ -1379,8 +1374,8 @@ export class Neo4jSession implements DriverSession {
     if (req.nativeFilter !== undefined) {
       throw peekError(
         'BAD_REQUEST',
-        'The neo4j driver has no native filter form; express the predicate as Cypher'
-          + ' through a query instead',
+        'The neo4j driver has no native filter form; express the predicate as Cypher' +
+          ' through a query instead',
       )
     }
 
@@ -1389,7 +1384,12 @@ export class Neo4jSession implements DriverSession {
       ...collectionBrowseStyle(target.ref),
       filterableColumns: FILTERABLE_COLUMNS,
     }
-    assertFilterSupported(style, req.filter, columns.map((c) => c.name), { driverId: 'neo4j' })
+    assertFilterSupported(
+      style,
+      req.filter,
+      columns.map((c) => c.name),
+      { driverId: 'neo4j' },
+    )
     if (req.sort !== undefined && req.sort.length > 0) {
       // Only when there is a sort to check: the property-key list costs a round
       // trip the first time, and an unsorted browse has no use for it.
@@ -1400,9 +1400,8 @@ export class Neo4jSession implements DriverSession {
     // no intra-page skip. Decoding it in core is what makes a token minted by
     // another driver a BAD_REQUEST instead of a page of plausible-looking wrong
     // rows.
-    const tokenOffset = req.cursorToken === undefined
-      ? undefined
-      : decodeRowOffsetCursor(req.cursorToken, 'neo4j')
+    const tokenOffset =
+      req.cursorToken === undefined ? undefined : decodeRowOffsetCursor(req.cursorToken, 'neo4j')
     const offset = clampInt(tokenOffset ?? req.offset ?? 0, 0, Number.MAX_SAFE_INTEGER) ?? 0
     const limit = clampInt(req.limit ?? DEFAULT_PAGE_LIMIT, 0, MAX_PAGE_LIMIT) ?? DEFAULT_PAGE_LIMIT
 
@@ -1491,8 +1490,8 @@ export class Neo4jSession implements DriverSession {
     if (ref.kind !== 'relationCell') {
       throw peekError(
         'BAD_REQUEST',
-        `The Neo4j driver addresses a value by elementId, not by ${ref.kind};`
-          + ' use a relationCell ref whose pk carries elementId',
+        `The Neo4j driver addresses a value by elementId, not by ${ref.kind};` +
+          ' use a relationCell ref whose pk carries elementId',
       )
     }
     const target = requireNeo4jCollection(ref.collection)
@@ -1502,9 +1501,10 @@ export class Neo4jSession implements DriverSession {
     }
 
     const v = target.variable
-    const text = target.namespace === NODE_NAMESPACE
-      ? `MATCH (${v}) WHERE elementId(${v}) = $p1 RETURN ${v}`
-      : `MATCH ()-[${v}]->() WHERE elementId(${v}) = $p1 RETURN ${v}`
+    const text =
+      target.namespace === NODE_NAMESPACE
+        ? `MATCH (${v}) WHERE elementId(${v}) = $p1 RETURN ${v}`
+        : `MATCH ()-[${v}]->() WHERE elementId(${v}) = $p1 RETURN ${v}`
     const rows = await this.runEager(text, boltParams([elementId]))
     const first = rows[0]
     if (first === undefined) throw peekErrorMsg('NOT_FOUND', 'error.value.gone')
@@ -1519,10 +1519,7 @@ export class Neo4jSession implements DriverSession {
     const offset = Math.max(0, Math.trunc(range?.offset ?? 0))
     const wanted = range?.length === undefined ? VALUE_PEEK_MAX_BYTES : Math.trunc(range.length)
     const length = Math.min(VALUE_PEEK_MAX_BYTES, Math.max(0, wanted))
-    const slice = full.subarray(
-      Math.min(offset, full.byteLength),
-      Math.min(offset + length, full.byteLength),
-    )
+    const slice = full.subarray(Math.min(offset, full.byteLength), Math.min(offset + length, full.byteLength))
 
     return {
       ref,
@@ -1600,10 +1597,7 @@ function authOf(cfg: Neo4jConnectionConfig): ReturnType<typeof neo4j.auth.basic>
  * run in", which is the only way to learn the home database's name when the
  * config named none.
  */
-async function probeDatabase(
-  driver: BoltDriver,
-  database: string | undefined,
-): Promise<string | undefined> {
+async function probeDatabase(driver: BoltDriver, database: string | undefined): Promise<string | undefined> {
   const bolt = driver.session({
     defaultAccessMode: neo4j.session.READ,
     ...(database === undefined ? {} : { database }),

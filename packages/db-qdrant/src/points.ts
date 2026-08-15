@@ -161,9 +161,7 @@ export function buildRowShape(opts: {
     withScore: opts.withScore,
     withVector: opts.withVector,
     ...(opts.collection === undefined ? {} : { collection: opts.collection }),
-    ...(opts.vectorName === undefined || opts.vectorName === ''
-      ? {}
-      : { vectorName: opts.vectorName }),
+    ...(opts.vectorName === undefined || opts.vectorName === '' ? {} : { vectorName: opts.vectorName }),
   }
 }
 
@@ -203,12 +201,7 @@ function safeJson(value: unknown): string | null {
  * ref; a 40KB markdown chunk sitting in a payload is exactly as unwelcome in a
  * listing as a vector is.
  */
-function payloadCell(
-  value: unknown,
-  shape: QdrantRowShape,
-  id: string | number,
-  field: string,
-): unknown {
+function payloadCell(value: unknown, shape: QdrantRowShape, id: string | number, field: string): unknown {
   if (value === undefined || value === null) return null
   const limit = VALUE_PREVIEW_BYTES
   const ref = (): { ref?: ValueRef } =>
@@ -253,9 +246,7 @@ function vectorCell(point: QdrantPoint, shape: QdrantRowShape): unknown {
   const bytes = Buffer.byteLength(text, 'utf8')
   if (bytes <= VALUE_PREVIEW_BYTES) return value
   const extra =
-    shape.collection === undefined
-      ? {}
-      : { ref: pointFieldRef(shape.collection, point.id, field) }
+    shape.collection === undefined ? {} : { ref: pointFieldRef(shape.collection, point.id, field) }
   return truncatedValue(previewOfText(text, VALUE_PREVIEW_BYTES), 'utf8', {
     byteLength: bytes,
     ...extra,

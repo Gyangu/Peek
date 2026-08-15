@@ -54,14 +54,24 @@ const CONN = 'c1' as ConnId
 
 describe('the object tree menu', () => {
   test('a table offers Open, because a double-click would open it', () => {
-    const nodes = treeMenuNodes(CONN, node({ ref: { kind: 'relation', schema: 'public', name: 'users' } }), [], t, NO_OP)
+    const nodes = treeMenuNodes(
+      CONN,
+      node({ ref: { kind: 'relation', schema: 'public', name: 'users' } }),
+      [],
+      t,
+      NO_OP,
+    )
     assert.ok(ids(nodes).includes('tree.open'))
   })
 
   test('a container that only expands does not offer Open', () => {
     // `openSpecForNode` returns null for it, so an Open line would promise
     // something the double-click does not do either.
-    assert.ok(!ids(treeMenuNodes(CONN, node({ kind: 'schema', hasChildren: true }), [], t, NO_OP)).includes('tree.open'))
+    assert.ok(
+      !ids(treeMenuNodes(CONN, node({ kind: 'schema', hasChildren: true }), [], t, NO_OP)).includes(
+        'tree.open',
+      ),
+    )
   })
 
   test('vector search appears only on a vector collection', () => {
@@ -242,7 +252,9 @@ describe('the column header menu', () => {
 
   test('a sorted column can be unsorted — the thing a cycling click cannot reach directly', () => {
     const sort: SortSpec[] = [{ column: 'name', dir: 'desc' }]
-    assert.ok(ids(columnMenuNodes('name', sort, t, COLUMN_HANDLERS, { sortable: true })).includes('column.sortClear'))
+    assert.ok(
+      ids(columnMenuNodes('name', sort, t, COLUMN_HANDLERS, { sortable: true })).includes('column.sortClear'),
+    )
   })
 
   test('another column being sorted says nothing about this one', () => {
@@ -264,9 +276,15 @@ describe('the column header menu', () => {
 
   test('setSort is called with the direction the line names', () => {
     const seen: (string | null)[] = []
-    const nodes = columnMenuNodes('name', [], t, { setSort: (d) => seen.push(d), copyName: () => {} }, {
-      sortable: true,
-    })
+    const nodes = columnMenuNodes(
+      'name',
+      [],
+      t,
+      { setSort: (d) => seen.push(d), copyName: () => {} },
+      {
+        sortable: true,
+      },
+    )
     for (const n of nodes) if (n.kind === 'item' && n.id !== 'column.copyName') n.onSelect()
     assert.deepEqual(seen, ['asc', 'desc'])
   })

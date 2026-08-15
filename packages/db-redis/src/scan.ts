@@ -185,11 +185,13 @@ function cellOf(row: RedisKeyRow, column: string): unknown {
 
 /** Rough wire size of one scan row; feeds adaptiveChunkRows */
 function rowBytes(row: RedisKeyRow): number {
-  return Buffer.byteLength(row.key, 'utf8')
-    + row.type.length
-    + (row.encoding?.length ?? 0)
+  return (
+    Buffer.byteLength(row.key, 'utf8') +
+    row.type.length +
+    (row.encoding?.length ?? 0) +
     // three numeric columns plus the per-row envelope
-    + 40
+    40
+  )
 }
 
 /* ------------------------------------------------------------------ */
@@ -245,11 +247,9 @@ export function rowMatchesFilter(row: RedisKeyRow, spec: FilterSpec): boolean {
     case 'contains':
       return cell !== null && cell !== undefined && String(cell).includes(String(spec.value))
     case 'like':
-      return cell !== null && cell !== undefined
-        && likeMatches(String(cell), String(spec.value), false)
+      return cell !== null && cell !== undefined && likeMatches(String(cell), String(spec.value), false)
     case 'ilike':
-      return cell !== null && cell !== undefined
-        && likeMatches(String(cell), String(spec.value), true)
+      return cell !== null && cell !== undefined && likeMatches(String(cell), String(spec.value), true)
     case 'lt':
     case 'lte':
     case 'gt':
@@ -321,18 +321,15 @@ export class RedisScanCursor implements Cursor {
   constructor(opts: RedisScanCursorOptions) {
     this.opts = opts
     this.resultId = opts.resultId
-    const resume = opts.cursorToken === undefined
-      ? { cursor: '0', skip: 0 }
-      : parseRedisResumeToken(opts.cursorToken)
+    const resume =
+      opts.cursorToken === undefined ? { cursor: '0', skip: 0 } : parseRedisResumeToken(opts.cursorToken)
     this.cursor = resume.cursor
     this.columns = opts.columns ?? KEYSPACE_SCAN_SCHEMA
     this.maxScanned = opts.maxScannedKeys ?? DEFAULT_MAX_SCANNED_KEYS
     this.toSkip = Math.max(0, Math.trunc(opts.skip ?? 0))
     this.resumeSkip = resume.skip
     this.deadline =
-      opts.timeoutMs !== undefined && opts.timeoutMs > 0
-        ? Date.now() + Math.trunc(opts.timeoutMs)
-        : null
+      opts.timeoutMs !== undefined && opts.timeoutMs > 0 ? Date.now() + Math.trunc(opts.timeoutMs) : null
   }
 
   /** Filled on the first frame; always the (possibly projected) keyspace scan schema */

@@ -67,10 +67,7 @@ export function parseScore(raw: string): number | null {
  * renderer must not learn to write them — `ref` is the part of the contract that
  * is driver-independent, so the lookup goes through it.
  */
-export function findCollectionNodeId(
-  nodes: readonly NamespaceNode[],
-  collection: string,
-): string | null {
+export function findCollectionNodeId(nodes: readonly NamespaceNode[], collection: string): string | null {
   for (const node of nodes) {
     if (node.ref?.kind === 'vectorCollection' && node.ref.collection === collection) return node.id
   }

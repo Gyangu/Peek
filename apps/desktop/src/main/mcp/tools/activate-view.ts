@@ -69,7 +69,7 @@ export default defineCommandTool({
     'nothing else — no view is opened, closed, moved or reordered. ' +
     'Use it when read_workspace shows the view you care about with "visible": false. ' +
     'For a view that sits in no panel at all use move_view instead; to change the tab order use ' +
-    "move_view with an index; to rearrange the panes themselves use set_layout.",
+    'move_view with an index; to rearrange the panes themselves use set_layout.',
   inputSchema: InputSchema,
   // Nothing is created or destroyed, and activating the same view twice leaves the
   // same workspace, so this is the rare layout tool that is genuinely idempotent.

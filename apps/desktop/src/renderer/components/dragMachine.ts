@@ -225,9 +225,7 @@ export function pointerMoved(
 
   if (state.phase === 'armed') {
     if (distance(state.origin, pointer) < DRAG_THRESHOLD_PX) {
-      return state.pointer.x === pointer.x && state.pointer.y === pointer.y
-        ? state
-        : { ...state, pointer }
+      return state.pointer.x === pointer.x && state.pointer.y === pointer.y ? state : { ...state, pointer }
     }
     const panels = measurePanels()
     return {
@@ -347,10 +345,7 @@ export interface DropOutcome {
  * as it stands at the instant of release, rather than as it stood when the drag
  * began. Tests that drive the machine with fixed rectangles omit it.
  */
-export function releaseDrag(
-  state: DragState,
-  measurePanels?: () => readonly PanelHit[],
-): DropOutcome {
+export function releaseDrag(state: DragState, measurePanels?: () => readonly PanelHit[]): DropOutcome {
   const fresh = measurePanels === undefined ? state : remeasureDrag(state, measurePanels)
   return { state: IDLE, command: dropCommandFor(fresh) }
 }

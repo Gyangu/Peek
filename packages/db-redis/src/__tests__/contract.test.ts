@@ -242,10 +242,7 @@ describe('db-redis contract', () => {
     // … including a boundary that is not a decimal SCAN cursor
     assert.equal(isRedisResumeToken(encodeScanCursor({ driverId: 'redis', boundary: 'x', skip: 0 })), false)
     // … and, new, a well-formed token from a different driver
-    assert.equal(
-      isRedisResumeToken(encodeScanCursor({ driverId: 'qdrant', boundary: '42', skip: 0 })),
-      false,
-    )
+    assert.equal(isRedisResumeToken(encodeScanCursor({ driverId: 'qdrant', boundary: '42', skip: 0 })), false)
     // The old bare forms are no longer tokens: they carry no driver, and reading
     // one would resume a scan from a boundary nobody in this session minted
     assert.equal(isRedisResumeToken('238'), false)

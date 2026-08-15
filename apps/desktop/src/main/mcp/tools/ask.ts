@@ -32,50 +32,48 @@ import { toJson } from '../summary'
 /* 1. Input schema                                                      */
 /* ================================================================== */
 
-const InputSchema = commandSchemas['chat.ask']
-  .omit({ viewId: true })
-  .extend({
-    question: z
-      .string()
-      .min(1)
-      .max(300)
-      .describe(
-        'The question, as one line. Ask about the decision, not about your progress: ' +
-          '"Aggregate by day or by week?" rather than "Shall I continue?"',
-      ),
-    header: z
-      .string()
-      .min(1)
-      .max(24)
-      .optional()
-      .describe('A 3–12 character category chip shown beside the question, e.g. "Aggregation".'),
-    options: z
-      .array(
-        z.object({
-          optionId: z.string().min(1).max(64).describe('Your own id for this answer; it comes back verbatim.'),
-          label: z.string().min(1).max(120).describe('What the button says. A few words.'),
-          description: z
-            .string()
-            .max(400)
-            .optional()
-            .describe('What this choice means or costs — the part that makes the choice decidable.'),
-        }),
-      )
-      .min(2)
-      .max(4)
-      .describe(
-        'Two to four answers. peek always adds an "Other" box of its own, so you never have to ' +
-          'include an escape hatch — and should not pretend your list is exhaustive when it is not.',
-      ),
-    multiSelect: z
-      .boolean()
-      .optional()
-      .describe('Let the user choose more than one. Defaults to single choice.'),
-    viewId: ViewIdSchema.optional().describe(
-      'Which conversation to ask in. Omit it and a conversation is opened for the question — which ' +
-        'is what an external client with no chat panel open wants.',
+const InputSchema = commandSchemas['chat.ask'].omit({ viewId: true }).extend({
+  question: z
+    .string()
+    .min(1)
+    .max(300)
+    .describe(
+      'The question, as one line. Ask about the decision, not about your progress: ' +
+        '"Aggregate by day or by week?" rather than "Shall I continue?"',
     ),
-  })
+  header: z
+    .string()
+    .min(1)
+    .max(24)
+    .optional()
+    .describe('A 3–12 character category chip shown beside the question, e.g. "Aggregation".'),
+  options: z
+    .array(
+      z.object({
+        optionId: z.string().min(1).max(64).describe('Your own id for this answer; it comes back verbatim.'),
+        label: z.string().min(1).max(120).describe('What the button says. A few words.'),
+        description: z
+          .string()
+          .max(400)
+          .optional()
+          .describe('What this choice means or costs — the part that makes the choice decidable.'),
+      }),
+    )
+    .min(2)
+    .max(4)
+    .describe(
+      'Two to four answers. peek always adds an "Other" box of its own, so you never have to ' +
+        'include an escape hatch — and should not pretend your list is exhaustive when it is not.',
+    ),
+  multiSelect: z
+    .boolean()
+    .optional()
+    .describe('Let the user choose more than one. Defaults to single choice.'),
+  viewId: ViewIdSchema.optional().describe(
+    'Which conversation to ask in. Omit it and a conversation is opened for the question — which ' +
+      'is what an external client with no chat panel open wants.',
+  ),
+})
 
 /* ================================================================== */
 /* 2. Result shape                                                      */
@@ -143,7 +141,11 @@ export default defineCommandTool({
       input: { spec: { kind: 'chat' } },
     })
     if (!opened.ok) {
-      toolFail(opened.error.code, `ask could not open a conversation: ${opened.error.message}`, opened.error.detail)
+      toolFail(
+        opened.error.code,
+        `ask could not open a conversation: ${opened.error.message}`,
+        opened.error.detail,
+      )
     }
     const viewId = (opened.data as ViewOpenResult).viewId as ViewId
     return [{ name: 'chat.ask', input: { ...input, viewId } }]

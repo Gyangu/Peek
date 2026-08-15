@@ -22,14 +22,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -103,14 +96,18 @@ function pickRasterizer() {
     return {
       name: 'sips',
       render: (size, out) =>
-        execFileSync('sips', ['-s', 'format', 'png', '-z', String(size), String(size), svgPath, '--out', out], {
-          stdio: 'ignore',
-        }),
+        execFileSync(
+          'sips',
+          ['-s', 'format', 'png', '-z', String(size), String(size), svgPath, '--out', out],
+          {
+            stdio: 'ignore',
+          },
+        ),
     }
   }
   throw new Error(
-    'No SVG rasterizer found. Install one of: rsvg-convert (brew install librsvg), '
-      + 'ImageMagick (brew install imagemagick). sips ships with macOS and should always be present.',
+    'No SVG rasterizer found. Install one of: rsvg-convert (brew install librsvg), ' +
+      'ImageMagick (brew install imagemagick). sips ships with macOS and should always be present.',
   )
 }
 

@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react'
-import {
-  metaText,
-  type ChatSessionInfo,
-  type ChatSessionsListResult,
-  type ViewId,
-} from '@peek/core'
+import { metaText, type ChatSessionInfo, type ChatSessionsListResult, type ViewId } from '@peek/core'
 import { useLocale, useT, type TFunction } from '../../i18n'
 import { dispatch } from '../../state/dispatch'
 import { useViews } from '../../state/workspaceStore'
@@ -274,13 +269,7 @@ export function ChatSessionsRail(): ReactElement {
         >
           <Icon name="create" />
         </Button>
-        <Button
-          variant="ghost"
-          icon
-          label={t('chat.sessions.refresh')}
-          disabled={busy}
-          onClick={refresh}
-        >
+        <Button variant="ghost" icon label={t('chat.sessions.refresh')} disabled={busy} onClick={refresh}>
           <Icon name="refresh" />
         </Button>
         <Button
@@ -325,18 +314,26 @@ export function ChatSessionsRail(): ReactElement {
             tree. Two of the three are somebody else's files. It goes when the
             last of them migrates, not when the first does. */}
         {failed ? (
-          <div className="px-snug py-loose text-center leading-prose text-fg-faint">{t('chat.sessions.failed')}</div>
+          <div className="px-snug py-loose text-center leading-prose text-fg-faint">
+            {t('chat.sessions.failed')}
+          </div>
         ) : state === null ? (
-          <div className="px-snug py-loose text-center leading-prose text-fg-faint">{t('chat.sessions.loading')}</div>
+          <div className="px-snug py-loose text-center leading-prose text-fg-faint">
+            {t('chat.sessions.loading')}
+          </div>
         ) : !state.supported ? (
           <>
             <div>{t('chat.sessions.unsupported')}</div>
-            <div className="px-snug py-loose text-center leading-prose text-fg-faint">{t('chat.sessions.unsupportedHint')}</div>
+            <div className="px-snug py-loose text-center leading-prose text-fg-faint">
+              {t('chat.sessions.unsupportedHint')}
+            </div>
           </>
         ) : state.sessions.length === 0 ? (
           <>
             <div>{t('chat.sessions.empty')}</div>
-            <div className="px-snug py-loose text-center leading-prose text-fg-faint">{t('chat.sessions.emptyHint')}</div>
+            <div className="px-snug py-loose text-center leading-prose text-fg-faint">
+              {t('chat.sessions.emptyHint')}
+            </div>
           </>
         ) : (
           rows.map((session, index) => (

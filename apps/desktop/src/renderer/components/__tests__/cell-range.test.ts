@@ -1,13 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import {
-  isAnchor,
-  isInRange,
-  rangeAt,
-  rangeCellCount,
-  rangeFrom,
-  rangeHasRow,
-} from '../cellRange'
+import { isAnchor, isInRange, rangeAt, rangeCellCount, rangeFrom, rangeHasRow } from '../cellRange'
 
 /* ==================================================================
  * The rectangular selection — 框选.

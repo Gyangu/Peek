@@ -371,10 +371,14 @@ async function main() {
     cdp = await connectCdp(cdpPort)
     await until(cdp, `!!document.querySelector('.chat-view')`, 'the chat view after reload')
 
-    const afterReload = await until(cdp, SETTLED_TRANSCRIPT(2), 'the transcript to be restored after a reload')
+    const afterReload = await until(
+      cdp,
+      SETTLED_TRANSCRIPT(2),
+      'the transcript to be restored after a reload',
+    )
     assert(
-      afterReload.some((m) => m.startsWith('user:') && m.includes('how many tables?'))
-        && afterReload.some((m) => m.includes(FIRST_ANSWER)),
+      afterReload.some((m) => m.startsWith('user:') && m.includes('how many tables?')) &&
+        afterReload.some((m) => m.includes(FIRST_ANSWER)),
       'both messages survive ⌘R',
       `got ${JSON.stringify(afterReload)}`,
     )
@@ -438,7 +442,11 @@ async function main() {
     await delay(1_500)
     app = launchApp({ configDir, userDataDir, cdpPort })
     cdp = await connectCdp(cdpPort)
-    await until(cdp, `!!document.querySelector('.status-bar, .statusbar, footer')`, 'the window after restart')
+    await until(
+      cdp,
+      `!!document.querySelector('.status-bar, .statusbar, footer')`,
+      'the window after restart',
+    )
     await until(cdp, OPEN_RAIL, 'the conversations rail after restart')
     const afterRestart = await until(cdp, READ_ROWS, 'the catalogue after restart')
     assert(

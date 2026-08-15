@@ -127,7 +127,9 @@ async function runProbes(): Promise<ProbeRun> {
     .filter((line) => line.trim())
     .map((line) => JSON.parse(line) as Record<string, unknown>)
 
-  const answers = lines.filter((e): e is ProbeAnswer & Record<string, unknown> => typeof e['probe'] === 'string')
+  const answers = lines.filter(
+    (e): e is ProbeAnswer & Record<string, unknown> => typeof e['probe'] === 'string',
+  )
   const handshake = lines.find((e) => e['got'] === 'initialize')
   return {
     answers: answers.map((a) => ({
@@ -176,8 +178,8 @@ test('every capability declared false answers an error, not a result', () => {
     assert.equal(
       answer.hasError,
       true,
-      `${method} answered a success (${JSON.stringify(answer.result)}); `
-        + 'a capability declared false must answer an error',
+      `${method} answered a success (${JSON.stringify(answer.result)}); ` +
+        'a capability declared false must answer an error',
     )
     assert.equal(
       answer.code,
@@ -208,8 +210,8 @@ test('a refused call is logged, because a silent refusal is unobservable', () =>
   for (const method of MUST_REFUSE) {
     assert.ok(
       warnings.some((m) => m.includes(method)),
-      `${method} was refused without a warning; the whole point is that somebody can see it. `
-        + `Warnings seen: ${warnings.join(' | ')}`,
+      `${method} was refused without a warning; the whole point is that somebody can see it. ` +
+        `Warnings seen: ${warnings.join(' | ')}`,
     )
   }
 })

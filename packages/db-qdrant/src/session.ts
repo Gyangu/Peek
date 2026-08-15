@@ -32,12 +32,7 @@ import { QdrantClient, type Schemas } from '@qdrant/js-client-rest'
 import { QdrantCollections, formatVectors, type QdrantCollectionInfo } from './collections'
 import { mapQdrantError } from './errors'
 import { qdrantManifest } from './manifest'
-import {
-  buildRowShape,
-  resolvePayloadColumns,
-  type QdrantPoint,
-  type QdrantRowShape,
-} from './points'
+import { buildRowShape, resolvePayloadColumns, type QdrantPoint, type QdrantRowShape } from './points'
 import {
   QdrantPointCursor,
   buildOrderBy,
@@ -187,15 +182,23 @@ function withDeadline<T>(
     const onAbort = (): void => {
       finish(() => reject(peekErrorMsg('CANCELLED', 'error.conn.connectCancelled')))
     }
-    const timer = setTimeout(() => {
-      finish(() =>
-        reject(
-          peekErrorMsg('TIMEOUT', 'error.query.timedOut', { operation, ms: budgetMs }, {
-            retryable: true,
-          }),
-        ),
-      )
-    }, Math.max(1, Math.trunc(budgetMs)))
+    const timer = setTimeout(
+      () => {
+        finish(() =>
+          reject(
+            peekErrorMsg(
+              'TIMEOUT',
+              'error.query.timedOut',
+              { operation, ms: budgetMs },
+              {
+                retryable: true,
+              },
+            ),
+          ),
+        )
+      },
+      Math.max(1, Math.trunc(budgetMs)),
+    )
     signal?.addEventListener('abort', onAbort, { once: true })
     work.then(
       (value) => finish(() => resolve(value)),
@@ -276,10 +279,7 @@ export class QdrantSession implements DriverSession {
    * is what the connection state machine needs to show `error` rather than a
    * `ready` connection that fails on first use.
    */
-  static async connect(
-    cfg: QdrantConnectionConfig,
-    signal?: AbortSignal,
-  ): Promise<QdrantSession> {
+  static async connect(cfg: QdrantConnectionConfig, signal?: AbortSignal): Promise<QdrantSession> {
     if (signal?.aborted) throw peekErrorMsg('CANCELLED', 'error.conn.connectCancelled')
     const budget = clampInt(cfg.connectTimeoutMs, 100, CLIENT_TIMEOUT_MS) ?? DEFAULT_CONNECT_TIMEOUT_MS
 
@@ -479,8 +479,8 @@ export class QdrantSession implements DriverSession {
     if (skip > MAX_EMULATED_OFFSET) {
       throw peekError(
         'BAD_REQUEST',
-        `A qdrant scroll cannot skip ${skip} points; page with cursorToken instead`
-          + ` (the ceiling is ${MAX_EMULATED_OFFSET})`,
+        `A qdrant scroll cannot skip ${skip} points; page with cursorToken instead` +
+          ` (the ceiling is ${MAX_EMULATED_OFFSET})`,
       )
     }
     if (orderBy !== undefined) {
@@ -833,10 +833,7 @@ export class QdrantSession implements DriverSession {
 }
 
 /** Pull the addressed field out of a retrieved point; undefined means "not there" */
-function extractPeekValue(
-  record: Schemas['Record'],
-  target: ReturnType<typeof parseQdrantField>,
-): unknown {
+function extractPeekValue(record: Schemas['Record'], target: ReturnType<typeof parseQdrantField>): unknown {
   if (target.target === 'vector') {
     const vector: unknown = record.vector
     if (vector === undefined || vector === null) return undefined

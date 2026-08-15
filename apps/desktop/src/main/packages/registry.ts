@@ -148,8 +148,8 @@ export class PackageHostRegistry {
       return Promise.reject(
         peekErrorMsg('INTERNAL', 'error.driver.hostBuildMissing', undefined, {
           detail:
-            `${entryPath} not found; the package host is built by a pass of its own `
-            + '("pnpm build:package-host"), which `electron-vite build` does not run.',
+            `${entryPath} not found; the package host is built by a pass of its own ` +
+            '("pnpm build:package-host"), which `electron-vite build` does not run.',
         }),
       )
     }
@@ -164,10 +164,7 @@ export class PackageHostRegistry {
         // A plain literal rather than a catalog key: every way to reach this is a
         // wiring fault in peek or a package directory that vanished mid-session,
         // and neither is something a translated sentence helps a user act on.
-        peekError(
-          'NOT_FOUND',
-          `The package '${packageId}' is not installed, or ships no contrib entry`,
-        ),
+        peekError('NOT_FOUND', `The package '${packageId}' is not installed, or ships no contrib entry`),
       )
     }
 

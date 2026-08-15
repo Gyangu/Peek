@@ -26,7 +26,6 @@ export const menu = {
   'menu.conn.label': 'Connection actions',
   'menu.session.label': 'Conversation actions',
 
-
   /* ---------------- Second batch: the rest of the window ---------------- */
 
   'menu.error.label': 'Error actions',

@@ -84,30 +84,33 @@ export function createChatStateApplier(
     if (before === undefined) return Promise.resolve()
     const previousStatus = before.agentStatus
 
-    store.apply((draft) => {
-      const view = findChatDraft(draft, patch.chatId)
-      if (!view) return
+    store.apply(
+      (draft) => {
+        const view = findChatDraft(draft, patch.chatId)
+        if (!view) return
 
-      if (patch.status !== undefined) view.agentStatus = patch.status
-      if (patch.agentSessionId !== undefined) view.agentSessionId = patch.agentSessionId
-      if (patch.permissionMode !== undefined) view.permissionMode = patch.permissionMode
-      if (patch.streamingMessageId !== undefined) view.streamingMessageId = patch.streamingMessageId
-      if (patch.messageCount !== undefined) view.messageCount = patch.messageCount
-      if (patch.lastMessagePreview !== undefined) view.lastMessagePreview = patch.lastMessagePreview
-      if (patch.usage !== undefined) view.usage = patch.usage
-      // Absent rather than `false`, so a view that never showed a picture does
-      // not carry a field saying it is not showing one.
-      if (patch.showingSnapshot !== undefined) {
-        if (patch.showingSnapshot) view.showingSnapshot = true
-        else delete view.showingSnapshot
-      }
-      if (patch.pendingPermission !== undefined) {
-        if (patch.pendingPermission === null) delete view.pendingPermission
-        else view.pendingPermission = patch.pendingPermission as Draft<typeof patch.pendingPermission>
-      }
-      // A turn that reaches a resting state has nothing left to report as broken.
-      if (patch.status !== undefined && patch.status !== 'error') delete view.error
-    }, { source: 'system' })
+        if (patch.status !== undefined) view.agentStatus = patch.status
+        if (patch.agentSessionId !== undefined) view.agentSessionId = patch.agentSessionId
+        if (patch.permissionMode !== undefined) view.permissionMode = patch.permissionMode
+        if (patch.streamingMessageId !== undefined) view.streamingMessageId = patch.streamingMessageId
+        if (patch.messageCount !== undefined) view.messageCount = patch.messageCount
+        if (patch.lastMessagePreview !== undefined) view.lastMessagePreview = patch.lastMessagePreview
+        if (patch.usage !== undefined) view.usage = patch.usage
+        // Absent rather than `false`, so a view that never showed a picture does
+        // not carry a field saying it is not showing one.
+        if (patch.showingSnapshot !== undefined) {
+          if (patch.showingSnapshot) view.showingSnapshot = true
+          else delete view.showingSnapshot
+        }
+        if (patch.pendingPermission !== undefined) {
+          if (patch.pendingPermission === null) delete view.pendingPermission
+          else view.pendingPermission = patch.pendingPermission as Draft<typeof patch.pendingPermission>
+        }
+        // A turn that reaches a resting state has nothing left to report as broken.
+        if (patch.status !== undefined && patch.status !== 'error') delete view.error
+      },
+      { source: 'system' },
+    )
 
     // After the write, and from the store rather than from the patch: what the
     // user should be told about is the conversation's state, and the patch is
@@ -372,11 +375,7 @@ function agentDisplayName(route: SessionRoute): string {
  * `session/list`, so a conversation the agent has forgotten is already absent
  * from the next read.
  */
-async function explainLoadFailure(
-  manager: AcpManager,
-  sessionId: string,
-  raw: unknown,
-): Promise<PeekError> {
+async function explainLoadFailure(manager: AcpManager, sessionId: string, raw: unknown): Promise<PeekError> {
   const original = toPeekError(raw)
   try {
     const catalogue = await manager.listSessions()
@@ -771,9 +770,7 @@ export function createEndpointChatRuntime(deps: EndpointRuntimeDeps): ChatRuntim
             // ISO on the wire because that is what the ACP rows deliver and the
             // rail formats one shape, not two.
             ...(route.title === undefined ? {} : { title: route.title }),
-            ...(route.updatedAt === undefined
-              ? {}
-              : { updatedAt: new Date(route.updatedAt).toISOString() }),
+            ...(route.updatedAt === undefined ? {} : { updatedAt: new Date(route.updatedAt).toISOString() }),
           })),
         supported: true,
         cwd: null,

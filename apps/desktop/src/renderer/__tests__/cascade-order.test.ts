@@ -615,7 +615,10 @@ interface Pair {
 }
 
 /** Every such pair, in every sheet. Collected once, read by four assertions. */
-function reducedMotionPairs(sheets: Sheet[], groups: Set<string>[]): { pairs: Pair[]; uncomparable: string[] } {
+function reducedMotionPairs(
+  sheets: Sheet[],
+  groups: Set<string>[],
+): { pairs: Pair[]; uncomparable: string[] } {
   const pairs: Pair[] = []
   const uncomparable: string[] = []
 
@@ -822,7 +825,10 @@ describe('cascade order · the parser', () => {
       ],
     )
     assert.ok(blocks[1].offset < blocks[2].offset, 'a nested override must read as later than its parent')
-    assert.ok(nestedIn(blocks[2], blocks[1]), 'the nested override must read as *inside* its parent, not merely after')
+    assert.ok(
+      nestedIn(blocks[2], blocks[1]),
+      'the nested override must read as *inside* its parent, not merely after',
+    )
     assert.ok(!nestedIn(blocks[1], blocks[2]), 'nesting is a direction, not a relation')
   })
 
@@ -968,7 +974,10 @@ describe('cascade order · reduced motion', () => {
     )
     // One pair, eight lines: `animation` expands to eight longhands and the
     // winner is decided per property, which is what `!important` forces.
-    assert.ok(losses(reducedMotionPairs([broken], []).pairs).length > 0, 'the original bug must read as a loss')
+    assert.ok(
+      losses(reducedMotionPairs([broken], []).pairs).length > 0,
+      'the original bug must read as a loss',
+    )
 
     // The same rules with the semicolons left off. Legal CSS; before the seventh
     // round this parsed to two blocks with no declarations and matched nothing.
@@ -1030,7 +1039,11 @@ describe('cascade order · reduced motion', () => {
     )
     const positionalPairs = reducedMotionPairs([positional], []).pairs
     assert.deepEqual(losses(positionalPairs), [], 'it does win — that is the point')
-    assert.equal(orderDependent(positionalPairs).length, 1, 'and it wins only by sitting later, which is the red')
+    assert.equal(
+      orderDependent(positionalPairs).length,
+      1,
+      'and it wins only by sitting later, which is the red',
+    )
   })
 })
 
@@ -1098,7 +1111,7 @@ const RUNTIME_IMPORTANT_SITES: { file: string; at: string; why: string }[] = [
     why:
       'CodeMirror writes its own selection layer inline on elements it creates, and an inline style beats ' +
       'every rule at any specificity. Carried over verbatim when the theme moved out of the stylesheet: ' +
-      'CodeMirror\'s own selection rules now arrive through the same injector, so which one wins is a ' +
+      "CodeMirror's own selection rules now arrive through the same injector, so which one wins is a " +
       'question of injection order rather than specificity, and the marker is what keeps it deterministic.',
   },
 ]
@@ -1276,14 +1289,19 @@ describe('cascade order · unlayered collisions', () => {
 
   test('every ledger entry still names a live collision, and still wins', () => {
     for (const entry of CASCADE_LEDGER) {
-      const hit = found.find(({ a, b }) => key(a, b) === entry.where.join('  ||  ') || key(b, a) === entry.where.join('  ||  '))
+      const hit = found.find(
+        ({ a, b }) => key(a, b) === entry.where.join('  ||  ') || key(b, a) === entry.where.join('  ||  '),
+      )
       assert.ok(
         hit,
         `CASCADE_LEDGER carries ${entry.where.join(' || ')}, and the sweep no longer finds that ` +
           `collision. Either it was fixed — delete the entry — or a selector was renamed and the entry ` +
           `is now exempting nothing while reading as though it exempts something.`,
       )
-      assert.ok(entry.why.length > 40, `the reason for ${entry.where.join(' || ')} is too short to be a reason`)
+      assert.ok(
+        entry.why.length > 40,
+        `the reason for ${entry.where.join(' || ')} is too short to be a reason`,
+      )
       assert.ok(
         entry.emitted.length > 40,
         `${entry.where.join(' || ')} has no record of how its winner was confirmed in the shipped ` +
@@ -1344,9 +1362,17 @@ describe('cascade order · unlayered collisions', () => {
        .x { color: blue; }`,
     )
     const dead = collisions([shadowed], [])
-    assert.equal(dead.length, 1, 'a flat @media shadowed by a later unconditional rule is a collision, not a nesting')
+    assert.equal(
+      dead.length,
+      1,
+      'a flat @media shadowed by a later unconditional rule is a collision, not a nesting',
+    )
     assert.deepEqual(dead[0].props, ['color'])
-    assert.equal(winner(dead[0].a, dead[0].b, 'color').offset, shadowed.blocks[1].offset, 'the unconditional rule paints')
+    assert.equal(
+      winner(dead[0].a, dead[0].b, 'color').offset,
+      shadowed.blocks[1].offset,
+      'the unconditional rule paints',
+    )
 
     // And the shape the skip is actually for: identical in every respect the old
     // predicate could see, and correct.
@@ -1451,8 +1477,14 @@ describe('cascade order · the second channel', () => {
     }
     assert.ok(sample("<div style={{ animation: 'pulse 1s infinite' }} />"), 'a shorthand must be recognised')
     assert.ok(sample("<div style={{ animationName: 'pulse' }} />"), 'a camelCase longhand must be recognised')
-    assert.ok(sample('<div style={{ transitionDuration: `${d}ms` }} />'), 'a template value must not hide the key')
-    assert.ok(!INLINE_MOTION.test('const t = { transitionable: true }'), 'a word that merely starts the same is not one')
+    assert.ok(
+      sample('<div style={{ transitionDuration: `${d}ms` }} />'),
+      'a template value must not hide the key',
+    )
+    assert.ok(
+      !INLINE_MOTION.test('const t = { transitionable: true }'),
+      'a word that merely starts the same is not one',
+    )
   })
 })
 
@@ -1487,7 +1519,11 @@ describe('cascade order · the shipped stylesheet', () => {
       // asserts nothing.
       const { pairs } = reducedMotionPairs(SHEET_DATA, groups)
       assert.ok(pairs.length > 0, 'no artifact on disk and no source-side pairs either — nothing was checked')
-      assert.deepEqual(orderDependent(pairs), [], 'no artifact on disk; the source-side guarantee is what stands')
+      assert.deepEqual(
+        orderDependent(pairs),
+        [],
+        'no artifact on disk; the source-side guarantee is what stands',
+      )
       assert.deepEqual(losses(pairs), [], 'no artifact on disk; the source-side guarantee is what stands')
       return
     }
@@ -1507,7 +1543,11 @@ describe('cascade order · the shipped stylesheet', () => {
       `the shipped stylesheet contains no reduced-motion override arguing with any rule, and \`styles.css\` ` +
         `contains one. Either the emitter dropped it or the selector it names was renamed on the way out.`,
     )
-    assert.deepEqual(uncomparable, [], 'a shipped reduced-motion override argues with a rule under another condition')
+    assert.deepEqual(
+      uncomparable,
+      [],
+      'a shipped reduced-motion override argues with a rule under another condition',
+    )
     assert.deepEqual(
       losses(pairs),
       [],

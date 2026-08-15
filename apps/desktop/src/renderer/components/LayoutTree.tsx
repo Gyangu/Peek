@@ -97,7 +97,9 @@ function SplitView({ node, order }: { node: SplitNode; order: ReadonlyMap<PanelI
      is nested three deep; nothing styles from it any more. */
   return (
     <div
-      className={node.dir === 'row' ? 'flex flex-1 min-w-0 min-h-0 flex-row' : 'flex flex-1 min-w-0 min-h-0 flex-col'}
+      className={
+        node.dir === 'row' ? 'flex flex-1 min-w-0 min-h-0 flex-row' : 'flex flex-1 min-w-0 min-h-0 flex-col'
+      }
       data-dir={node.dir}
     >
       {children}

@@ -29,11 +29,7 @@ import {
  */
 export interface DriverRpcOptions {
   introspect(connId: ConnId, parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]>
-  peekValue(
-    connId: ConnId,
-    ref: ValueRef,
-    range?: { offset: number; length: number },
-  ): Promise<PeekedValue>
+  peekValue(connId: ConnId, ref: ValueRef, range?: { offset: number; length: number }): Promise<PeekedValue>
   getKeyValue(connId: ConnId, ref: ValueRef, window?: KeyValueWindow): Promise<KeyValueResult>
 }
 
@@ -150,9 +146,7 @@ function readKeyValueWindow(raw: unknown): KeyValueWindow | null {
   const match = rec['match']
   const window: KeyValueWindow = {
     ...(isKeyValueShape(shape) ? { shape } : {}),
-    ...(typeof limit === 'number' && Number.isFinite(limit)
-      ? { limit: Math.max(1, Math.trunc(limit)) }
-      : {}),
+    ...(typeof limit === 'number' && Number.isFinite(limit) ? { limit: Math.max(1, Math.trunc(limit)) } : {}),
     ...(typeof offset === 'number' && Number.isFinite(offset)
       ? { offset: Math.max(0, Math.trunc(offset)) }
       : {}),

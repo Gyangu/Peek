@@ -78,8 +78,10 @@ describe('canonical cell representation', () => {
 
     // An instant names a point on the timeline, so UTC is the reading that does
     // not depend on who is looking
-    assert.equal(canonicalTimestamp(new Date(Date.UTC(2026, 7, 1, 11, 31, 42, 819))),
-      '2026-08-01T11:31:42.819Z')
+    assert.equal(
+      canonicalTimestamp(new Date(Date.UTC(2026, 7, 1, 11, 31, 42, 819))),
+      '2026-08-01T11:31:42.819Z',
+    )
     assert.equal(canonicalTimestamp('2026-08-01 11:31:42'), '2026-08-01 11:31:42')
     // pg returns an unparsable Date for 'infinity'; it must not become 'Invalid Date'
     assert.equal(typeof canonicalTimestamp(new Date(Number.NaN)), 'string')
@@ -119,10 +121,7 @@ describe('canonical cell representation', () => {
 
     // A Date reaching a column whose logical type is coarser than its runtime
     // type must still not end up inside a chunk as an object
-    assert.equal(
-      canonicalCell(new Date(Date.UTC(2026, 0, 1)), 'unknown'),
-      '2026-01-01T00:00:00.000Z',
-    )
+    assert.equal(canonicalCell(new Date(Date.UTC(2026, 0, 1)), 'unknown'), '2026-01-01T00:00:00.000Z')
 
     // Buffers belong to the driver's own truncation path, so they pass through
     const bytes = new Uint8Array([1, 2, 3])

@@ -121,9 +121,8 @@ export class SqlValuePeeker {
     window: { offset: number; length: number },
   ): Promise<PeekedValue> {
     const { dialect, handle } = this.opts
-    const rel = ref.collection.schema === ''
-      ? { ...ref.collection, schema: handle.defaultSchema }
-      : ref.collection
+    const rel =
+      ref.collection.schema === '' ? { ...ref.collection, schema: handle.defaultSchema } : ref.collection
 
     const metas = await this.relationColumns(rel)
     const target = metas.find((m) => m.name === ref.column)
@@ -145,8 +144,8 @@ export class SqlValuePeeker {
       return `${dialect.quoteIdent(column)} = ${dialect.placeholder(params.length)}`
     })
     const text =
-      `SELECT ${total} AS total, ${slice} AS part FROM ${dialect.qualify(rel)}`
-      + ` WHERE ${conds.join(' AND ')}${dialect.renderLimitOffset(1, 0, params)}`
+      `SELECT ${total} AS total, ${slice} AS part FROM ${dialect.qualify(rel)}` +
+      ` WHERE ${conds.join(' AND ')}${dialect.renderLimitOffset(1, 0, params)}`
 
     const rows = await this.exec(text, params)
     const row = rows.rows[0]
@@ -188,8 +187,7 @@ export class SqlValuePeeker {
     // when it is known; the re-run's own metadata is the fallback, and for SQLite
     // it is genuinely all there is (an expression column has no declared type)
     const meta = rows.columns[ref.col]
-    const logical = src.columns?.[ref.col]?.logical
-      ?? (meta ? this.opts.dialect.logical(meta) : 'unknown')
+    const logical = src.columns?.[ref.col]?.logical ?? (meta ? this.opts.dialect.logical(meta) : 'unknown')
 
     const whole = toBytes(row[ref.col])
     const part = whole.subarray(window.offset, window.offset + window.length)

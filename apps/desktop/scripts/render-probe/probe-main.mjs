@@ -572,7 +572,6 @@ async function openPane(
     webPreferences: { backgroundThrottling: false, sandbox: false },
   })
 
-
   // Anything the page logged at `warning` or above. A blank page is the failure
   // this probe is least allowed to report as a pass, and the first line of the
   // renderer's console is usually the whole diagnosis — so it is collected here
@@ -834,7 +833,10 @@ function colourRuns(profile, colour, tolerance) {
 const STRIP_PAD = 2
 
 function borderStrip(rect, side, width) {
-  const along = Math.max(4, Math.min(12, (side === 'top' || side === 'bottom' ? rect.width : rect.height) * 0.5))
+  const along = Math.max(
+    4,
+    Math.min(12, (side === 'top' || side === 'bottom' ? rect.width : rect.height) * 0.5),
+  )
   const thickness = width + 2 * STRIP_PAD
   if (side === 'top' || side === 'bottom') {
     return {
@@ -908,19 +910,25 @@ function checkSanity(s, pane) {
   }
   for (const [name, value] of Object.entries(s.themeVars)) {
     if (value === '') {
-      fail('sanity', `${at}: the theme variable for "${name}" is empty at :root, so var() resolves to nothing`)
+      fail(
+        'sanity',
+        `${at}: the theme variable for "${name}" is empty at :root, so var() resolves to nothing`,
+      )
       return false
     }
   }
   if (s.elementCount < 10) {
-    fail('sanity', `${at}: only ${String(s.elementCount)} elements in the body; the pane rendered nothing worth measuring`)
+    fail(
+      'sanity',
+      `${at}: only ${String(s.elementCount)} elements in the body; the pane rendered nothing worth measuring`,
+    )
     return false
   }
   if (s.shapedButtonCount === 0) {
     fail(
       'sanity',
       `${at}: none of the ${String(s.buttonCount)} buttons on the page has a border radius or a ` +
-        'sensible height. The product\'s own controls are unstyled here, which means the ' +
+        "sensible height. The product's own controls are unstyled here, which means the " +
         'stylesheet is present but is not the one that dresses them.',
     )
     return false
@@ -1018,7 +1026,7 @@ async function checkAccentColour(p) {
       fail(
         'accent-color',
         `${line}\nunder the ${String(ACCENT_MIN_CONTRAST)}:1 floor. The user agent picks this colour ` +
-          'from the document\'s `color-scheme`; if that declaration has gone from `:root` in ' +
+          "from the document's `color-scheme`; if that declaration has gone from `:root` in " +
           'styles.css, this is 4.22:1 light-scheme blue on a dark window, and no other check in ' +
           'this repository can see it.',
       )
@@ -1543,16 +1551,16 @@ const BELOW_FLOOR_RENDERED = [
     why:
       'This colour is written **nowhere**: `grep -c placeholder` over the artifact is 0 and ' +
       '`grep -c 757575` is 0, so no stylesheet, no class string and no bundle contains it. It is the ' +
-      'user agent\'s own placeholder ink, the same channel as the accent two checks up, and it is the ' +
+      "user agent's own placeholder ink, the same channel as the accent two checks up, and it is the " +
       'first pair in this repository found by rendering rather than by reading. The source-side ' +
       'census cannot reach it — it audits tokens, and there is no token. The palette sweep cannot ' +
-      'reach it either: that sweep walks elements, and a placeholder\'s ink belongs to a ' +
+      "reach it either: that sweep walks elements, and a placeholder's ink belongs to a " +
       'pseudo-element.',
     fix:
       'Declare the ink instead of inheriting it. On this same surface the dim foreground token ' +
       'measures 8.11:1 and the faint one 5.29:1, so either clears the floor outright; the change is ' +
-      'one rule in styles.css against the placeholder pseudo-element, which is another file\'s ' +
-      'and another change\'s. Recorded here with the number pinned so it cannot drift further.',
+      "one rule in styles.css against the placeholder pseudo-element, which is another file's " +
+      "and another change's. Recorded here with the number pinned so it cannot drift further.",
   },
   /*
    * The two the state sweep found on its first run, and the reason it exists.
@@ -1573,7 +1581,7 @@ const BELOW_FLOOR_RENDERED = [
     where:
       'The label of every `primary` button while the pointer is on it, and of the chosen segmented ' +
       'option: the gallery\'s primary specimen, its "Action" / "Inline" / "✕" row, the connect ' +
-      'dialog\'s Connect button and its Fields/URL segment, and the consent dialog\'s Accept in both ' +
+      "dialog's Connect button and its Fields/URL segment, and the consent dialog's Accept in both " +
       'locales. 9 sites across the four panes this probe mounts.',
     why:
       'The same pair `theme-contrast.test.ts` records at 3.92:1 from the tokens (`--color-fg` on ' +
@@ -1588,7 +1596,7 @@ const BELOW_FLOOR_RENDERED = [
       'side already costed it: mix towards `--color-accent-dim` rather than away from it, or darken ' +
       'the hover and press pair together — either clears the floor, and either is a visible change ' +
       'to the most-clicked control in the window, so it is a palette change in styles.css and not ' +
-      'this file\'s to make.',
+      "this file's to make.",
   },
   {
     ink: '#f0736f',
@@ -1596,7 +1604,7 @@ const BELOW_FLOOR_RENDERED = [
     state: 'hover',
     measured: 3.69,
     where:
-      'The label of every `danger` button while the pointer is on it: the gallery\'s danger specimen ' +
+      "The label of every `danger` button while the pointer is on it: the gallery's danger specimen " +
       'and its "Action" / "Inline" / "✕" row. 5 sites, all on the gallery pane — in the product this ' +
       'is Stop in the composer and Reject in a permission prompt.',
     why:
@@ -1899,9 +1907,7 @@ async function checkLegibility(p, { minPairs }) {
   for (const v of seen.values()) {
     // `rest`, explicitly: a pair recorded as a breach under the pointer is not a
     // licence for the same two colours to appear on a page nobody is touching.
-    const pinned = BELOW_FLOOR_RENDERED.find(
-      (b) => b.ink === v.ink && b.on === v.on && b.state === 'rest',
-    )
+    const pinned = BELOW_FLOOR_RENDERED.find((b) => b.ink === v.ink && b.on === v.on && b.state === 'rest')
     if (pinned === undefined) {
       fail(
         'legibility',
@@ -2186,8 +2192,7 @@ const SWEPT_STATES = ['hover', 'active', 'focus']
 function cdp(win) {
   const dbg = win.webContents.debugger
   if (!dbg.isAttached()) dbg.attach('1.3')
-  return (method, params = {}) =>
-    withDeadline(`cdp ${method}`, 10_000, () => dbg.sendCommand(method, params))
+  return (method, params = {}) => withDeadline(`cdp ${method}`, 10_000, () => dbg.sendCommand(method, params))
 }
 
 /** Moves the real pointer. `button: 'none'` is a move, not a drag. */
@@ -2302,7 +2307,9 @@ async function captureAgreeing(p, rect, label, readings) {
     readings.every((r, i) => {
       if (want[i].error !== undefined) return true
       const seen = witnessPair(shot, r)
-      return seen.error === undefined && samePhoto(want[i].ink, seen.ink) && samePhoto(want[i].bg, seen.surface)
+      return (
+        seen.error === undefined && samePhoto(want[i].ink, seen.ink) && samePhoto(want[i].bg, seen.surface)
+      )
     })
   let shot = null
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -2341,7 +2348,11 @@ async function calibrateStates(p, send) {
     // inserted as `body`'s first child precisely so that is three keystrokes and
     // not a walk across the whole pane.
     const hoverBox = rest.find((r) => r.id === 'hover-swap').boxRect
-    await movePointer(send, Math.round(hoverBox.x + hoverBox.width / 2), Math.round(hoverBox.y + hoverBox.height / 2))
+    await movePointer(
+      send,
+      Math.round(hoverBox.x + hoverBox.width / 2),
+      Math.round(hoverBox.y + hoverBox.height / 2),
+    )
     const forced = await forcePseudo(send, `#__probe-state-rig .press-dim`, ['active'])
     if (forced !== 1) {
       fail(
@@ -2525,7 +2536,7 @@ async function calibrateStates(p, send) {
           `${p.pane}: state rig [press-dim/active]: forcing the pseudo-class photographs ` +
             `${hex(forcedShot.ink)} on ${hex(forcedShot.surface)} and a real pointer press ` +
             `photographs ${hex(real.ink)} on ${hex(real.surface)}. \`:active\` on the real page is ` +
-            'driven by forcing precisely because a real press runs the product\'s own handlers; that ' +
+            "driven by forcing precisely because a real press runs the product's own handlers; that " +
             'trade is only sound while these two are the same picture, and this run they are not.',
         )
         good -= 1
@@ -2708,7 +2719,7 @@ async function driveHover(p, send, subjects) {
       // did not.
       missed.push(
         `${subject.where} (the pointer was moved to ${String(aim.x)},${String(aim.y)} and ` +
-          '`matches(\':hover\')` is still false; a hit test at its centre lands on ' +
+          "`matches(':hover')` is still false; a hit test at its centre lands on " +
           `${String(after.hit)}, ` +
           (after.hitIsSelf
             ? 'which is the subject itself — nothing is covering it, so the pointer never arrived)'
@@ -2756,7 +2767,8 @@ async function driveActive(p, send, subjects) {
       return {
         readings: [],
         missed: subjects.map(
-          (s) => `${s.where} (CDP matched ${String(forced)} node(s) for ${String(subjects.length)} subject(s))`,
+          (s) =>
+            `${s.where} (CDP matched ${String(forced)} node(s) for ${String(subjects.length)} subject(s))`,
         ),
       }
     }
@@ -3064,9 +3076,9 @@ function checkReducedMotion(before, after) {
     fail(
       'reduced-motion',
       'nothing on the gallery pane animates at rest, so there is no motion for `reduce` to stop. ' +
-        'The connection dot is spelled with the product\'s own class constant; if it stopped ' +
+        "The connection dot is spelled with the product's own class constant; if it stopped " +
         'animating, either the keyframe name drifted again (it is `conn-pulse`, and it was ' +
-        '`pulse` for two rounds while colliding with Tailwind\'s) or the rule stopped matching. ' +
+        "`pulse` for two rounds while colliding with Tailwind's) or the rule stopped matching. " +
         'Either way this check would otherwise pass by having nothing to look at.',
     )
     return
@@ -3248,7 +3260,8 @@ function bandsAcross(shot, axis, borderColour) {
 }
 
 /** A profile rendered short enough to paste into a failure message. */
-const showProfile = (profile) => profile.map((p) => `${String(p[0])},${String(p[1])},${String(p[2])}`).join(' | ')
+const showProfile = (profile) =>
+  profile.map((p) => `${String(p[0])},${String(p[1])},${String(p[2])}`).join(' | ')
 
 /**
  * Photographs one side of one border and counts the lines in it.
@@ -3616,7 +3629,10 @@ async function run() {
       check,
       'BELOW_FLOOR_RENDERED records pairs this run never rendered:\n' +
         group
-          .map((b) => `    ${b.ink} on ${b.on} ${b.state === 'rest' ? 'at rest' : `under \`:${b.state}\``} — ${b.where}`)
+          .map(
+            (b) =>
+              `    ${b.ink} on ${b.on} ${b.state === 'rest' ? 'at rest' : `under \`:${b.state}\``} — ${b.where}`,
+          )
           .join('\n') +
         '\n  Either the breach was repaired, in which case delete the entry, or the pane that showed ' +
         'it stopped rendering it, in which case the check has quietly lost coverage and the entry is ' +
@@ -3683,9 +3699,7 @@ function report() {
    */
   const caught = failures.some((f) => f.check === plant.catches)
   if (caught) {
-    out.write(
-      `\nrender-probe: PLANT PROVEN — --plant=${plant.name} was caught by [${plant.catches}].\n`,
-    )
+    out.write(`\nrender-probe: PLANT PROVEN — --plant=${plant.name} was caught by [${plant.catches}].\n`)
     finish(0)
   } else {
     out.write(

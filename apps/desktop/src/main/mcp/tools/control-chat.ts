@@ -130,8 +130,11 @@ export default defineCommandTool({
 
       case 'set_mode':
         if (input.mode === undefined) {
-          toolFail('BAD_REQUEST', 'control_chat set_mode needs a mode. The conversation is currently in ' +
-            `"${chat.permissionMode}".`)
+          toolFail(
+            'BAD_REQUEST',
+            'control_chat set_mode needs a mode. The conversation is currently in ' +
+              `"${chat.permissionMode}".`,
+          )
         }
         return [{ name: 'chat.setMode', input: { viewId: input.viewId, mode: input.mode } }]
 

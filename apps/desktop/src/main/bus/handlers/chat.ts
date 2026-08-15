@@ -115,10 +115,7 @@ const DEFAULT_ATTACHMENT_ROWS = 100
  * decorative — and the prompt is the only reason it is safe to let an agent drive
  * the window at all.
  */
-const HUMAN_ONLY_MODES: ReadonlySet<ChatPermissionMode> = new Set([
-  'dontAsk',
-  'bypassPermissions',
-])
+const HUMAN_ONLY_MODES: ReadonlySet<ChatPermissionMode> = new Set(['dontAsk', 'bypassPermissions'])
 
 /* ================================================================== */
 /* 1. The runtime seam (implemented by the ACP adapter)                */
@@ -400,8 +397,7 @@ function resolveAttachment(
       const r1 = Math.min(spec.r1, spec.r0 + MAX_CHAT_ATTACHMENT_ROWS - 1)
       return {
         id,
-        label: spec.label
-          ?? `${String(spec.columns.length)} column(s) × ${String(r1 - spec.r0 + 1)} row(s)`,
+        label: spec.label ?? `${String(spec.columns.length)} column(s) × ${String(r1 - spec.r0 + 1)} row(s)`,
         kind: 'cells',
         viewId: spec.viewId,
         resultId: spec.resultId,

@@ -95,7 +95,16 @@ export type LogNamespace =
   | 'renderer'
 
 export const LOG_NAMESPACES: readonly LogNamespace[] = [
-  'app', 'bus', 'store', 'conn', 'driver', 'package', 'mcp', 'agent', 'acp', 'renderer',
+  'app',
+  'bus',
+  'store',
+  'conn',
+  'driver',
+  'package',
+  'mcp',
+  'agent',
+  'acp',
+  'renderer',
 ]
 
 /* ================================================================== */

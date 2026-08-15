@@ -48,7 +48,9 @@ import { driverManifests } from '../../drivers/manifests'
  * once per MCP session, alongside `mcpInstructions()` itself.
  */
 function connectExamples(): string {
-  return driverManifests().map((m) => `  - ${m.displayName}: ${m.mcpConnectExample}`).join('\n')
+  return driverManifests()
+    .map((m) => `  - ${m.displayName}: ${m.mcpConnectExample}`)
+    .join('\n')
 }
 
 /**

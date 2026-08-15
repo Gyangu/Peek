@@ -37,10 +37,7 @@ export const neo4jDriver = new Neo4jDriver()
  */
 export function requireNeo4jConfig(cfg: ConnectionConfig): Neo4jConnectionConfig {
   if (!isDriverConfig<Neo4jConnectionConfig>(cfg, 'neo4j')) {
-    throw peekError(
-      'BAD_REQUEST',
-      `db-neo4j received a connection config with driverId=${cfg.driverId}`,
-    )
+    throw peekError('BAD_REQUEST', `db-neo4j received a connection config with driverId=${cfg.driverId}`)
   }
   return cfg
 }

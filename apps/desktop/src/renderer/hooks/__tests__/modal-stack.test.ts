@@ -1,13 +1,6 @@
 import assert from 'node:assert/strict'
 import { beforeEach, describe, test } from 'node:test'
-import {
-  isTopModal,
-  modalDepth,
-  nextFocusIndex,
-  popModal,
-  pushModal,
-  resetModalStack,
-} from '../modalStack'
+import { isTopModal, modalDepth, nextFocusIndex, popModal, pushModal, resetModalStack } from '../modalStack'
 
 /* ==================================================================
  * Which dialog owns Escape, and where Tab goes at the edge of one.

@@ -99,14 +99,7 @@ export interface ContextAction {
   build(): ChatAttachment
 }
 
-export type ContextActionId =
-  | 'rows'
-  | 'result'
-  | 'cell'
-  | 'cells'
-  | 'schema'
-  | 'query'
-  | 'workspace'
+export type ContextActionId = 'rows' | 'result' | 'cell' | 'cells' | 'schema' | 'query' | 'workspace'
 
 /* ================================================================== */
 /* Builders                                                            */
@@ -221,9 +214,10 @@ export function contextActionsFor(target: ContextTarget, t: TFunction): ContextA
     const rows = r1 - r0 + 1
     const capped = Math.min(rows, MAX_CHAT_ATTACHMENT_ROWS)
     // The cap is stated in the line the user reads, not applied behind it.
-    const label = rows === capped
-      ? t('context.attach.cells', { rows, columns: columns.length })
-      : t('context.attach.cellsCapped', { rows, capped })
+    const label =
+      rows === capped
+        ? t('context.attach.cells', { rows, columns: columns.length })
+        : t('context.attach.cellsCapped', { rows, capped })
     const chipLabel = t('context.label.cells', { source, rows: capped, columns: columns.length })
     out.push({
       id: 'cells',

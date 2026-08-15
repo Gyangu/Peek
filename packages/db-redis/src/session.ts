@@ -38,12 +38,7 @@ import { RESP_TYPES, createClient, type RedisClientType } from 'redis'
 import { isRedisCommandRefusal, mapRedisError } from './errors'
 import { RedisKeyspace, type KeyspaceDeps } from './keyspace'
 import { redisManifest } from './manifest'
-import {
-  RedisScanCursor,
-  isRedisResumeToken,
-  type RedisKeyRow,
-  type RedisScanPage,
-} from './scan'
+import { RedisScanCursor, isRedisResumeToken, type RedisKeyRow, type RedisScanPage } from './scan'
 import {
   clampElements,
   clampOffset,
@@ -290,10 +285,7 @@ interface ScanNeeds {
 type ScanMetaCommand = 'type' | 'ttl' | 'size' | 'bytes' | 'encoding'
 
 function scanNeedsOf(columns: readonly ColumnDef[], filter: readonly FilterSpec[]): ScanNeeds {
-  const wanted = new Set<string>([
-    ...columns.map((c) => c.name),
-    ...filter.map((f) => f.column),
-  ])
+  const wanted = new Set<string>([...columns.map((c) => c.name), ...filter.map((f) => f.column)])
   const size = wanted.has(KEYSPACE_SCAN_COLUMNS.size)
   return {
     // The size command is chosen by type, so asking for `size` implies TYPE
@@ -367,10 +359,7 @@ export class RedisSession implements DriverSession {
    * `flavor` = 'Redis' / 'Valkey' / 'KeyDB' (read off INFO rather than assumed),
    * and `extra` holds the keyspace summary the tree shows on its root nodes.
    */
-  static async connect(
-    cfg: RedisConnectionConfig,
-    signal?: AbortSignal,
-  ): Promise<RedisSession> {
+  static async connect(cfg: RedisConnectionConfig, signal?: AbortSignal): Promise<RedisSession> {
     if (signal?.aborted) throw peekErrorMsg('CANCELLED', 'error.conn.connectCancelled')
     const client = openClient(buildClientOptions(cfg))
     // An unhandled 'error' event takes the whole driver host down; every failure
@@ -387,21 +376,19 @@ export class RedisSession implements DriverSession {
   }
 
   private static async probe(client: RedisClient): Promise<ServerInfo> {
-    const [server, keyspace] = await Promise.all([
-      client.info('server'),
-      client.info('keyspace'),
-    ])
+    const [server, keyspace] = await Promise.all([client.info('server'), client.info('keyspace')])
     const info = parseInfo(server)
     const version =
       info.get('valkey_version') ?? info.get('keydb_version') ?? info.get('redis_version') ?? '0'
     // server_name is how Valkey identifies itself; KeyDB only advertises its own
     // version field. Everything else is Redis until it says otherwise.
     const named = info.get('server_name')
-    const flavor = named !== undefined
-      ? named.charAt(0).toUpperCase() + named.slice(1)
-      : info.has('keydb_version')
-        ? 'KeyDB'
-        : 'Redis'
+    const flavor =
+      named !== undefined
+        ? named.charAt(0).toUpperCase() + named.slice(1)
+        : info.has('keydb_version')
+          ? 'KeyDB'
+          : 'Redis'
     const counts = parseKeyspaceInfo(keyspace)
     let total = 0
     for (const n of counts.values()) total += n
@@ -453,10 +440,12 @@ export class RedisSession implements DriverSession {
     this.binaries.clear()
     const opening = [...this.clients.values()]
     this.clients.clear()
-    await Promise.all(opening.map(async (p) => {
-      const client = await p.catch(() => null)
-      if (client) destroyQuietly(client)
-    }))
+    await Promise.all(
+      opening.map(async (p) => {
+        const client = await p.catch(() => null)
+        if (client) destroyQuietly(client)
+      }),
+    )
   }
 
   async ping(): Promise<void> {
@@ -567,8 +556,8 @@ export class RedisSession implements DriverSession {
       // would hand back more keys than were asked for, with nothing to say so.
       throw peekError(
         'BAD_REQUEST',
-        'The Redis driver has no native filter language; use `filter` over the'
-        + ' keyspace scan columns (key, type, ttlMs, size, bytes, encoding) instead',
+        'The Redis driver has no native filter language; use `filter` over the' +
+          ' keyspace scan columns (key, type, ttlMs, size, bytes, encoding) instead',
       )
     }
     // SCAN's order is an implementation detail of the hash table and changes as it
@@ -673,19 +662,22 @@ export class RedisSession implements DriverSession {
       return res.values
     }
     try {
-      const types = knownType !== undefined
-        ? keys.map(() => knownType)
-        : needs.type
-          ? (await meta('type', true, () => keys.map((k) => client.type(k)))).map((t) => t ?? 'none')
-          : keys.map(() => '')
+      const types =
+        knownType !== undefined
+          ? keys.map(() => knownType)
+          : needs.type
+            ? (await meta('type', true, () => keys.map((k) => client.type(k)))).map((t) => t ?? 'none')
+            : keys.map(() => '')
       const [ttls, bytes, encodings] = await Promise.all([
         meta('ttl', needs.ttl, () => keys.map((k) => client.pTTL(k))),
         meta('bytes', needs.bytes, () =>
-          keys.map((k) => client.memoryUsage(k, { SAMPLES: MEMORY_USAGE_SAMPLES }))),
+          keys.map((k) => client.memoryUsage(k, { SAMPLES: MEMORY_USAGE_SAMPLES })),
+        ),
         meta('encoding', needs.encoding, () => keys.map((k) => client.objectEncoding(k))),
       ])
       const sizes = await meta('size', needs.size, () =>
-        keys.map((k, i) => this.sizeOf(client, k, types[i] ?? 'none')))
+        keys.map((k, i) => this.sizeOf(client, k, types[i] ?? 'none')),
+      )
 
       return keys.map((key, i) => ({
         key,
@@ -759,10 +751,7 @@ export class RedisSession implements DriverSession {
     }
   }
 
-  private async keyTypes(
-    db: number,
-    keys: readonly string[],
-  ): Promise<ReadonlyMap<string, string>> {
+  private async keyTypes(db: number, keys: readonly string[]): Promise<ReadonlyMap<string, string>> {
     const client = await this.clientFor(db)
     const types = (await pipeline(keys.map((k) => client.type(k)))).values
     const out = new Map<string, string>()
@@ -797,7 +786,10 @@ export class RedisSession implements DriverSession {
     }
   }
 
-  private async describeKey(db: number, key: string): Promise<{
+  private async describeKey(
+    db: number,
+    key: string,
+  ): Promise<{
     type: RedisType
     ttlMs: number | null
     encoding: string | null
@@ -901,7 +893,8 @@ export class RedisSession implements DriverSession {
             shape: 'list',
             start: offset,
             items: items.map((v, i) =>
-              keyValueElement(v, () => redisElementRef(key, db, String(offset + i)))),
+              keyValueElement(v, () => redisElementRef(key, db, String(offset + i))),
+            ),
           },
           ...(offset + items.length < total
             ? { nextCursor: String(offset + items.length), truncated: true }
@@ -947,8 +940,8 @@ export class RedisSession implements DriverSession {
         return {
           payload: { shape: 'stream', entries },
           ...(raw.length >= over && last !== undefined
-            // '(' makes the next XRANGE exclusive of the last id we already sent
-            ? { nextCursor: `(${last.id}`, truncated: true }
+            ? // '(' makes the next XRANGE exclusive of the last id we already sent
+              { nextCursor: `(${last.id}`, truncated: true }
             : {}),
         }
       }
@@ -1165,10 +1158,10 @@ export function splitFilters(
   const clientSide: FilterSpec[] = []
   for (const spec of filters) {
     const pushable =
-      spec.column === KEYSPACE_SCAN_COLUMNS.type
-      && spec.op === 'eq'
-      && typeof spec.value === 'string'
-      && typeFilter === undefined
+      spec.column === KEYSPACE_SCAN_COLUMNS.type &&
+      spec.op === 'eq' &&
+      typeof spec.value === 'string' &&
+      typeFilter === undefined
     if (pushable && typeof spec.value === 'string') {
       typeFilter = spec.value
       continue

@@ -4,7 +4,13 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
 
-import { blankComments, decomment, readShippedCss, stylesheets, utilityBody } from '../../__tests__/sourceScan'
+import {
+  blankComments,
+  decomment,
+  readShippedCss,
+  stylesheets,
+  utilityBody,
+} from '../../__tests__/sourceScan'
 
 /* ==================================================================
  * The form primitives.
@@ -44,7 +50,7 @@ const CONSUMERS = [
   'components/settings/TimeoutsSection.tsx',
 ] as const
 
-describe('the leading element is the API\'s decision, not the caller\'s', () => {
+describe("the leading element is the API's decision, not the caller's", () => {
   test('a row with an id to point at renders a label; one without renders a span', () => {
     // `<label>` is a promise that a screen reader follows to a named control.
     // While it was the caller's to pick, three rows in two files made it with

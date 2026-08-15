@@ -278,7 +278,7 @@ function assertMainHoldsNoPackageCode(): Plugin {
           [...offenders].map(([path, chunk]) => `  ${path}  (in ${chunk})`).join('\n') +
           '\nDesign 2026-08-07 §2.4bis(a): a package runs in its own host process, because main ' +
           'decrypts every stored credential. Split the module so that main imports only the ' +
-          "declarative half — `drivers/mcpTools.ts` is the worked example — or, if main genuinely " +
+          'declarative half — `drivers/mcpTools.ts` is the worked example — or, if main genuinely ' +
           'must hold this, add it to `MAIN_MAY_REACH` in scripts/main-may-reach.ts with the reason.',
       )
     },
@@ -320,7 +320,7 @@ function assertWindowHoldsNoMainOnlyCore(): Plugin {
   const MAIN_ONLY_CORE: readonly { path: string; why: string }[] = [
     {
       path: resolve(repoRoot, 'packages/core/src/package-manifest.ts'),
-      why: 'reading a `peek-package.json` is the loader\'s job, and `z.fromJSONSchema` is how it turns a package\'s declared tool arguments into a validator',
+      why: "reading a `peek-package.json` is the loader's job, and `z.fromJSONSchema` is how it turns a package's declared tool arguments into a validator",
     },
   ]
   return {
@@ -356,9 +356,7 @@ function assertWindowHoldsNoMainOnlyCore(): Plugin {
 
       this.error(
         'The window carries a main-only module of @peek/core:\n' +
-          [...offenders]
-            .map(([path, { chunk, why }]) => `  ${path}  (in ${chunk}) — ${why}`)
-            .join('\n') +
+          [...offenders].map(([path, { chunk, why }]) => `  ${path}  (in ${chunk}) — ${why}`).join('\n') +
           '\nThe kernel barrel re-exports these with `export type *` so the renderer keeps the ' +
           'vocabulary and none of the schemas (packages/core/src/index.ts). Import the values from ' +
           '`@peek/core/package-manifest` in main, and the types from `@peek/core` anywhere.',

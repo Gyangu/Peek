@@ -42,11 +42,7 @@ import {
  * disagree with what the agent actually did, and showing it in full would double
  * the length of every tool sequence.
  */
-export const ToolCallCard = memo(function ToolCallCard({
-  call,
-}: {
-  call: ToolCallRecord
-}): ReactElement {
+export const ToolCallCard = memo(function ToolCallCard({ call }: { call: ToolCallRecord }): ReactElement {
   const t = useT()
   const parsed = useMemo(() => parseToolTitle(call.title), [call.title])
   const plan = useMemo(() => extractPlan(call), [call])
@@ -111,10 +107,11 @@ export const ToolCallCard = memo(function ToolCallCard({
           // inversion of the truth. The session sandbox should now make this
           // branch unreachable; it stays because a badge that is never shown
           // costs nothing and a missing one cost the user their bearings.
-          <span className={`${BADGE} bg-warn text-warn-ink font-semibold`} title={t('chat.tool.outsideTitle')}>
-            {parsed.server === null
-              ? t('chat.tool.outside')
-              : t('chat.tool.via', { server: parsed.server })}
+          <span
+            className={`${BADGE} bg-warn text-warn-ink font-semibold`}
+            title={t('chat.tool.outsideTitle')}
+          >
+            {parsed.server === null ? t('chat.tool.outside') : t('chat.tool.via', { server: parsed.server })}
           </span>
         )}
         {summary === '' ? null : <span className={`font-mono tabular-nums ${ARGS}`}>{summary}</span>}
@@ -162,7 +159,9 @@ export const ToolCallCard = memo(function ToolCallCard({
         <div className="px-snug pt-tight pb-snug bg-bg border-t border-border">
           {/* The raw identifier, always: the friendly label is for reading, this
               is what a bug report and the agent's own logs are keyed by. */}
-          <div className="font-mono tabular-nums mb-tight text-micro text-fg-faint break-all">{call.title}</div>
+          <div className="font-mono tabular-nums mb-tight text-micro text-fg-faint break-all">
+            {call.title}
+          </div>
 
           <div className={SECTION}>{t('chat.tool.arguments')}</div>
           <JsonBlock text={formatToolInput(call.rawInput)} />

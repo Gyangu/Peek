@@ -116,7 +116,13 @@ test('opening a conversation records a route, so the catalogue is not empty', ()
 
 test('a resumed conversation is replayed to the window as whole messages', () => {
   withManager(({ manager, threads, deltas, patches }) => {
-    threads.write({ sessionId: 'sess_1', transcript: STORED, messages: [], modelId: 'test-model', updatedAt: 9 })
+    threads.write({
+      sessionId: 'sess_1',
+      transcript: STORED,
+      messages: [],
+      modelId: 'test-model',
+      updatedAt: 9,
+    })
     manager.openChat(CHAT, 'sess_1')
 
     // One `message.start` per stored message and nothing else: that delta
@@ -139,7 +145,13 @@ test('a resumed conversation is replayed to the window as whole messages', () =>
 test('a resumed conversation restores the model’s memory, not only the screen', () => {
   withManager(({ manager, threads }) => {
     const remembered = [{ role: 'user', content: 'how many tables?' }] as never
-    threads.write({ sessionId: 'sess_1', transcript: STORED, messages: remembered, modelId: 'test-model', updatedAt: 9 })
+    threads.write({
+      sessionId: 'sess_1',
+      transcript: STORED,
+      messages: remembered,
+      modelId: 'test-model',
+      updatedAt: 9,
+    })
     manager.openChat(CHAT, 'sess_1')
 
     // Restoring only the transcript would show the history and then answer the
@@ -162,7 +174,13 @@ test('a conversation whose file is unreadable opens empty rather than broken', (
 
 test('closing a view detaches: the conversation is still on disk afterwards', () => {
   withManager(({ manager, threads }) => {
-    threads.write({ sessionId: 'sess_1', transcript: STORED, messages: [], modelId: 'test-model', updatedAt: 9 })
+    threads.write({
+      sessionId: 'sess_1',
+      transcript: STORED,
+      messages: [],
+      modelId: 'test-model',
+      updatedAt: 9,
+    })
     manager.openChat(CHAT, 'sess_1')
     manager.closeChat(CHAT)
 
@@ -175,7 +193,13 @@ test('closing a view detaches: the conversation is still on disk afterwards', ()
 
 test('reopening after a close brings the same conversation back', () => {
   withManager(({ manager, threads, deltas }) => {
-    threads.write({ sessionId: 'sess_1', transcript: STORED, messages: [], modelId: 'test-model', updatedAt: 9 })
+    threads.write({
+      sessionId: 'sess_1',
+      transcript: STORED,
+      messages: [],
+      modelId: 'test-model',
+      updatedAt: 9,
+    })
     manager.openChat(CHAT, 'sess_1')
     manager.closeChat(CHAT)
     deltas.length = 0
@@ -187,7 +211,13 @@ test('reopening after a close brings the same conversation back', () => {
 
 test('opening the same conversation twice does not stack it on itself', () => {
   withManager(({ manager, threads, deltas }) => {
-    threads.write({ sessionId: 'sess_1', transcript: STORED, messages: [], modelId: 'test-model', updatedAt: 9 })
+    threads.write({
+      sessionId: 'sess_1',
+      transcript: STORED,
+      messages: [],
+      modelId: 'test-model',
+      updatedAt: 9,
+    })
     manager.openChat(CHAT, 'sess_1')
     const after = deltas.length
     manager.openChat(CHAT, 'sess_1')
@@ -197,7 +227,13 @@ test('opening the same conversation twice does not stack it on itself', () => {
 
 test('restore re-sends what main is holding, led by a reset', () => {
   withManager(({ manager, threads, deltas }) => {
-    threads.write({ sessionId: 'sess_1', transcript: STORED, messages: [], modelId: 'test-model', updatedAt: 9 })
+    threads.write({
+      sessionId: 'sess_1',
+      transcript: STORED,
+      messages: [],
+      modelId: 'test-model',
+      updatedAt: 9,
+    })
     manager.openChat(CHAT, 'sess_1')
     deltas.length = 0
 
@@ -228,7 +264,13 @@ test('restoring a conversation that is not mounted answers false', () => {
 
 test('deleting takes the body first and then the route', () => {
   withManager(({ manager, threads, index }) => {
-    threads.write({ sessionId: 'sess_1', transcript: STORED, messages: [], modelId: 'test-model', updatedAt: 9 })
+    threads.write({
+      sessionId: 'sess_1',
+      transcript: STORED,
+      messages: [],
+      modelId: 'test-model',
+      updatedAt: 9,
+    })
     index.record({ sessionId: 'sess_1', backend: 'endpoint', agentId: 'test-model' })
 
     assert.equal(manager.deleteSession('sess_1'), true)
@@ -239,7 +281,13 @@ test('deleting takes the body first and then the route', () => {
 
 test('deleting a conversation somebody is reading is refused', () => {
   withManager(({ manager, threads, index }) => {
-    threads.write({ sessionId: 'sess_1', transcript: STORED, messages: [], modelId: 'test-model', updatedAt: 9 })
+    threads.write({
+      sessionId: 'sess_1',
+      transcript: STORED,
+      messages: [],
+      modelId: 'test-model',
+      updatedAt: 9,
+    })
     manager.openChat(CHAT, 'sess_1')
 
     // The command layer already refuses this as a CONFLICT. Reaching here means
@@ -261,7 +309,9 @@ test('a keyless endpoint resolves auth it can actually send', async () => {
   // vLLM/Ollama case `provider.ts` is written for could not send at all.
   const settings = { baseUrl: 'http://localhost:1/v1', model: 'm', api: 'openai-completions' } as never
   const keyless = buildEndpointModel(settings, null)
-  const resolved = await keyless.models.getProvider('peek-endpoint')?.auth.apiKey?.resolve({ ctx: {} as never })
+  const resolved = await keyless.models
+    .getProvider('peek-endpoint')
+    ?.auth.apiKey?.resolve({ ctx: {} as never })
   assert.equal(resolved?.auth.apiKey, undefined)
   assert.match(String(resolved?.auth.headers?.['authorization']), /^Bearer /)
 
@@ -353,7 +403,13 @@ async function until(done: () => boolean, timeoutMs = 10_000): Promise<void> {
 
 test('clear empties the stored conversation instead of deleting the file', () => {
   withManager(({ manager, threads }) => {
-    threads.write({ sessionId: 'sess_1', transcript: STORED, messages: [], modelId: 'test-model', updatedAt: 9 })
+    threads.write({
+      sessionId: 'sess_1',
+      transcript: STORED,
+      messages: [],
+      modelId: 'test-model',
+      updatedAt: 9,
+    })
     manager.openChat(CHAT, 'sess_1')
     manager.clear(CHAT)
 

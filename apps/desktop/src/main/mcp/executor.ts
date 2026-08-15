@@ -38,10 +38,7 @@ import type {
  * The inner generic function re-binds the correlation between `name` and `input`, which keeps
  * the whole path free of type assertions.
  */
-export async function dispatchCommand(
-  ctx: ToolContext,
-  cmd: Command,
-): Promise<CommandResult<unknown>> {
+export async function dispatchCommand(ctx: ToolContext, cmd: Command): Promise<CommandResult<unknown>> {
   const run = <K extends CommandName>(c: {
     name: K
     input: CommandInput<K>

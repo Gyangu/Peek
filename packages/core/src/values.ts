@@ -228,8 +228,10 @@ export function canonicalCell(value: unknown, logical: LogicalType): unknown {
         ? canonicalNumeric(value)
         : value
     case 'boolean':
-      return typeof value === 'boolean' || typeof value === 'number'
-        || typeof value === 'bigint' || typeof value === 'string'
+      return typeof value === 'boolean' ||
+        typeof value === 'number' ||
+        typeof value === 'bigint' ||
+        typeof value === 'string'
         ? canonicalBoolean(value)
         : value
     case 'date':

@@ -47,10 +47,18 @@ function workspaceWith(ref: CollectionRef): Workspace {
 
 describe('read_workspace reports how a collection can be browsed', () => {
   test('a relation offers ordering and both pagers', () => {
-    const snap = snapshotWorkspace(workspaceWith({ kind: 'relation', schema: 'public', name: 't' }), redactRulesFor)
-    assert.deepEqual(snap.views[0]?.browse, collectionBrowseStyle({
-      kind: 'relation', schema: 'public', name: 't',
-    }))
+    const snap = snapshotWorkspace(
+      workspaceWith({ kind: 'relation', schema: 'public', name: 't' }),
+      redactRulesFor,
+    )
+    assert.deepEqual(
+      snap.views[0]?.browse,
+      collectionBrowseStyle({
+        kind: 'relation',
+        schema: 'public',
+        name: 't',
+      }),
+    )
     assert.deepEqual(briefViews(snap)[0]?.browse, ['sort', 'offsetPaging', 'cursorPaging'])
   })
 
@@ -66,7 +74,10 @@ describe('read_workspace reports how a collection can be browsed', () => {
   })
 
   test('a vector collection warns that ordering ends the paging', () => {
-    const snap = snapshotWorkspace(workspaceWith({ kind: 'vectorCollection', collection: 'docs' }), redactRulesFor)
+    const snap = snapshotWorkspace(
+      workspaceWith({ kind: 'vectorCollection', collection: 'docs' }),
+      redactRulesFor,
+    )
     assert.deepEqual(briefViews(snap)[0]?.browse, ['sort', 'cursorPaging', 'sortEndsPaging'])
   })
 

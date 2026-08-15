@@ -113,9 +113,19 @@ test('a tool_call_update merges onto the record instead of replacing it', () => 
 test('rawInput is replaced wholesale, matching how the agent streams arguments', () => {
   const t = translator()
   t.handle(textChunk('go'))
-  t.handle({ sessionUpdate: 'tool_call', toolCallId: 'x', title: 'T', status: 'pending', rawInput: {} } as SessionUpdate)
+  t.handle({
+    sessionUpdate: 'tool_call',
+    toolCallId: 'x',
+    title: 'T',
+    status: 'pending',
+    rawInput: {},
+  } as SessionUpdate)
 
-  t.handle({ sessionUpdate: 'tool_call_update', toolCallId: 'x', rawInput: { query: 'sel' } } as SessionUpdate)
+  t.handle({
+    sessionUpdate: 'tool_call_update',
+    toolCallId: 'x',
+    rawInput: { query: 'sel' },
+  } as SessionUpdate)
   const out = t.handle({
     sessionUpdate: 'tool_call_update',
     toolCallId: 'x',
@@ -181,7 +191,11 @@ test('a tool update arriving after the turn ended is dropped, not resurrected', 
   const t = translator()
   t.handle(textChunk('go'))
   t.finishTurn('cancelled')
-  const out = t.handle({ sessionUpdate: 'tool_call_update', toolCallId: 'late', status: 'completed' } as SessionUpdate)
+  const out = t.handle({
+    sessionUpdate: 'tool_call_update',
+    toolCallId: 'late',
+    status: 'completed',
+  } as SessionUpdate)
   assert.deepEqual(out.deltas, [])
   assert.ok(out.ignored)
 })

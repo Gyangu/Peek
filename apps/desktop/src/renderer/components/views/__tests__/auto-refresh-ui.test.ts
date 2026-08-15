@@ -45,7 +45,10 @@ describe('the interval menu', () => {
   test('with no interval it is Off that is marked', () => {
     const nodes = autoRefreshMenuNodes({ currentMs: null, labels: LABELS, onSelect: () => {} })
     const marked = items(nodes).filter((n) => n.checked === true)
-    assert.deepEqual(marked.map((n) => n.id), ['off'])
+    assert.deepEqual(
+      marked.map((n) => n.id),
+      ['off'],
+    )
   })
 
   test('Off selects null; a preset selects its own interval', () => {
@@ -74,7 +77,10 @@ describe('the interval menu', () => {
 
   test('with nothing to explain there is no note', () => {
     const nodes = autoRefreshMenuNodes({ currentMs: 5_000, labels: LABELS, onSelect: () => {} })
-    assert.equal(nodes.some((n) => n.kind === 'note'), false)
+    assert.equal(
+      nodes.some((n) => n.kind === 'note'),
+      false,
+    )
   })
 })
 
@@ -129,7 +135,10 @@ describe('what counts as the same question', () => {
     assert.notEqual(fetchShapeKey(table({ page: { offset: 0, limit: 500 } })), base)
     assert.notEqual(fetchShapeKey(table({ sort: [{ column: 'id', dir: 'asc' }] })), base)
     assert.notEqual(fetchShapeKey(table({ filter: [{ column: 'id', op: 'eq', value: 1 }] })), base)
-    assert.notEqual(fetchShapeKey(table({ ref: { kind: 'relation', schema: 'public', name: 'items' } })), base)
+    assert.notEqual(
+      fetchShapeKey(table({ ref: { kind: 'relation', schema: 'public', name: 'items' } })),
+      base,
+    )
   })
 
   test('a query view is shaped by its statement alone', () => {

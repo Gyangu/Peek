@@ -279,7 +279,9 @@ export class QuestionBroker {
  */
 export function watchQuestions(
   store: {
-    getState: () => { views: Record<string, { kind: string; chatId?: ChatId; pendingQuestion?: PendingQuestion }> }
+    getState: () => {
+      views: Record<string, { kind: string; chatId?: ChatId; pendingQuestion?: PendingQuestion }>
+    }
     subscribe: (listener: () => void) => () => void
   },
   broker: QuestionBroker,

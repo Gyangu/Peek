@@ -28,11 +28,12 @@ import {
 
 /* ---- DOM stand-ins: must be installed before resultCache is imported ---- */
 const rafQueue: (() => void)[] = []
-;(globalThis as unknown as { requestAnimationFrame: (cb: () => void) => number })
-  .requestAnimationFrame = (cb: () => void): number => {
-    rafQueue.push(cb)
-    return rafQueue.length
-  }
+;(globalThis as unknown as { requestAnimationFrame: (cb: () => void) => number }).requestAnimationFrame = (
+  cb: () => void,
+): number => {
+  rafQueue.push(cb)
+  return rafQueue.length
+}
 function flushRaf(): void {
   const q = rafQueue.splice(0, rafQueue.length)
   for (const cb of q) cb()

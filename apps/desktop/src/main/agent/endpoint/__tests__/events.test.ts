@@ -29,11 +29,17 @@ test('a plain answer streams as message.start → text.append → message.end', 
     { type: 'turn_end', stopReason: 'end_turn' },
   ])
 
-  assert.deepEqual(deltas.map((d) => d.type), ['message.start', 'text.append', 'text.append', 'message.end'])
+  assert.deepEqual(
+    deltas.map((d) => d.type),
+    ['message.start', 'text.append', 'text.append', 'message.end'],
+  )
   // Text arrives raw, in fragments: the renderer re-parses Markdown from the
   // accumulated string, so a delta must never carry structure.
   const appends = deltas.filter((d) => d.type === 'text.append')
-  assert.deepEqual(appends.map((d) => (d as { text: string }).text), ['Four ', 'tables.'])
+  assert.deepEqual(
+    appends.map((d) => (d as { text: string }).text),
+    ['Four ', 'tables.'],
+  )
   // Every delta after the first addresses the message the first one opened.
   const id = (deltas[0] as { message: { id: string } }).message.id
   for (const delta of deltas.slice(1)) assert.equal((delta as { messageId: string }).messageId, id)
@@ -43,7 +49,10 @@ test('text before any start event opens a message rather than being dropped', ()
   // Losing the first sentence of an answer to a bookkeeping rule helps nobody.
   const t = new EndpointTranslator(CHAT)
   const deltas = drain(t, [{ type: 'text', text: 'Hello' }])
-  assert.deepEqual(deltas.map((d) => d.type), ['message.start', 'text.append'])
+  assert.deepEqual(
+    deltas.map((d) => d.type),
+    ['message.start', 'text.append'],
+  )
 })
 
 test('a tool call starts pending and is replaced whole on completion', () => {
@@ -54,7 +63,9 @@ test('a tool call starts pending and is replaced whole on completion', () => {
     { type: 'tool_end', id: 'call_1', output: { views: 2 }, isError: false },
   ])
 
-  const upserts = deltas.filter((d) => d.type === 'tool.upsert').map((d) => (d as { call: ToolCallRecord }).call)
+  const upserts = deltas
+    .filter((d) => d.type === 'tool.upsert')
+    .map((d) => (d as { call: ToolCallRecord }).call)
   assert.equal(upserts.length, 2)
   // `pending`, not `in_progress`: the gate runs between these two events, and a
   // row claiming the tool is already running would be lying to the person
@@ -88,7 +99,10 @@ test('an error ends the turn as a closed message rather than leaving it open', (
   const t = new EndpointTranslator(CHAT)
   drain(t, [{ type: 'assistant_start' }, { type: 'text', text: 'Working' }])
   const out = t.finishTurn('error')
-  assert.deepEqual(out.deltas.map((d) => d.type), ['message.end'])
+  assert.deepEqual(
+    out.deltas.map((d) => d.type),
+    ['message.end'],
+  )
   assert.equal((out.deltas[0] as { stopReason: string }).stopReason, 'error')
   // A transcript left mid-answer reads as a hung agent forever.
   assert.equal(out.state.streamingMessageId, null)
@@ -198,7 +212,10 @@ test('a tool result’s message_end is ignored, not read for a stop reason', () 
 })
 
 test('text and thinking deltas are forwarded, other stream events are not', () => {
-  const update = (type: string, delta?: string) => ({ type: 'message_update', assistantMessageEvent: { type, delta } })
+  const update = (type: string, delta?: string) => ({
+    type: 'message_update',
+    assistantMessageEvent: { type, delta },
+  })
   assert.deepEqual(classifyAgentEvent(update('text_delta', 'Four')), {
     kind: 'event',
     event: { type: 'text', text: 'Four' },
@@ -215,11 +232,21 @@ test('text and thinking deltas are forwarded, other stream events are not', () =
 
 test('tool execution events carry through with their ids intact', () => {
   assert.deepEqual(
-    classifyAgentEvent({ type: 'tool_execution_start', toolCallId: 'c1', toolName: 'read_workspace', args: { a: 1 } }),
+    classifyAgentEvent({
+      type: 'tool_execution_start',
+      toolCallId: 'c1',
+      toolName: 'read_workspace',
+      args: { a: 1 },
+    }),
     { kind: 'event', event: { type: 'tool_start', id: 'c1', name: 'read_workspace', args: { a: 1 } } },
   )
   assert.deepEqual(
-    classifyAgentEvent({ type: 'tool_execution_end', toolCallId: 'c1', result: { ok: true }, isError: false }),
+    classifyAgentEvent({
+      type: 'tool_execution_end',
+      toolCallId: 'c1',
+      result: { ok: true },
+      isError: false,
+    }),
     { kind: 'event', event: { type: 'tool_end', id: 'c1', output: { ok: true }, isError: false } },
   )
   // Without an id there is no row to address, so there is nothing to emit.
@@ -277,7 +304,10 @@ test('the eleven ignored reasons split into routine and unusable', () => {
   assert.equal(levelOf({ type: 'message_start', message: { role: 'user' } }), 'debug')
   assert.equal(levelOf({ type: 'message_end', message: { role: 'toolResult' } }), 'debug')
   assert.equal(levelOf({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop' } }), 'debug')
-  assert.equal(levelOf({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_delta', delta: '{' } }), 'debug')
+  assert.equal(
+    levelOf({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_delta', delta: '{' } }),
+    'debug',
+  )
   assert.equal(levelOf({ type: 'message_update', assistantMessageEvent: { type: 'text_start' } }), 'debug')
   for (const type of ['agent_start', 'agent_end', 'turn_start', 'turn_end', 'tool_execution_update']) {
     assert.equal(levelOf({ type }), 'debug')

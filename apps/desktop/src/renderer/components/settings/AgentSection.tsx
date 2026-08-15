@@ -166,7 +166,9 @@ function AcpForm({ agent, busy, onWrite }: FormProps): ReactElement {
             // An agent whose package this build does not carry is shown and
             // disabled rather than hidden: "Codex is not installed" is an answer,
             // an absent row is a mystery.
-            label: profile.available ? profile.displayName : `${profile.displayName} — ${t('settings.agent.missing')}`,
+            label: profile.available
+              ? profile.displayName
+              : `${profile.displayName} — ${t('settings.agent.missing')}`,
             disabled: !profile.available,
           }))}
           onChange={(acpProfile) => {
@@ -334,7 +336,11 @@ function EndpointForm({ agent, busy, onWrite }: FormProps): ReactElement {
         />
       </FormRow>
 
-      <FormRow label={t('settings.agent.model')} htmlFor="peek-agent-model" hint={t('settings.agent.modelHint')}>
+      <FormRow
+        label={t('settings.agent.model')}
+        htmlFor="peek-agent-model"
+        hint={t('settings.agent.modelHint')}
+      >
         <input
           id="peek-agent-model"
           className="font-mono tabular-nums"
@@ -359,14 +365,20 @@ function EndpointForm({ agent, busy, onWrite }: FormProps): ReactElement {
         />
       </FormRow>
 
-      <FormRow label={t('settings.agent.apiKey')} htmlFor="peek-agent-key" hint={t('settings.agent.apiKeyHint')}>
+      <FormRow
+        label={t('settings.agent.apiKey')}
+        htmlFor="peek-agent-key"
+        hint={t('settings.agent.apiKeyHint')}
+      >
         <input
           id="peek-agent-key"
           type="password"
           className="font-mono tabular-nums"
           value={apiKey}
           spellCheck={false}
-          placeholder={agent.endpointApiKeySet ? t('settings.agent.apiKeyStored') : t('settings.agent.apiKeyNone')}
+          placeholder={
+            agent.endpointApiKeySet ? t('settings.agent.apiKeyStored') : t('settings.agent.apiKeyNone')
+          }
           onChange={(e) => {
             setApiKey(e.target.value)
           }}
@@ -491,7 +503,9 @@ function McpServerList({ agent, busy, onWrite }: FormProps): ReactElement {
     <>
       <FormRow label={t('settings.agent.mcp')}>
         <span className="text-fg-dim">
-          {current.length === 0 ? t('settings.agent.mcp.none') : t('settings.agent.mcp.count', { count: current.length })}
+          {current.length === 0
+            ? t('settings.agent.mcp.none')
+            : t('settings.agent.mcp.count', { count: current.length })}
         </span>
       </FormRow>
 

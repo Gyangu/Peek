@@ -233,10 +233,14 @@ async function main() {
 
   process.stdout.write(`\n${lines.join('\n')}\n\n`)
   if (failures.length === 0) {
-    process.stdout.write('verify-fuses: the three fuses read DISABLE, and the packaged binary refuses Node mode.\n')
+    process.stdout.write(
+      'verify-fuses: the three fuses read DISABLE, and the packaged binary refuses Node mode.\n',
+    )
     return
   }
-  process.stderr.write(`verify-fuses: ${String(failures.length)} failure(s):\n${failures.map((f) => `  - ${f}\n`).join('')}`)
+  process.stderr.write(
+    `verify-fuses: ${String(failures.length)} failure(s):\n${failures.map((f) => `  - ${f}\n`).join('')}`,
+  )
   process.exitCode = 1
 }
 

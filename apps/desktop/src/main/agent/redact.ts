@@ -41,7 +41,10 @@ export function redact(text: string, secrets: readonly string[]): string {
  */
 export function sanitizeLine(text: string, maxLen = 400): string {
   // eslint-disable-next-line no-control-regex -- stripping control characters is the point
-  const stripped = text.replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ').replace(/\s+/g, ' ').trim()
+  const stripped = text
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
   return stripped.length > maxLen ? `${stripped.slice(0, maxLen)}…` : stripped
 }
 
@@ -140,7 +143,7 @@ export function redactToolInput(rawInput: unknown): unknown {
   // and a schema is stricter about everything else.
   const config = parseConnectionConfig((rawInput as Record<string, unknown>)['config'], 'drop')
   if (config !== null) {
-    (walked as Record<string, unknown>)['config'] = redactConnectionConfig(
+    ;(walked as Record<string, unknown>)['config'] = redactConnectionConfig(
       config,
       redactRulesFor(config.driverId),
     )

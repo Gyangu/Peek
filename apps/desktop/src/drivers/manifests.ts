@@ -211,7 +211,10 @@ export function connectFormOf(driverId: DriverId): ConnectFormSpec | null {
  * a null, and the null is always read the same way — a config peek cannot use is
  * dropped, redacted wholesale, or refused, never passed along half-understood.
  */
-export function parseConnectionConfig(value: unknown, unknownKeys: UnknownConfigKeys): ConnectionConfig | null {
+export function parseConnectionConfig(
+  value: unknown,
+  unknownKeys: UnknownConfigKeys,
+): ConnectionConfig | null {
   const outcome = parseConnectionConfigOf(value, unknownKeys)
   return outcome.ok ? outcome.config : null
 }

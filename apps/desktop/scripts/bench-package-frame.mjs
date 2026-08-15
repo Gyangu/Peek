@@ -616,7 +616,12 @@ async function servedBytes(cdp, request, state) {
   const reasons = []
   for (const session of candidates) {
     try {
-      const body = await cdp.send('Network.getResponseBody', { requestId: request.requestId }, session, 10_000)
+      const body = await cdp.send(
+        'Network.getResponseBody',
+        { requestId: request.requestId },
+        session,
+        10_000,
+      )
       const length = body.base64Encoded
         ? Buffer.from(body.body, 'base64').byteLength
         : Buffer.byteLength(body.body, 'utf8')
@@ -786,14 +791,27 @@ async function accountForOpen(cdp, state, { packageId, slot, packagesRoot, cdpPo
   const unread = treeFiles(packageRoot).filter((f) => !readFiles.has(f.file))
 
   return {
-    files: read.map((r) => ({ name: relative(uiRoot, r.file ?? ''), bytes: r.bytes, onDisk: r.onDisk, url: r.url })),
+    files: read.map((r) => ({
+      name: relative(uiRoot, r.file ?? ''),
+      bytes: r.bytes,
+      onDisk: r.onDisk,
+      url: r.url,
+    })),
     totalBytes: total,
     servedTotal,
-    disagree: disagree.map((r) => ({ name: relative(uiRoot, r.file ?? r.url), served: r.bytes, onDisk: r.onDisk })),
+    disagree: disagree.map((r) => ({
+      name: relative(uiRoot, r.file ?? r.url),
+      served: r.bytes,
+      onDisk: r.onDisk,
+    })),
     encodedDataLengths: read.map((r) => r.encodedDataLength),
     elements,
     foreign,
-    unread: { count: unread.length, bytes: unread.reduce((s, f) => s + f.bytes, 0), names: unread.map((f) => relative(packageRoot, f.file)) },
+    unread: {
+      count: unread.length,
+      bytes: unread.reduce((s, f) => s + f.bytes, 0),
+      names: unread.map((f) => relative(packageRoot, f.file)),
+    },
   }
 }
 
@@ -811,7 +829,9 @@ async function timeOpens(cdp, { packageId, slot, opens, viewState, verbose }) {
     readyMs.push(opened.readyMs)
     hostThreadMs.push(metricDelta(before, after).threadMs)
     if (verbose) {
-      console.log(`  ${packageId} open ${String(i + 1)}: load ${ms(opened.loadMs)}, ready ${ms(opened.readyMs)}`)
+      console.log(
+        `  ${packageId} open ${String(i + 1)}: load ${ms(opened.loadMs)}, ready ${ms(opened.readyMs)}`,
+      )
     }
     // The last one is left open: the caller measures the process it created.
     if (i < opens - 1) {
@@ -903,10 +923,7 @@ async function runControl(cdp, { slot, sessionId, settleMs }) {
   }
 
   const framesDrawn = async () =>
-    await cdp.evaluate(
-      `(window.__peekEchoFixture ? window.__peekEchoFixture.framesDrawn : -1)`,
-      sessionId,
-    )
+    await cdp.evaluate(`(window.__peekEchoFixture ? window.__peekEchoFixture.framesDrawn : -1)`, sessionId)
 
   const attrWrites = async () =>
     await cdp.evaluate(`(window.__peekEchoFixture ? window.__peekEchoFixture.attrWrites : -1)`, sessionId)
@@ -994,7 +1011,12 @@ async function main() {
     const packagesRoot = join(configDir, 'packages')
     const views = [
       { packageId: 'neo4j', slot: 'graph', label: 'neo4j graph (the shipped Tier C view)', viewState: {} },
-      { packageId: 'echo', slot: 'echo', label: 'echo fixture (fixed size, 600 elements)', viewState: { spin: false } },
+      {
+        packageId: 'echo',
+        slot: 'echo',
+        label: 'echo fixture (fixed size, 600 elements)',
+        viewState: { spin: false },
+      },
     ]
 
     const report = { opens, settleMs, views: [], control: null, frameErrors: [] }
@@ -1192,9 +1214,7 @@ function printReport(report, failures, packagesRoot) {
     console.log(
       `    idle windows sampled      ${c.idle.allThreadMs.map((v) => ms(v)).join(' / ')} — quietest kept`,
     )
-    console.log(
-      `    elements, idle vs spin    ${String(c.elements)} / ${String(c.elementsSpinning)}`,
-    )
+    console.log(`    elements, idle vs spin    ${String(c.elements)} / ${String(c.elementsSpinning)}`)
   }
 
   if (report.frameErrors.length > 0) {

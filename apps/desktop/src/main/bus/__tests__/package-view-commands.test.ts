@@ -196,7 +196,11 @@ describe('view.update merges a package view’s state', () => {
     await h.bus.dispatch('view.update', { viewId, patch: { kind: 'package', title: 'Pinned' } }, 'ui')
     const view = packageViewOf(h, viewId)
     assert.equal(view.title, 'Pinned')
-    assert.deepEqual(view.state, { collection: 'orders', limit: 100 }, 'a title patch must not touch the state')
+    assert.deepEqual(
+      view.state,
+      { collection: 'orders', limit: 100 },
+      'a title patch must not touch the state',
+    )
   })
 
   it('refuses a patch whose kind does not match the view', async () => {
@@ -206,11 +210,7 @@ describe('view.update merges a package view’s state', () => {
     const connId = await connect(h)
     const viewId = await openPackageView(h, connId)
 
-    const res = await h.bus.dispatch(
-      'view.update',
-      { viewId, patch: { kind: 'table', offset: 40 } },
-      'ui',
-    )
+    const res = await h.bus.dispatch('view.update', { viewId, patch: { kind: 'table', offset: 40 } }, 'ui')
     assert.equal(res.ok, false, 'a table patch must not reach a package view')
   })
 })

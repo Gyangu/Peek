@@ -80,10 +80,7 @@ export interface MetaTextOptions {
  * characters `\N` serialises as `\\N`, which no longer collides with SQL NULL.
  */
 export function escapeLineBreaks(raw: string): string {
-  return raw
-    .replace(/\\/g, '\\\\')
-    .replace(EXOTIC_LINE_BREAKS, '\\n')
-    .replace(/\t/g, '\\t')
+  return raw.replace(/\\/g, '\\\\').replace(EXOTIC_LINE_BREAKS, '\\n').replace(/\t/g, '\\t')
 }
 
 /**

@@ -98,8 +98,7 @@ const tabs = (node: LayoutNode): string[][] =>
   collectPanels(node).map((p) => p.viewIds.map((v) => (v === p.activeViewId ? `${v}*` : String(v))))
 
 /** The visible view of each panel, in visual order; null for an empty panel. */
-const activeViews = (node: LayoutNode): (string | null)[] =>
-  collectPanels(node).map((p) => p.activeViewId)
+const activeViews = (node: LayoutNode): (string | null)[] => collectPanels(node).map((p) => p.activeViewId)
 
 const rowOf = (...children: LayoutNode[]): LayoutNode => ({
   type: 'split',
@@ -725,12 +724,7 @@ test('firstEmptyPanel: prefers an empty panel', () => {
 /* More construction helpers, for the M2 operations                    */
 /* ------------------------------------------------------------------ */
 
-const splitOf = (
-  id: string,
-  dir: 'row' | 'col',
-  children: LayoutNode[],
-  ratio?: number[],
-): LayoutNode => ({
+const splitOf = (id: string, dir: 'row' | 'col', children: LayoutNode[], ratio?: number[]): LayoutNode => ({
   type: 'split',
   id: asSplitId(id),
   dir,
@@ -740,7 +734,12 @@ const splitOf = (
 
 const round = (nums: number[]): number[] => nums.map((n) => Number(n.toFixed(4)))
 
-const swvOpts = (viewId: string, panelId: string, dir: 'row' | 'col', extra: Record<string, unknown> = {}) => ({
+const swvOpts = (
+  viewId: string,
+  panelId: string,
+  dir: 'row' | 'col',
+  extra: Record<string, unknown> = {},
+) => ({
   viewId: asViewId(viewId),
   panelId: P(panelId),
   dir,
@@ -777,7 +776,10 @@ function assertStructurallySound(node: LayoutNode, known: string[], label: strin
     assert.ok(n.children.length >= 2, `${label}: a split with fewer than two children survived`)
     assert.equal(n.ratio.length, n.children.length, `${label}: ratio length does not match child count`)
     assert.ok(Math.abs(sum(n.ratio) - 1) < 1e-9, `${label}: ratio does not sum to 1`)
-    assert.ok(n.ratio.every((r) => r > 0), `${label}: a non-positive ratio survived`)
+    assert.ok(
+      n.ratio.every((r) => r > 0),
+      `${label}: a non-positive ratio survived`,
+    )
     n.children.forEach(walk)
   }
   walk(node)
@@ -941,7 +943,12 @@ test('splitWithView: insert=before puts the new panel ahead of the one being spl
 })
 
 test('splitWithView (I3c): the same direction merges into the existing split, which is what gets reported', () => {
-  const root = splitOf('split_root', 'row', [panel('a', 'view_1'), panel('b', 'view_2'), panel('c')], [0.2, 0.3, 0.5])
+  const root = splitOf(
+    'split_root',
+    'row',
+    [panel('a', 'view_1'), panel('b', 'view_2'), panel('c')],
+    [0.2, 0.3, 0.5],
+  )
   const outcome = splitPanelWithView(root, swvOpts('view_1', 'c', 'row'))
   assert.equal(outcome.ok, true)
   if (!outcome.ok) return
@@ -1058,7 +1065,10 @@ test('buildLayoutFromSpec: a leaf mentioning a view inherits the panel that view
 
   assert.deepEqual(panelIds(built.layout), ['panel_b', 'panel_a'], 'reordering keeps every panel id valid')
   assert.deepEqual(tabs(built.layout), [['view_2*'], ['view_1*']])
-  assert.deepEqual(built.leaves.map((l) => l.created), [false, false])
+  assert.deepEqual(
+    built.leaves.map((l) => l.created),
+    [false, false],
+  )
   assert.equal(asSplit(built.layout).id, 'n_split1', 'split ids are always freshly minted')
   assert.deepEqual(asSplit(built.layout).ratio, [0.5, 0.5])
 })
@@ -1081,7 +1091,10 @@ test('buildLayoutFromSpec: a pinned panelId wins over inheritance, whatever orde
 
   assert.deepEqual(panelIds(built.layout), ['n_panel1', 'panel_a'])
   assert.deepEqual(tabs(built.layout), [['view_1*'], ['view_2*']])
-  assert.deepEqual(built.leaves.map((l) => l.created), [true, false])
+  assert.deepEqual(
+    built.leaves.map((l) => l.created),
+    [true, false],
+  )
 })
 
 test('buildLayoutFromSpec: a pinned panel that no longer exists is reported, not silently minted', () => {
@@ -1113,8 +1126,14 @@ test('buildLayoutFromSpec: ratios are normalized, and an omitted ratio divides e
   assert.deepEqual(root.ratio, [0.75, 0.25])
   assert.deepEqual(round(asSplit(root.children[1]).ratio), [0.3333, 0.3333, 0.3333])
   assert.equal(built.leaves.length, 4)
-  assert.deepEqual(built.leaves.map((l) => l.viewIds), [[], [], [], []])
-  assert.deepEqual(built.leaves.map((l) => l.activeViewId), [null, null, null, null])
+  assert.deepEqual(
+    built.leaves.map((l) => l.viewIds),
+    [[], [], [], []],
+  )
+  assert.deepEqual(
+    built.leaves.map((l) => l.activeViewId),
+    [null, null, null, null],
+  )
 })
 
 test('buildLayoutFromSpec: an open leaf is passed through untouched — building a tree never creates a view', () => {
@@ -1124,14 +1143,21 @@ test('buildLayoutFromSpec: an open leaf is passed through untouched — building
     dir: 'row',
     children: [
       { type: 'panel', viewIds: [asViewId('view_1')], key: 'left' },
-      { type: 'panel', open: [{ kind: 'query', connId: asConnId('conn_1'), text: 'select 1' }], key: 'right' },
+      {
+        type: 'panel',
+        open: [{ kind: 'query', connId: asConnId('conn_1'), text: 'select 1' }],
+        key: 'right',
+      },
     ],
   }
   const built = buildLayoutFromSpec(current, spec, seqIds())
   assert.equal(built.ok, true)
   if (!built.ok) return
 
-  assert.deepEqual(built.leaves.map((l) => l.key), ['left', 'right'])
+  assert.deepEqual(
+    built.leaves.map((l) => l.key),
+    ['left', 'right'],
+  )
   assert.deepEqual(built.leaves[1].viewIds, [], 'the panel stays empty until the handler opens the view')
   assert.equal(built.leaves[1].activeViewId, null)
   assert.equal(built.leaves[1].open.length, 1)
@@ -1314,12 +1340,15 @@ test('layout.splitWithView: focus:false keeps focus put, and a vanished focus st
   assert.equal(kept.state.focusedPanel, 'panel_b', 'panel_b survived, so focus stays there')
 
   // Focus sits on the panel the move empties: it cannot stay, and must not be null
-  const orphaned = runSplitWithView(workspaceOf(rowOf(panel('a', 'view_1'), panel('b', 'view_2')), ['view_1', 'view_2'], 'a'), {
-    viewId: asViewId('view_1'),
-    panelId: P('b'),
-    dir: 'row',
-    focus: false,
-  })
+  const orphaned = runSplitWithView(
+    workspaceOf(rowOf(panel('a', 'view_1'), panel('b', 'view_2')), ['view_1', 'view_2'], 'a'),
+    {
+      viewId: asViewId('view_1'),
+      panelId: P('b'),
+      dir: 'row',
+      focus: false,
+    },
+  )
   assert.equal(orphaned.state.focusedPanel !== null, true)
   assert.ok(
     findPanel(orphaned.state.layout, orphaned.state.focusedPanel!),
@@ -1387,7 +1416,11 @@ test('view.open: the default appends a tab and shows it, closing nothing (the re
 })
 
 test('view.open: replace:true still reuses the slot — it closes the active view and takes its tab position', () => {
-  const state = workspaceOf(panel('a', ['view_1', 'view_2', 'view_3'], 'view_2'), ['view_1', 'view_2', 'view_3'], 'a')
+  const state = workspaceOf(
+    panel('a', ['view_1', 'view_2', 'view_3'], 'view_2'),
+    ['view_1', 'view_2', 'view_3'],
+    'a',
+  )
   const { state: next } = runReduce<'view.open'>(
     state,
     viewHandlers['view.open'].reduce,
@@ -1415,11 +1448,18 @@ test('view.open: an explicit index inserts the new tab there', () => {
 
 test('layout.splitWithView (I10): the panel cap is enforced here too, not only on setLayout', () => {
   // A row of MAX_LAYOUT_PANELS panels; one more must be refused.
-  const children = Array.from({ length: MAX_LAYOUT_PANELS }, (_, i) => panel(`p${String(i)}`, i === 0 ? 'view_1' : null))
+  const children = Array.from({ length: MAX_LAYOUT_PANELS }, (_, i) =>
+    panel(`p${String(i)}`, i === 0 ? 'view_1' : null),
+  )
   const state = workspaceOf(splitOf('split_root', 'row', children), ['view_1'])
 
   const failure = expectFailure(() =>
-    runSplitWithView(state, { viewId: asViewId('view_1'), panelId: P('p5'), dir: 'col', keepSourcePanel: true }),
+    runSplitWithView(state, {
+      viewId: asViewId('view_1'),
+      panelId: P('p5'),
+      dir: 'col',
+      keepSourcePanel: true,
+    }),
   )
   assert.equal(failure.code, 'CONFLICT')
   assert.match(failure.message, /at most 16 panels/)
@@ -1429,7 +1469,11 @@ test('layout.moveView (I6): a no-op still runs the reducer, so rev moves but the
   const state = workspaceOf(rowOf(panel('a', 'view_1'), panel('b')), ['view_1'], 'a')
   const { state: next, result } = runMoveView(state, { viewId: asViewId('view_1'), toPanelId: P('a') })
   assert.equal(result.moved, false)
-  assert.equal(next.rev, START_REV + 1, 'the store bumps rev unconditionally; a no-op simply produces no patches')
+  assert.equal(
+    next.rev,
+    START_REV + 1,
+    'the store bumps rev unconditionally; a no-op simply produces no patches',
+  )
   assert.deepEqual(next.layout, state.layout)
 })
 
@@ -1459,11 +1503,11 @@ test('layout.moveView: an unplaced view landing on an occupied panel stacks — 
 test('layout.moveView: an explicit swap between two panels does trade contents, and names what it traded', () => {
   // The mode a gesture never produces, kept because an AI can name it: "these two
   // panes should trade contents" is a real instruction.
-  const state = workspaceOf(rowOf(panel('a', ['view_1', 'view_2'], 'view_2'), panel('b', 'view_3')), [
-    'view_1',
-    'view_2',
-    'view_3',
-  ], 'a')
+  const state = workspaceOf(
+    rowOf(panel('a', ['view_1', 'view_2'], 'view_2'), panel('b', 'view_3')),
+    ['view_1', 'view_2', 'view_3'],
+    'a',
+  )
   const { state: next, result } = runMoveView(state, {
     viewId: asViewId('view_2'),
     toPanelId: P('b'),
@@ -1541,21 +1585,29 @@ test('layout.moveView (I6): a no-op broadcasts nothing about the layout', () => 
 
 test('layout.splitWithView (I6): an edge drop on its own panel broadcasts nothing either', () => {
   const state = workspaceOf(panel('a', 'view_1'), ['view_1'], 'a')
-  const { patches } = runPatches<'layout.splitWithView'>(state, layoutHandlers['layout.splitWithView'].reduce, {
-    viewId: asViewId('view_1'),
-    panelId: P('a'),
-    dir: 'row',
-    insert: 'after',
-  })
+  const { patches } = runPatches<'layout.splitWithView'>(
+    state,
+    layoutHandlers['layout.splitWithView'].reduce,
+    {
+      viewId: asViewId('view_1'),
+      panelId: P('a'),
+      dir: 'row',
+      insert: 'after',
+    },
+  )
   assert.deepEqual(layoutPatches(patches), [])
 })
 
 test('a real move still broadcasts the whole tree — the no-op guard must not silence genuine changes', () => {
   const state = workspaceOf(rowOf(panel('a', 'view_1'), panel('b')), ['view_1'], 'a')
-  const { patches, state: next } = runPatches<'layout.moveView'>(state, layoutHandlers['layout.moveView'].reduce, {
-    viewId: asViewId('view_1'),
-    toPanelId: P('b'),
-  })
+  const { patches, state: next } = runPatches<'layout.moveView'>(
+    state,
+    layoutHandlers['layout.moveView'].reduce,
+    {
+      viewId: asViewId('view_1'),
+      toPanelId: P('b'),
+    },
+  )
   const layout = layoutPatches(patches)
   assert.equal(layout.length, 1)
   assert.equal(layout[0].op, 'replace', 'a changed tree is replaced wholesale, never removed')
@@ -1705,7 +1757,9 @@ test('layout.setLayout (I12): a failing open leaf takes the whole command down, 
         dir: 'col',
         children: [
           specPanel('view_1'),
-          specPanel(undefined, { open: [{ kind: 'query', connId: asConnId('conn_gone'), text: 'select 1' }] }),
+          specPanel(undefined, {
+            open: [{ kind: 'query', connId: asConnId('conn_gone'), text: 'select 1' }],
+          }),
         ],
       },
     }),
@@ -1752,7 +1806,11 @@ test('layout.setLayout: focusViewId focuses the panel carrying that view; otherw
   assert.equal(untouched.state.focusedPanel, 'panel_a', 'panel_a survived the rewrite, so focus stays on it')
 
   const rebuilt = runSetLayout(state, { tree: specPanel(undefined, { key: 'empty' }), unplaced: 'keep' })
-  assert.equal(rebuilt.state.focusedPanel, 'n_panel1', 'the old focus is gone; focus falls back into the new tree')
+  assert.equal(
+    rebuilt.state.focusedPanel,
+    'n_panel1',
+    'the old focus is gone; focus falls back into the new tree',
+  )
   assert.ok(findPanel(rebuilt.state.layout, rebuilt.state.focusedPanel!))
 })
 
@@ -1927,7 +1985,11 @@ test('layout.setLayout (I5): a focus that survives is left alone, and one that d
   assert.equal(dropped.state.focusedPanel, 'panel_b', 'panel_c is gone; its neighbour takes over')
 
   const survives = runSetLayout(state, {
-    tree: { type: 'split', dir: 'col', children: [specPanel('view_3'), specPanel('view_1'), specPanel('view_2')] },
+    tree: {
+      type: 'split',
+      dir: 'col',
+      children: [specPanel('view_3'), specPanel('view_1'), specPanel('view_2')],
+    },
   })
   assert.equal(survives.state.focusedPanel, 'panel_c')
 })
@@ -1939,14 +2001,21 @@ test('buildLayoutFromSpec: leaves are addressed by position, so a repeated node 
   const shared: LayoutSpecNode = { type: 'panel' }
   const built = buildLayoutFromSpec(
     panel('a', 'view_1'),
-    { type: 'split', dir: 'row', children: [shared, shared, { type: 'panel', viewIds: [asViewId('view_1')] }] },
+    {
+      type: 'split',
+      dir: 'row',
+      children: [shared, shared, { type: 'panel', viewIds: [asViewId('view_1')] }],
+    },
     seqIds(),
   )
   assert.equal(built.ok, true)
   if (!built.ok) return
 
   assert.deepEqual(panelIds(built.layout), ['n_panel1', 'n_panel2', 'panel_a'])
-  assert.deepEqual(built.leaves.map((l) => l.created), [true, true, false])
+  assert.deepEqual(
+    built.leaves.map((l) => l.created),
+    [true, true, false],
+  )
   assertStructurallySound(built.layout, ['view_1'], 'repeated spec node')
 })
 
@@ -1966,7 +2035,11 @@ const runActivate = (state: Workspace, input: CommandInput<'view.activate'>) =>
   runReduce<'view.activate'>(state, viewHandlers['view.activate'].reduce, input)
 
 test('view.close: closing the active tab hands over to the right neighbour and names it in the result', () => {
-  const state = workspaceOf(panel('a', ['view_1', 'view_2', 'view_3'], 'view_2'), ['view_1', 'view_2', 'view_3'], 'a')
+  const state = workspaceOf(
+    panel('a', ['view_1', 'view_2', 'view_3'], 'view_2'),
+    ['view_1', 'view_2', 'view_3'],
+    'a',
+  )
   const { state: next, result } = runViewClose(state, { viewId: asViewId('view_2') })
 
   assert.equal(result.panelId, 'panel_a')
@@ -1976,7 +2049,11 @@ test('view.close: closing the active tab hands over to the right neighbour and n
 })
 
 test('view.close: closing a background tab changes nothing on screen — the common case', () => {
-  const state = workspaceOf(panel('a', ['view_1', 'view_2', 'view_3'], 'view_2'), ['view_1', 'view_2', 'view_3'], 'a')
+  const state = workspaceOf(
+    panel('a', ['view_1', 'view_2', 'view_3'], 'view_2'),
+    ['view_1', 'view_2', 'view_3'],
+    'a',
+  )
   const { state: next, result } = runViewClose(state, { viewId: asViewId('view_3') })
   assert.equal(result.activatedViewId, 'view_2', 'still the same view, still on screen')
   assert.deepEqual(tabs(next.layout), [['view_1', 'view_2*']])
@@ -2008,7 +2085,11 @@ test('empty-panel lifecycle: view.close empties, layout.close removes, and the c
 
   state = runViewClose(state, { viewId: asViewId('view_2') }).state
   state = runViewClose(state, { viewId: asViewId('view_3') }).state
-  assert.deepEqual(panelIds(state.layout), ['panel_a', 'panel_b', 'panel_c'], 'three panels, two of them empty')
+  assert.deepEqual(
+    panelIds(state.layout),
+    ['panel_a', 'panel_b', 'panel_c'],
+    'three panels, two of them empty',
+  )
   assert.deepEqual(tabs(state.layout), [['view_1*'], [], []])
 
   const first = runClose(state, { panelId: P('b') })
@@ -2066,15 +2147,27 @@ test('P1/P2 hold after every removal path: no panel is ever left showing a view 
   const paths: [string, (s: Workspace) => Workspace][] = [
     ['view.close on the active tab', (s) => runViewClose(s, { viewId: asViewId('view_2') }).state],
     ['view.close on a background tab', (s) => runViewClose(s, { viewId: asViewId('view_3') }).state],
-    ['view.close on a whole panel, tab by tab', (s) =>
-      ['view_1', 'view_2', 'view_3'].reduce((acc, v) => runViewClose(acc, { viewId: asViewId(v) }).state, s)],
+    [
+      'view.close on a whole panel, tab by tab',
+      (s) =>
+        ['view_1', 'view_2', 'view_3'].reduce(
+          (acc, v) => runViewClose(acc, { viewId: asViewId(v) }).state,
+          s,
+        ),
+    ],
     ['layout.close', (s) => runClose(s, { panelId: P('a') }).state],
-    ['layout.moveView of the active tab', (s) =>
-      runMoveView(s, { viewId: asViewId('view_2'), toPanelId: P('b') }).state],
-    ['layout.moveView with replace', (s) =>
-      runMoveView(s, { viewId: asViewId('view_2'), toPanelId: P('b'), onOccupied: 'replace' }).state],
-    ['layout.setLayout dropping a panel', (s) =>
-      runSetLayout(s, { tree: specPanel(['view_1', 'view_4']) }).state],
+    [
+      'layout.moveView of the active tab',
+      (s) => runMoveView(s, { viewId: asViewId('view_2'), toPanelId: P('b') }).state,
+    ],
+    [
+      'layout.moveView with replace',
+      (s) => runMoveView(s, { viewId: asViewId('view_2'), toPanelId: P('b'), onOccupied: 'replace' }).state,
+    ],
+    [
+      'layout.setLayout dropping a panel',
+      (s) => runSetLayout(s, { tree: specPanel(['view_1', 'view_4']) }).state,
+    ],
   ]
 
   for (const [label, run] of paths) {
@@ -2100,11 +2193,18 @@ test('layout.moveView: the source panel keeps no trace of a view it handed over 
     ['view_1', 'view_2', 'view_3', 'view_4'],
     'a',
   )
-  const { state: next, result } = runMoveView(state, { viewId: asViewId('view_3'), toPanelId: P('b'), index: 0 })
+  const { state: next, result } = runMoveView(state, {
+    viewId: asViewId('view_3'),
+    toPanelId: P('b'),
+    index: 0,
+  })
 
   assert.equal(result.fromPanelId, 'panel_a')
   assert.equal(result.toIndex, 0)
-  assert.deepEqual(tabs(next.layout), [['view_1*', 'view_2'], ['view_3*', 'view_4']])
+  assert.deepEqual(tabs(next.layout), [
+    ['view_1*', 'view_2'],
+    ['view_3*', 'view_4'],
+  ])
   assert.equal(findPanelOfView(next.layout, asViewId('view_3'))?.id, 'panel_b', 'exactly one panel claims it')
   assertStructurallySound(next.layout, ['view_1', 'view_2', 'view_3', 'view_4'], 'background tab handed over')
 })
@@ -2163,7 +2263,11 @@ test('view.activate: a view that exists but sits in no panel is NOT_FOUND, not a
 /* ================================================================== */
 
 test('layout.moveView: a same-panel move is a tab reorder, and reports the final index', () => {
-  const state = workspaceOf(panel('a', ['view_1', 'view_2', 'view_3'], 'view_3'), ['view_1', 'view_2', 'view_3'], 'a')
+  const state = workspaceOf(
+    panel('a', ['view_1', 'view_2', 'view_3'], 'view_3'),
+    ['view_1', 'view_2', 'view_3'],
+    'a',
+  )
   const { state: next, result } = runMoveView(state, {
     viewId: asViewId('view_1'),
     toPanelId: P('a'),
@@ -2173,7 +2277,11 @@ test('layout.moveView: a same-panel move is a tab reorder, and reports the final
 
   assert.equal(result.moved, true, '"already in this panel" stopped being an unconditional no-op')
   assert.equal(result.fromPanelId, 'panel_a')
-  assert.equal(result.toIndex, 2, 'the index is the final position, so a caller can check it against the result')
+  assert.equal(
+    result.toIndex,
+    2,
+    'the index is the final position, so a caller can check it against the result',
+  )
   assert.deepEqual(tabs(next.layout), [['view_2', 'view_3*', 'view_1']], 'order changed, screen did not')
   assert.deepEqual(result.removedPanelIds, [], 'a reorder never empties anything')
 })
@@ -2194,7 +2302,11 @@ test('layout.moveView: a same-panel move to the position it already holds is sti
 
 test('layout.moveView: reordering to the same index but a different active tab is a real change', () => {
   const state = workspaceOf(panel('a', ['view_1', 'view_2'], 'view_2'), ['view_1', 'view_2'], 'a')
-  const { state: next, result } = runMoveView(state, { viewId: asViewId('view_1'), toPanelId: P('a'), index: 0 })
+  const { state: next, result } = runMoveView(state, {
+    viewId: asViewId('view_1'),
+    toPanelId: P('a'),
+    index: 0,
+  })
   assert.equal(result.moved, true, 'the tab bar did not move, but what is on screen did')
   assert.deepEqual(tabs(next.layout), [['view_1*', 'view_2']])
 })
@@ -2221,15 +2333,19 @@ test('layout.setLayout: a leaf over the tab cap is refused, and the workspace is
   assert.equal(failure.code, 'CONFLICT')
   assert.match(failure.message, /at most 12 tabs/)
   assert.equal(state.layout, before, 'not one node of the caller state moved')
-  assert.deepEqual(Object.keys(state.views), views, 'and the view the open leaf would have made does not exist')
+  assert.deepEqual(
+    Object.keys(state.views),
+    views,
+    'and the view the open leaf would have made does not exist',
+  )
 })
 
 test('layout.setLayout: a leaf may mount a stack and open into it, with activeViewId deciding what shows', () => {
-  const state = workspaceOf(rowOf(panel('a', ['view_1', 'view_2']), panel('b', 'view_3')), [
-    'view_1',
-    'view_2',
-    'view_3',
-  ], 'a')
+  const state = workspaceOf(
+    rowOf(panel('a', ['view_1', 'view_2']), panel('b', 'view_3')),
+    ['view_1', 'view_2', 'view_3'],
+    'a',
+  )
   const { state: next, result } = runSetLayout(state, {
     tree: specPanel(['view_1', 'view_3', 'view_2'], {
       activeViewId: asViewId('view_3'),

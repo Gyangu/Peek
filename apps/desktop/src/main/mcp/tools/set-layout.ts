@@ -74,9 +74,7 @@ const TREE_DOC = [
   '  optional "panelId": pin this leaf to an existing panel so it keeps that id',
   '  optional "key": your own label for this leaf, echoed back next to the panel id it received',
   '',
-  'split node — divides its area among 2..' +
-    String(MAX_SPLIT_CHILDREN) +
-    ' children:',
+  'split node — divides its area among 2..' + String(MAX_SPLIT_CHILDREN) + ' children:',
   '  {"type":"split","dir":"row","children":[<node>,<node>],"ratio":[0.6,0.4]}',
   '  dir "row" places children left to right, dir "col" places them top to bottom.',
   '  "ratio" is one positive number per child and is normalized to sum to 1; omit it for equal shares.',

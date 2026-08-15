@@ -375,7 +375,7 @@ if (!bootstrapped) {
   // `dataPlane: 'degraded'` below is how the renderer finds out. Until it
   // existed, the only trace was the console.error above, so the symptom anyone
   // actually saw was "queries load forever" with a window that otherwise works.
-  const unwrapFallback = async <T,>(promise: Promise<DriverRpcResponse>): Promise<T> => {
+  const unwrapFallback = async <T>(promise: Promise<DriverRpcResponse>): Promise<T> => {
     const res = await promise
     if (res.ok) return res.data as T
     const err = new Error(res.error.message)

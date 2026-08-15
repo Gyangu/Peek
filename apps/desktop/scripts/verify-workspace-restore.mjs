@@ -365,7 +365,11 @@ async function main() {
     )
 
     const table = views.find((v) => v.kind === 'table')
-    check(table !== undefined && table.status === 'ready', 'the restored table filled itself in', JSON.stringify(table))
+    check(
+      table !== undefined && table.status === 'ready',
+      'the restored table filled itself in',
+      JSON.stringify(table),
+    )
     check(
       !views.some((v) => v.kind === 'query' && v.status === 'ready'),
       'and the statement was still not run',

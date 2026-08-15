@@ -189,4 +189,3 @@ export function mapPgError(value: unknown, ctx: MapPgErrorContext = {}): PeekErr
   // Not a pg error: AbortError, a socket errno, or a bare timeout message
   return classifyTransportError(value) ?? toPeekError(value, fallback)
 }
-

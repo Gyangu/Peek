@@ -128,9 +128,9 @@ function styleProperties(node: Element): { name: string; own: boolean }[] | null
   const expr = init !== undefined && ts.isJsxExpression(init) ? init.expression : undefined
   assert.ok(
     expr !== undefined && ts.isObjectLiteralExpression(expr),
-    `the \`style\` on <${opening(node).tagName.getText(sf)}> is not an object literal written in the `
-    + 'tag, so this file cannot read which properties it sets — and an inline declaration outranks '
-    + 'every class string this file reads. Write the object at the call site.',
+    `the \`style\` on <${opening(node).tagName.getText(sf)}> is not an object literal written in the ` +
+      'tag, so this file cannot read which properties it sets — and an inline declaration outranks ' +
+      'every class string this file reads. Write the object at the call site.',
   )
 
   const out: { name: string; own: boolean }[] = []
@@ -144,9 +144,9 @@ function styleProperties(node: Element): { name: string; own: boolean }[] | null
       continue
     }
     assert.fail(
-      `\`${prop.getText(sf)}\` in this element's inline style is something this file cannot read. `
-      + 'The one indirection it resolves is the shared size object, because that object is imported '
-      + 'here and pinned by name above. Anything else has to be written out.',
+      `\`${prop.getText(sf)}\` in this element's inline style is something this file cannot read. ` +
+        'The one indirection it resolves is the shared size object, because that object is imported ' +
+        'here and pinned by name above. Anything else has to be written out.',
     )
   }
   return out
@@ -189,9 +189,9 @@ function scroller(): Element {
   assert.equal(
     found.length,
     1,
-    'expected exactly one scrolling region directly inside the shell. Zero means the dialog is '
-    + 'back to laying its content out inside a box that clips and cannot scroll; two means the '
-    + 'reader has to work out which one holds the prose',
+    'expected exactly one scrolling region directly inside the shell. Zero means the dialog is ' +
+      'back to laying its content out inside a box that clips and cannot scroll; two means the ' +
+      'reader has to work out which one holds the prose',
   )
   return found[0] as Element
 }
@@ -239,8 +239,8 @@ describe('the disclosure cannot become a dialog that can only be refused', () =>
     // that no longer exists — which is a thing to read, not a thing to skip.
     assert.ok(
       MODAL_SHELL.split(/\s+/).includes('overflow-hidden'),
-      'the shell no longer clips its own overflow; re-derive whether the split below is still what '
-      + 'keeps the buttons reachable before relaxing anything here',
+      'the shell no longer clips its own overflow; re-derive whether the split below is still what ' +
+        'keeps the buttons reachable before relaxing anything here',
     )
     // The axis. Every flex-child class read below says how a box behaves along
     // it, and neither of them says which one it is — that is stated once, here,
@@ -256,17 +256,17 @@ describe('the disclosure cannot become a dialog that can only be refused', () =>
     ] as const) {
       assert.ok(
         shellClasses.includes(name),
-        `${why}. The scrolling region and the answer row below are flex children of it, and every `
-        + 'claim this file makes about them is a claim about the vertical axis. Re-derive them '
-        + 'against whatever the shell does now before relaxing anything here.',
+        `${why}. The scrolling region and the answer row below are flex children of it, and every ` +
+          'claim this file makes about them is a claim about the vertical axis. Re-derive them ' +
+          'against whatever the shell does now before relaxing anything here.',
       )
     }
     assert.equal(
       MODAL_SIZE.maxHeight,
       '80vh',
-      'the shared height ceiling moved. At the floor viewport (400px CSS) 80vh is 320px and the '
-      + 'English copy measures 296px, so the margin this dialog lives on is 24px — a different '
-      + 'ceiling is a different margin and wants measuring again',
+      'the shared height ceiling moved. At the floor viewport (400px CSS) 80vh is 320px and the ' +
+        'English copy measures 296px, so the margin this dialog lives on is 24px — a different ' +
+        'ceiling is a different margin and wants measuring again',
     )
   })
 
@@ -275,8 +275,8 @@ describe('the disclosure cannot become a dialog that can only be refused', () =>
     for (const key of ['title', 'body', 'scope', 'production', 'once']) {
       assert.ok(
         inside.includes(`context.consent.${key}`),
-        `context.consent.${key} is outside the scrolling region, so it is clipped rather than `
-        + 'scrolled the moment the viewport is short enough',
+        `context.consent.${key} is outside the scrolling region, so it is clipped rather than ` +
+          'scrolled the moment the viewport is short enough',
       )
     }
   })
@@ -286,15 +286,15 @@ describe('the disclosure cannot become a dialog that can only be refused', () =>
     for (const key of ['accept', 'cancel']) {
       assert.ok(
         !inside.includes(`context.consent.${key}`),
-        `context.consent.${key} is inside the scrolling region. A control that scrolls away with `
-        + 'the prose is exactly the failure this file describes, one indirection later',
+        `context.consent.${key} is inside the scrolling region. A control that scrolls away with ` +
+          'the prose is exactly the failure this file describes, one indirection later',
       )
     }
 
     assert.ok(
       classesOf(row()).includes('flex-none'),
-      'the action row must refuse to shrink. Without it the row is a flex item that can be '
-      + 'compressed by the prose above it, which puts the buttons back under the clip',
+      'the action row must refuse to shrink. Without it the row is a flex item that can be ' +
+        'compressed by the prose above it, which puts the buttons back under the clip',
     )
   })
 
@@ -312,8 +312,8 @@ describe('the disclosure cannot become a dialog that can only be refused', () =>
     assert.match(
       tab.initializer?.getText(sf) ?? '',
       /\{\s*0\s*\}/,
-      'tabIndex must be 0 — a negative one is reachable by script and not by Tab, which is the '
-      + 'half that does not help here',
+      'tabIndex must be 0 — a negative one is reachable by script and not by Tab, which is the ' +
+        'half that does not help here',
     )
   })
 
@@ -327,19 +327,19 @@ describe('the disclosure cannot become a dialog that can only be refused', () =>
       assert.deepEqual(
         claimed.map((p) => p.name),
         [],
-        `${label} sets ${claimed.map((p) => `\`${p.name}\``).join(', ')} in an inline style.\n\n`
-        + 'Everything this file asserts, it reads out of class strings — and an inline declaration '
-        + 'is not in a stylesheet, not in the built artifact, and beaten by nothing: it is compiled '
-        + 'into the bundle and written onto the element at runtime. So a class-string assertion '
-        + 'about a box that also carries one of these properties inline is an assertion about a '
-        + 'string that does not decide anything. Planted as two properties on the scrolling region, '
-        + 'with every class byte-identical, it restored the original defect with the whole suite '
-        + 'green and the artifact unchanged.\n\n'
-        + 'The ban is deliberately only these three boxes and only the properties listed in '
-        + 'CLAIMED_PROPERTIES. An inline style is the right answer for a size that is not a step on '
-        + 'any scale — modalClasses.ts makes that case and the shell is the caller taking it up. '
-        + 'If one of these boxes genuinely needs one of these properties inline, it needs the '
-        + 'assertion that reads it rewritten first, not an exemption bolted on here.',
+        `${label} sets ${claimed.map((p) => `\`${p.name}\``).join(', ')} in an inline style.\n\n` +
+          'Everything this file asserts, it reads out of class strings — and an inline declaration ' +
+          'is not in a stylesheet, not in the built artifact, and beaten by nothing: it is compiled ' +
+          'into the bundle and written onto the element at runtime. So a class-string assertion ' +
+          'about a box that also carries one of these properties inline is an assertion about a ' +
+          'string that does not decide anything. Planted as two properties on the scrolling region, ' +
+          'with every class byte-identical, it restored the original defect with the whole suite ' +
+          'green and the artifact unchanged.\n\n' +
+          'The ban is deliberately only these three boxes and only the properties listed in ' +
+          'CLAIMED_PROPERTIES. An inline style is the right answer for a size that is not a step on ' +
+          'any scale — modalClasses.ts makes that case and the shell is the caller taking it up. ' +
+          'If one of these boxes genuinely needs one of these properties inline, it needs the ' +
+          'assertion that reads it rewritten first, not an exemption bolted on here.',
       )
     }
   })

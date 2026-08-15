@@ -78,9 +78,7 @@ export function packageListing(
       id: driver.packageId,
       version,
       source: shipped === undefined ? 'user' : 'bundled',
-      ...(shipped !== undefined && compareVersions(shipped, version) > 0
-        ? { upgradeVersion: shipped }
-        : {}),
+      ...(shipped !== undefined && compareVersions(shipped, version) > 0 ? { upgradeVersion: shipped } : {}),
       driverIds: [driver.manifest.driverId],
       viewKinds: [],
       toolNames: [],
@@ -252,8 +250,7 @@ export interface UninstallRequest {
 }
 
 export type UninstallOutcome =
-  | { readonly ok: true; readonly tombstoned: boolean }
-  | { readonly ok: false; readonly issue: string }
+  { readonly ok: true; readonly tombstoned: boolean } | { readonly ok: false; readonly issue: string }
 
 /**
  * Delete a package's directory, and remember it if peek ships one under that id.

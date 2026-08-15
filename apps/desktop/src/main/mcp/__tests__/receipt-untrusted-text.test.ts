@@ -34,16 +34,7 @@ const HOSTILE_NAMES = [
 ]
 
 /** A line beginning with any of these, outside the fence, is the attack succeeding. */
-const FORBIDDEN_LINE_STARTS = [
-  '#',
-  '[system]',
-  '>',
-  '- ',
-  '* ',
-  'SYSTEM',
-  'IMPORTANT',
-  'Ignore',
-]
+const FORBIDDEN_LINE_STARTS = ['#', '[system]', '>', '- ', '* ', 'SYSTEM', 'IMPORTANT', 'Ignore']
 
 function col(name: string): ColumnDef {
   return { name, logical: 'string', nativeType: 'text' }
@@ -77,10 +68,7 @@ function parse(text: string): Receipt {
   assert.equal(lines[lines.length - 1], fence, 'the fence is closed on the last line')
   const inside = lines.slice(3, lines.length - 1)
   for (const line of inside) {
-    assert.ok(
-      !line.startsWith(fence),
-      `a data line closes the fence early: ${JSON.stringify(line)}`,
-    )
+    assert.ok(!line.startsWith(fence), `a data line closes the fence early: ${JSON.stringify(line)}`)
   }
   return { outside: [lines[0] ?? '', lines[1] ?? '', open, fence], inside, fence }
 }

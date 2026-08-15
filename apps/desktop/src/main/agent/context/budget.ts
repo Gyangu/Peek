@@ -174,9 +174,9 @@ export function describeTruncation(n: TruncationNotice): string {
       return `${head} The value was longer than one attachment may carry.`
     case 'sourceTruncated':
       return (
-        `${head} This is everything peek has — the result set itself is incomplete `
-        + '(the query hit its row limit, was paused by backpressure, or was cancelled). '
-        + 'Re-run the query in peek to fetch more.'
+        `${head} This is everything peek has — the result set itself is incomplete ` +
+        '(the query hit its row limit, was paused by backpressure, or was cancelled). ' +
+        'Re-run the query in peek to fetch more.'
       )
     case 'promptBudget':
       return `${head} Earlier attachments on this message had already used the context budget.`

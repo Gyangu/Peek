@@ -125,7 +125,11 @@ export function MessageList({ chatId }: { chatId: ChatId }): ReactElement {
           ships no family for the property, so it is defined once as an
           `@utility` in styles.css — the same shape as the title bar's drag
           region, and the rule that used to carry this element's name. */}
-      <div className="flex-1 min-h-0 py-snug overflow-y-auto overflow-x-hidden overflow-anchor-none" ref={scrollRef} onScroll={onScroll}>
+      <div
+        className="flex-1 min-h-0 py-snug overflow-y-auto overflow-x-hidden overflow-anchor-none"
+        ref={scrollRef}
+        onScroll={onScroll}
+      >
         <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
           {items.map((item) => (
             <div

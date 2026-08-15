@@ -340,8 +340,7 @@ export interface DriverRpcResultMap {
 
 /** Response envelope for a read-only RPC: errors always collapse to a PeekError — a raw Error is never thrown across IPC */
 export type DriverRpcResponse<K extends DriverRpcKind = DriverRpcKind> =
-  | { ok: true; data: DriverRpcResultMap[K] }
-  | { ok: false; error: PeekError }
+  { ok: true; data: DriverRpcResultMap[K] } | { ok: false; error: PeekError }
 
 /* ------------------------------------------------------------------ */
 /* Result-set sampling (main → renderer)                               */
@@ -498,19 +497,13 @@ export interface PeekBridge {
   introspect?(connId: ConnId, parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]>
 
   /** Fetch a large value in full or by range; maps to HostRpcMap['value.peek'] */
-  peekValue?(
-    connId: ConnId,
-    ref: ValueRef,
-    range?: { offset: number; length: number },
-  ): Promise<PeekedValue>
+  peekValue?(connId: ConnId, ref: ValueRef, range?: { offset: number; length: number }): Promise<PeekedValue>
 
   /** Read a typed value by key; maps to HostRpcMap['keyvalue.get'] */
   getKeyValue?(connId: ConnId, ref: ValueRef, window?: KeyValueWindow): Promise<KeyValueResult>
 
   /** Main asks this renderer for sample rows of a result set; the handler is responsible for replying */
-  onResultRowsRequest?(
-    handler: (msg: ResultRowsRequestMessage) => void,
-  ): () => void
+  onResultRowsRequest?(handler: (msg: ResultRowsRequestMessage) => void): () => void
 
   /** Reply to onResultRowsRequest */
   replyResultRows?(msg: ResultRowsReplyMessage): void
@@ -685,7 +678,15 @@ export type HostEvent =
   /** The first frame's schema arrived (main uses it to fill ResultMeta.schema) */
   | { kind: 'evt'; type: 'result.schema'; resultId: ResultId; schema: ColumnDef[] }
   /** The result set finished normally */
-  | { kind: 'evt'; type: 'result.done'; resultId: ResultId; rows: number; elapsedMs: number; truncated?: boolean; nextCursor?: string }
+  | {
+      kind: 'evt'
+      type: 'result.done'
+      resultId: ResultId
+      rows: number
+      elapsedMs: number
+      truncated?: boolean
+      nextCursor?: string
+    }
   /**
    * The result set **paused by design** (backpressure idle timeout). Not an error:
    * the cursor has been released and every row already emitted is valid. Main turns
@@ -707,9 +708,7 @@ export type HostOutbound = HostResponse | HostEvent
  * `attachPort` is not an RPC: it is postMessage'd together with the MessagePort,
  * and the host adopts that port as its data-plane outlet.
  */
-export type HostInbound =
-  | HostRequest
-  | { kind: 'attachPort'; connId: ConnId }
+export type HostInbound = HostRequest | { kind: 'attachPort'; connId: ConnId }
 
 export function isHostResponse(msg: HostOutbound): msg is HostResponse {
   return msg.kind === 'res'

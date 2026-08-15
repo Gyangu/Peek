@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import type { ReactElement, ReactNode } from 'react'
-import type {
-  Capability,
-  ConnId,
-  NamespaceNode,
-  NamespaceNodeKind,
-  TreeViewState,
-} from '@peek/core'
+import type { Capability, ConnId, NamespaceNode, NamespaceNodeKind, TreeViewState } from '@peek/core'
 import { bridgeExtras } from '../../bridge'
 import { useT } from '../../i18n'
 import { connCapabilities } from '../../state/capabilities'
@@ -170,7 +164,10 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
     // utility in `@layer utilities` would lose to it and the override would
     // silently stop working. See views.css on the same wall.
     return (
-      <div className="px-snug py-loose text-left leading-prose text-fg-faint" style={{ paddingLeft: 12 + depth * 14 }}>
+      <div
+        className="px-snug py-loose text-left leading-prose text-fg-faint"
+        style={{ paddingLeft: 12 + depth * 14 }}
+      >
         {/* `entry.error` is whatever the bridge threw — shown verbatim. */}
         {t('tree.loadFailed', { error: entry.error ?? '' })}
       </div>
@@ -239,7 +236,9 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
                   not need a font size: a fixed 14px column, and the whole 24px row
                   rather than the glyph as the click target. */}
               <span className="w-glyph shrink-0 flex justify-center text-fg-faint">
-                {node.hasChildren ? <Icon name={open ? 'disclosure.open' : 'disclosure.closed'} size="sm" /> : null}
+                {node.hasChildren ? (
+                  <Icon name={open ? 'disclosure.open' : 'disclosure.closed'} size="sm" />
+                ) : null}
               </span>
               {/*
                 The note that used to sit here said this set — ⛁ ❏ ▦ ◫ ◪ ⧉ ◇ —
@@ -259,10 +258,8 @@ function TreeLevel(props: TreeLevelProps): ReactElement | null {
                 <Icon name={iconOf(node.kind)} />
               </span>
               <span className="truncate">{node.name}</span>
-              {elided ?? node.detail ? (
-                <span className="ml-tight truncate text-fg-faint text-micro">
-                  {elided ?? node.detail}
-                </span>
+              {(elided ?? node.detail) ? (
+                <span className="ml-tight truncate text-fg-faint text-micro">{elided ?? node.detail}</span>
               ) : null}
             </div>
             {open ? (
@@ -395,9 +392,7 @@ function NoIntrospectChannel({ connId }: { connId: ConnId }): ReactElement {
   return (
     <div className="px-snug py-loose text-center leading-prose text-fg-faint">
       <div>{t('tree.unavailable')}</div>
-      <div style={{ marginTop: 6, textAlign: 'left', maxWidth: 320 }}>
-        {t('tree.unavailableDetail')}
-      </div>
+      <div style={{ marginTop: 6, textAlign: 'left', maxWidth: 320 }}>{t('tree.unavailableDetail')}</div>
       <button className="mt-snug" onClick={openQuery}>
         {t('tree.browseWithSql')}
       </button>

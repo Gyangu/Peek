@@ -40,9 +40,13 @@ export class Cdp {
     this.#ws = new WebSocket(url)
     await new Promise((resolve, reject) => {
       this.#ws.addEventListener('open', resolve, { once: true })
-      this.#ws.addEventListener('error', () => {
-        reject(new Error(`CDP websocket failed to open: ${url}`))
-      }, { once: true })
+      this.#ws.addEventListener(
+        'error',
+        () => {
+          reject(new Error(`CDP websocket failed to open: ${url}`))
+        },
+        { once: true },
+      )
     })
     this.#ws.addEventListener('message', (event) => {
       const msg = JSON.parse(typeof event.data === 'string' ? event.data : '')

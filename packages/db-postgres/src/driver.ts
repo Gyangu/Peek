@@ -37,10 +37,7 @@ export const postgresDriver = new PostgresDriver()
  */
 export function requirePostgresConfig(cfg: ConnectionConfig): PostgresConnectionConfig {
   if (!isDriverConfig<PostgresConnectionConfig>(cfg, 'postgres')) {
-    throw peekError(
-      'BAD_REQUEST',
-      `db-postgres received a connection config with driverId=${cfg.driverId}`,
-    )
+    throw peekError('BAD_REQUEST', `db-postgres received a connection config with driverId=${cfg.driverId}`)
   }
   return cfg
 }

@@ -64,7 +64,12 @@ export function ConfirmPair(props: ConfirmPairProps): ReactElement {
 
   if (!armed) {
     return (
-      <Button variant="ghost" disabled={disabled === true} {...(title === undefined ? {} : { title })} onClick={onArm}>
+      <Button
+        variant="ghost"
+        disabled={disabled === true}
+        {...(title === undefined ? {} : { title })}
+        onClick={onArm}
+      >
         {label}
       </Button>
     )

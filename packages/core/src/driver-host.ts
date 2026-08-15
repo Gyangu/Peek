@@ -16,17 +16,16 @@ import {
   type DriverId,
   type DriverSession,
 } from './capability'
-import { ACK_WINDOW, VALUE_PEEK_MAX_BYTES, type ResultPause, type ResultStreamAck, type ResultStreamMessage } from './chunk'
+import {
+  ACK_WINDOW,
+  VALUE_PEEK_MAX_BYTES,
+  type ResultPause,
+  type ResultStreamAck,
+  type ResultStreamMessage,
+} from './chunk'
 import { peekError, peekErrorMsg, toPeekError, type PeekError } from './errors'
 import type { ResultId } from './ids'
-import type {
-  HostEvent,
-  HostInbound,
-  HostMethod,
-  HostRequest,
-  HostResponseOf,
-  HostResult,
-} from './ipc'
+import type { HostEvent, HostInbound, HostMethod, HostRequest, HostResponseOf, HostResult } from './ipc'
 import type { NotifyLevel } from './ipc'
 
 /**
@@ -123,10 +122,18 @@ function unsupported(driverId: DriverId, capability: Capability): PeekError {
 /* ------------------------------------------------------------------ */
 
 const HOST_METHODS: ReadonlySet<string> = new Set<HostMethod>([
-  'connect', 'disconnect', 'ping',
-  'introspect.children', 'introspect.describe',
-  'query.run', 'collection.scan', 'vector.search',
-  'keyvalue.get', 'value.peek', 'cancel', 'shutdown',
+  'connect',
+  'disconnect',
+  'ping',
+  'introspect.children',
+  'introspect.describe',
+  'query.run',
+  'collection.scan',
+  'vector.search',
+  'keyvalue.get',
+  'value.peek',
+  'cancel',
+  'shutdown',
 ])
 
 function asInbound(data: unknown): HostInbound | null {
@@ -275,8 +282,8 @@ class StreamPump {
       // English literal on purpose: this text is written into workspace state and
       // read back by MCP, which stays English forever.
       message:
-        `Result stream paused: no consumption ack for ${Math.round(this.idleAckMs / 1000)}s,`
-        + ' the server-side cursor and connection have been released',
+        `Result stream paused: no consumption ack for ${Math.round(this.idleAckMs / 1000)}s,` +
+        ' the server-side cursor and connection have been released',
       resumable: true,
     }
     this.host.sendStream({ t: 'paused', resultId: this.resultId, paused: pause })
@@ -292,7 +299,7 @@ class StreamPump {
         // before attachPort wedges here forever, cancellation cannot wake it, and
         // the cursor holds its server-side resources indefinitely.
         const port = await Promise.race([this.host.waitPort(), this.stopSignal])
-        if (await this.waitWindow() === 'paused') {
+        if ((await this.waitWindow()) === 'paused') {
           this.announcePause()
           break
         }
@@ -376,9 +383,8 @@ export class DriverHostRuntime {
     this.channel = channel
     this.drivers = buildDriverRegistry(options.drivers)
     this.onShutdown = options.onShutdown
-    this.idleAckMs = options.idleAckMs !== undefined && options.idleAckMs > 0
-      ? options.idleAckMs
-      : IDLE_ACK_TIMEOUT_MS
+    this.idleAckMs =
+      options.idleAckMs !== undefined && options.idleAckMs > 0 ? options.idleAckMs : IDLE_ACK_TIMEOUT_MS
     channel.on('message', (event) => {
       void this.onMessage(event)
     })
@@ -621,10 +627,7 @@ export class DriverHostRuntime {
     }
   }
 
-  private async onConnect(
-    config: ConnectionConfig,
-    timeoutMs?: number,
-  ): Promise<HostResult<'connect'>> {
+  private async onConnect(config: ConnectionConfig, timeoutMs?: number): Promise<HostResult<'connect'>> {
     await this.closeSession()
     this.emit({ kind: 'evt', type: 'status', status: 'connecting' })
     try {
@@ -670,7 +673,8 @@ export class DriverHostRuntime {
     const missing: Capability[] = []
     if (hasCapability(session, 'introspect') && !supportsIntrospect(session)) missing.push('introspect')
     if (hasCapability(session, 'tabularQuery') && !supportsTabularQuery(session)) missing.push('tabularQuery')
-    if (hasCapability(session, 'collectionScan') && !supportsCollectionScan(session)) missing.push('collectionScan')
+    if (hasCapability(session, 'collectionScan') && !supportsCollectionScan(session))
+      missing.push('collectionScan')
     if (hasCapability(session, 'keyValue') && !supportsKeyValue(session)) missing.push('keyValue')
     if (hasCapability(session, 'vectorSearch') && !supportsVectorSearch(session)) missing.push('vectorSearch')
     if (hasCapability(session, 'valuePeek') && !supportsValuePeek(session)) missing.push('valuePeek')

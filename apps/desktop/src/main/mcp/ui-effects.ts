@@ -260,9 +260,7 @@ function resultEffect(r: ResultMeta, after: WorkspaceSnapshot): UiEffect {
     resultId: String(r.id),
     viewId: String(r.viewId),
     ...(view?.panelId == null ? {} : { panelId: String(view.panelId) }),
-    ...(view === undefined
-      ? {}
-      : { focus: { command: 'view.activate' as const, viewId: String(view.id) } }),
+    ...(view === undefined ? {} : { focus: { command: 'view.activate' as const, viewId: String(view.id) } }),
   }
 }
 
@@ -283,4 +281,3 @@ export function renderUiEffects(effects: readonly UiEffect[]): string {
   const lines = effects.map((e) => `- ${e.summary}`)
   return `${UI_EFFECTS_HEADING}:\n${lines.join('\n')}`
 }
-

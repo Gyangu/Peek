@@ -58,7 +58,9 @@ const DRIVER_HOST_ENTRY = 'driver-host.js'
  * the symptom acceptance 11 hit before this step (§4undecies(b)).
  */
 export function driverRegistry(): Readonly<Partial<Record<DriverId, DriverRegistration>>> {
-  return Object.fromEntries(driverManifests().map((m) => [m.driverId, registrationOf(m.driverId, m.displayName, m.capabilities)]))
+  return Object.fromEntries(
+    driverManifests().map((m) => [m.driverId, registrationOf(m.driverId, m.displayName, m.capabilities)]),
+  )
 }
 
 export function lookupDriver(driverId: DriverId): DriverRegistration | null {

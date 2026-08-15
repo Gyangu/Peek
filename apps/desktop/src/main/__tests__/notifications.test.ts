@@ -138,9 +138,10 @@ describe('a notice reaches the user by the route that suits where they are', () 
 
     assert.deepEqual(result, { system: true, toast: true })
     assert.equal(h.toasts.length, 1)
-    assert.deepEqual(h.system.raised.map((b) => [b.title, b.body, b.silent]), [
-      ['Migration needs a decision', 'Two rows collide on the new unique index.', false],
-    ])
+    assert.deepEqual(
+      h.system.raised.map((b) => [b.title, b.body, b.silent]),
+      [['Migration needs a decision', 'Two rows collide on the new unique index.', false]],
+    )
   })
 
   it('treats minimised and hidden as away, not only unfocused', () => {
@@ -278,10 +279,12 @@ describe('app.notify hands the caller straight to the outlet', () => {
 
   it('passes the optional members only when they were given', () => {
     seen = []
-    handlerFor().read(
-      {} as never,
-      { message: 'Careful', detail: 'Two rows collide.', level: 'warn', focusViewId: 'view-3' as ViewId },
-    )
+    handlerFor().read({} as never, {
+      message: 'Careful',
+      detail: 'Two rows collide.',
+      level: 'warn',
+      focusViewId: 'view-3' as ViewId,
+    })
 
     assert.deepEqual(seen, [
       {
@@ -317,7 +320,10 @@ function chatView(over: Partial<ChatViewState> = {}): ChatViewState {
 
 describe('the agent announces itself on a transition, never on a state', () => {
   it('reports a turn that has just ended', () => {
-    const notice = turnNotice('streaming', chatView({ agentStatus: 'idle', lastMessagePreview: '41,882 rows' }))
+    const notice = turnNotice(
+      'streaming',
+      chatView({ agentStatus: 'idle', lastMessagePreview: '41,882 rows' }),
+    )
 
     assert.deepEqual(notice, { viewId: 'view-1', kind: 'replied', preview: '41,882 rows' })
   })
@@ -374,7 +380,12 @@ describe('the agent announces itself on a transition, never on a state', () => {
 describe('a turn notice read on a lock screen', () => {
   it('names the conversation when it has one', () => {
     assert.deepEqual(
-      describeTurnNotice({ viewId: 'view-1' as ViewId, label: 'Index audit', kind: 'replied', preview: 'Done.' }),
+      describeTurnNotice({
+        viewId: 'view-1' as ViewId,
+        label: 'Index audit',
+        kind: 'replied',
+        preview: 'Done.',
+      }),
       { message: 'Index audit: the agent has replied', detail: 'Done.' },
     )
   })

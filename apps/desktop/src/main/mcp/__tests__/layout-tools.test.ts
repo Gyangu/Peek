@@ -60,7 +60,12 @@ const LAYOUT: LayoutNode = {
       viewIds: [asViewId('view_1'), asViewId('view_4')],
       activeViewId: asViewId('view_1'),
     },
-    { type: 'panel', id: asPanelId('panel_b'), viewIds: [asViewId('view_2')], activeViewId: asViewId('view_2') },
+    {
+      type: 'panel',
+      id: asPanelId('panel_b'),
+      viewIds: [asViewId('view_2')],
+      activeViewId: asViewId('view_2'),
+    },
   ],
 }
 
@@ -163,7 +168,11 @@ const SET_LAYOUT_RESULT = {
   focusedPanel: 'panel_a',
 }
 
-async function run(tool: { run(raw: unknown, ctx: ToolContext): Promise<ToolOutput> }, input: unknown, h: Harness): Promise<ToolOutput> {
+async function run(
+  tool: { run(raw: unknown, ctx: ToolContext): Promise<ToolOutput> },
+  input: unknown,
+  h: Harness,
+): Promise<ToolOutput> {
   return tool.run(input, h.ctx)
 }
 
@@ -177,7 +186,10 @@ test('set_layout sends exactly one layout.setLayout command, unaltered', async (
     type: 'split',
     dir: 'row',
     ratio: [0.4, 0.6],
-    children: [panelLeaf(['view_1', 'view_4'], { key: 'left', activeViewId: 'view_4' }), panelLeaf(['view_3'])],
+    children: [
+      panelLeaf(['view_1', 'view_4'], { key: 'left', activeViewId: 'view_4' }),
+      panelLeaf(['view_3']),
+    ],
   }
   const out = await run(setLayout, { tree, unplaced: 'close', focusViewId: 'view_1' }, h)
 
@@ -252,7 +264,7 @@ test('set_layout rejects a view listed twice inside one panel (P3)', async () =>
   assert.equal(h.sent.length, 0)
 })
 
-test('set_layout rejects an activeViewId that is not one of the leaf\'s tabs (P2)', async () => {
+test("set_layout rejects an activeViewId that is not one of the leaf's tabs (P2)", async () => {
   const h = harness()
   const out = await run(setLayout, { tree: panelLeaf(['view_1'], { activeViewId: 'view_2' }) }, h)
   assert.equal(out.isError, true)
@@ -267,7 +279,10 @@ test('set_layout rejects a leaf holding more tabs than a panel allows (P5)', asy
   const out = await run(setLayout, { tree: panelLeaf(['view_1'], { open }) }, h)
   assert.equal(out.isError, true)
   // Counted across both halves of the leaf: neither array alone exceeds the cap.
-  assert.match(out.text, new RegExp(`at most ${String(MAX_PANEL_TABS)} tabs, got ${String(MAX_PANEL_TABS + 1)}`))
+  assert.match(
+    out.text,
+    new RegExp(`at most ${String(MAX_PANEL_TABS)} tabs, got ${String(MAX_PANEL_TABS + 1)}`),
+  )
   assert.equal(h.sent.length, 0)
 })
 
@@ -275,7 +290,14 @@ test('set_layout rejects a ratio whose length does not match the children', asyn
   const h = harness()
   const out = await run(
     setLayout,
-    { tree: { type: 'split', dir: 'row', ratio: [1], children: [panelLeaf(['view_1']), panelLeaf(['view_2'])] } },
+    {
+      tree: {
+        type: 'split',
+        dir: 'row',
+        ratio: [1],
+        children: [panelLeaf(['view_1']), panelLeaf(['view_2'])],
+      },
+    },
     h,
   )
   assert.equal(out.isError, true)
@@ -297,7 +319,9 @@ test('set_layout rejects an unknown key on a split node too', async () => {
   const h = harness()
   const out = await run(
     setLayout,
-    { tree: { type: 'split', dir: 'row', children: [panelLeaf(['view_1']), panelLeaf(['view_2'])], size: 3 } },
+    {
+      tree: { type: 'split', dir: 'row', children: [panelLeaf(['view_1']), panelLeaf(['view_2'])], size: 3 },
+    },
     h,
   )
   assert.equal(out.isError, true)
@@ -335,7 +359,11 @@ test('set_layout refuses to invent a pinned panel id, and lists the real ones', 
 
 test('set_layout checks the connection of an inline open leaf', async () => {
   const h = harness()
-  const out = await run(setLayout, { tree: panelLeaf(undefined, { open: [{ kind: 'query', connId: 'conn_9' }] }) }, h)
+  const out = await run(
+    setLayout,
+    { tree: panelLeaf(undefined, { open: [{ kind: 'query', connId: 'conn_9' }] }) },
+    h,
+  )
   assert.equal(out.isError, true)
   assert.match(out.text, /conn_9 does not exist/)
   assert.equal(h.sent.length, 0)
@@ -565,7 +593,10 @@ test('read_workspace returns the structured layout tree without being asked', as
 
   assert.equal(data.rev, 7)
   assert.deepEqual(data.layout, LAYOUT, 'the tree an AI edits and sends back must be present')
-  assert.deepEqual(data.panels?.map((p) => p.panelId), ['panel_a', 'panel_b'])
+  assert.deepEqual(
+    data.panels?.map((p) => p.panelId),
+    ['panel_a', 'panel_b'],
+  )
 })
 
 test('read_workspace lists every tab of a panel, in tab order, and names the visible one', async () => {
@@ -575,10 +606,19 @@ test('read_workspace lists every tab of a panel, in tab order, and names the vis
   assert.ok(panels, 'read_workspace must report panels')
   assert.equal(panels.length, 2)
 
-  assert.deepEqual(panels[0].views.map((v) => v.viewId), ['view_1', 'view_4'])
+  assert.deepEqual(
+    panels[0].views.map((v) => v.viewId),
+    ['view_1', 'view_4'],
+  )
   assert.equal(panels[0].activeViewId, 'view_1')
-  assert.deepEqual(panels[0].views.map((v) => v.visible), [true, false])
-  assert.deepEqual(panels[1].views.map((v) => v.viewId), ['view_2'])
+  assert.deepEqual(
+    panels[0].views.map((v) => v.visible),
+    [true, false],
+  )
+  assert.deepEqual(
+    panels[1].views.map((v) => v.viewId),
+    ['view_2'],
+  )
   assert.equal(panels[1].activeViewId, 'view_2')
 })
 
@@ -597,7 +637,10 @@ test('read_workspace surfaces views that sit in no panel', async () => {
   const out = await run(readWorkspace, {}, h)
   const data = out.data as WorkspacePayload
 
-  assert.deepEqual(data.unplacedViews?.map((v) => v.viewId), ['view_3'])
+  assert.deepEqual(
+    data.unplacedViews?.map((v) => v.viewId),
+    ['view_3'],
+  )
   assert.match(out.text, /unplaced: 1 view\(s\) — view_3/)
 })
 

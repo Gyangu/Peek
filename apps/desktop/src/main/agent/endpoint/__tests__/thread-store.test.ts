@@ -122,12 +122,27 @@ test('a file missing either half is declined, because half a conversation is not
 
 test('writing twice replaces, and leaves no temp file behind', () => {
   withStore((store, dir) => {
-    store.write({ sessionId: 'sess_1', transcript: [message('m1', 'user', 'first')], messages: [], modelId: 'm', updatedAt: 1 })
-    store.write({ sessionId: 'sess_1', transcript: [message('m1', 'user', 'second')], messages: [], modelId: 'm', updatedAt: 2 })
+    store.write({
+      sessionId: 'sess_1',
+      transcript: [message('m1', 'user', 'first')],
+      messages: [],
+      modelId: 'm',
+      updatedAt: 1,
+    })
+    store.write({
+      sessionId: 'sess_1',
+      transcript: [message('m1', 'user', 'second')],
+      messages: [],
+      modelId: 'm',
+      updatedAt: 2,
+    })
 
-    assert.equal(store.read('sess_1')?.transcript[0]?.blocks[0]?.type === 'text'
-      ? (store.read('sess_1')?.transcript[0]?.blocks[0] as { text: string }).text
-      : null, 'second')
+    assert.equal(
+      store.read('sess_1')?.transcript[0]?.blocks[0]?.type === 'text'
+        ? (store.read('sess_1')?.transcript[0]?.blocks[0] as { text: string }).text
+        : null,
+      'second',
+    )
     // temp + rename is what makes a crash mid-write survivable; a leftover
     // `.tmp` would mean the rename half of that never happened.
     assert.deepEqual(readdirSync(dir), ['sess_1.json'])

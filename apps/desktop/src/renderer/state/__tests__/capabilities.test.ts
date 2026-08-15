@@ -1,13 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import '../../../drivers/__tests__/in-repo-registry'
-import type {
-  Capability,
-  ConnId,
-  ConnStatus,
-  ConnectionState,
-  DriverId,
-} from '@peek/core'
+import type { Capability, ConnId, ConnStatus, ConnectionState, DriverId } from '@peek/core'
 import { driverCapabilities, manifestDriverIds } from '../../../drivers/manifests'
 import { connCanUse, connCapabilities, connHas } from '../capabilities'
 
@@ -50,7 +44,11 @@ describe('the two-phase capability answer', () => {
     // the static table promised, and the UI must believe it rather than the table.
     const degraded = conn({ driverId: 'postgres', capabilities: ['introspect'] })
     assert.deepEqual(connCapabilities(degraded), ['introspect'])
-    assert.equal(connHas(degraded, 'tabularQuery'), false, 'the static prediction must not override the session')
+    assert.equal(
+      connHas(degraded, 'tabularQuery'),
+      false,
+      'the static prediction must not override the session',
+    )
   })
 
   test('an empty report from a ready connection still reads as the prediction', () => {
@@ -72,7 +70,11 @@ describe('connCanUse also requires the connection to be up', () => {
   })
 
   test('ready plus present is the only combination that enables a control', () => {
-    const c = conn({ driverId: 'postgres', status: 'ready', capabilities: [...driverCapabilities().postgres] })
+    const c = conn({
+      driverId: 'postgres',
+      status: 'ready',
+      capabilities: [...driverCapabilities().postgres],
+    })
     assert.equal(connCanUse(c, 'tabularQuery'), true)
     assert.equal(connCanUse(c, 'vectorSearch'), false)
   })

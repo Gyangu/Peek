@@ -11,12 +11,6 @@
  * See `design/2026-08-15-light-and-dark-theme.md`.
  */
 
-export {
-  adoptTheme,
-  getTheme,
-  getThemePreference,
-  initTheme,
-  subscribeTheme,
-} from './store'
+export { adoptTheme, getTheme, getThemePreference, initTheme, subscribeTheme } from './store'
 export { useTheme, useThemePreference } from './react'
 export { startTheme } from './start'

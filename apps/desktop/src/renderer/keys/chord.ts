@@ -55,9 +55,7 @@ export const MAX_DIGIT = 9
 
 /** What a chord resolved to, once a placeholder has been filled in. */
 export type ChordMatch =
-  | { kind: 'plain' }
-  | { kind: 'digit'; digit: number }
-  | { kind: 'arrow'; dir: Direction }
+  { kind: 'plain' } | { kind: 'digit'; digit: number } | { kind: 'arrow'; dir: Direction }
 
 /* ================================================================== */
 /* 2. Parsing                                                          */
@@ -386,7 +384,13 @@ export function toAccelerator(pattern: ChordPattern): string | null {
   if (pattern.shift) parts.push('Shift')
   const letter = /^Key([A-Z])$/.exec(pattern.token)
   const digit = /^(?:Digit|Numpad)([0-9])$/.exec(pattern.token)
-  parts.push(letter ? (letter[1] as string) : digit ? (digit[1] as string) : ACCELERATOR_KEYS[pattern.token] ?? pattern.token)
+  parts.push(
+    letter
+      ? (letter[1] as string)
+      : digit
+        ? (digit[1] as string)
+        : (ACCELERATOR_KEYS[pattern.token] ?? pattern.token),
+  )
   return parts.join('+')
 }
 

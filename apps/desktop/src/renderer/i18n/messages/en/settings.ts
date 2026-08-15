@@ -48,7 +48,8 @@ export const settings = {
   'mcp.rotateToken': 'Rotate token',
   'mcp.rotateWarning':
     'Rotating the token, or moving the port, invalidates every AI client already registered — re-run the command above in each of them.',
-  'mcp.tokenRotated': 'A new token is live. The previous one is refused from now on; re-register your clients.',
+  'mcp.tokenRotated':
+    'A new token is live. The previous one is refused from now on; re-register your clients.',
   'mcp.reregisterRequired': 'The endpoint moved. Re-register your AI clients with the command above.',
 
   /* ---------------- Appearance ---------------- */
@@ -179,11 +180,15 @@ export const settings = {
   'settings.agent.mode.dontAsk': '⚠ Never ask',
   'settings.agent.mode.bypassPermissions': '⚠ Bypass all checks',
   'settings.agent.modeHint.default': 'Every tool call waits for you. This is peek’s default.',
-  'settings.agent.modeHint.auto': 'The agent’s own classifier approves calls instead of you. It still cannot reach anything beyond peek’s tools.',
-  'settings.agent.modeHint.acceptEdits': 'Edits go through without asking; everything else still waits for you.',
+  'settings.agent.modeHint.auto':
+    'The agent’s own classifier approves calls instead of you. It still cannot reach anything beyond peek’s tools.',
+  'settings.agent.modeHint.acceptEdits':
+    'Edits go through without asking; everything else still waits for you.',
   'settings.agent.modeHint.plan': 'The agent plans and explains, and runs nothing until you leave this mode.',
-  'settings.agent.modeHint.dontAsk': 'Tool calls run without asking. Every new conversation says “from settings” next to its mode.',
-  'settings.agent.modeHint.bypassPermissions': 'Nothing is checked and nothing is asked. Every new conversation says “from settings” next to its mode.',
+  'settings.agent.modeHint.dontAsk':
+    'Tool calls run without asking. Every new conversation says “from settings” next to its mode.',
+  'settings.agent.modeHint.bypassPermissions':
+    'Nothing is checked and nothing is asked. Every new conversation says “from settings” next to its mode.',
   /* Says where the mode is visible, now that it can be set here. The old note
      said these two modes were deliberately absent — see the design doc §2.1 for
      why refusing to store the choice only meant re-making it every day. */
@@ -228,7 +233,8 @@ export const settings = {
      here and should not sound like it does — see the design doc §2.5. */
   'settings.agent.relaxed':
     'The agent can read, write and run things on this machine, so it can also read peek’s own MCP token and approve its own tool calls. The permission prompt is no longer a barrier — it is a notification. peek does not stop this and cannot; you are turning it off deliberately.',
-  'settings.agent.enforced': 'peek checks this agent’s sandbox with a probe against the real agent: no shell, no file tools, and none of your own Claude Code settings.',
+  'settings.agent.enforced':
+    'peek checks this agent’s sandbox with a probe against the real agent: no shell, no file tools, and none of your own Claude Code settings.',
   /* Names the gap rather than implying a guarantee peek has not tested. */
   'settings.agent.unverified':
     '{agent} is started in its read-only mode, but peek has no probe that verifies it holds. Tool calls are still gated by you.',
@@ -240,7 +246,8 @@ export const settings = {
     'Optional. Point the agent at a binary you already have instead of the one peek ships.',
   'settings.agent.baseUrl': 'Base URL',
   'settings.agent.model': 'Model',
-  'settings.agent.modelHint': 'The model id exactly as your endpoint spells it. It must support tool calling.',
+  'settings.agent.modelHint':
+    'The model id exactly as your endpoint spells it. It must support tool calling.',
   'settings.agent.api': 'API',
   'settings.agent.api.openai-completions': 'OpenAI-compatible',
   'settings.agent.api.anthropic-messages': 'Anthropic messages',

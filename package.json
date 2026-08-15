@@ -12,7 +12,9 @@
     "build": "pnpm --filter @peek/desktop build",
     "typecheck": "pnpm -r --no-bail typecheck",
     "check:vocabulary": "node scripts/check-package-vocabulary.mjs",
-    "test": "pnpm run check:vocabulary && pnpm -r --no-bail test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm run format:check && pnpm run check:vocabulary && pnpm -r --no-bail test",
     "icon": "pnpm --filter @peek/desktop icon",
     "package": "pnpm --filter @peek/desktop package",
     "install:local": "pnpm --filter @peek/desktop install:local"
@@ -20,6 +22,7 @@
   "devDependencies": {
     "@types/node": "^26.1.2",
     "electron-vite": "^5.0.0",
+    "prettier": "^3.9.6",
     "typescript": "^5.9.3",
     "vite": "^7.3.6"
   }

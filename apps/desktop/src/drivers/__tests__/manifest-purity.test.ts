@@ -59,13 +59,7 @@ import { blankNonCode } from '../../renderer/__tests__/sourceScan'
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..')
 
 /** The five packages that expose a client-free `/manifest` subpath. */
-const MANIFEST_PACKAGES = [
-  'db-postgres',
-  'db-redis',
-  'db-qdrant',
-  'db-sql',
-  'db-neo4j',
-] as const
+const MANIFEST_PACKAGES = ['db-postgres', 'db-redis', 'db-qdrant', 'db-sql', 'db-neo4j'] as const
 
 /** Where the subpath must point, in every table that resolves it. */
 const MANIFEST_ENTRY = './src/manifest.ts'

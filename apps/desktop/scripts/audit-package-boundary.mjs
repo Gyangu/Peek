@@ -624,9 +624,9 @@ const stale = MAIN_MAY_REACH.filter(({ pattern }) => !packageSources.some((f) =>
   ({ pattern, why }) => `${String(pattern)}  — ${why}`,
 )
 /** The same self-check for the other list, for the same reason. */
-const staleUnsignable = UNSIGNABLE.filter(({ pattern }) => !unsignableModules.some((f) => pattern.test(f))).map(
-  ({ pattern, why }) => `${String(pattern)}  — ${why}`,
-)
+const staleUnsignable = UNSIGNABLE.filter(
+  ({ pattern }) => !unsignableModules.some((f) => pattern.test(f)),
+).map(({ pattern, why }) => `${String(pattern)}  — ${why}`)
 assert.deepEqual(
   staleUnsignable,
   [],

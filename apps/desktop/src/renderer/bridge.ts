@@ -47,11 +47,7 @@ export interface PeekBridgeExtras {
   /** Maps to HostRpcMap['introspect.children']. */
   introspect(connId: ConnId, parentId: string | null, refresh?: boolean): Promise<NamespaceNode[]>
   /** Maps to HostRpcMap['value.peek']. */
-  peekValue(
-    connId: ConnId,
-    ref: ValueRef,
-    range?: { offset: number; length: number },
-  ): Promise<PeekedValue>
+  peekValue(connId: ConnId, ref: ValueRef, range?: { offset: number; length: number }): Promise<PeekedValue>
   /** Maps to HostRpcMap['keyvalue.get']; `window` pages a large structure. */
   getKeyValue(connId: ConnId, ref: ValueRef, window?: KeyValueWindow): Promise<KeyValueResult>
 }
@@ -76,11 +72,7 @@ export const bridgeExtras = {
     return fn(connId, parentId, refresh)
   },
 
-  peekValue(
-    connId: ConnId,
-    ref: ValueRef,
-    range?: { offset: number; length: number },
-  ): Promise<PeekedValue> {
+  peekValue(connId: ConnId, ref: ValueRef, range?: { offset: number; length: number }): Promise<PeekedValue> {
     const fn = extra('peekValue')
     if (!fn) return Promise.reject(new Error('The bridge exposes no peekValue channel'))
     return fn(connId, ref, range)

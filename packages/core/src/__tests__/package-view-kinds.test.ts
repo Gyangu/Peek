@@ -65,7 +65,10 @@ function registration(over: Partial<ViewKindRegistration> = {}): ViewKindRegistr
   }
 }
 
-const lookupFor = (reg: ViewKindRegistration): ViewKindLookup => (k) => (k === reg.kind ? reg : null)
+const lookupFor =
+  (reg: ViewKindRegistration): ViewKindLookup =>
+  (k) =>
+    k === reg.kind ? reg : null
 
 describe('the package view kind is a real member of the union', () => {
   it('the discriminant stays a closed set of literals, and covers every built-in', () => {
@@ -76,7 +79,11 @@ describe('the package view kind is a real member of the union', () => {
     for (const kind of BUILTIN_VIEW_KINDS) {
       assert.equal(isBuiltinViewKind(kind), true, `${kind} must read as built-in`)
     }
-    assert.equal(isBuiltinViewKind('package'), false, "'package' is the kernel's own escape member, not a built-in")
+    assert.equal(
+      isBuiltinViewKind('package'),
+      false,
+      "'package' is the kernel's own escape member, not a built-in",
+    )
     assert.equal(isBuiltinViewKind('documents'), false, 'a package kind is not a built-in')
   })
 
@@ -120,7 +127,10 @@ describe('describeView / viewTitle route a package view through its registration
 
     // No lookup at all and a lookup that misses must agree: both mean "nobody
     // can speak for this view".
-    assert.equal(describeView(packageView()), describeView(packageView(), () => null))
+    assert.equal(
+      describeView(packageView()),
+      describeView(packageView(), () => null),
+    )
     assert.equal(viewTitle(packageView()), 'documents')
   })
 
@@ -192,7 +202,11 @@ describe('a package view carries its own kind through the snapshot', () => {
   it('reports packageKind beside kind, so a tool can name the view it wants', () => {
     const snap = snapshotWorkspace(workspaceWith(packageView({ packageKind: 'graph' })), NO_REDACT)
     const [summary] = snap.views
-    assert.equal(summary?.kind, 'package', 'the discriminant is still the literal — every switch depends on it')
+    assert.equal(
+      summary?.kind,
+      'package',
+      'the discriminant is still the literal — every switch depends on it',
+    )
     assert.equal(summary?.packageKind, 'graph')
   })
 
@@ -230,7 +244,14 @@ describe('a registration is refused unless it is total', () => {
    * refused rather than defaulted.
    */
   it('names every field a call site depends on, one at a time', () => {
-    for (const field of ['driverIds', 'describe', 'title', 'titleKey', 'autoFetch', 'collectionRef'] as const) {
+    for (const field of [
+      'driverIds',
+      'describe',
+      'title',
+      'titleKey',
+      'autoFetch',
+      'collectionRef',
+    ] as const) {
       const partial = registration()
       delete (partial as unknown as Record<string, unknown>)[field]
       const problem = validateViewKindRegistration(partial)

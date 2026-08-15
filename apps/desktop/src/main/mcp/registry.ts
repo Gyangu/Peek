@@ -65,7 +65,9 @@ export function collectBuiltinTools(): PeekTool[] {
     const mod = modules[path]
     const exported = mod?.default
     if (!isPeekTool(exported)) {
-      throw new Error(`MCP tool file ${path} must default-export a PeekTool (see executor.defineCommandTool / defineReadTool)`)
+      throw new Error(
+        `MCP tool file ${path} must default-export a PeekTool (see executor.defineCommandTool / defineReadTool)`,
+      )
     }
     tools.push(exported)
   }

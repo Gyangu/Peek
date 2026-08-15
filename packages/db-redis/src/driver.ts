@@ -37,10 +37,7 @@ export const redisDriver = new RedisDriver()
  */
 export function requireRedisConfig(cfg: ConnectionConfig): RedisConnectionConfig {
   if (!isDriverConfig<RedisConnectionConfig>(cfg, 'redis')) {
-    throw peekError(
-      'BAD_REQUEST',
-      `db-redis received a connection config with driverId=${cfg.driverId}`,
-    )
+    throw peekError('BAD_REQUEST', `db-redis received a connection config with driverId=${cfg.driverId}`)
   }
   return cfg
 }

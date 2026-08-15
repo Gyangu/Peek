@@ -185,19 +185,11 @@ test('panes are named the way a person would point at them', async () => {
   assert.equal(first.ok, true)
   if (!first.ok) return
 
-  const out = await run(
-    openViewTool,
-    { spec: { kind: 'query', connId, title: 'right' }, waitMs: 0 },
-    h,
-  )
+  const out = await run(openViewTool, { spec: { kind: 'query', connId, title: 'right' }, waitMs: 0 }, h)
   // Same panel so far — it is a tab, not a pane.
   assert.match(out.text, /the only pane/)
 
-  const split = await h.bus.dispatch(
-    'layout.split',
-    { panelId: first.data.panelId, dir: 'row' },
-    'ui',
-  )
+  const split = await h.bus.dispatch('layout.split', { panelId: first.data.panelId, dir: 'row' }, 'ui')
   assert.equal(split.ok, true)
   if (!split.ok) return
 
@@ -280,7 +272,11 @@ test('send_chat on something that is not a conversation lists the ones that are'
 
 test('attachments travel with the turn and are handed to the runtime unresolved', async () => {
   const h = harness()
-  const out = await run(sendChatTool, { text: 'what am I looking at?', attachments: [{ kind: 'workspace' }] }, h)
+  const out = await run(
+    sendChatTool,
+    { text: 'what am I looking at?', attachments: [{ kind: 'workspace' }] },
+    h,
+  )
   assert.equal(out.isError, undefined)
   const effect = h.effects[0]
   assert.equal(effect.type, 'prompt')
@@ -334,7 +330,7 @@ test('control_chat answers the prompt, and defaults requestId to the one it just
   assert.equal(h.store.getSnapshot().views.find((v) => v.id === viewId)?.chat?.pendingPermission, undefined)
 })
 
-test('control_chat answer_permission is refused when the caller is peek\'s own panel', async () => {
+test("control_chat answer_permission is refused when the caller is peek's own panel", async () => {
   /*
    * The tool-layer half of the boundary the bus enforces. Worth having both: this
    * is the reachable path — `control_chat` is a tool the embedded panel can see,
@@ -351,11 +347,18 @@ test('control_chat answer_permission is refused when the caller is peek\'s own p
   const h = harness()
   const { viewId } = await blockedChat(h)
 
-  const out = await run(controlChatTool, { viewId, action: 'answer_permission', optionId: 'allow' }, asAgent(h))
+  const out = await run(
+    controlChatTool,
+    { viewId, action: 'answer_permission', optionId: 'allow' },
+    asAgent(h),
+  )
   assert.equal(out.isError, true)
 
   // Still blocked: a refused answer must not be mistaken for an answer.
-  assert.notEqual(h.store.getSnapshot().views.find((v) => v.id === viewId)?.chat?.pendingPermission, undefined)
+  assert.notEqual(
+    h.store.getSnapshot().views.find((v) => v.id === viewId)?.chat?.pendingPermission,
+    undefined,
+  )
   assert.notEqual(h.effects.at(-1)?.type, 'permission')
 })
 
@@ -393,10 +396,7 @@ test('control_chat cannot hand a model a mode that removes the human from the lo
   const out = await run(controlChatTool, { viewId, action: 'set_mode', mode: 'bypassPermissions' }, h)
   assert.equal(out.isError, true)
   assert.match(out.text, /can only be chosen by the person at the keyboard/)
-  assert.equal(
-    h.store.getSnapshot().views.find((v) => v.id === viewId)?.chat?.permissionMode,
-    'default',
-  )
+  assert.equal(h.store.getSnapshot().views.find((v) => v.id === viewId)?.chat?.permissionMode, 'default')
 })
 
 /* ------------------------------------------------------------------ */
@@ -415,7 +415,11 @@ test('a view id that went stale while the agent was thinking fails cleanly, leav
   await h.bus.dispatch('view.close', { viewId: staleViewId }, 'ui')
   const before = h.store.getSnapshot()
 
-  const out = await run(moveViewTool, { viewId: staleViewId, toPanelId: opened.data.panelId, zone: 'right' }, h)
+  const out = await run(
+    moveViewTool,
+    { viewId: staleViewId, toPanelId: opened.data.panelId, zone: 'right' },
+    h,
+  )
   assert.equal(out.isError, true)
   assert.match(out.text, /does not exist/)
   assert.equal(h.store.rev, before.rev, 'a refused tool call changes nothing')

@@ -80,10 +80,7 @@ export function clampOffset(offset: number | undefined): number {
  * PostgreSQL driver: building a ref per element is pure garbage on the 99.9% of
  * elements that fit.
  */
-export function keyValueElement(
-  value: string,
-  makeRef?: () => ValueRef | undefined,
-): KeyValueElement {
+export function keyValueElement(value: string, makeRef?: () => ValueRef | undefined): KeyValueElement {
   const bytes = Buffer.byteLength(value, 'utf8')
   if (bytes <= VALUE_PREVIEW_BYTES) return value
   const ref = makeRef?.()
@@ -101,11 +98,7 @@ function previewOfText(text: string, limit: number): string {
 }
 
 /** Address one element inside a key, per the single reading of `path` per type in core's ValueRef */
-export function redisElementRef(
-  key: string,
-  db: number | undefined,
-  path: string,
-): ValueRef {
+export function redisElementRef(key: string, db: number | undefined, path: string): ValueRef {
   return { kind: 'redisValue', key, ...(db === undefined ? {} : { db }), path }
 }
 
@@ -129,7 +122,10 @@ export function redisElementRef(
  */
 export interface RedisValueDeps {
   /** TYPE, PTTL, OBJECT ENCODING, MEMORY USAGE for one key, pipelined */
-  describeKey(db: number, key: string): Promise<{
+  describeKey(
+    db: number,
+    key: string,
+  ): Promise<{
     type: RedisType
     ttlMs: number | null
     encoding: string | null
@@ -151,12 +147,7 @@ export interface RedisValueDeps {
    * whose shape disagreed with the type would make the inspector's exhaustive
    * switch pick the wrong renderer.
    */
-  readElement(
-    db: number,
-    key: string,
-    type: RedisType,
-    path: string,
-  ): Promise<KeyValuePayload | null>
+  readElement(db: number, key: string, type: RedisType, path: string): Promise<KeyValuePayload | null>
   /** Which db a ref without an explicit `db` means: the one the connection is attached to */
   readonly defaultDb: number
 }
@@ -252,12 +243,7 @@ export interface RedisPeekDeps {
    * acceptable precisely because one element is bounded in a way a whole key is
    * not.
    */
-  readElementBytes(
-    db: number,
-    key: string,
-    type: RedisType,
-    path: string,
-  ): Promise<Buffer | null>
+  readElementBytes(db: number, key: string, type: RedisType, path: string): Promise<Buffer | null>
   readonly defaultDb: number
 }
 
@@ -329,12 +315,7 @@ export async function peekRedisValue(
 }
 
 /** Pick the encoding and content type for a window of bytes, and decide whether it is the end */
-function describeBytes(
-  ref: ValueRef,
-  part: Buffer,
-  offset: number,
-  total: number,
-): PeekedValue {
+function describeBytes(ref: ValueRef, part: Buffer, offset: number, total: number): PeekedValue {
   const eof = offset + part.byteLength >= total
   if (!isUtf8(part)) {
     return {

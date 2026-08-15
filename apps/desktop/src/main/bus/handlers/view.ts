@@ -20,7 +20,15 @@ import { plain } from '../../store/workspace-store'
 import { failMsg } from '../failure'
 import { activateViewInTree } from '../layout-ops'
 import type { CommandHandler, CommandPreparation, CommandReducer } from '../types'
-import { autoFetch, closeView, openView, packageTextOf, packageViewOf, requireView, writeLayout } from './shared'
+import {
+  autoFetch,
+  closeView,
+  openView,
+  packageTextOf,
+  packageViewOf,
+  requireView,
+  writeLayout,
+} from './shared'
 
 /* ================================================================== */
 /* Asking a package about its own view                                 */
@@ -339,13 +347,13 @@ function isCursorPageForward(view: Draft<ViewState>, patch: ViewPatch): boolean 
   if (collectionBrowseStyle(view.ref).offsetPaging) return false
   // Any field at all makes this something other than "give me the next page".
   return (
-    patch.ref === undefined
-    && patch.filter === undefined
-    && patch.sort === undefined
-    && patch.offset === undefined
-    && patch.limit === undefined
-    && patch.autoRefreshMs === undefined
-    && patch.title === undefined
+    patch.ref === undefined &&
+    patch.filter === undefined &&
+    patch.sort === undefined &&
+    patch.offset === undefined &&
+    patch.limit === undefined &&
+    patch.autoRefreshMs === undefined &&
+    patch.title === undefined
   )
 }
 

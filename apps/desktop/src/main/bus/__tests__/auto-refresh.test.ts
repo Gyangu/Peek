@@ -174,10 +174,13 @@ async function openTable(h: Harness, connId: ConnId): Promise<ViewId> {
 function land(h: Harness, viewId: ViewId, outcome: 'done' | 'error' = 'done'): void {
   const resultId = currentResult(h, viewId)
   if (!resultId) return
-  h.store.apply((draft) => {
-    if (outcome === 'done') finishResult(draft, resultId, { rows: 3, elapsedMs: 7 })
-    else failResult(draft, resultId, { code: 'QUERY_FAILED', message: 'relation does not exist' })
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      if (outcome === 'done') finishResult(draft, resultId, { rows: 3, elapsedMs: 7 })
+      else failResult(draft, resultId, { code: 'QUERY_FAILED', message: 'relation does not exist' })
+    },
+    { source: 'system' },
+  )
 }
 
 /** The result a view is currently bound to, if it has one. */
@@ -269,17 +272,23 @@ test('a tick on a connection that is not ready is skipped, and resumes when it i
   await h.bus.dispatch('view.update', { viewId, patch: { kind: 'table', autoRefreshMs: 5_000 } }, 'ui')
   const before = h.started.length
 
-  h.store.apply((draft) => {
-    draft.connections[connId].status = 'error'
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      draft.connections[connId].status = 'error'
+    },
+    { source: 'system' },
+  )
   h.timers.advance(15_000)
   await settle()
   assert.equal(h.started.length, before, 'nothing was asked of a connection that is down')
   assert.equal(h.scheduler.size, 1, 'the timer is paused, not cancelled')
 
-  h.store.apply((draft) => {
-    draft.connections[connId].status = 'ready'
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      draft.connections[connId].status = 'ready'
+    },
+    { source: 'system' },
+  )
   h.timers.advance(5_000)
   await settle()
   assert.equal(h.started.length, before + 1)
@@ -460,10 +469,13 @@ test('paging a cursor collection forward switches auto-refresh off, with the rea
   await h.bus.dispatch('view.update', { viewId, patch: { kind: 'table', autoRefreshMs: 5_000 } }, 'ui')
   // The first page came back with a continuation token: the reader is now able
   // to walk forward, which is the state the rule is about.
-  h.store.apply((draft) => {
-    const view = draft.views[viewId]
-    if (view.kind === 'table') view.cursorToken = 'cursor-1'
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      const view = draft.views[viewId]
+      if (view.kind === 'table') view.cursorToken = 'cursor-1'
+    },
+    { source: 'system' },
+  )
 
   // Exactly the Next-page gesture: a patch with nothing in it but its kind.
   await h.bus.dispatch('view.update', { viewId, patch: { kind: 'table' }, refresh: true }, 'ui')
@@ -488,10 +500,13 @@ test('an auto-refresh tick on a cursor collection is not mistaken for paging for
   land(h, viewId)
 
   await h.bus.dispatch('view.update', { viewId, patch: { kind: 'table', autoRefreshMs: 5_000 } }, 'ui')
-  h.store.apply((draft) => {
-    const view = draft.views[viewId]
-    if (view.kind === 'table') view.cursorToken = 'cursor-1'
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      const view = draft.views[viewId]
+      if (view.kind === 'table') view.cursorToken = 'cursor-1'
+    },
+    { source: 'system' },
+  )
 
   // The timer sends `refreshPatch`, which on this kind carries `offset: 0` —
   // "start the scan over" rather than "give me the next page".
@@ -500,8 +515,11 @@ test('an auto-refresh tick on a cursor collection is not mistaken for paging for
 
   assert.equal(refreshState(h, viewId).ms, 5_000, 'the timer did not turn itself off')
   const view = h.store.getState().views[viewId]
-  assert.equal(view.kind === 'table' ? view.cursorToken : 'not a table', undefined,
-    'and the stale continuation token was dropped')
+  assert.equal(
+    view.kind === 'table' ? view.cursorToken : 'not a table',
+    undefined,
+    'and the stale continuation token was dropped',
+  )
 })
 
 test('paging an offset-paged table forward leaves auto-refresh alone', async (t) => {
@@ -513,7 +531,10 @@ test('paging an offset-paged table forward leaves auto-refresh alone', async (t)
 
   await h.bus.dispatch('view.update', { viewId, patch: { kind: 'table', offset: 100 }, refresh: true }, 'ui')
 
-  assert.equal(refreshState(h, viewId).ms, 5_000,
-    'rows here have stable addresses; a page is a place, not a cursor')
+  assert.equal(
+    refreshState(h, viewId).ms,
+    5_000,
+    'rows here have stable addresses; a page is a place, not a cursor',
+  )
   assert.equal(refreshState(h, viewId).stoppedBy, undefined)
 })

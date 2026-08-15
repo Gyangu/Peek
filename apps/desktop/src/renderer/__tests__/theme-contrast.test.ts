@@ -216,9 +216,24 @@ const TAILWIND_COLOURS = new Set(
  * are the ones that would arrive unnoticed.
  */
 const COLOUR_FAMILY = [
-  'bg', 'text', 'border', 'outline', 'ring', 'inset-ring', 'shadow', 'inset-shadow',
-  'fill', 'stroke', 'decoration', 'accent', 'caret', 'divide', 'placeholder',
-  'from', 'via', 'to',
+  'bg',
+  'text',
+  'border',
+  'outline',
+  'ring',
+  'inset-ring',
+  'shadow',
+  'inset-shadow',
+  'fill',
+  'stroke',
+  'decoration',
+  'accent',
+  'caret',
+  'divide',
+  'placeholder',
+  'from',
+  'via',
+  'to',
 ]
 
 test('no Tailwind default colour is named in the renderer', () => {
@@ -230,9 +245,7 @@ test('no Tailwind default colour is named in the renderer', () => {
 
   const offenders: string[] = []
   for (const file of scannedSources(RENDERER)) {
-    for (const { line, name: candidate } of tailwindCandidates(
-      readFileSync(join(RENDERER, file), 'utf8'),
-    )) {
+    for (const { line, name: candidate } of tailwindCandidates(readFileSync(join(RENDERER, file), 'utf8'))) {
       // `hover:bg-red-500` is the same colour under a condition.
       const name = candidate.slice(candidate.lastIndexOf(':') + 1)
       const family = COLOUR_FAMILY.find((f) => name.startsWith(`${f}-`))
@@ -389,10 +402,7 @@ function contrast(a: string, b: string): number {
 
 function assertAtLeast(fg: string, bg: string, min: number): void {
   const ratio = contrast(fg, bg)
-  assert.ok(
-    ratio >= min,
-    `${fg} on ${bg} is ${ratio.toFixed(2)}:1, needs ${min.toFixed(1)}:1`,
-  )
+  assert.ok(ratio >= min, `${fg} on ${bg} is ${ratio.toFixed(2)}:1, needs ${min.toFixed(1)}:1`)
 }
 
 /* ------------------------------------------------------------------ */
@@ -487,7 +497,10 @@ for (const theme of THEMES) {
       // block actually lands on.
       const onBg = contrast('--color-err-border', '--color-bg')
       const onPanel = contrast('--color-err-border', '--color-bg-1')
-      assert.ok(onBg >= 1.45, `--color-err-border on --color-bg is ${onBg.toFixed(2)}:1, too faint to bound anything`)
+      assert.ok(
+        onBg >= 1.45,
+        `--color-err-border on --color-bg is ${onBg.toFixed(2)}:1, too faint to bound anything`,
+      )
       assert.ok(
         onPanel >= 1.45,
         `--color-err-border on --color-bg-1 is ${onPanel.toFixed(2)}:1, too faint to bound anything`,
@@ -503,7 +516,10 @@ for (const theme of THEMES) {
       // interactive, so 3:1 is not required. But 1.32 (the old value) was close
       // enough to invisible that a table read as one undivided field.
       const ratio = contrast('--color-border', '--color-bg')
-      assert.ok(ratio >= 1.45, `--color-border on --color-bg is ${ratio.toFixed(2)}:1, too faint to divide anything`)
+      assert.ok(
+        ratio >= 1.45,
+        `--color-border on --color-bg is ${ratio.toFixed(2)}:1, too faint to divide anything`,
+      )
       assert.ok(
         ratio < 3,
         '--color-border has drifted into --color-border-strong territory; one of them is redundant',
@@ -678,7 +694,11 @@ describe('nothing paints with a literal colour', () => {
         // multi-line value, and would have to be told about every property
         // name — which is the mistake being undone here.
         const start =
-          Math.max(css.lastIndexOf(';', m.index), css.lastIndexOf('{', m.index), css.lastIndexOf('}', m.index)) + 1
+          Math.max(
+            css.lastIndexOf(';', m.index),
+            css.lastIndexOf('{', m.index),
+            css.lastIndexOf('}', m.index),
+          ) + 1
         const decl = css.slice(start, m.index)
         const colon = decl.indexOf(':')
         // No colon in front of it: an `#abc` id selector, not a value.
@@ -1005,7 +1025,7 @@ const SURFACES: readonly Surface[] = [
     inks: ['--color-fg', '--color-warn', '--color-cell-bool', '--color-cell-json'],
     where:
       'Every cell of a row staged for "add these to the chat" — a quarter of --color-accent over ' +
-      'the cell\'s own background, hover included, because a staged row does not move under the pointer.',
+      "the cell's own background, hover included, because a staged row does not move under the pointer.",
   },
   {
     on: '--color-bg-sel',
@@ -1021,8 +1041,8 @@ const SURFACES: readonly Surface[] = [
     on: '--color-bg-3',
     inks: ['--color-fg', '--color-fg-dim'],
     where:
-      'The `elevated` button surface (the chat\'s jump-to-latest), the row-number bubble on the grid\'s ' +
-      'hand-drawn scrollbar, the drag ghost, the selection action bar, and a focused panel\'s head — ' +
+      "The `elevated` button surface (the chat's jump-to-latest), the row-number bubble on the grid's " +
+      "hand-drawn scrollbar, the drag ghost, the selection action bar, and a focused panel's head — " +
       'where an inactive tab is --color-fg-dim and the active one --color-fg.',
   },
   {
@@ -1078,7 +1098,7 @@ const SURFACES: readonly Surface[] = [
   {
     on: '--color-accent-bg',
     inks: ['--color-fg', '--color-fg-dim', '--color-fg-faint'],
-    where: 'The same panel when the tool being approved is one of peek\'s own mutating ones.',
+    where: "The same panel when the tool being approved is one of peek's own mutating ones.",
   },
   {
     on: '--color-warn',
@@ -1206,7 +1226,8 @@ const DARK_BELOW_FLOOR: readonly Breach[] = [
     ink: '--color-err',
     on: '--color-danger-hover',
     measured: 3.69,
-    where: 'The label of the `danger` button while hovered — Stop in the composer, Reject in a permission prompt.',
+    where:
+      'The label of the `danger` button while hovered — Stop in the composer, Reject in a permission prompt.',
     fix:
       'Same shape as `primary`: the surface lightens under a light ink. --color-danger-active is the ' +
       'same mix against --color-bg-1 instead of --color-bg-hover and measures 4.79, so the press state ' +
@@ -1227,7 +1248,7 @@ const DARK_BELOW_FLOOR: readonly Breach[] = [
     on: '--color-bg-hover',
     measured: 3.79,
     where:
-      'The argument summary and the elapsed time on a tool call\'s header row, while the header is ' +
+      "The argument summary and the elapsed time on a tool call's header row, while the header is " +
       'hovered. Both are children of the button that paints the hover, so they composite onto it.',
     fix:
       'These two readings are --color-fg-faint on --color-bg-1 at rest (4.98, which clears) and drop ' +
@@ -1343,16 +1364,16 @@ const DECORATIVE_ONLY: readonly Uninked[] = [
   {
     token: '--shadow-menu',
     why:
-      'Black at 73%, the popup\'s. Same clause as --shadow-elevated: the menu itself carries ' +
+      "Black at 73%, the popup's. Same clause as --shadow-elevated: the menu itself carries " +
       '--color-bg-2 and every line of text lands on that, never on the shadow, which falls outside ' +
-      'the popup\'s own box on whatever the window happens to be showing behind it.',
+      "the popup's own box on whatever the window happens to be showing behind it.",
   },
   {
     token: '--shadow-float',
     why:
       'Black at 60%, worn by the three things laid over the whole window rather than over one panel — ' +
       'the selection action bar, the error centre, the toast stack. Same clause again: text inside ' +
-      'each of them lands on the panel\'s own surface, and the shadow is outside it.',
+      "each of them lands on the panel's own surface, and the shadow is outside it.",
   },
   {
     token: '--shadow-modal',
@@ -1470,10 +1491,7 @@ describe('the scrollbar the grid draws by hand', () => {
       names.includes('bg-border-strong'),
       'the scrollbar thumb no longer rests on --color-border-strong; at anything fainter it is a rumour',
     )
-    assert.ok(
-      !names.some((n) => /(^|:)opacity-/.test(n)),
-      'the thumb must not be dimmed by opacity',
-    )
+    assert.ok(!names.some((n) => /(^|:)opacity-/.test(n)), 'the thumb must not be dimmed by opacity')
   })
 })
 
@@ -1560,7 +1578,11 @@ describe('the scrollbar the grid draws by hand', () => {
  * an arbitrary value even though it also reads as a property pair, because that
  * is the name this repo has used for it for three rounds.
  */
-const ARBITRARY_SHAPES: readonly { readonly shape: RegExp; readonly what: string; readonly instead: string }[] = [
+const ARBITRARY_SHAPES: readonly {
+  readonly shape: RegExp
+  readonly what: string
+  readonly instead: string
+}[] = [
   {
     shape: /-\[/,
     what: 'an arbitrary value — a literal hung off a family with a dash',
@@ -1892,7 +1914,7 @@ const ALPHA_SITES: readonly AlphaSite[] = [
       'inactive user interface component. This was three entries until the Tailwind migration ' +
       '(`.btn`, `.seg-item` and `.menu-item` each restated it in its own stylesheet); the control ' +
       'layer states it once now, in CONTROL_BASE and MENU_ITEM_BASE, and a menu line composites ' +
-      'onto the popup\'s own --color-bg-2 rather than a surface of its own.',
+      "onto the popup's own --color-bg-2 rather than a surface of its own.",
   },
   {
     // Was `styles.css:.panel.drag-source` until §29.11.8. The rule existed only
@@ -1944,9 +1966,9 @@ const ALPHA_SITES: readonly AlphaSite[] = [
       'Animates `.dot.connecting` — a 7px circle, and a moving one. Neither text nor a resting state; ' +
       'the floor is about what a reader has to be able to read. It was keyed on `@keyframes pulse` ' +
       'until the keyframe was renamed, and the rename is the reason this line is worth reading twice: ' +
-      '`pulse` is also the name of a keyframe in Tailwind\'s default theme, two definitions of one ' +
-      'name resolve by last-one-wins rather than by layer, and the artifact carried Tailwind\'s ' +
-      '`50%{opacity:.5}` and not this file\'s 0.25. So this entry pinned an alpha that did not ship. ' +
+      "`pulse` is also the name of a keyframe in Tailwind's default theme, two definitions of one " +
+      "name resolve by last-one-wins rather than by layer, and the artifact carried Tailwind's " +
+      "`50%{opacity:.5}` and not this file's 0.25. So this entry pinned an alpha that did not ship. " +
       'Every fence in the repo was structurally blind to it: this census reads the stylesheet, where ' +
       '0.25 is written, and `audit-shipped-css` asks whether class rules have wearers, which a ' +
       'keyframe is not. Renamed in styles.css and rekeyed here in one edit; the number below is now ' +
@@ -2033,7 +2055,7 @@ const ALPHA_SITES: readonly AlphaSite[] = [
         measured: 4.28,
         fix:
           'This is the same ink on the same row as the --color-fg-faint / --color-bg-hover entry in ' +
-          'BELOW_FLOOR, and the same repair clears both: --color-fg-dim on a tool call\'s header row ' +
+          "BELOW_FLOOR, and the same repair clears both: --color-fg-dim on a tool call's header row " +
           'measures 6.56:1 through this wash and 5.81:1 under the pointer, so one ink chosen in ' +
           'ToolCallCard.tsx fixes the pair. Moving the wash instead is the weaker option — at 10% it ' +
           'is already the faintest paint in the window that anybody is asked to notice.',
@@ -2142,7 +2164,11 @@ function paletteColourIn(utility: string): string | null {
 
 describe('alpha never quietly lowers the floor', () => {
   /** Composite `fg` over `bg` at `alpha`, in sRGB, as the browser does. */
-  function composite(fg: [number, number, number], bg: [number, number, number], alpha: number): [number, number, number] {
+  function composite(
+    fg: [number, number, number],
+    bg: [number, number, number],
+    alpha: number,
+  ): [number, number, number] {
     return [0, 1, 2].map((i) => fg[i] * alpha + bg[i] * (1 - alpha)) as [number, number, number]
   }
 
@@ -2417,7 +2443,8 @@ interface Term {
  * a colour arriving by reference too, or --shadow-gutter-sel reads as a token
  * with no colour in it and the fixpoint below stops halfway.
  */
-const COLOUR_TERM = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\([^()]*\)|\bcolor-mix\(|\bvar\(\s*(--[a-z0-9-]+)\s*\)/gi
+const COLOUR_TERM =
+  /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\([^()]*\)|\bcolor-mix\(|\bvar\(\s*(--[a-z0-9-]+)\s*\)/gi
 
 function colourTerms(value: string): Term[] {
   return [...value.matchAll(COLOUR_TERM)].map((m) => {
@@ -2487,7 +2514,11 @@ test('the colour reader tells the four spellings apart, and alpha from opaque', 
 
   assert.deepEqual(read('#16181c'), ['#16181c opaque'])
   assert.deepEqual(read('#0009'), ['#0009 alpha'], 'four digits carry an alpha pair; three and six do not')
-  assert.deepEqual(read('#000000ff'), ['#000000ff opaque'], 'ff is opaque spelled the long way, not an escape')
+  assert.deepEqual(
+    read('#000000ff'),
+    ['#000000ff opaque'],
+    'ff is opaque spelled the long way, not an escape',
+  )
   assert.deepEqual(
     read('0 2px 10px rgb(0 0 0 / 45%)'),
     ['rgb(0 0 0 / 45%) alpha'],
@@ -2639,7 +2670,11 @@ for (const theme of THEMES) {
     )
 
     const gone = [...written.keys()].filter((token) => !palette.includes(token))
-    assert.deepEqual(gone, [], `DECORATIVE_ONLY writes off colours @theme no longer defines:\n${gone.join('\n')}`)
+    assert.deepEqual(
+      gone,
+      [],
+      `DECORATIVE_ONLY writes off colours @theme no longer defines:\n${gone.join('\n')}`,
+    )
 
     const both = [...written.keys()].filter((token) => MEASURED.has(token))
     assert.deepEqual(

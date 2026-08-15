@@ -154,11 +154,20 @@ const rungClass = (name: string): string => name.slice(2)
  */
 const TEXT_KEYWORDS = new Set([
   // text-align
-  'left', 'center', 'right', 'justify', 'start', 'end',
+  'left',
+  'center',
+  'right',
+  'justify',
+  'start',
+  'end',
   // text-overflow
-  'ellipsis', 'clip',
+  'ellipsis',
+  'clip',
   // text-wrap
-  'wrap', 'nowrap', 'balance', 'pretty',
+  'wrap',
+  'nowrap',
+  'balance',
+  'pretty',
 ])
 
 /**
@@ -375,9 +384,7 @@ function declarations(): Declaration[] {
   // header of __tests__/sourceScan.ts.
   const LEGAL = new Set(SCALE.map(rungClass))
   for (const file of scannedSources(RENDERER)) {
-    for (const { line, name: candidate } of tailwindCandidates(
-      readFileSync(join(RENDERER, file), 'utf8'),
-    )) {
+    for (const { line, name: candidate } of tailwindCandidates(readFileSync(join(RENDERER, file), 'utf8'))) {
       // `hover:text-fg` and `motion-reduce:text-sm` set the same things under a
       // condition; the condition is not this file's business.
       const name = candidate.slice(candidate.lastIndexOf(':') + 1)
@@ -515,7 +522,8 @@ describe('the type scale', () => {
         bad.push(`${named[1]} does not resolve to a px value in one hop — a ratio is what this rule bans`)
         continue
       }
-      if (!Number.isInteger(px) || px % 2 !== 0) bad.push(`${named[1]} is ${String(px)}px, not an even whole number`)
+      if (!Number.isInteger(px) || px % 2 !== 0)
+        bad.push(`${named[1]} is ${String(px)}px, not an even whole number`)
     }
     assert.deepEqual(
       bad,
@@ -549,9 +557,7 @@ describe('the type scale', () => {
     // other direction — a bespoke rung reintroduced into @theme would shadow one
     // of Tailwind's, silently, under a name this file already believes it knows.
     const own = [
-      ...decomment(readFileSync(join(RENDERER, SHEET), 'utf8')).matchAll(
-        /^\s*(--text-[a-z0-9-]+)\s*:/gm,
-      ),
+      ...decomment(readFileSync(join(RENDERER, SHEET), 'utf8')).matchAll(/^\s*(--text-[a-z0-9-]+)\s*:/gm),
     ].map((m) => m[1])
     assert.deepEqual(
       own.filter((n) => !n.endsWith('--line-height')),

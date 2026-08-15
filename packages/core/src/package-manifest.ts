@@ -181,7 +181,9 @@ const PackageDriverSchema = z
     /** Field name → how to scrub it; see the note above on why there is no default */
     redact: z.record(z.string().min(1), RedactRuleSchema).optional(),
     /** The fields that, with `driverId`, say which connection this is. Order matters. */
-    identity: z.array(z.string().min(1)).min(1, 'a driver with no identity fields collapses every connection into one'),
+    identity: z
+      .array(z.string().min(1))
+      .min(1, 'a driver with no identity fields collapses every connection into one'),
     mcpConnectExample: z.string().min(1),
     skill: z.string().max(MAX_SKILL_CHARS).optional(),
   })
@@ -575,8 +577,7 @@ export const PackageManifestSchema = z
 export type PackageManifest = z.infer<typeof PackageManifestSchema>
 
 export type PackageManifestOutcome =
-  | { ok: true; manifest: PackageManifest }
-  | { ok: false; issues: readonly string[] }
+  { ok: true; manifest: PackageManifest } | { ok: false; issues: readonly string[] }
 
 /**
  * Read a parsed `peek-package.json`, or say what is wrong with it.

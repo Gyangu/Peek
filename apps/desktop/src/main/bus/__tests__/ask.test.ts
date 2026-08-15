@@ -165,7 +165,11 @@ test('an option and a caveat travel together', async () => {
   const asking = h.bus.dispatch('chat.ask', { viewId, question: 'Which?', options: TWO_OPTIONS }, 'agent')
   await tick()
 
-  await h.bus.dispatch('chat.answer', { viewId, optionIds: ['week'], other: 'but only for the EU rows' }, 'ui')
+  await h.bus.dispatch(
+    'chat.answer',
+    { viewId, optionIds: ['week'], other: 'but only for the EU rows' },
+    'ui',
+  )
 
   const res = await asking
   assert.equal(res.ok, true)
@@ -285,7 +289,11 @@ test('an answer for a question that is no longer the one being asked is refused'
   const asking = h.bus.dispatch('chat.ask', { viewId, question: 'Which?', options: TWO_OPTIONS }, 'agent')
   await tick()
 
-  const stale = await h.bus.dispatch('chat.answer', { viewId, optionIds: ['day'], requestId: 'ask_nope' }, 'ui')
+  const stale = await h.bus.dispatch(
+    'chat.answer',
+    { viewId, optionIds: ['day'], requestId: 'ask_nope' },
+    'ui',
+  )
   assert.equal(stale.ok, false)
   if (stale.ok) throw new Error('unreachable')
   assert.equal(stale.error.code, 'CONFLICT')
@@ -310,7 +318,14 @@ test('two answers with one id are refused before anything is shown', async () =>
   const viewId = await openChat(h)
   const res = await h.bus.dispatch(
     'chat.ask',
-    { viewId, question: 'Which?', options: [{ optionId: 'a', label: 'One' }, { optionId: 'a', label: 'Two' }] },
+    {
+      viewId,
+      question: 'Which?',
+      options: [
+        { optionId: 'a', label: 'One' },
+        { optionId: 'a', label: 'Two' },
+      ],
+    },
     'agent',
   )
   assert.equal(res.ok, false)

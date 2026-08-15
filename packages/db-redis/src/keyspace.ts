@@ -125,7 +125,12 @@ export function splitKeyPrefix(
 
 export interface KeyspaceDeps {
   /** SCAN one page; returns the next cursor ('0' when the iteration completed) */
-  scanPage(db: number, cursor: string, match: string, count: number): Promise<{
+  scanPage(
+    db: number,
+    cursor: string,
+    match: string,
+    count: number,
+  ): Promise<{
     cursor: string
     keys: string[]
   }>
@@ -198,10 +203,7 @@ export class RedisKeyspace {
   /* ---------------------------------------------------------------- */
 
   private async databaseNodes(): Promise<NamespaceNode[]> {
-    const [counts, total] = await Promise.all([
-      this.deps.keyCounts(),
-      this.deps.databaseCount(),
-    ])
+    const [counts, total] = await Promise.all([this.deps.keyCounts(), this.deps.databaseCount()])
     const defaultDb = this.deps.defaultDb ?? 0
     // Empty databases are noise on a 16-database server; the ones worth a node are
     // the ones holding keys, plus the one this connection is actually attached to.
@@ -285,11 +287,13 @@ export class RedisKeyspace {
       // fact; when it did not, the prefixes hiding past the ceiling are not in it
       // and never will be, so the number goes away rather than understating.
       const folded = heads.length - shownHeads.length
-      nodes.push(elidedNode(
-        `${keyspaceNodeId.prefix(db, base)}#more-prefixes`,
-        sample.partial ? {} : { remaining: folded },
-        sample.partial ? 'more prefixes' : `${folded} more prefixes`,
-      ))
+      nodes.push(
+        elidedNode(
+          `${keyspaceNodeId.prefix(db, base)}#more-prefixes`,
+          sample.partial ? {} : { remaining: folded },
+          sample.partial ? 'more prefixes' : `${folded} more prefixes`,
+        ),
+      )
     }
 
     const leafKeys = sample.leaves.slice(0, MAX_PREFIX_NODES)
@@ -310,11 +314,13 @@ export class RedisKeyspace {
     if (sample.leaves.length > leafKeys.length) {
       // `sampleLevel` stops collecting leaves at the cap, so not even the sample
       // knows how many it dropped — `remaining` has nothing to hold either way.
-      nodes.push(elidedNode(
-        `${keyspaceNodeId.prefix(db, base)}#more-keys`,
-        {},
-        'more keys (open the prefix as a table to scan them all)',
-      ))
+      nodes.push(
+        elidedNode(
+          `${keyspaceNodeId.prefix(db, base)}#more-keys`,
+          {},
+          'more keys (open the prefix as a table to scan them all)',
+        ),
+      )
     }
 
     // Last, and separate from the two above on purpose. Those say "seen but not
@@ -322,12 +328,14 @@ export class RedisKeyspace {
     // that means the level in front of the user is missing keys outright.
     // Folding them into one row would dilute exactly the sentence worth reading.
     if (sample.partial) {
-      nodes.push(elidedNode(
-        `${keyspaceNodeId.prefix(db, base)}#truncated`,
-        {},
-        'the scan stopped early, so this level is incomplete '
-        + '(open it as a table to walk the whole keyspace under it)',
-      ))
+      nodes.push(
+        elidedNode(
+          `${keyspaceNodeId.prefix(db, base)}#truncated`,
+          {},
+          'the scan stopped early, so this level is incomplete ' +
+            '(open it as a table to walk the whole keyspace under it)',
+        ),
+      )
     }
 
     return nodes

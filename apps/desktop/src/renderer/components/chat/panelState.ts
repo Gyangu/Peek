@@ -64,9 +64,7 @@ export function transcriptState(status: ChatAgentStatus, count: number): Transcr
  * Together they mean something neither says: what the user is reading is real,
  * and the model has never seen it.
  */
-export function strandedOnSnapshot(
-  view: Pick<ChatViewState, 'agentStatus' | 'showingSnapshot'>,
-): boolean {
+export function strandedOnSnapshot(view: Pick<ChatViewState, 'agentStatus' | 'showingSnapshot'>): boolean {
   return view.agentStatus === 'error' && view.showingSnapshot === true
 }
 

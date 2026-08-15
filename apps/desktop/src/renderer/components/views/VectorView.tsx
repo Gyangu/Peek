@@ -243,11 +243,7 @@ export function VectorView({ view }: { view: VectorViewState }): ReactElement {
       ) : null}
 
       <ViewError error={view.error} />
-      <CacheGapNotice
-        resultId={resultId}
-        disabled={!ready || running || !hasQuery}
-        onRefetch={search}
-      />
+      <CacheGapNotice resultId={resultId} disabled={!ready || running || !hasQuery} onRefetch={search} />
 
       <DataGrid
         connId={connId}
@@ -287,11 +283,7 @@ function draftOf(view: VectorViewState): VectorDraft {
  * empty list simply means "no suggestions" — the box stays free text and the
  * driver remains the authority on what it accepts.
  */
-function useNamedVectors(
-  connId: VectorViewState['connId'],
-  collection: string,
-  enabled: boolean,
-): string[] {
+function useNamedVectors(connId: VectorViewState['connId'], collection: string, enabled: boolean): string[] {
   const roots = useNodes(connId, null)
   const nodeId = useMemo(
     () => (roots ? findCollectionNodeId(roots.nodes, collection) : null),

@@ -85,7 +85,8 @@ interface PackageFixture {
 function writePackage(root: string, fixture: PackageFixture = {}): string {
   const value = fixture.manifest ?? manifest()
   const name =
-    fixture.dir ?? (typeof value === 'object' && value !== null && !Array.isArray(value) ? String(value['id']) : 'pkg')
+    fixture.dir ??
+    (typeof value === 'object' && value !== null && !Array.isArray(value) ? String(value['id']) : 'pkg')
   const dir = join(root, name)
   mkdirSync(dir, { recursive: true })
   for (const file of fixture.files ?? ['driver.mjs', 'contrib.mjs']) writeFileSync(join(dir, file), '')
@@ -187,7 +188,10 @@ describe('a package peek cannot use is refused whole, and told why', () => {
     writeFileSync(join(dir, 'driver.mjs'), '')
 
     const issues = issuesFor(loadPackages(root), 'neo4j')
-    assert.ok(issues.some((issue) => issue.includes('not readable')), issues.join('\n'))
+    assert.ok(
+      issues.some((issue) => issue.includes('not readable')),
+      issues.join('\n'),
+    )
   })
 
   test('a label with no English (design decision 3: en is the floor)', () => {
@@ -340,8 +344,14 @@ describe('a package peek cannot use is refused whole, and told why', () => {
     // Fixing a package should take one round, not one round per mistake: the
     // directory is misnamed *and* the driver is missing, and both are said.
     assert.equal(issues.length, 2, issues.join('\n'))
-    assert.ok(issues.some((issue) => issue.startsWith('id:')), issues.join('\n'))
-    assert.ok(issues.some((issue) => issue.startsWith('entry.driver:')), issues.join('\n'))
+    assert.ok(
+      issues.some((issue) => issue.startsWith('id:')),
+      issues.join('\n'),
+    )
+    assert.ok(
+      issues.some((issue) => issue.startsWith('entry.driver:')),
+      issues.join('\n'),
+    )
   })
 })
 
@@ -432,9 +442,7 @@ function withDriverId(value: { [key: string]: Json }, driverId: string): { [key:
 
 /** The sample, offering one view kind on its own driver — the data half, which is all a manifest carries. */
 function withViewKind(value: { [key: string]: Json }, kind: string): { [key: string]: Json } {
-  value['viewKinds'] = [
-    { kind, driverIds: [String(value['id'])], title: { en: 'Graph' } },
-  ]
+  value['viewKinds'] = [{ kind, driverIds: [String(value['id'])], title: { en: 'Graph' } }]
   return value
 }
 

@@ -110,7 +110,14 @@ export function QueryView({ view }: { view: QueryViewState }): ReactElement {
         <span className="text-fg-faint">{t('query.runHint')}</span>
       </div>
 
-      <Suspense fallback={<div className="flex flex-none min-h-15 overflow-hidden border-b border-border" style={{ height: editorH }} />}>
+      <Suspense
+        fallback={
+          <div
+            className="flex flex-none min-h-15 overflow-hidden border-b border-border"
+            style={{ height: editorH }}
+          />
+        }
+      >
         <SqlEditor
           value={text}
           driverId={conn?.driverId ?? 'postgres'}

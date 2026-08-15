@@ -193,7 +193,9 @@ export default defineCommandTool({
     if (zone === 'center') {
       const parsed = MoveResultShape.safeParse(outcomeData(outcomes, 'layout.moveView'))
       if (!parsed.success) {
-        return { text: `layout.moveView ran, but its return value could not be parsed.\n\n${toJson(outcomes)}` }
+        return {
+          text: `layout.moveView ran, but its return value could not be parsed.\n\n${toJson(outcomes)}`,
+        }
       }
       const r = parsed.data
       const at = `tab ${String(r.toIndex)} of ${r.toPanelId}`
@@ -215,7 +217,9 @@ export default defineCommandTool({
           : ` ${r.swappedViewId} took its place in ${r.fromPanelId ?? '(no panel)'}.`
       const closed = r.closedViewIds.length === 0 ? '' : ` Closed: ${r.closedViewIds.join(', ')}.`
       const removed =
-        r.removedPanelIds.length === 0 ? '' : ` Panel ids that no longer exist: ${r.removedPanelIds.join(', ')}.`
+        r.removedPanelIds.length === 0
+          ? ''
+          : ` Panel ids that no longer exist: ${r.removedPanelIds.join(', ')}.`
       return {
         text: `${head}${swap}${closed}${removed} Focused panel: ${r.focusedPanel ?? '(none)'}.${outline}`,
         data: r,
@@ -224,14 +228,18 @@ export default defineCommandTool({
 
     const parsed = SplitResultShape.safeParse(outcomeData(outcomes, 'layout.splitWithView'))
     if (!parsed.success) {
-      return { text: `layout.splitWithView ran, but its return value could not be parsed.\n\n${toJson(outcomes)}` }
+      return {
+        text: `layout.splitWithView ran, but its return value could not be parsed.\n\n${toJson(outcomes)}`,
+      }
     }
     const r = parsed.data
     const head = r.moved
       ? `Split ${input.toPanelId} (${zone}) and moved ${r.viewId} into the new panel ${r.panelId}, inside split ${r.splitId}.`
       : `${r.viewId} was the only view in ${input.toPanelId}; splitting it off would have undone itself, so nothing changed.`
     const removed =
-      r.removedPanelIds.length === 0 ? '' : ` Panel ids that no longer exist: ${r.removedPanelIds.join(', ')}.`
+      r.removedPanelIds.length === 0
+        ? ''
+        : ` Panel ids that no longer exist: ${r.removedPanelIds.join(', ')}.`
     return {
       text: `${head}${removed} Focused panel: ${r.focusedPanel ?? '(none)'}.${outline}`,
       data: r,

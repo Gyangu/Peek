@@ -55,7 +55,11 @@ async function activeBackends(probe: Client, appName: string): Promise<{ pid: nu
 }
 
 /** Wait for the server to report no busy backend for this run, up to `ms`. */
-async function waitForIdle(probe: Client, appName: string, ms: number): Promise<{ pid: number; query: string }[]> {
+async function waitForIdle(
+  probe: Client,
+  appName: string,
+  ms: number,
+): Promise<{ pid: number; query: string }[]> {
   const deadline = Date.now() + ms
   let rows = await activeBackends(probe, appName)
   while (rows.length > 0 && Date.now() < deadline) {
@@ -93,7 +97,11 @@ describe('closing a session stops the work it started', () => {
       await sleep(400)
       const before = await activeBackends(probe, appName)
       assert.equal(before.length, 1, 'the setup is only meaningful with a statement genuinely running')
-      assert.match(before[0]?.query ?? '', /FETCH FORWARD/, 'the running statement should be the cursor FETCH')
+      assert.match(
+        before[0]?.query ?? '',
+        /FETCH FORWARD/,
+        'the running statement should be the cursor FETCH',
+      )
 
       const startedAt = Date.now()
       await session.close()

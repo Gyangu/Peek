@@ -119,7 +119,10 @@ export function TabInsertCaret(): ReactElement | null {
        inventing one for — the theme's five shadows each name a *kind of surface
        that floats*, and this is a 2px line. The rule has to exist for the first
        two anyway, so the glow costs nothing extra by staying in it. */
-    <div className="tab-insert-caret pointer-events-none fixed z-998 w-0.5 bg-accent shadow-caret" style={{ left: line.x, top: line.top, height: line.height }}>
+    <div
+      className="tab-insert-caret pointer-events-none fixed z-998 w-0.5 bg-accent shadow-caret"
+      style={{ left: line.x, top: line.top, height: line.height }}
+    >
       {/* The strip's counterpart of the highlight's label: the line says *where*,
           this says *what*. Without it a drop on the strip is the one gesture with
           no words attached to it.

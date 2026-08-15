@@ -211,8 +211,8 @@ function planClosure(rootNames, rootDir) {
         return
       }
       throw new Error(
-        `Cannot resolve "${name}" from ${fromDirs.join(', ')}, though it is installed in the workspace. `
-          + 'The staged tree would ship a bundle that throws on first use — run "pnpm install".',
+        `Cannot resolve "${name}" from ${fromDirs.join(', ')}, though it is installed in the workspace. ` +
+          'The staged tree would ship a bundle that throws on first use — run "pnpm install".',
       )
     }
 
@@ -220,9 +220,7 @@ function planClosure(rootNames, rootDir) {
     if (atRoot.get(name) === sourceDir) return
 
     const nested = atRoot.has(name)
-    const stagedPath = nested
-      ? join(stagedParent, 'node_modules', name)
-      : join('node_modules', name)
+    const stagedPath = nested ? join(stagedParent, 'node_modules', name) : join('node_modules', name)
 
     if (placements.get(stagedPath) === sourceDir) return
     placements.set(stagedPath, sourceDir)

@@ -69,9 +69,7 @@ type ParamsFromNames<Names extends string> = [Names] extends [never]
  * none. `unknown` and not `never`: `{ count: number } & never` collapses to
  * `never`, which would make every simple plural message uncallable.
  */
-type PluralExtraParams<M extends PluralForms> = [Exclude<PluralPlaceholderNames<M>, 'count'>] extends [
-  never,
-]
+type PluralExtraParams<M extends PluralForms> = [Exclude<PluralPlaceholderNames<M>, 'count'>] extends [never]
   ? unknown
   : { readonly [K in Exclude<PluralPlaceholderNames<M>, 'count'>]: MessageParamValue }
 

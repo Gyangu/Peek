@@ -21,8 +21,21 @@ const CONNECT_FORM = {
   fields: {
     url: [urlField('redis://localhost:6379/0')],
     fields: [
-      { name: 'host', type: 'text', label: { en: 'Host', 'zh-CN': '主机' }, defaultValue: 'localhost', required: true, mono: true },
-      { name: 'port', type: 'number', label: { en: 'Port', 'zh-CN': '端口' }, defaultValue: '6379', required: true },
+      {
+        name: 'host',
+        type: 'text',
+        label: { en: 'Host', 'zh-CN': '主机' },
+        defaultValue: 'localhost',
+        required: true,
+        mono: true,
+      },
+      {
+        name: 'port',
+        type: 'number',
+        label: { en: 'Port', 'zh-CN': '端口' },
+        defaultValue: '6379',
+        required: true,
+      },
       // The logical database index, which redis keeps outside the connection's
       // identity: it is selected per client, not carried in the URL host part.
       { name: 'db', type: 'number', label: { en: 'Database index', 'zh-CN': '库编号' }, defaultValue: '0' },

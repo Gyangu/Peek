@@ -2,13 +2,7 @@ import { accessSync, constants as fsConstants, statSync } from 'node:fs'
 import { DatabaseSync, type SQLInputValue, type StatementSync } from 'node:sqlite'
 import { setImmediate as yieldToLoop } from 'node:timers/promises'
 import { peekErrorMsg, type ServerInfo, type SqliteConnectionConfig } from '@peek/core'
-import type {
-  SqlBackend,
-  SqlBackendHandle,
-  SqlExecOptions,
-  SqlRowStream,
-  SqlRows,
-} from '../connection'
+import type { SqlBackend, SqlBackendHandle, SqlExecOptions, SqlRowStream, SqlRows } from '../connection'
 import type { SqlColumnMeta } from '../dialect'
 import { mapSqlError } from '../errors'
 import { SQLITE_DEFAULT_SCHEMA, SQLITE_DIALECT } from './dialect'
@@ -381,7 +375,7 @@ export const sqliteBackend: SqlBackend<SqliteConnectionConfig> = {
 
     // A viewer defaults to read-only; `:memory:` cannot be opened that way (there
     // is nothing to open), and an empty scratch database has nothing to protect
-    const readOnly = memory ? false : cfg.readOnly ?? true
+    const readOnly = memory ? false : (cfg.readOnly ?? true)
 
     let db: DatabaseSync
     try {

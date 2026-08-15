@@ -75,8 +75,7 @@ export function createAskHandlers(options: AskHandlerOptions) {
         const base = {
           chatId: view.chatId,
           viewId: view.id,
-          agentStatus:
-            after !== undefined && after.kind === 'chat' ? after.agentStatus : view.agentStatus,
+          agentStatus: after !== undefined && after.kind === 'chat' ? after.agentStatus : view.agentStatus,
           requestId: ticket.pending.requestId,
         }
 

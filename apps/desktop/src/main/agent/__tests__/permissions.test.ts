@@ -135,7 +135,11 @@ interface QueueHarness {
   broker: PermissionBroker
   /** Every `onActive` call, in order. */
   active: (string | null)[]
-  ask: (toolCallId: string, chatId?: ReturnType<typeof asChatId>, timeoutMs?: number) => ReturnType<PermissionBroker['open']>
+  ask: (
+    toolCallId: string,
+    chatId?: ReturnType<typeof asChatId>,
+    timeoutMs?: number,
+  ) => ReturnType<PermissionBroker['open']>
 }
 
 function queued(): QueueHarness {

@@ -9,9 +9,21 @@ import { ConsentDialog } from '../context-actions/ConsentDialog'
 import { useContextActions } from '../context-actions/useContextActions'
 import { AttachMenu } from './AttachMenu'
 import { AttachmentStrip } from './AttachmentStrip'
-import { attachCandidates, attachmentIdentity, stageableAttachment, type AttachCandidate } from './attachments'
+import {
+  attachCandidates,
+  attachmentIdentity,
+  stageableAttachment,
+  type AttachCandidate,
+} from './attachments'
 import { detachFromChat } from './chatCommands'
-import { applyMention, atomicBackspace, dropMention, filterByMention, findMention, hasMention } from './mention'
+import {
+  applyMention,
+  atomicBackspace,
+  dropMention,
+  filterByMention,
+  findMention,
+  hasMention,
+} from './mention'
 
 const MIN_H = 34
 const MAX_H = 220

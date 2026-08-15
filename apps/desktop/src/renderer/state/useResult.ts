@@ -22,10 +22,7 @@ export function useResult(resultId: ResultId | null | undefined): ResultSnapshot
     (cb: () => void) => (resultId ? subscribeResult(resultId, cb) : NOOP_UNSUB),
     [resultId],
   )
-  const snapshot = useCallback(
-    () => (resultId ? getResultSnapshot(resultId) : EMPTY_SNAPSHOT),
-    [resultId],
-  )
+  const snapshot = useCallback(() => (resultId ? getResultSnapshot(resultId) : EMPTY_SNAPSHOT), [resultId])
   return useSyncExternalStore(subscribe, snapshot)
 }
 

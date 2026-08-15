@@ -39,8 +39,7 @@ import type { ChatId, PendingPermission, PermissionOption } from '@peek/core'
 import { previewInput } from './redact'
 
 export type PermissionDecision =
-  | { kind: 'selected'; optionId: string }
-  | { kind: 'cancelled'; reason: PermissionCancelReason }
+  { kind: 'selected'; optionId: string } | { kind: 'cancelled'; reason: PermissionCancelReason }
 
 export type PermissionCancelReason = 'timeout' | 'user' | 'turn-cancelled' | 'agent-gone' | 'shutdown'
 

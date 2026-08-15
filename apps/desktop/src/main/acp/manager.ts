@@ -793,7 +793,10 @@ export class AcpManager {
     this.#process = null
     this.#connection = null
     this.#initialize = null
-    await proc?.shutdown({ shutdownMs: this.#config.timeouts.shutdownMs, exitMs: this.#config.timeouts.exitMs })
+    await proc?.shutdown({
+      shutdownMs: this.#config.timeouts.shutdownMs,
+      exitMs: this.#config.timeouts.exitMs,
+    })
   }
 
   /* ---------------------------------------------------------------- */
@@ -893,8 +896,7 @@ export class AcpManager {
       createTerminal: (params) => this.#refuseClientMethod('terminal/create', params.command),
       terminalOutput: (params) => this.#refuseClientMethod('terminal/output', params.terminalId),
       releaseTerminal: (params) => this.#refuseClientMethod('terminal/release', params.terminalId),
-      waitForTerminalExit: (params) =>
-        this.#refuseClientMethod('terminal/wait_for_exit', params.terminalId),
+      waitForTerminalExit: (params) => this.#refuseClientMethod('terminal/wait_for_exit', params.terminalId),
       killTerminal: (params) => this.#refuseClientMethod('terminal/kill', params.terminalId),
     }
     const connection = new ClientSideConnection(() => client, stream)
@@ -1126,7 +1128,9 @@ export class AcpManager {
     // wrong conversation, it returns none. A new conversation takes the current
     // setting; see `SessionRoute.cwd`.
     const resumeRoute =
-      session.resumeSessionId === null ? null : (this.#deps.sessionIndex?.lookup(session.resumeSessionId) ?? null)
+      session.resumeSessionId === null
+        ? null
+        : (this.#deps.sessionIndex?.lookup(session.resumeSessionId) ?? null)
     const cwd = this.#config.resolveCwd(resumeRoute?.cwd ?? null)
     // The sandbox. Without it the session inherits the user's whole Claude Code
     // configuration — MCP servers, `CLAUDE.md`, and the permission allowlist that
@@ -1692,7 +1696,12 @@ export class AcpManager {
   }
 
   /** Queue deltas, and commit any control-plane movement they implied. */
-  #emit(session: ChatSession, deltas: readonly ChatDelta[], state: ChatStateDelta, opts: { flush: boolean }): void {
+  #emit(
+    session: ChatSession,
+    deltas: readonly ChatDelta[],
+    state: ChatStateDelta,
+    opts: { flush: boolean },
+  ): void {
     for (const delta of deltas) {
       // Folded before the batcher, not after: the batcher merges and drops
       // deltas on its way to the window (consecutive appends concatenate, a
@@ -1758,7 +1767,9 @@ export class AcpManager {
    */
   #log(level: 'debug' | 'info' | 'warn' | 'error', message: string, raw?: unknown): void {
     const detail =
-      raw === undefined ? undefined : sanitizeLine(redact(raw instanceof Error ? raw.message : String(raw), this.#secrets), 500)
+      raw === undefined
+        ? undefined
+        : sanitizeLine(redact(raw instanceof Error ? raw.message : String(raw), this.#secrets), 500)
     this.events.emit('log', { level, message, ...(detail === undefined ? {} : { detail }) })
   }
 }
@@ -1824,4 +1835,3 @@ function firstMessageId(deltas: readonly ChatDelta[]): ChatMessageId {
   }
   throw peekError('INTERNAL', 'The user message produced no message.start delta.')
 }
-

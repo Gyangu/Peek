@@ -244,11 +244,7 @@ describe('tabStripKeyAction — the strip owns bare keys and nothing else', () =
       assert.equal(tabStripKeyAction({ key, metaKey: true }, 0, 3), null, `⌘${key}`)
       assert.equal(tabStripKeyAction({ key, ctrlKey: true }, 0, 3), null, `⌃${key}`)
       assert.equal(tabStripKeyAction({ key, altKey: true }, 0, 3), null, `⌥${key}`)
-      assert.equal(
-        tabStripKeyAction({ key, metaKey: true, altKey: true }, 0, 3),
-        null,
-        `⌘⌥${key}`,
-      )
+      assert.equal(tabStripKeyAction({ key, metaKey: true, altKey: true }, 0, 3), null, `⌘⌥${key}`)
     }
   })
 
@@ -614,11 +610,7 @@ describe('the focus loop terminates — searched, not argued', () => {
   it('leaves the caret alone when it is somewhere that belongs to the human', () => {
     // The case the courtesy guard exists for: a background command focuses a
     // panel while the user is typing in the sidebar. State moves, caret does not.
-    const run = cascade(
-      { focusedPanel: P2, caret: 'elsewhere' },
-      { kind: 'remoteFocus', panel: P1 },
-      ALL,
-    )
+    const run = cascade({ focusedPanel: P2, caret: 'elsewhere' }, { kind: 'remoteFocus', panel: P1 }, ALL)
     assert.equal(run.world.caret, 'elsewhere', 'the caret was pulled out of the sidebar')
     assert.equal(run.world.focusedPanel, P1, 'the state change was undone')
     assert.equal(run.events, 1, 'declining to move the caret still cascaded')
@@ -657,11 +649,7 @@ describe('the focus loop terminates — searched, not argued', () => {
   })
 
   it('a focused panel with the caret nowhere pulls it in, once', () => {
-    const run = cascade(
-      { focusedPanel: P2, caret: 'nowhere' },
-      { kind: 'remoteFocus', panel: P1 },
-      ALL,
-    )
+    const run = cascade({ focusedPanel: P2, caret: 'nowhere' }, { kind: 'remoteFocus', panel: P1 }, ALL)
     assert.deepEqual(run.world, { focusedPanel: P1, caret: P1 })
     assert.equal(run.events, 2)
   })
@@ -690,11 +678,7 @@ describe('the focus loop terminates — searched, not argued', () => {
     // empties the focused panel while the human is typing elsewhere must not
     // move anything. `announce.ts` says "Empty panel N" instead — see
     // `announcementFor`.
-    const run = cascade(
-      { focusedPanel: P1, caret: 'elsewhere' },
-      { kind: 'contentRemoved', panel: P1 },
-      ALL,
-    )
+    const run = cascade({ focusedPanel: P1, caret: 'elsewhere' }, { kind: 'contentRemoved', panel: P1 }, ALL)
     assert.equal(run.world.caret, 'elsewhere')
     assert.equal(run.events, 1)
   })
@@ -702,11 +686,7 @@ describe('the focus loop terminates — searched, not argued', () => {
   it('focusedPanel becoming null moves nothing — no panel ever blurs itself', () => {
     for (const caret of [...PANELS, 'nowhere' as const, 'elsewhere' as const]) {
       const run = cascade({ focusedPanel: P1, caret }, { kind: 'remoteFocus', panel: null }, ALL)
-      assert.equal(
-        run.world.caret,
-        caret,
-        `the caret moved when focus went to null (${String(caret)})`,
-      )
+      assert.equal(run.world.caret, caret, `the caret moved when focus went to null (${String(caret)})`)
       assert.equal(run.world.focusedPanel, null)
       assert.equal(run.events, 1)
     }

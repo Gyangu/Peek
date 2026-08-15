@@ -77,7 +77,11 @@ interface Recorder {
 }
 
 function target(
-  overrides: { hostAlive?: boolean; capabilities?: readonly Capability[]; askDriver?: () => Promise<unknown> },
+  overrides: {
+    hostAlive?: boolean
+    capabilities?: readonly Capability[]
+    askDriver?: () => Promise<unknown>
+  },
   rec: Recorder,
 ): Parameters<typeof stopExpiredResult>[0] {
   return {

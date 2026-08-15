@@ -140,7 +140,13 @@ describe('a rectangle of cells', () => {
 
   test('reports truncated cells inside the block', () => {
     const big = truncatedValue('head', 'utf8', { byteLength: 99_999 })
-    const partial = sourceOf(['a', 'b'], [[big, big], ['ok', 'ok']])
+    const partial = sourceOf(
+      ['a', 'b'],
+      [
+        [big, big],
+        ['ok', 'ok'],
+      ],
+    )
     // The rectangle covers column a only, so exactly one of the two big values
     // is in it — the count follows the block, not the row.
     assert.equal(copyRangePlan(partial, rangeFrom({ row: 0, col: 0 }, 1, 0, 0)).truncated, 1)

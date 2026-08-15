@@ -16,14 +16,7 @@ import { LOG_LEVELS } from '@peek/core'
 import { useT, type TFunction } from '../../i18n'
 import { Button } from '../../ui/Button'
 import { Segmented } from '../../ui/Segmented'
-import {
-  detailText,
-  LOG_POLL_MS,
-  refreshLogTab,
-  setCaptureLevel,
-  setLogFilter,
-  useLogTabs,
-} from './logTabs'
+import { detailText, LOG_POLL_MS, refreshLogTab, setCaptureLevel, setLogFilter, useLogTabs } from './logTabs'
 
 /**
  * Re-read while the panel is open.
@@ -167,9 +160,7 @@ function LogRow({ record }: { record: LogRecord }): ReactElement {
       </div>
       {/* Untranslated: it is main's own words, and it is evidence. */}
       <div className="whitespace-pre-wrap break-words">{record.message}</div>
-      {detail === null ? null : (
-        <div className="text-fg-faint whitespace-pre-wrap break-words">{detail}</div>
-      )}
+      {detail === null ? null : <div className="text-fg-faint whitespace-pre-wrap break-words">{detail}</div>}
     </div>
   )
 }
@@ -236,9 +227,13 @@ function CommandRow({ entry, t }: { entry: CommandLogEntry; t: TFunction }): Rea
         </span>
         {/* The command name is part of a closed vocabulary; showing it raw is the point. */}
         <strong className="font-mono tabular-nums">{entry.name}</strong>
-        {entry.ok ? null : <span className="font-mono tabular-nums text-err">{entry.errorCode ?? 'ERROR'}</span>}
+        {entry.ok ? null : (
+          <span className="font-mono tabular-nums text-err">{entry.errorCode ?? 'ERROR'}</span>
+        )}
         <span className="flex-1" />
-        <span className="font-mono tabular-nums text-fg-faint">{t('app.logs.elapsed', { ms: entry.elapsedMs })}</span>
+        <span className="font-mono tabular-nums text-fg-faint">
+          {t('app.logs.elapsed', { ms: entry.elapsedMs })}
+        </span>
       </div>
       {entry.ok || entry.errorMessage === undefined ? null : (
         <div className="whitespace-pre-wrap break-words">{entry.errorMessage}</div>

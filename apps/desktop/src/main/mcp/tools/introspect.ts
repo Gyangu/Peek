@@ -82,7 +82,7 @@ export default defineReadTool({
   title: 'Browse namespaces',
   description:
     "Lazily expand a connection's namespace tree: omit parentId for the root level (on PostgreSQL, " +
-    'the list of schemas); pass parentId to get that node\'s children (for example the tables in a schema). ' +
+    "the list of schemas); pass parentId to get that node's children (for example the tables in a schema). " +
     'Use depth to expand several levels at once (3 at most). ' +
     'Any returned node that carries a ref can be passed straight to open_view as spec.ref to put that table on screen.',
   inputSchema: InputSchema,
@@ -91,7 +91,8 @@ export default defineReadTool({
     if (!ctx.introspect) {
       return errorOutput(
         peekError('INTERNAL', 'The introspect channel is not wired up', {
-          detail: 'No introspect reader (Connection Manager → driver host RPC) was injected when the MCP server was created.',
+          detail:
+            'No introspect reader (Connection Manager → driver host RPC) was injected when the MCP server was created.',
         }),
       )
     }

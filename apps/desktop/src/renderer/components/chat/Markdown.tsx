@@ -51,11 +51,7 @@ export const Markdown = memo(function Markdown({ text }: { text: string }): Reac
    * utility of lower specificity, and nothing unlayered sets a margin on a
    * Markdown block.
    */
-  return (
-    <div className="*:first:mt-0 *:last:mb-0 break-words">
-      {blocks.map((b, i) => renderBlock(b, i))}
-    </div>
-  )
+  return <div className="*:first:mt-0 *:last:mb-0 break-words">{blocks.map((b, i) => renderBlock(b, i))}</div>
 })
 
 /**
@@ -127,7 +123,10 @@ function renderBlock(block: MdBlock, key: number): ReactElement {
 
     case 'quote':
       return (
-        <blockquote key={key} className="my-tight py-inset pl-snug border-l-2 border-l-border-strong text-fg-dim">
+        <blockquote
+          key={key}
+          className="my-tight py-inset pl-snug border-l-2 border-l-border-strong text-fg-dim"
+        >
           {block.blocks.map((b, i) => renderBlock(b, i))}
         </blockquote>
       )
@@ -176,7 +175,11 @@ function renderBlock(block: MdBlock, key: number): ReactElement {
             <thead>
               <tr className="border-b border-border">
                 {block.head.map((cell, i) => (
-                  <th key={i} className={`${CELL} bg-bg-2 text-left font-semibold text-fg-dim`} style={alignOf(block.align[i])}>
+                  <th
+                    key={i}
+                    className={`${CELL} bg-bg-2 text-left font-semibold text-fg-dim`}
+                    style={alignOf(block.align[i])}
+                  >
                     {renderInline(cell)}
                   </th>
                 ))}
@@ -213,7 +216,10 @@ function renderInline(nodes: MdInline[]): ReactNode {
         return <Fragment key={i}>{node.text}</Fragment>
       case 'code':
         return (
-          <code key={i} className="px-inset rounded-control bg-bg-2 border border-border font-mono text-micro">
+          <code
+            key={i}
+            className="px-inset rounded-control bg-bg-2 border border-border font-mono text-micro"
+          >
             {node.text}
           </code>
         )
@@ -282,15 +288,7 @@ function copyLink(href: string): void {
 /* ------------------------------------------------------------------ */
 
 /** A fenced block: language label, copy button, and hand-rolled colouring. */
-function CodeBlock({
-  lang,
-  text,
-  closed,
-}: {
-  lang: string
-  text: string
-  closed: boolean
-}): ReactElement {
+function CodeBlock({ lang, text, closed }: { lang: string; text: string; closed: boolean }): ReactElement {
   const t = useT()
   const [copied, setCopied] = useState(false)
   const menu = useContextMenu<null>()

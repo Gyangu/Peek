@@ -7,13 +7,7 @@ import {
 } from '@peek/core'
 import type { Readable } from 'node:stream'
 import mysql from 'mysql2/promise'
-import type {
-  SqlBackend,
-  SqlBackendHandle,
-  SqlExecOptions,
-  SqlRowStream,
-  SqlRows,
-} from '../connection'
+import type { SqlBackend, SqlBackendHandle, SqlExecOptions, SqlRowStream, SqlRows } from '../connection'
 import type { SqlColumnMeta } from '../dialect'
 import { mapSqlError } from '../errors'
 import { MYSQL_DIALECT, mysqlStatementSetupSql } from './dialect'
@@ -94,23 +88,43 @@ const BINARY_CHARSET = 63
  * result and a `describeCollection` agree about what a column is.
  */
 const MYSQL_TYPE_NAMES: Readonly<Record<number, string>> = {
-  0: 'decimal', 246: 'decimal',
-  1: 'tinyint', 2: 'smallint', 3: 'int', 9: 'mediumint', 8: 'bigint',
-  4: 'float', 5: 'double',
+  0: 'decimal',
+  246: 'decimal',
+  1: 'tinyint',
+  2: 'smallint',
+  3: 'int',
+  9: 'mediumint',
+  8: 'bigint',
+  4: 'float',
+  5: 'double',
   6: 'null',
-  7: 'timestamp', 12: 'datetime', 10: 'date', 14: 'date', 11: 'time', 13: 'year',
-  15: 'varchar', 253: 'varchar', 254: 'char',
+  7: 'timestamp',
+  12: 'datetime',
+  10: 'date',
+  14: 'date',
+  11: 'time',
+  13: 'year',
+  15: 'varchar',
+  253: 'varchar',
+  254: 'char',
   16: 'bit',
   242: 'vector',
   245: 'json',
-  247: 'enum', 248: 'set',
-  249: 'tinyblob', 250: 'mediumblob', 251: 'longblob', 252: 'blob',
+  247: 'enum',
+  248: 'set',
+  249: 'tinyblob',
+  250: 'mediumblob',
+  251: 'longblob',
+  252: 'blob',
   255: 'geometry',
 }
 
 /** The blob family, whose members are TEXT rather than BLOB when the charset is not binary */
 const MYSQL_BLOB_TEXT_NAMES: Readonly<Record<number, string>> = {
-  249: 'tinytext', 250: 'mediumtext', 251: 'longtext', 252: 'text',
+  249: 'tinytext',
+  250: 'mediumtext',
+  251: 'longtext',
+  252: 'text',
 }
 
 /** String-ish protocol types: only these can be "binary" in the charset-63 sense */
@@ -169,13 +183,12 @@ const FLAG_PRI_KEY = 2
 
 function fieldToMeta(field: MysqlField): SqlColumnMeta {
   const type = field.columnType
-  const binary = type !== undefined
-    && MYSQL_STRINGISH_TYPES.has(type)
-    && field.characterSet === BINARY_CHARSET
+  const binary =
+    type !== undefined && MYSQL_STRINGISH_TYPES.has(type) && field.characterSet === BINARY_CHARSET
   const textName = type !== undefined && !binary ? MYSQL_BLOB_TEXT_NAMES[type] : undefined
   const meta: SqlColumnMeta = {
     name: field.name,
-    typeName: textName ?? (type === undefined ? null : MYSQL_TYPE_NAMES[type] ?? null),
+    typeName: textName ?? (type === undefined ? null : (MYSQL_TYPE_NAMES[type] ?? null)),
   }
   if (type !== undefined) meta.typeCode = type
   if (binary) meta.binary = true

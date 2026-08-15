@@ -744,8 +744,9 @@ export function cancelResultStream(id: ResultId): void {
 
 function isProtected(e: ResultEntry, c: ChunkSlot): boolean {
   const vp = e.viewport
-  return c.startRow + c.rowCount >= vp.start - VIEWPORT_MARGIN_ROWS
-    && c.startRow <= vp.end + VIEWPORT_MARGIN_ROWS
+  return (
+    c.startRow + c.rowCount >= vp.start - VIEWPORT_MARGIN_ROWS && c.startRow <= vp.end + VIEWPORT_MARGIN_ROWS
+  )
 }
 
 function enforceBudget(): void {

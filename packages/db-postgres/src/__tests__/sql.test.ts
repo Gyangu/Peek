@@ -57,7 +57,10 @@ describe('filter parameterization', () => {
 describe('ordering and scan statements', () => {
   it('ORDER BY renders direction and NULLS placement', () => {
     assert.equal(
-      renderOrderBy([{ column: 'a', dir: 'desc', nulls: 'last' }, { column: 'b', dir: 'asc' }]),
+      renderOrderBy([
+        { column: 'a', dir: 'desc', nulls: 'last' },
+        { column: 'b', dir: 'asc' },
+      ]),
       ' ORDER BY "a" DESC NULLS LAST, "b" ASC',
     )
   })
@@ -72,8 +75,8 @@ describe('ordering and scan statements', () => {
     })
     assert.equal(
       sql.text,
-      'SELECT * FROM "public"."item" WHERE "name"::text LIKE $1'
-        + ' ORDER BY "created_at" DESC LIMIT $2 OFFSET $3',
+      'SELECT * FROM "public"."item" WHERE "name"::text LIKE $1' +
+        ' ORDER BY "created_at" DESC LIMIT $2 OFFSET $3',
     )
     assert.deepEqual(sql.params, ['a%', 20, 10])
   })

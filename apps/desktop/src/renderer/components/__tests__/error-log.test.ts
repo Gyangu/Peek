@@ -161,7 +161,11 @@ describe('source attribution', () => {
     log.clearErrorLog()
 
     notify('info', 'Connected to local')
-    assert.equal(log.useErrorLog.getState().entries.length, 0, 'padding a log with successes stops it being read')
+    assert.equal(
+      log.useErrorLog.getState().entries.length,
+      0,
+      'padding a log with successes stops it being read',
+    )
 
     notify('warn', 'State realigned', 'revision gap')
     assert.equal(log.useErrorLog.getState().entries.length, 1, 'a warning is still worth keeping')

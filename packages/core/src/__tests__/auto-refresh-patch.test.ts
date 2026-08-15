@@ -62,8 +62,14 @@ describe('which view patches accept an interval', () => {
 
 describe('what counts as a legal interval', () => {
   test('the bounds are inclusive', () => {
-    assert.equal(ViewPatchSchema.safeParse({ kind: 'query', autoRefreshMs: MIN_AUTO_REFRESH_MS }).success, true)
-    assert.equal(ViewPatchSchema.safeParse({ kind: 'query', autoRefreshMs: MAX_AUTO_REFRESH_MS }).success, true)
+    assert.equal(
+      ViewPatchSchema.safeParse({ kind: 'query', autoRefreshMs: MIN_AUTO_REFRESH_MS }).success,
+      true,
+    )
+    assert.equal(
+      ViewPatchSchema.safeParse({ kind: 'query', autoRefreshMs: MAX_AUTO_REFRESH_MS }).success,
+      true,
+    )
   })
 
   test('anything outside them is refused, including a fractional millisecond', () => {

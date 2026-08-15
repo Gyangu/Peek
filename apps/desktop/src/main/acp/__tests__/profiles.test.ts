@@ -81,8 +81,14 @@ test('each agent gets its sandbox in the mechanism it understands, and only that
 })
 
 test('the executable override reaches each agent under the name that agent reads', () => {
-  assert.equal(claudeCodeProfile.env({ executablePath: '/usr/local/bin/claude' })['CLAUDE_CODE_EXECUTABLE'], '/usr/local/bin/claude')
-  assert.equal(codexProfile.env({ executablePath: '/usr/local/bin/codex' })['CODEX_PATH'], '/usr/local/bin/codex')
+  assert.equal(
+    claudeCodeProfile.env({ executablePath: '/usr/local/bin/claude' })['CLAUDE_CODE_EXECUTABLE'],
+    '/usr/local/bin/claude',
+  )
+  assert.equal(
+    codexProfile.env({ executablePath: '/usr/local/bin/codex' })['CODEX_PATH'],
+    '/usr/local/bin/codex',
+  )
   // One field, two names: neither agent should see the other's variable.
   assert.equal(claudeCodeProfile.env({ executablePath: '/x' })['CODEX_PATH'], undefined)
   assert.equal(codexProfile.env({ executablePath: '/x' })['CLAUDE_CODE_EXECUTABLE'], undefined)

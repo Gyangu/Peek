@@ -108,10 +108,7 @@ export interface PackageDataMessage {
 }
 
 export type PackageViewHostMessage =
-  | PackageInitMessage
-  | PackageStateMessage
-  | PackageThemeMessage
-  | PackageDataMessage
+  PackageInitMessage | PackageStateMessage | PackageThemeMessage | PackageDataMessage
 
 /* ------------------------------------------------------------------ */
 /* Frame → host                                                        */

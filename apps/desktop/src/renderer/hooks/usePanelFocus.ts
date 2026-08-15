@@ -173,10 +173,7 @@ export function shouldAdoptFocus(active: Element | null, layoutRoot: Element | n
  * `relatedTarget` (focus arriving from outside the window, or from nothing)
  * counts as entering.
  */
-export function isFocusEnteringPanel(
-  panelEl: Element | null,
-  relatedTarget: EventTarget | null,
-): boolean {
+export function isFocusEnteringPanel(panelEl: Element | null, relatedTarget: EventTarget | null): boolean {
   if (panelEl === null) return false
   if (relatedTarget === null || typeof relatedTarget !== 'object') return true
   if (!('nodeType' in relatedTarget)) return true
@@ -213,11 +210,7 @@ export function focusEntryDispatches(focused: boolean, entering: boolean): boole
  * then quiescence — see `panel-focus.test.ts`, which searches every starting
  * configuration for a longer path and asserts there is none.
  */
-export function focusAdoption(
-  focused: boolean,
-  focusAlreadyInside: boolean,
-  mayAdopt: boolean,
-): boolean {
+export function focusAdoption(focused: boolean, focusAlreadyInside: boolean, mayAdopt: boolean): boolean {
   return focused && !focusAlreadyInside && mayAdopt
 }
 
@@ -270,11 +263,7 @@ export type TabStripAction = { kind: 'close' | 'activate'; index: number }
  * their commonest starting position. Delete is covered for the same reason: ⌘⌫
  * is not "close this tab".
  */
-export function tabStripKeyAction(
-  chord: TabKeyChord,
-  current: number,
-  count: number,
-): TabStripAction | null {
+export function tabStripKeyAction(chord: TabKeyChord, current: number, count: number): TabStripAction | null {
   if (chord.defaultPrevented === true) return null
   if (chord.metaKey === true || chord.ctrlKey === true || chord.altKey === true) return null
   if (count <= 0) return null
@@ -369,14 +358,17 @@ export function usePanelFocus(panelId: PanelId, contentKey: ViewId | null): Pane
   // function with the same guards whatever re-ran it, and its termination guard
   // (`el.contains(active)`) is false only when the caret is genuinely outside
   // this panel.
-  useEffect(() => {
-    const el = elRef.current
-    if (el === null) return
-    const active = document.activeElement
-    const mayAdopt = shouldAdoptFocus(active, el.closest('.layout-root'))
-    if (!focusAdoption(focused, el.contains(active), mayAdopt)) return
-    el.focus({ preventScroll: true })
-  }, focusAdoptionDeps(focused, contentKey))
+  useEffect(
+    () => {
+      const el = elRef.current
+      if (el === null) return
+      const active = document.activeElement
+      const mayAdopt = shouldAdoptFocus(active, el.closest('.layout-root'))
+      if (!focusAdoption(focused, el.contains(active), mayAdopt)) return
+      el.focus({ preventScroll: true })
+    },
+    focusAdoptionDeps(focused, contentKey),
+  )
 
   // R1: DOM -> state.
   const onFocus = useCallback(
@@ -535,9 +527,7 @@ export function ownsTab(tabs: ReadonlyMap<ViewId, HTMLElement>, el: Element): bo
  * composition has to live somewhere shared rather than being re-improvised in
  * each component.
  */
-export function composeRefs<T>(
-  ...refs: readonly ((el: T | null) => void)[]
-): (el: T | null) => void {
+export function composeRefs<T>(...refs: readonly ((el: T | null) => void)[]): (el: T | null) => void {
   return (el: T | null) => {
     for (const ref of refs) ref(el)
   }

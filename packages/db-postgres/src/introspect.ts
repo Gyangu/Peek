@@ -40,8 +40,7 @@ function decodeSeg(raw: string): string {
 export const nodeId = {
   database: (name: string): string => `db:${encodeSeg(name)}`,
   schema: (name: string): string => `schema:${encodeSeg(name)}`,
-  relation: (schema: string, name: string): string =>
-    `relation:${encodeSeg(schema)}.${encodeSeg(name)}`,
+  relation: (schema: string, name: string): string => `relation:${encodeSeg(schema)}.${encodeSeg(name)}`,
 }
 
 export type ParsedNodeId =
@@ -287,10 +286,7 @@ export class PgIntrospector {
       }>(COLUMN_SQL, [literal]),
       this.query<{ name: string }>(PK_SQL, [literal]),
       this.query<{ name: string; is_unique: boolean; cols: string[] }>(INDEX_SQL, [literal]),
-      this.query<{ est_rows: number | string | null; comment: string | null }>(
-        RELATION_META_SQL,
-        [literal],
-      ),
+      this.query<{ est_rows: number | string | null; comment: string | null }>(RELATION_META_SQL, [literal]),
     ])
 
     if (cols.length === 0) {
@@ -352,10 +348,7 @@ export class PgIntrospector {
     return hints
   }
 
-  private async query<R extends Record<string, unknown>>(
-    sql: string,
-    params: unknown[] = [],
-  ): Promise<R[]> {
+  private async query<R extends Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<R[]> {
     try {
       const res = await this.deps.pool.query<R>(sql, params)
       return res.rows

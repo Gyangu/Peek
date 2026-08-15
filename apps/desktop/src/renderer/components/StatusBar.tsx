@@ -1,6 +1,12 @@
 import type { ReactElement } from 'react'
 import type { ViewState } from '@peek/core'
-import { RESULT_CACHE_MAX_BYTES, collectPanels, collectionRefLabel, describeView, findPanel } from '@peek/core'
+import {
+  RESULT_CACHE_MAX_BYTES,
+  collectPanels,
+  collectionRefLabel,
+  describeView,
+  findPanel,
+} from '@peek/core'
 import { isMacPlatform, shortcutHints } from '../hooks'
 import { useBindings } from '../keys/store'
 import { useT, type TFunction } from '../i18n'
@@ -107,11 +113,7 @@ export function StatusBar(): ReactElement {
       ) : null}
 
       <span
-        className={
-          cachePct > 85
-            ? 'flex items-center gap-tight text-warn'
-            : 'flex items-center gap-tight'
-        }
+        className={cachePct > 85 ? 'flex items-center gap-tight text-warn' : 'flex items-center gap-tight'}
         title={t('status.cacheTitle')}
       >
         {t('status.cache', { size: formatBytes(stats.bytes), pct: cachePct })}
@@ -294,8 +296,10 @@ function describeViewLocalized(t: TFunction, view: ViewState): string {
     // English by the same contract that fixes core's (MCP reads it), and the
     // catalog cannot hold messages for a kind it has never seen.
     case 'package':
-      return lookupViewKind(view.packageKind)?.contract.describe(view)
-        ?? t('view.packageMissing', { kind: view.packageKind })
+      return (
+        lookupViewKind(view.packageKind)?.contract.describe(view) ??
+        t('view.packageMissing', { kind: view.packageKind })
+      )
   }
 }
 
@@ -367,4 +371,3 @@ function ChatEntry(): ReactElement {
     </>
   )
 }
-

@@ -133,8 +133,11 @@ export function peekErrorMsg<K extends ErrorMessageKey>(
 export function isPeekError(value: unknown): value is PeekError {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
-  return typeof v['code'] === 'string' && typeof v['message'] === 'string'
-    && (PEEK_ERROR_CODES as readonly string[]).includes(v['code'])
+  return (
+    typeof v['code'] === 'string' &&
+    typeof v['message'] === 'string' &&
+    (PEEK_ERROR_CODES as readonly string[]).includes(v['code'])
+  )
 }
 
 /**
@@ -220,9 +223,18 @@ export function zodIssueLines(error: z.ZodError): string[] {
  * own ALLCAPS rule) or an HTTP status (a number).
  */
 export const NETWORK_ERROR_CODES: ReadonlySet<string> = new Set([
-  'ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ENETUNREACH',
-  'ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'EAI_AGAIN', 'EACCES',
-  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET', 'UND_ERR_HEADERS_TIMEOUT',
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ETIMEDOUT',
+  'ECONNRESET',
+  'EPIPE',
+  'EAI_AGAIN',
+  'EACCES',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_SOCKET',
+  'UND_ERR_HEADERS_TIMEOUT',
 ])
 
 export function isNetworkErrorCode(code: string | undefined): boolean {
@@ -290,9 +302,7 @@ export interface MapDriverErrorContext {
  * pasting the statement into it only invites the user to look for a bug in it.
  */
 export function classifyTransportError(value: unknown, extra?: PeekErrorExtra): PeekError | null {
-  return classifyAbortError(value)
-    ?? classifyNetworkError(value, extra)
-    ?? classifyTimeoutError(value, extra)
+  return classifyAbortError(value) ?? classifyNetworkError(value, extra) ?? classifyTimeoutError(value, extra)
 }
 
 export function classifyAbortError(value: unknown): PeekError | null {

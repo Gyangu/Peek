@@ -111,7 +111,9 @@ const EXPAND = defineToolSpec({
     ]
   },
   render(outcomes, input, ctx) {
-    return { text: `${input.id} · ${String(outcomes.length)} outcome(s) · rev ${String(ctx.getSnapshot().rev)}` }
+    return {
+      text: `${input.id} · ${String(outcomes.length)} outcome(s) · rev ${String(ctx.getSnapshot().rev)}`,
+    }
   },
 })
 
@@ -141,7 +143,12 @@ describe('callTool', () => {
     assert.ok(res.ok)
     assert.deepEqual(res.result, {
       phase: 'commands',
-      commands: [{ name: 'view.update', input: { viewId: 'view_7', patch: { kind: 'package', state: { focus: 'n1' } } } }],
+      commands: [
+        {
+          name: 'view.update',
+          input: { viewId: 'view_7', patch: { kind: 'package', state: { focus: 'n1' } } },
+        },
+      ],
     })
   })
 

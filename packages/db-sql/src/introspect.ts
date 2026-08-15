@@ -57,21 +57,19 @@ function decodeSeg(raw: string): string {
 
 export const sqlNodeId = {
   schema: (name: string): string => `schema:${encodeSeg(name)}`,
-  relation: (schema: string, name: string): string =>
-    `relation:${encodeSeg(schema)}.${encodeSeg(name)}`,
+  relation: (schema: string, name: string): string => `relation:${encodeSeg(schema)}.${encodeSeg(name)}`,
 }
 
 export type ParsedSqlNodeId =
-  | { kind: 'schema'; name: string }
-  | { kind: 'relation'; schema: string; name: string }
-  | { kind: 'unknown' }
+  { kind: 'schema'; name: string } | { kind: 'relation'; schema: string; name: string } | { kind: 'unknown' }
 
 export function parseSqlNodeId(id: string): ParsedSqlNodeId {
   const sep = id.indexOf(':')
   if (sep < 0) return { kind: 'unknown' }
   const prefix = id.slice(0, sep)
   const rest = id.slice(sep + 1)
-  if (prefix === 'schema') return rest.length > 0 ? { kind: 'schema', name: decodeSeg(rest) } : { kind: 'unknown' }
+  if (prefix === 'schema')
+    return rest.length > 0 ? { kind: 'schema', name: decodeSeg(rest) } : { kind: 'unknown' }
   if (prefix === 'relation') {
     const dot = rest.indexOf('.')
     if (dot < 0) return { kind: 'unknown' }
@@ -164,9 +162,7 @@ export class SqlIntrospector {
         hasChildren: true,
       }
       if (name === def) {
-        node.detail = serverInfo.flavor
-          ? `${serverInfo.flavor} ${serverInfo.version}`
-          : serverInfo.version
+        node.detail = serverInfo.flavor ? `${serverInfo.flavor} ${serverInfo.version}` : serverInfo.version
       }
       return node
     })

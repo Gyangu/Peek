@@ -211,7 +211,9 @@ export function Sidebar(): ReactElement {
         {rows.length > 0 && !secretsAvailable ? (
           // Not a warning about this session: it explains why every saved
           // connection will ask for its password again.
-          <div className="px-snug py-loose text-center leading-prose text-fg-faint">{t('sidebar.noKeychain')}</div>
+          <div className="px-snug py-loose text-center leading-prose text-fg-faint">
+            {t('sidebar.noKeychain')}
+          </div>
         ) : null}
       </div>
 
@@ -361,7 +363,8 @@ function ConnectionRowItem({ row, active, onActivate, onEdit, onForgotten }: Row
               // in its own `readGraphState`-style reader, and seeding one here
               // would be the window guessing at a shape only the package knows.
               openPackageView: (packageKind) => {
-                if (conn) void dispatch('view.open', { spec: { kind: 'package', packageKind, connId: conn.id } })
+                if (conn)
+                  void dispatch('view.open', { spec: { kind: 'package', packageKind, connId: conn.id } })
               },
               edit: () => {
                 if (editable) onEdit(editable)

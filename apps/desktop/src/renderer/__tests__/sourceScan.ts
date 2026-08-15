@@ -428,15 +428,15 @@ const CANDIDATE = new RegExp(
     // opens with `[` rather than with a letter.
     String.raw`(?:(?:[a-z0-9][\w.-]*(?:${BRACKET}|${PAREN})?|${BRACKET}|${PAREN}):)*` +
     String.raw`(?:` +
-      // The arbitrary property, standing where a family would.
-      BRACKET +
-      String.raw`|` +
-      // The family, optionally negated: `bg`, `px`, `-mt`.
-      String.raw`-?[a-z][a-z0-9]*` +
-      // Dash-joined parts: a word, an arbitrary value, or a variable shorthand.
-      String.raw`(?:-(?:${BRACKET}|${PAREN}|[a-z0-9]+(?:\.[0-9]+)?))*` +
-      // The `/…` modifier: `from-accent/10`, `bg-black/[.06]`, `bg-accent/(--a)`.
-      String.raw`(?:\/(?:${BRACKET}|${PAREN}|[a-z0-9.]+))?` +
+    // The arbitrary property, standing where a family would.
+    BRACKET +
+    String.raw`|` +
+    // The family, optionally negated: `bg`, `px`, `-mt`.
+    String.raw`-?[a-z][a-z0-9]*` +
+    // Dash-joined parts: a word, an arbitrary value, or a variable shorthand.
+    String.raw`(?:-(?:${BRACKET}|${PAREN}|[a-z0-9]+(?:\.[0-9]+)?))*` +
+    // The `/…` modifier: `from-accent/10`, `bg-black/[.06]`, `bg-accent/(--a)`.
+    String.raw`(?:\/(?:${BRACKET}|${PAREN}|[a-z0-9.]+))?` +
     String.raw`)`,
   'g',
 )
@@ -522,7 +522,7 @@ export function stylesheets(rendererDir: string): string[] {
   assert.ok(out.length > 0, `no stylesheets found under ${rendererDir} — the scan is broken, not the CSS`)
   assert.ok(
     out.includes('styles.css'),
-    `the stylesheet scan did not find styles.css; it found ${out.join(", ")}. Something moved, and every ` +
+    `the stylesheet scan did not find styles.css; it found ${out.join(', ')}. Something moved, and every ` +
       `rule that reads this list has just gone vacuous.`,
   )
   return out

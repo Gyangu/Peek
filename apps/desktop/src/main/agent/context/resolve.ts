@@ -101,9 +101,7 @@ export interface AttachmentOutcome {
  * backends' slightly different payload types both satisfy it without either
  * being widened to match the other.
  */
-export function buildAttachmentReceipts(
-  resolved: readonly AttachmentOutcome[],
-): ChatAttachmentReceipt[] {
+export function buildAttachmentReceipts(resolved: readonly AttachmentOutcome[]): ChatAttachmentReceipt[] {
   const out: ChatAttachmentReceipt[] = []
   for (const a of resolved) {
     const failed = a.error !== undefined
@@ -239,9 +237,9 @@ async function resolveRows(
       a,
       peekError(
         'BAD_REQUEST',
-        `The selected rows span ${span.toLocaleString('en-US')} positions (row ${first} to row ${last}), `
-        + `which is more than peek will read to serialize ${indexes.length} rows. `
-        + 'Select rows that are closer together, or attach the whole result instead.',
+        `The selected rows span ${span.toLocaleString('en-US')} positions (row ${first} to row ${last}), ` +
+          `which is more than peek will read to serialize ${indexes.length} rows. ` +
+          'Select rows that are closer together, or attach the whole result instead.',
       ),
     )
   }
@@ -266,8 +264,8 @@ async function resolveRows(
       a,
       peekError(
         'NOT_FOUND',
-        'None of the selected rows are still loaded. The result set may have been evicted '
-        + "from peek's cache — re-run the query and select them again.",
+        'None of the selected rows are still loaded. The result set may have been evicted ' +
+          "from peek's cache — re-run the query and select them again.",
       ),
     )
   }
@@ -338,8 +336,8 @@ async function resolveCells(
       a,
       peekError(
         'BAD_REQUEST',
-        `The selection spans ${span.toLocaleString('en-US')} rows (row ${a.r0} to row ${a.r1}), `
-        + 'which is more than peek will read for one attachment. Select fewer rows.',
+        `The selection spans ${span.toLocaleString('en-US')} rows (row ${a.r0} to row ${a.r1}), ` +
+          'which is more than peek will read for one attachment. Select fewer rows.',
       ),
     )
   }
@@ -365,8 +363,8 @@ async function resolveCells(
       a,
       peekError(
         'NOT_FOUND',
-        `None of the selected columns (${a.columns.join(', ')}) are in this result set. `
-        + 'It may have been re-run with a different projection.',
+        `None of the selected columns (${a.columns.join(', ')}) are in this result set. ` +
+          'It may have been re-run with a different projection.',
       ),
     )
   }
@@ -416,14 +414,20 @@ async function resolveCell(
   if (colIndex < 0) {
     return failed(
       a,
-      peekError('NOT_FOUND', `Column "${a.column}" is not in this result set. It may have been re-run with a different projection.`),
+      peekError(
+        'NOT_FOUND',
+        `Column "${a.column}" is not in this result set. It may have been re-run with a different projection.`,
+      ),
     )
   }
   const row = slice.rows[0]
   if (row === undefined) {
     return failed(
       a,
-      peekError('NOT_FOUND', `Row ${a.rowIndex} is no longer loaded. Re-run the query and select the cell again.`),
+      peekError(
+        'NOT_FOUND',
+        `Row ${a.rowIndex} is no longer loaded. Re-run the query and select the cell again.`,
+      ),
     )
   }
 
@@ -475,8 +479,8 @@ async function fullValueText(
         })
         const note = peeked.eof
           ? ''
-          : `Note: this is the first ${peeked.byteLength.toLocaleString('en-US')} bytes`
-            + `${peeked.totalBytes === undefined ? '' : ` of ${peeked.totalBytes.toLocaleString('en-US')}`}; the value continues.`
+          : `Note: this is the first ${peeked.byteLength.toLocaleString('en-US')} bytes` +
+            `${peeked.totalBytes === undefined ? '' : ` of ${peeked.totalBytes.toLocaleString('en-US')}`}; the value continues.`
         return {
           text: peeked.encoding === 'base64' ? peeked.data : peeked.data,
           lang: langFor(peeked.contentType, peeked.encoding),
@@ -488,7 +492,10 @@ async function fullValueText(
     }
   }
   if (truncated) {
-    const size = truncated.byteLength === undefined ? '' : ` (full value is ${truncated.byteLength.toLocaleString('en-US')} bytes)`
+    const size =
+      truncated.byteLength === undefined
+        ? ''
+        : ` (full value is ${truncated.byteLength.toLocaleString('en-US')} bytes)`
     return {
       text: truncated.preview,
       lang: truncated.encoding === 'base64' ? 'text' : 'text',
@@ -509,7 +516,9 @@ function plainValueText(raw: unknown): string {
   if (typeof raw === 'string') return raw
   if (typeof raw === 'object') {
     try {
-      return JSON.stringify(raw, (_k, v: unknown) => (typeof v === 'bigint' ? v.toString() : v), 2) ?? String(raw)
+      return (
+        JSON.stringify(raw, (_k, v: unknown) => (typeof v === 'bigint' ? v.toString() : v), 2) ?? String(raw)
+      )
     } catch {
       return String(raw)
     }
@@ -517,11 +526,18 @@ function plainValueText(raw: unknown): string {
   return String(raw)
 }
 
-function isTruncated(v: unknown): { preview: string; encoding: string; byteLength?: number; ref?: import('@peek/core').ValueRef } | null {
+function isTruncated(
+  v: unknown,
+): { preview: string; encoding: string; byteLength?: number; ref?: import('@peek/core').ValueRef } | null {
   if (typeof v !== 'object' || v === null) return null
   const rec = v as Record<string, unknown>
   if (rec['__peekTruncated'] !== true) return null
-  return rec as unknown as { preview: string; encoding: string; byteLength?: number; ref?: import('@peek/core').ValueRef }
+  return rec as unknown as {
+    preview: string
+    encoding: string
+    byteLength?: number
+    ref?: import('@peek/core').ValueRef
+  }
 }
 
 /* --- schema ------------------------------------------------------- */
@@ -547,7 +563,10 @@ function resolveQuery(
 ): ResolvedAttachment {
   const view = options.source.readView(a.viewId)
   if (!view) {
-    return failed(a, peekError('NOT_FOUND', `View ${a.viewId} is no longer open, so its query text cannot be read.`))
+    return failed(
+      a,
+      peekError('NOT_FOUND', `View ${a.viewId} is no longer open, so its query text cannot be read.`),
+    )
   }
   if (view.kind !== 'query') {
     return failed(a, peekError('BAD_REQUEST', `View ${a.viewId} is a ${view.kind} view, not a query editor.`))
@@ -587,13 +606,16 @@ function resolveWorkspace(
  */
 function renderWorkspace(snap: WorkspaceSnapshot): string {
   const connections = snap.connections
-    .map((c) => `- \`${c.id}\` **${c.label}** · ${c.driverId} · ${c.status} · capabilities: ${c.capabilities.join(', ')}`)
+    .map(
+      (c) =>
+        `- \`${c.id}\` **${c.label}** · ${c.driverId} · ${c.status} · capabilities: ${c.capabilities.join(', ')}`,
+    )
     .join('\n')
   const views = snap.views
     .map(
       (v) =>
-        `- \`${v.id}\` ${v.kind}${v.visible ? ' **(on screen)**' : ' (background tab)'}`
-        + ` · panel ${v.panelId ?? 'none'} · ${v.describe}`,
+        `- \`${v.id}\` ${v.kind}${v.visible ? ' **(on screen)**' : ' (background tab)'}` +
+        ` · panel ${v.panelId ?? 'none'} · ${v.describe}`,
     )
     .join('\n')
 
@@ -601,9 +623,9 @@ function renderWorkspace(snap: WorkspaceSnapshot): string {
     title: 'peek workspace',
     facts: [`Revision ${snap.rev} · ${snap.views.length} view(s) · ${snap.connections.length} connection(s)`],
     prose:
-      `## Connections\n\n${connections || '_none_'}\n\n`
-      + `## Views\n\n${views || '_none_'}\n\n`
-      + '_Connection credentials are never included in peek attachments._',
+      `## Connections\n\n${connections || '_none_'}\n\n` +
+      `## Views\n\n${views || '_none_'}\n\n` +
+      '_Connection credentials are never included in peek attachments._',
   })
 }
 
@@ -732,7 +754,10 @@ function overBudget(a: ChatAttachment): ResolvedAttachment {
 }
 
 /** The connection behind a view, read from the snapshot. Chat views may have none. */
-function viewConnId(source: ContextSource, viewId: import('@peek/core').ViewId): import('@peek/core').ConnId | null {
+function viewConnId(
+  source: ContextSource,
+  viewId: import('@peek/core').ViewId,
+): import('@peek/core').ConnId | null {
   const view = source.readView(viewId)
   if (!view) return null
   return 'connId' in view && view.connId !== undefined ? view.connId : null

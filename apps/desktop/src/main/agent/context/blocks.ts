@@ -88,9 +88,9 @@ export function toContentBlock(
 ): { block: PeekContentBlock; store?: { uri: string; mimeType: string; text: string } } {
   const limit = options.inlineTokenLimit ?? DEFAULT_INLINE_TOKEN_LIMIT
   const oversized =
-    attachment.estimatedTokens > limit
-    && options.fetchToolName !== undefined
-    && attachment.error === undefined
+    attachment.estimatedTokens > limit &&
+    options.fetchToolName !== undefined &&
+    attachment.error === undefined
 
   const text = oversized ? withFetchInstruction(attachment, options.fetchToolName ?? '') : attachment.text
 
@@ -121,13 +121,13 @@ function withFetchInstruction(attachment: ResolvedAttachment, toolName: string):
   const head = cutOnLine(attachment.text, HEAD_CHARS)
   const remaining = attachment.text.length - head.length
   return (
-    `${head}\n\n`
-    + `> **Truncated for the prompt.** This is the first ${head.length.toLocaleString('en-US')} of `
-    + `${attachment.text.length.toLocaleString('en-US')} characters `
-    + `(~${estimateTokens(attachment.text).toLocaleString('en-US')} tokens in full). `
-    + `The remaining ${remaining.toLocaleString('en-US')} characters are available on demand: call `
-    + `\`${toolName}\` with uri="${attachment.uri}" and offset=${head.length}. `
-    + 'Fetch it only if the head does not answer the question.'
+    `${head}\n\n` +
+    `> **Truncated for the prompt.** This is the first ${head.length.toLocaleString('en-US')} of ` +
+    `${attachment.text.length.toLocaleString('en-US')} characters ` +
+    `(~${estimateTokens(attachment.text).toLocaleString('en-US')} tokens in full). ` +
+    `The remaining ${remaining.toLocaleString('en-US')} characters are available on demand: call ` +
+    `\`${toolName}\` with uri="${attachment.uri}" and offset=${head.length}. ` +
+    'Fetch it only if the head does not answer the question.'
   )
 }
 

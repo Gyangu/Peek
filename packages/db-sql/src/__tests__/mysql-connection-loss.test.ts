@@ -95,9 +95,9 @@ describe('db-sql: a MySQL connection lost mid-stream', () => {
     await admin.query('CREATE TABLE conn_loss (id INT PRIMARY KEY, payload VARCHAR(400))')
     await admin.query('SET SESSION cte_max_recursion_depth = 1000000')
     await admin.query(
-      'INSERT INTO conn_loss (id, payload)'
-      + ` WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < ${String(ROWS)})`
-      + " SELECT n, CONCAT('row-', n, '-', REPEAT('p', 380)) FROM s",
+      'INSERT INTO conn_loss (id, payload)' +
+        ` WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < ${String(ROWS)})` +
+        " SELECT n, CONCAT('row-', n, '-', REPEAT('p', 380)) FROM s",
     )
     session = (await mysqlDriver.connect(CONFIG)) as SqlSession
   })
@@ -143,7 +143,10 @@ describe('db-sql: a MySQL connection lost mid-stream', () => {
   })
 
   it('leaves the pool usable: the killed connection is not handed to the next borrower', async () => {
-    const cursor = await session.query({ resultId: newResultId(), text: 'SELECT COUNT(*) AS n FROM conn_loss' })
+    const cursor = await session.query({
+      resultId: newResultId(),
+      text: 'SELECT COUNT(*) AS n FROM conn_loss',
+    })
     const frame = await within(cursor.next(), 20_000, 'a query after the connection loss')
     assert.ok(frame?.done, 'the follow-up query must complete normally')
     await cursor.close()

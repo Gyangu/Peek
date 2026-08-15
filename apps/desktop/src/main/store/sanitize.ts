@@ -1,10 +1,5 @@
 import type { Patch } from 'immer'
-import {
-  REDACTED,
-  redactConnectionConfig,
-  type ConnectionState,
-  type Workspace,
-} from '@peek/core'
+import { REDACTED, redactConnectionConfig, type ConnectionState, type Workspace } from '@peek/core'
 import { parseConnectionConfig, redactRulesFor } from '../../drivers/manifests'
 
 /**

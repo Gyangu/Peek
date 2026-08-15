@@ -129,7 +129,10 @@ describe('reconciling one live session against a new tool set', () => {
 
     assert.deepEqual(fake.removed, ['expand_node'])
     assert.deepEqual([...fake.table.keys()], ['run_query'])
-    assert.deepEqual(after.map((entry) => entry.tool.name), ['run_query'])
+    assert.deepEqual(
+      after.map((entry) => entry.tool.name),
+      ['run_query'],
+    )
   })
 
   test('a package installed while the session was open gains its tools', () => {
@@ -142,7 +145,10 @@ describe('reconciling one live session against a new tool set', () => {
 
     assert.deepEqual(fake.registered, ['run_query', 'expand_node'])
     assert.deepEqual(fake.removed, [])
-    assert.deepEqual(after.map((entry) => entry.tool.name), ['run_query', 'expand_node'])
+    assert.deepEqual(
+      after.map((entry) => entry.tool.name),
+      ['run_query', 'expand_node'],
+    )
   })
 
   test('a surviving tool keeps its registration and is not registered twice', () => {

@@ -17,8 +17,7 @@ export const context: CatalogFor<ContextMessages> = {
   'context.attach.rows': { other: '加入选中的 {count} 行' },
   'context.attach.rowsTitle': '只发送表格中高亮的那几行',
   'context.attach.result': '加入本次结果（前 {count} 行）',
-  'context.attach.resultTitle':
-    '发送的是消息发出那一刻的结果——先改 SQL 重跑，发出去的就是新数据',
+  'context.attach.resultTitle': '发送的是消息发出那一刻的结果——先改 SQL 重跑，发出去的就是新数据',
   'context.attach.cell': '加入单元格 {column}（第 {row} 行）',
   'context.attach.cellTitle': '发送完整值，而不是表格里显示的预览',
   'context.attach.cells': '加入这 {columns} 列 × {rows} 行',

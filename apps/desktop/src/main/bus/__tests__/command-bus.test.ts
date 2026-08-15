@@ -184,7 +184,11 @@ test('conn.open: connecting → ready, with capabilities filled in by the driver
   assert.equal(res.ok, true)
   if (!res.ok) return
 
-  assert.equal(res.data.status, 'ready', 'finalize corrected the result against the post-effect source of truth')
+  assert.equal(
+    res.data.status,
+    'ready',
+    'finalize corrected the result against the post-effect source of truth',
+  )
   assert.deepEqual(res.data.capabilities, PG_CAPS)
   assert.equal(res.data.serverInfo?.version, '16.4')
   assert.ok(res.data.treeViewId)
@@ -274,11 +278,7 @@ test('view.open replace=false: an occupied panel gains a tab rather than being s
   const h = harness()
   const connId = await connect(h)
   const first = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId } }, 'ui')
-  const second = await h.bus.dispatch(
-    'view.open',
-    { spec: { kind: 'tree', connId }, replace: false },
-    'ui',
-  )
+  const second = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId }, replace: false }, 'ui')
   assert.equal(first.ok && second.ok, true)
   if (!first.ok || !second.ok) return
 
@@ -449,9 +449,12 @@ test('the driver reports CANCELLED: the view returns to idle with no red error b
   assert.equal(cancelled.ok, true)
 
   // Once cancelled, the driver host's StreamPump always emits a result.error(CANCELLED)
-  h.store.apply((draft) => {
-    failResult(draft, run.data.resultId, peekError('CANCELLED', 'The result stream was cancelled'))
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      failResult(draft, run.data.resultId, peekError('CANCELLED', 'The result stream was cancelled'))
+    },
+    { source: 'system' },
+  )
 
   const state = h.store.getState()
   assert.equal(state.views[run.data.viewId].status, 'idle', 'a cancel is not an error')
@@ -466,13 +469,16 @@ test('the driver reports a real error: the view lands on error carrying the stru
   assert.equal(run.ok, true)
   if (!run.ok) return
 
-  h.store.apply((draft) => {
-    failResult(
-      draft,
-      run.data.resultId,
-      peekError('SYNTAX_ERROR', 'column "boom" does not exist', { driverCode: '42703' }),
-    )
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      failResult(
+        draft,
+        run.data.resultId,
+        peekError('SYNTAX_ERROR', 'column "boom" does not exist', { driverCode: '42703' }),
+      )
+    },
+    { source: 'system' },
+  )
 
   const state = h.store.getState()
   assert.equal(state.views[run.data.viewId].status, 'error')
@@ -669,8 +675,16 @@ test('layout.close: the whole tab stack goes, not just the visible one', async (
   assert.equal(split.ok, true)
   if (!split.ok) return
 
-  const a = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId }, panelId: split.data.panelId }, 'ui')
-  const b = await h.bus.dispatch('view.open', { spec: { kind: 'tree', connId }, panelId: split.data.panelId }, 'ui')
+  const a = await h.bus.dispatch(
+    'view.open',
+    { spec: { kind: 'tree', connId }, panelId: split.data.panelId },
+    'ui',
+  )
+  const b = await h.bus.dispatch(
+    'view.open',
+    { spec: { kind: 'tree', connId }, panelId: split.data.panelId },
+    'ui',
+  )
   assert.equal(a.ok && b.ok, true)
   if (!a.ok || !b.ok) return
 
@@ -797,7 +811,11 @@ test('store: every command bumps rev by 1 and subscribers receive contiguous pat
   await connect(h)
   assert.ok(seen.length >= 2, 'conn.open produces at least two patch batches: connecting and ready')
   for (let i = 1; i < seen.length; i += 1) {
-    assert.equal(seen[i].fromRev, seen[i - 1].rev, 'revs must be contiguous, or the renderer decides it dropped a batch')
+    assert.equal(
+      seen[i].fromRev,
+      seen[i - 1].rev,
+      'revs must be contiguous, or the renderer decides it dropped a batch',
+    )
   }
   assert.equal(seen[seen.length - 1].rev, h.store.rev)
 })

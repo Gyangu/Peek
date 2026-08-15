@@ -58,10 +58,10 @@ function read(): StoredConsent | null {
     if (raw) {
       const parsed: unknown = JSON.parse(raw)
       if (
-        typeof parsed === 'object'
-        && parsed !== null
-        && typeof (parsed as StoredConsent).version === 'number'
-        && typeof (parsed as StoredConsent).acceptedAt === 'number'
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        typeof (parsed as StoredConsent).version === 'number' &&
+        typeof (parsed as StoredConsent).acceptedAt === 'number'
       ) {
         cached = parsed as StoredConsent
       }

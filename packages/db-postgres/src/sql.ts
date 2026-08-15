@@ -141,9 +141,7 @@ export interface ScanSql {
 /** collectionScan → SELECT statement. Every value parameterized, every identifier quoted. */
 export function buildScanSql(input: ScanSqlInput): ScanSql {
   const p = new ParamList()
-  const cols = input.columns && input.columns.length > 0
-    ? input.columns.map(quoteIdent).join(', ')
-    : '*'
+  const cols = input.columns && input.columns.length > 0 ? input.columns.map(quoteIdent).join(', ') : '*'
   const where = renderWhere(input.filter, p)
   const order = renderOrderBy(input.sort)
 

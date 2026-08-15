@@ -372,7 +372,11 @@ describe('settings.write — keyboard bindings', () => {
 
   test('reads back what a restart would read', async () => {
     const dir = tempConfigDir()
-    await busWith(dir).dispatch('settings.write', { keybindings: { 'panel.splitRow': 'Mod+Alt+Backslash' } }, 'ui')
+    await busWith(dir).dispatch(
+      'settings.write',
+      { keybindings: { 'panel.splitRow': 'Mod+Alt+Backslash' } },
+      'ui',
+    )
     const res = await busWith(dir).dispatch('settings.read', {}, 'ui')
 
     assert.ok(res.ok)
@@ -401,7 +405,6 @@ describe('settings.write — keyboard bindings', () => {
   })
 })
 
-
 /* ------------------------------------------------------------------ */
 /* The user's own MCP servers                                          */
 /* ------------------------------------------------------------------ */
@@ -422,7 +425,13 @@ test('an MCP credential is sealed on the way in and never comes back', async () 
 
   const agent = await writeAgent(bus, {
     mcpServers: [
-      { name: 'docs', transport: 'http', target: 'https://example.com/mcp', authValue: 's3cret', enabled: true },
+      {
+        name: 'docs',
+        transport: 'http',
+        target: 'https://example.com/mcp',
+        authValue: 's3cret',
+        enabled: true,
+      },
     ],
   })
 
@@ -468,7 +477,10 @@ test('the MCP list is replaced wholesale, so a removed server is actually gone',
   // is exactly wrong here: it can only ever add, so removing a row would be
   // inexpressible.
   const after2 = await writeAgent(bus, { mcpServers: [a] })
-  assert.deepEqual(after2.mcpServers.map((s) => s.name), ['a'])
+  assert.deepEqual(
+    after2.mcpServers.map((s) => s.name),
+    ['a'],
+  )
 })
 
 test('a repeated server name is refused rather than allowed to shadow the first', async () => {
@@ -494,7 +506,11 @@ test('a name that is not a legal tool prefix is refused by the schema, not store
   // storing a row whose failure mode is "the model ignored your server".
   const res = await bus.dispatch(
     'settings.write',
-    { agent: { mcpServers: [{ name: 'My Server', transport: 'http', target: 'https://x/mcp', enabled: true }] } },
+    {
+      agent: {
+        mcpServers: [{ name: 'My Server', transport: 'http', target: 'https://x/mcp', enabled: true }],
+      },
+    },
     'ui',
   )
   assert.equal(res.ok, false)
@@ -506,7 +522,13 @@ test('a vault that cannot seal drops the credential rather than storing it in th
   // The default vault refuses, which is what a machine with no keyring does.
   const agent = await writeAgent(busWith(dir), {
     mcpServers: [
-      { name: 'docs', transport: 'http', target: 'https://example.com/mcp', authValue: 's3cret', enabled: true },
+      {
+        name: 'docs',
+        transport: 'http',
+        target: 'https://example.com/mcp',
+        authValue: 's3cret',
+        enabled: true,
+      },
     ],
   })
 

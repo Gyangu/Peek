@@ -8,13 +8,7 @@
  */
 
 import { z } from 'zod'
-import {
-  MCP_DEFAULT_MAX_ROWS,
-  ResultIdSchema,
-  ViewIdSchema,
-  commandSchemas,
-  peekError,
-} from '@peek/core'
+import { MCP_DEFAULT_MAX_ROWS, ResultIdSchema, ViewIdSchema, commandSchemas, peekError } from '@peek/core'
 import { defineCommandTool, errorOutput, outcomeData } from '../executor'
 import { toJson } from '../summary'
 import { metaText, renderRowsTable, waitForResult } from '../wait'
@@ -89,7 +83,9 @@ export default defineCommandTool({
     const parsed = QueryRunResultShape.safeParse(outcomeData(outcomes, 'query.run'))
     if (!parsed.success) {
       return errorOutput(
-        peekError('INTERNAL', 'The return value of query.run could not be parsed', { detail: toJson(outcomes) }),
+        peekError('INTERNAL', 'The return value of query.run could not be parsed', {
+          detail: toJson(outcomes),
+        }),
       )
     }
     const { resultId, viewId } = parsed.data
@@ -106,9 +102,7 @@ export default defineCommandTool({
       if (meta.elapsedMs !== undefined) headBits.push(`${meta.elapsedMs}ms`)
       if (meta.truncated) {
         headBits.push(
-          meta.status === 'paused'
-            ? 'truncated (backpressure pause)'
-            : `truncated at maxRows=${maxRows}`,
+          meta.status === 'paused' ? 'truncated (backpressure pause)' : `truncated at maxRows=${maxRows}`,
         )
       }
     } else {
@@ -119,7 +113,8 @@ export default defineCommandTool({
     /* --- A real failure: the only branch that sets isError --- */
     if (meta?.status === 'error' && meta.error) {
       return {
-        text: `${headBits.join(' · ')}\n\n[${meta.error.code}] ${meta.error.message}` +
+        text:
+          `${headBits.join(' · ')}\n\n[${meta.error.code}] ${meta.error.message}` +
           `${meta.error.detail ? `\n${meta.error.detail}` : ''}`,
         data: meta.error,
         isError: true,
@@ -136,12 +131,13 @@ export default defineCommandTool({
       notice =
         // peek writes this reason today, but it is a free-text field on ResultMeta
         // that a driver may fill, and it lands mid-sentence in peek's own voice
-        `\n\n⏸ Paused (not a failure): ${metaText(meta.pausedReason ?? 'backpressure idle timeout')}. `
-        + `The ${meta.rows} rows already loaded are complete, valid data you can use as they are; `
-        + 'more rows remain unfetched. To continue, run the query again (optionally with a larger '
-        + 'maxRows, or scroll the grid to the bottom in the UI first).'
+        `\n\n⏸ Paused (not a failure): ${metaText(meta.pausedReason ?? 'backpressure idle timeout')}. ` +
+        `The ${meta.rows} rows already loaded are complete, valid data you can use as they are; ` +
+        'more rows remain unfetched. To continue, run the query again (optionally with a larger ' +
+        'maxRows, or scroll the grid to the bottom in the UI first).'
     } else if (meta?.status === 'cancelled') {
-      notice = '\n\n■ Cancelled (not a failure): the rows already loaded are valid; the remaining data was not fetched.'
+      notice =
+        '\n\n■ Cancelled (not a failure): the rows already loaded are valid; the remaining data was not fetched.'
     }
 
     let table = ''
@@ -155,7 +151,8 @@ export default defineCommandTool({
         table = '\n\n(Failed to sample rows; view the full result in the UI.)'
       }
     } else if (previewRows > 0 && !ctx.readResultRows) {
-      table = '\n\n(readResultRows is not wired up: row data lives only in the UI cache, so only metadata is available here.)'
+      table =
+        '\n\n(readResultRows is not wired up: row data lives only in the UI cache, so only metadata is available here.)'
     }
 
     // `metaText` for the same reason `renderRowsTable` applies it to the header:

@@ -1,9 +1,4 @@
-import {
-  isRefreshableViewKind,
-  type ConnId,
-  type RefreshableView,
-  type Workspace,
-} from '@peek/core'
+import { isRefreshableViewKind, type ConnId, type RefreshableView, type Workspace } from '@peek/core'
 import type { CommandBus } from './bus'
 import { refreshCommand } from './refresh-command'
 import type { WorkspaceStore } from './store/workspace-store'

@@ -226,7 +226,9 @@ async function runOnce({ electronBin, verbose }) {
     child.on('exit', (code) => {
       finish(
         reject,
-        new Error(`the app exited with code ${String(code)} before showing a window.\n${logLines.join('\n')}`),
+        new Error(
+          `the app exited with code ${String(code)} before showing a window.\n${logLines.join('\n')}`,
+        ),
       )
     })
   })

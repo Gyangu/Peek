@@ -1,5 +1,9 @@
 import type { Capability, ConnId, HostMethod, HostParams, HostResult, ResultId } from '@peek/core'
-import type { DriverHostProcess as RealDriverHostProcess, HostProcessHooks, SpawnOptions } from '../host-process'
+import type {
+  DriverHostProcess as RealDriverHostProcess,
+  HostProcessHooks,
+  SpawnOptions,
+} from '../host-process'
 
 /**
  * A driver host that never leaves the test process.

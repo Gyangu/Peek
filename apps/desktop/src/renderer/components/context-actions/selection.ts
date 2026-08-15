@@ -67,11 +67,7 @@ export interface ClickModifiers {
   toggle: boolean
 }
 
-export function applyRowClick(
-  selection: RowSelection,
-  index: number,
-  mods: ClickModifiers,
-): RowSelection {
+export function applyRowClick(selection: RowSelection, index: number, mods: ClickModifiers): RowSelection {
   if (mods.shift && selection.anchor !== null) {
     const range = rangeBetween(selection.anchor, index)
     // Additive extend keeps what was there; a plain extend replaces it. The

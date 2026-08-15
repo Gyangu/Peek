@@ -79,10 +79,18 @@ export interface HostChannelLike {
 /* ------------------------------------------------------------------ */
 
 const HOST_METHODS: ReadonlySet<string> = new Set<HostMethod>([
-  'connect', 'disconnect', 'ping',
-  'introspect.children', 'introspect.describe',
-  'query.run', 'collection.scan', 'vector.search',
-  'keyvalue.get', 'value.peek', 'cancel', 'shutdown',
+  'connect',
+  'disconnect',
+  'ping',
+  'introspect.children',
+  'introspect.describe',
+  'query.run',
+  'collection.scan',
+  'vector.search',
+  'keyvalue.get',
+  'value.peek',
+  'cancel',
+  'shutdown',
 ])
 
 function asInbound(data: unknown): HostInbound | null {
@@ -220,8 +228,8 @@ class StreamPump {
       // English literal on purpose: this text is written into workspace state and
       // read back by MCP, which stays English forever.
       message:
-        `Result stream paused: no consumption ack for ${Math.round(this.idleAckMs / 1000)}s,`
-        + ' the server-side cursor and connection have been released',
+        `Result stream paused: no consumption ack for ${Math.round(this.idleAckMs / 1000)}s,` +
+        ' the server-side cursor and connection have been released',
       resumable: true,
     }
     this.host.sendStream({ t: 'paused', resultId: this.resultId, paused: pause })
@@ -237,7 +245,7 @@ class StreamPump {
         // before attachPort wedges here forever, cancellation cannot wake it, and
         // the cursor holds its connection and read-only transaction indefinitely.
         const port = await Promise.race([this.host.waitPort(), this.stopSignal])
-        if (await this.waitWindow() === 'paused') {
+        if ((await this.waitWindow()) === 'paused') {
           this.announcePause()
           break
         }
@@ -321,9 +329,8 @@ export class DriverHost {
     this.channel = channel
     this.driver = options.driver ?? postgresDriver
     this.onShutdown = options.onShutdown
-    this.idleAckMs = options.idleAckMs !== undefined && options.idleAckMs > 0
-      ? options.idleAckMs
-      : IDLE_ACK_TIMEOUT_MS
+    this.idleAckMs =
+      options.idleAckMs !== undefined && options.idleAckMs > 0 ? options.idleAckMs : IDLE_ACK_TIMEOUT_MS
     channel.on('message', (event) => {
       void this.onMessage(event)
     })
@@ -544,10 +551,7 @@ export class DriverHost {
     }
   }
 
-  private async onConnect(
-    config: ConnectionConfig,
-    timeoutMs?: number,
-  ): Promise<HostResult<'connect'>> {
+  private async onConnect(config: ConnectionConfig, timeoutMs?: number): Promise<HostResult<'connect'>> {
     await this.closeSession()
     this.emit({ kind: 'evt', type: 'status', status: 'connecting' })
     try {
@@ -616,9 +620,6 @@ export class DriverHost {
   }
 }
 
-export function createDriverHost(
-  channel: HostChannelLike,
-  options: DriverHostOptions = {},
-): DriverHost {
+export function createDriverHost(channel: HostChannelLike, options: DriverHostOptions = {}): DriverHost {
   return new DriverHost(channel, options)
 }

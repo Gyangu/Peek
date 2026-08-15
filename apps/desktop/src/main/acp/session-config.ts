@@ -121,7 +121,6 @@ export function buildUserMcpServers(servers: readonly UserMcpServer[]): McpServe
   })
 }
 
-
 /** `~/.peek/chat`. The parent of every backend's own directory, and where the route index lives. */
 export function chatRootDir(configDir?: string): string {
   return join(configDir ?? join(homedir(), PEEK_CONFIG_DIR_NAME), CHAT_WORKDIR_NAME)

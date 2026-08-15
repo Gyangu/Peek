@@ -127,16 +127,11 @@ export class PgValuePeeker {
         // No catalog key covers this: it can only be reached by pointing a
         // PostgreSQL connection at another driver's ValueRef, which is a wiring
         // bug rather than something a user can act on. Plain English literal.
-        throw peekError(
-          'BAD_REQUEST',
-          `The PostgreSQL driver does not support ${ref.kind} value references`,
-        )
+        throw peekError('BAD_REQUEST', `The PostgreSQL driver does not support ${ref.kind} value references`)
     }
   }
 
-  private async resolveResultCell(
-    ref: Extract<ValueRef, { kind: 'resultCell' }>,
-  ): Promise<ScalarTarget> {
+  private async resolveResultCell(ref: Extract<ValueRef, { kind: 'resultCell' }>): Promise<ScalarTarget> {
     const src = this.deps.sources.get(ref.resultId)
     if (!src) {
       throw peekErrorMsg('NOT_FOUND', 'error.result.stale', { resultId: ref.resultId })
@@ -183,9 +178,7 @@ export class PgValuePeeker {
     }
   }
 
-  private async resolveRelationCell(
-    ref: Extract<ValueRef, { kind: 'relationCell' }>,
-  ): Promise<ScalarTarget> {
+  private async resolveRelationCell(ref: Extract<ValueRef, { kind: 'relationCell' }>): Promise<ScalarTarget> {
     const info = await this.deps.introspector.describeCollection(ref.collection)
     const col = info.columns.find((c) => c.name === ref.column)
     if (!col) {
@@ -203,8 +196,7 @@ export class PgValuePeeker {
     })
     const bexpr = toByteaExpr(quoteIdent(ref.column), col.nativeType === 'bytea')
     const inner =
-      `SELECT ${bexpr} AS b FROM ${qualifiedName(ref.collection)}` +
-      ` WHERE ${conds.join(' AND ')} LIMIT 1`
+      `SELECT ${bexpr} AS b FROM ${qualifiedName(ref.collection)}` + ` WHERE ${conds.join(' AND ')} LIMIT 1`
     return { inner, params: p, column: col }
   }
 }

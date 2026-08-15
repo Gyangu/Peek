@@ -21,7 +21,5 @@ import type { TFunction } from '../../i18n'
  */
 export function elisionLabel(elision: NamespaceElision, t: TFunction): string {
   const remaining = elision.remaining
-  return remaining === undefined
-    ? t('tree.elision.unknown')
-    : t('tree.elision.more', { count: remaining })
+  return remaining === undefined ? t('tree.elision.unknown') : t('tree.elision.more', { count: remaining })
 }

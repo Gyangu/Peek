@@ -46,7 +46,12 @@ test('a route survives a round trip through the file', () => {
 test('recording twice keeps the first timestamp', () => {
   withDir((dir) => {
     const index = SessionIndex.at(dir)
-    const first = index.record({ sessionId: 'sess_a', backend: 'acp', agentId: 'claude-code', createdAt: 1000 })
+    const first = index.record({
+      sessionId: 'sess_a',
+      backend: 'acp',
+      agentId: 'claude-code',
+      createdAt: 1000,
+    })
     // Bringing a session up again after an agent restart must not restamp it and
     // reshuffle the list under the user.
     const second = index.record({ sessionId: 'sess_a', backend: 'acp', agentId: 'codex', createdAt: 2000 })
@@ -63,7 +68,10 @@ test('the list is newest first, across backends', () => {
     index.record({ sessionId: 'mid', backend: 'acp', agentId: 'codex', createdAt: 200 })
     // Mixed on purpose: one list, ordered by when the user started the
     // conversation, not grouped by who answered it.
-    assert.deepEqual(index.list().map((r) => r.sessionId), ['new', 'mid', 'old'])
+    assert.deepEqual(
+      index.list().map((r) => r.sessionId),
+      ['new', 'mid', 'old'],
+    )
   })
 })
 
@@ -120,7 +128,12 @@ test('malformed entries are dropped, not repaired, and do not take their neighbo
       }),
       'utf8',
     )
-    assert.deepEqual(SessionIndex.at(dir).list().map((r) => r.sessionId), ['good'])
+    assert.deepEqual(
+      SessionIndex.at(dir)
+        .list()
+        .map((r) => r.sessionId),
+      ['good'],
+    )
   })
 })
 
@@ -189,7 +202,10 @@ test('touch survives a restart and orders the list by last activity', () => {
     index.touch('old', { updatedAt: 300 })
 
     const reopened = SessionIndex.at(dir)
-    assert.deepEqual(reopened.list().map((r) => r.sessionId), ['old', 'new'])
+    assert.deepEqual(
+      reopened.list().map((r) => r.sessionId),
+      ['old', 'new'],
+    )
     assert.equal(reopened.lookup('old')?.updatedAt, 300)
   })
 })

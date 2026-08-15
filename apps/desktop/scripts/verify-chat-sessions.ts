@@ -101,10 +101,9 @@ try {
 
   // `--session <prefix>` picks one by id prefix; otherwise the most recent.
   const wanted = process.argv[process.argv.indexOf('--session') + 1]
-  const newest =
-    process.argv.includes('--session')
-      ? listed.sessions.find((s) => s.sessionId.startsWith(wanted ?? ''))
-      : [...listed.sessions].sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))[0]
+  const newest = process.argv.includes('--session')
+    ? listed.sessions.find((s) => s.sessionId.startsWith(wanted ?? ''))
+    : [...listed.sessions].sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))[0]
   if (!newest) throw new Error('no session to load; nothing further can be checked')
 
   console.log(`\n2. Loading ${newest.sessionId.slice(0, 8)} (${newest.title ?? 'untitled'})`)

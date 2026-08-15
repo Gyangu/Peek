@@ -40,7 +40,12 @@ const PG_CONFIG: PostgresConnectionConfig = {
   url: 'postgresql://postgres@localhost:5432/postgres',
 }
 const CAPS: Capability[] = [
-  'introspect', 'tabularQuery', 'collectionScan', 'vectorSearch', 'valuePeek', 'cancel',
+  'introspect',
+  'tabularQuery',
+  'collectionScan',
+  'vectorSearch',
+  'valuePeek',
+  'cancel',
 ]
 
 interface Harness {
@@ -112,9 +117,12 @@ async function openTableWithRows(h: Harness, connId: ConnId): Promise<{ viewId: 
   if (!opened.ok) throw new Error('unreachable')
   const resultId = opened.data.resultId
   assert.ok(resultId !== undefined, 'opening a table starts a scan')
-  h.store.apply((draft) => {
-    finishResult(draft, resultId, { rows: 200, elapsedMs: 4 })
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      finishResult(draft, resultId, { rows: 200, elapsedMs: 4 })
+    },
+    { source: 'system' },
+  )
   return { viewId: opened.data.viewId, resultId }
 }
 
@@ -124,7 +132,11 @@ describe('a rejected fetch rolls the view back to the request that produced its 
     const connId = await connect(h)
     const { viewId, resultId } = await openTableWithRows(h, connId)
 
-    h.failNext(new CommandFailure(peekError('BAD_REQUEST', 'Cannot order by total: this collection cannot be ordered')))
+    h.failNext(
+      new CommandFailure(
+        peekError('BAD_REQUEST', 'Cannot order by total: this collection cannot be ordered'),
+      ),
+    )
     const res = await h.bus.dispatch(
       'view.update',
       { viewId, patch: { kind: 'table', sort: [{ column: 'total', dir: 'desc' }] } },
@@ -187,9 +199,12 @@ describe('a rejected fetch rolls the view back to the request that produced its 
     if (!ok.ok) throw new Error('unreachable')
     const secondResultId = ok.data.resultId
     assert.ok(secondResultId !== undefined)
-    h.store.apply((draft) => {
-      finishResult(draft, secondResultId, { rows: 200, elapsedMs: 5 })
-    }, { source: 'system' })
+    h.store.apply(
+      (draft) => {
+        finishResult(draft, secondResultId, { rows: 200, elapsedMs: 5 })
+      },
+      { source: 'system' },
+    )
 
     // A third request is refused; the view must fall back to the *second*
     // request's parameters, not all the way to the first.
@@ -221,9 +236,12 @@ describe('a rejected fetch rolls the view back to the request that produced its 
     const viewId = opened.data.viewId
     const resultId = opened.data.resultId
     assert.ok(resultId !== undefined, 'a vector view with a query vector searches on open')
-    h.store.apply((draft) => {
-      finishResult(draft, resultId, { rows: 10, elapsedMs: 3 })
-    }, { source: 'system' })
+    h.store.apply(
+      (draft) => {
+        finishResult(draft, resultId, { rows: 10, elapsedMs: 3 })
+      },
+      { source: 'system' },
+    )
 
     h.failNext(new CommandFailure(peekError('BAD_REQUEST', 'topK exceeds the collection limit')))
     await h.bus.dispatch('view.update', { viewId, patch: { kind: 'vector', topK: 5_000 } }, 'ui')
@@ -241,9 +259,12 @@ describe('a rejected fetch rolls the view back to the request that produced its 
     const first = await h.bus.dispatch('query.run', { connId, text: 'select * from orders' }, 'ui')
     assert.equal(first.ok, true)
     if (!first.ok) throw new Error('unreachable')
-    h.store.apply((draft) => {
-      finishResult(draft, first.data.resultId, { rows: 500, elapsedMs: 12 })
-    }, { source: 'system' })
+    h.store.apply(
+      (draft) => {
+        finishResult(draft, first.data.resultId, { rows: 500, elapsedMs: 12 })
+      },
+      { source: 'system' },
+    )
 
     h.failNext(new CommandFailure(peekError('SYNTAX_ERROR', 'syntax error at or near "slect"')))
     await h.bus.dispatch('query.run', { viewId: first.data.viewId, text: 'slect 1' }, 'ui')

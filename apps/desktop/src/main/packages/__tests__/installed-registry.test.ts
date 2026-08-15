@@ -79,7 +79,11 @@ describe('the loader’s report, as a registry', () => {
     const installed = installedFrom(loadPackages(packagesRoot({ alpha: manifestOf('alpha') })))
 
     assert.deepEqual(
-      installed.drivers.map((driver) => [driver.packageId, driver.manifest.driverId, driver.manifest.version]),
+      installed.drivers.map((driver) => [
+        driver.packageId,
+        driver.manifest.driverId,
+        driver.manifest.version,
+      ]),
       [['alpha', 'alpha', '2.3.4']],
     )
   })
@@ -98,7 +102,15 @@ describe('the loader’s report, as a registry', () => {
     const withExtras = manifestOf('crosser')
     Object.assign(withExtras, {
       viewKinds: [{ kind: 'graph', driverIds: ['crosser'], title: { en: 'Graph' } }],
-      tools: [{ kind: 'command', hasRenderer: false, name: 'do_it', description: 'do', inputSchema: { type: 'object' } }],
+      tools: [
+        {
+          kind: 'command',
+          hasRenderer: false,
+          name: 'do_it',
+          description: 'do',
+          inputSchema: { type: 'object' },
+        },
+      ],
     })
     const installed = installedFrom(loadPackages(packagesRoot({ crosser: withExtras })))
 
@@ -156,11 +168,11 @@ describe('what the scan says out loud', () => {
   })
 
   test('a package with no redact block warns, and one with an empty block does not', () => {
-    const silent = packageLoadNotices(
-      loadPackages(packagesRoot({ quiet: manifestOf('quiet') })),
-      'ignored',
+    const silent = packageLoadNotices(loadPackages(packagesRoot({ quiet: manifestOf('quiet') })), 'ignored')
+    assert.deepEqual(
+      silent.filter((notice) => notice.level === 'warn'),
+      [],
     )
-    assert.deepEqual(silent.filter((notice) => notice.level === 'warn'), [])
 
     const root = packagesRoot({ leaky: manifestOf('leaky', { redact: undefined }) })
     const warned = packageLoadNotices(loadPackages(root), root)

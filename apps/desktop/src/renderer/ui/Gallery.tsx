@@ -38,9 +38,8 @@ export function Gallery(): ReactElement {
     <div className="flex flex-col gap-snug mt-tight">
       <p className="m-0 text-fg-dim text-micro leading-prose">
         Hover, press and tab through these: <code>:hover</code>, <code>:active</code> and{' '}
-        <code>:focus-visible</code> cannot be shown at rest, and the last two did not exist at all
-        before the control layer. Last pressed:{' '}
-        <span className="font-mono tabular-nums">{pressed}</span>
+        <code>:focus-visible</code> cannot be shown at rest, and the last two did not exist at all before the
+        control layer. Last pressed: <span className="font-mono tabular-nums">{pressed}</span>
       </p>
 
       {BUTTON_VARIANT_NAMES.map((variant) => (

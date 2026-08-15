@@ -39,7 +39,7 @@ export default defineCommandTool({
     'You are not opening things on top of the person you are talking to; the receipt names the ' +
     'pane it really landed in. ' +
     'By default it is added there as a new tab and shown, closing nothing — pass replace=true to ' +
-    'close that panel\'s visible view and take its place in the tab bar, or index to choose where in ' +
+    "close that panel's visible view and take its place in the tab bar, or index to choose where in " +
     'the tab bar it lands (0 is leftmost; omitted appends). ' +
     'To put it in a pane of its own instead, open it and then move_view it onto a panel edge. ' +
     'Name it with spec.title when you are about to open several views of the same kind in one panel: ' +
@@ -61,9 +61,8 @@ export default defineCommandTool({
     let resultLine = ''
     if (resultId !== undefined) {
       const waitMs = input.waitMs ?? 3000
-      const { meta, settled } = waitMs > 0
-        ? await waitForResult(ctx, resultId, waitMs)
-        : { meta: null, settled: false }
+      const { meta, settled } =
+        waitMs > 0 ? await waitForResult(ctx, resultId, waitMs) : { meta: null, settled: false }
       resultLine = meta
         ? `\nResult ${resultId}: ${meta.status} · ${meta.rows} rows` +
           `${meta.elapsedMs === undefined ? '' : ` · ${meta.elapsedMs}ms`}` +

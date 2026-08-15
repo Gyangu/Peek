@@ -166,7 +166,11 @@ describe('choosing a port', () => {
     )
     assert.equal(status.listening, true)
     assert.equal(status.port, 7334)
-    assert.equal(status.preferredPort, 7332, 'landing elsewhere must not silently rewrite what the user asked for')
+    assert.equal(
+      status.preferredPort,
+      7332,
+      'landing elsewhere must not silently rewrite what the user asked for',
+    )
     // A client registered against 7332 is now pointed at nothing, so this cannot
     // be a silent recovery.
     assert.equal(h.notices.length, 1)

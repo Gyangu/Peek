@@ -164,7 +164,11 @@ export function resolveShortcut(
  * entry. Returning `null` here is "matched the chord, meant nothing" — which is
  * why `resolveShortcut` keeps looking rather than stopping at the first match.
  */
-function actionFor(id: ShortcutId, hit: ReturnType<typeof matchChord>, ctx: ShortcutContext): ShortcutAction | null {
+function actionFor(
+  id: ShortcutId,
+  hit: ReturnType<typeof matchChord>,
+  ctx: ShortcutContext,
+): ShortcutAction | null {
   if (!hit) return null
   switch (id) {
     case 'panel.splitRow':

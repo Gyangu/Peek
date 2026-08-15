@@ -49,7 +49,13 @@ function harness(timeoutMs = 60_000): Harness {
     },
     ask: (mode = 'default') =>
       requestToolPermission(
-        { chatId: CHAT, toolCallId: 'call_1', toolName: 'mcp__peek__view_open', args: { ref: 'public.t' }, mode },
+        {
+          chatId: CHAT,
+          toolCallId: 'call_1',
+          toolName: 'mcp__peek__view_open',
+          args: { ref: 'public.t' },
+          mode,
+        },
         { broker, timeoutMs },
       ),
   }
@@ -131,10 +137,7 @@ test('bypassPermissions raises no prompt at all', async () => {
 test('the options offered are allow-once and reject, and nothing standing', () => {
   // `allow_always` is deliberately absent: a standing grant is a permission mode,
   // not something to acquire by clicking quickly through a prompt.
-  assert.deepEqual(
-    PERMISSION_OPTIONS.map((o) => o.kind).sort(),
-    ['allow_once', 'reject_once'],
-  )
+  assert.deepEqual(PERMISSION_OPTIONS.map((o) => o.kind).sort(), ['allow_once', 'reject_once'])
 })
 
 test('an answer that was never offered is refused by the broker', async () => {

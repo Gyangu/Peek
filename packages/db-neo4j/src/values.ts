@@ -71,7 +71,11 @@ export function fromNeo4jInteger(value: { toNumber(): number; toString(): string
   return Number.isSafeInteger(asNumber) ? asNumber : asString
 }
 
-function nodeCell(node: { elementId: string; labels: string[]; properties: Record<string, unknown> }): GraphNodeCell {
+function nodeCell(node: {
+  elementId: string
+  labels: string[]
+  properties: Record<string, unknown>
+}): GraphNodeCell {
   return {
     _peek: 'node',
     id: node.elementId,
@@ -141,13 +145,13 @@ export function toCell(value: unknown): unknown {
   // temporals, `Point{srid=…}` for points) and no useful structure once the class
   // is gone, so the string *is* the value rather than a lossy rendering of it.
   if (
-    neo4j.isDate(value)
-    || neo4j.isDateTime(value)
-    || neo4j.isLocalDateTime(value)
-    || neo4j.isTime(value)
-    || neo4j.isLocalTime(value)
-    || neo4j.isDuration(value)
-    || neo4j.isPoint(value)
+    neo4j.isDate(value) ||
+    neo4j.isDateTime(value) ||
+    neo4j.isLocalDateTime(value) ||
+    neo4j.isTime(value) ||
+    neo4j.isLocalTime(value) ||
+    neo4j.isDuration(value) ||
+    neo4j.isPoint(value)
   ) {
     return value.toString()
   }

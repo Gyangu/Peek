@@ -144,7 +144,8 @@ export const chat = {
   /* ---- Recovering from a crash -------------------------------------- */
   /* The composer stays usable in the error state on purpose: sending is what
      reconnects. These two say so, rather than leaving the user to guess. */
-  'chat.retry.hint': 'The agent stopped. Send another message and it will be started again — this conversation is kept.',
+  'chat.retry.hint':
+    'The agent stopped. Send another message and it will be started again — this conversation is kept.',
   'chat.retry.placeholder': 'Send a message to reconnect…',
 
   /* ---- Context attachments ----------------------------------------- */

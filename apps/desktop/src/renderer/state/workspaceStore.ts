@@ -201,9 +201,7 @@ export function useConnections(): ConnectionState[] {
 }
 
 export function useConnection(connId: ConnId | null | undefined): ConnectionState | null {
-  return useWorkspaceStore((s) =>
-    connId && s.workspace ? (s.workspace.connections[connId] ?? null) : null,
-  )
+  return useWorkspaceStore((s) => (connId && s.workspace ? (s.workspace.connections[connId] ?? null) : null))
 }
 
 export function useView(viewId: ViewId | null | undefined): ViewState | null {
@@ -216,9 +214,7 @@ export function useViews(): ViewState[] {
 }
 
 export function useResultMeta(resultId: ResultId | null | undefined): ResultMeta | null {
-  return useWorkspaceStore((s) =>
-    resultId && s.workspace ? (s.workspace.results[resultId] ?? null) : null,
-  )
+  return useWorkspaceStore((s) => (resultId && s.workspace ? (s.workspace.results[resultId] ?? null) : null))
 }
 
 /** Non-hook read, for event callbacks. */

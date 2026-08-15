@@ -46,8 +46,7 @@ export function ValueModal(props: ValueModalProps): ReactElement {
   const dialogRef = useModalDialog({ label: 'value', onClose })
 
   const ref: ValueRef | null =
-    truncated?.ref
-    ?? (resultId ? { kind: 'resultCell', resultId, row, col } : null)
+    truncated?.ref ?? (resultId ? { kind: 'resultCell', resultId, row, col } : null)
 
   const doPeek = useCallback(() => {
     if (!ref) return
@@ -112,7 +111,9 @@ export function ValueModal(props: ValueModalProps): ReactElement {
               {canPeek ? t('value.previewHint') : t('value.previewNoPeek')}
             </div>
           ) : null}
-          <div className="max-h-full overflow-auto rounded-control border border-border bg-bg p-snug font-mono text-body whitespace-pre-wrap wrap-anywhere select-text">{body}</div>
+          <div className="max-h-full overflow-auto rounded-control border border-border bg-bg p-snug font-mono text-body whitespace-pre-wrap wrap-anywhere select-text">
+            {body}
+          </div>
         </div>
       </div>
     </div>

@@ -8,9 +8,6 @@ import { optionalDepStub } from './optional-dep-stub'
  * does not use those, and the throwing Proxy lands in that catch as the
  * library's own "requires the @node-rs/xxhash package" error.
  */
-export const xxh3 = optionalDepStub(
-  '@node-rs/xxhash',
-  'Redis digest()/IFDEQ/IFDNE are unavailable.',
-)
+export const xxh3 = optionalDepStub('@node-rs/xxhash', 'Redis digest()/IFDEQ/IFDNE are unavailable.')
 
 export default optionalDepStub('@node-rs/xxhash', 'Redis digest()/IFDEQ/IFDNE are unavailable.')

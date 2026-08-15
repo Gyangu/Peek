@@ -170,8 +170,7 @@ export const chat: CatalogFor<ChatMessages> = {
   'chat.question.send': '发送回答',
   'chat.md.linkCopied': '已复制链接。',
   'chat.md.linkCopyFailed': '剪贴板拒绝了这次复制。',
-  'chat.permission.alwaysNote':
-    '「始终允许」对这次对话剩下的部分一直生效——这个工具之后不会再问你。',
+  'chat.permission.alwaysNote': '「始终允许」对这次对话剩下的部分一直生效——这个工具之后不会再问你。',
   'chat.mode.confirmTitle': '这一档会把你排除在外',
   'chat.mode.confirmBody':
     '「{mode}」会让 agent 直接调用工具——包括改动这个窗口、读取其中数据的那些——不再事先问你。在你改回来之前一直有效。',

@@ -1,11 +1,5 @@
 import type { CollectionSchemaInfo, LogicalType, PeekErrorCode, RelationRef, SortSpec } from '@peek/core'
-import type {
-  FilterSpec,
-  SqlColumnMeta,
-  SqlDialect,
-  SqlRelationInfo,
-  SqlText,
-} from '../dialect'
+import type { FilterSpec, SqlColumnMeta, SqlDialect, SqlRelationInfo, SqlText } from '../dialect'
 import { assertIdentifier, requireFilterArray, requireFilterValue } from '../sql'
 import { cellBool, cellNumber, cellText, columnIndex } from '../values'
 
@@ -97,28 +91,50 @@ export function mysqlStatementSetupSql(timeoutMs?: number): readonly string[] {
     timeoutMs !== undefined && Number.isFinite(timeoutMs) && timeoutMs > 0
       ? Math.min(MAX_EXECUTION_TIME_MS, Math.max(1, Math.trunc(timeoutMs)))
       : MAX_EXECUTION_TIME_MS
-  return [
-    'ROLLBACK',
-    'SET SESSION TRANSACTION READ ONLY',
-    `SET SESSION max_execution_time = ${budget}`,
-  ]
+  return ['ROLLBACK', 'SET SESSION TRANSACTION READ ONLY', `SET SESSION max_execution_time = ${budget}`]
 }
 
 /** `information_schema.DATA_TYPE` / mysql2 type name → LogicalType */
 const MYSQL_LOGICAL: Readonly<Record<string, LogicalType>> = {
-  tinyint: 'number', smallint: 'number', mediumint: 'number', int: 'number', integer: 'number',
-  float: 'number', double: 'number', decimal: 'number', numeric: 'number', year: 'number',
+  tinyint: 'number',
+  smallint: 'number',
+  mediumint: 'number',
+  int: 'number',
+  integer: 'number',
+  float: 'number',
+  double: 'number',
+  decimal: 'number',
+  numeric: 'number',
+  year: 'number',
   bigint: 'bigint',
-  bit: 'bytes', binary: 'bytes', varbinary: 'bytes',
-  tinyblob: 'bytes', blob: 'bytes', mediumblob: 'bytes', longblob: 'bytes',
-  char: 'string', varchar: 'string', tinytext: 'string', text: 'string',
-  mediumtext: 'string', longtext: 'string', enum: 'string', set: 'string',
+  bit: 'bytes',
+  binary: 'bytes',
+  varbinary: 'bytes',
+  tinyblob: 'bytes',
+  blob: 'bytes',
+  mediumblob: 'bytes',
+  longblob: 'bytes',
+  char: 'string',
+  varchar: 'string',
+  tinytext: 'string',
+  text: 'string',
+  mediumtext: 'string',
+  longtext: 'string',
+  enum: 'string',
+  set: 'string',
   json: 'json',
   date: 'date',
   time: 'time',
-  datetime: 'timestamp', timestamp: 'timestamp',
-  geometry: 'geo', point: 'geo', linestring: 'geo', polygon: 'geo',
-  multipoint: 'geo', multilinestring: 'geo', multipolygon: 'geo', geometrycollection: 'geo',
+  datetime: 'timestamp',
+  timestamp: 'timestamp',
+  geometry: 'geo',
+  point: 'geo',
+  linestring: 'geo',
+  polygon: 'geo',
+  multipoint: 'geo',
+  multilinestring: 'geo',
+  multipolygon: 'geo',
+  geometrycollection: 'geo',
 }
 
 /**
@@ -173,8 +189,13 @@ function mysqlTableKind(tableType: string | null): SqlRelationInfo['kind'] {
  * name, and both paths land on the same `binary: true`.
  */
 const MYSQL_BINARY_TYPE_NAMES: ReadonlySet<string> = new Set([
-  'binary', 'varbinary', 'bit',
-  'tinyblob', 'blob', 'mediumblob', 'longblob',
+  'binary',
+  'varbinary',
+  'bit',
+  'tinyblob',
+  'blob',
+  'mediumblob',
+  'longblob',
 ])
 
 function isMysqlBinaryTypeName(typeName: string | null): boolean {
@@ -256,11 +277,8 @@ export const MYSQL_DIALECT: SqlDialect = {
       const dir = s.dir === 'desc' ? 'DESC' : 'ASC'
       // MySQL has no NULLS FIRST/LAST; `col IS NULL` is 1 for nulls, so sorting
       // that expression puts them where the caller asked
-      const nulls = s.nulls === 'first'
-        ? `${col} IS NULL DESC, `
-        : s.nulls === 'last'
-          ? `${col} IS NULL ASC, `
-          : ''
+      const nulls =
+        s.nulls === 'first' ? `${col} IS NULL DESC, ` : s.nulls === 'last' ? `${col} IS NULL ASC, ` : ''
       return `${nulls}${col} ${dir}`
     })
     return ` ORDER BY ${parts.join(', ')}`
@@ -281,9 +299,9 @@ export const MYSQL_DIALECT: SqlDialect = {
   listSchemasSql(): SqlText {
     return {
       text:
-        'SELECT SCHEMA_NAME AS name FROM information_schema.SCHEMATA'
-        + ` WHERE SCHEMA_NAME NOT IN (${MYSQL_SYSTEM_SCHEMAS.map(() => '?').join(', ')})`
-        + ' ORDER BY SCHEMA_NAME',
+        'SELECT SCHEMA_NAME AS name FROM information_schema.SCHEMATA' +
+        ` WHERE SCHEMA_NAME NOT IN (${MYSQL_SYSTEM_SCHEMAS.map(() => '?').join(', ')})` +
+        ' ORDER BY SCHEMA_NAME',
       params: [...MYSQL_SYSTEM_SCHEMAS],
     }
   },
@@ -291,9 +309,9 @@ export const MYSQL_DIALECT: SqlDialect = {
   listRelationsSql(schema: string): SqlText {
     return {
       text:
-        'SELECT TABLE_NAME AS name, TABLE_TYPE AS kind, TABLE_ROWS AS est_rows,'
-        + ' TABLE_COMMENT AS comment'
-        + ' FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME',
+        'SELECT TABLE_NAME AS name, TABLE_TYPE AS kind, TABLE_ROWS AS est_rows,' +
+        ' TABLE_COMMENT AS comment' +
+        ' FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME',
       params: [schema],
     }
   },
@@ -301,10 +319,10 @@ export const MYSQL_DIALECT: SqlDialect = {
   listColumnsSql(ref: RelationRef): SqlText {
     return {
       text:
-        'SELECT COLUMN_NAME AS name, DATA_TYPE AS data_type, COLUMN_TYPE AS column_type,'
-        + ' IS_NULLABLE AS is_nullable, COLUMN_KEY AS column_key, COLUMN_COMMENT AS comment'
-        + ' FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?'
-        + ' ORDER BY ORDINAL_POSITION',
+        'SELECT COLUMN_NAME AS name, DATA_TYPE AS data_type, COLUMN_TYPE AS column_type,' +
+        ' IS_NULLABLE AS is_nullable, COLUMN_KEY AS column_key, COLUMN_COMMENT AS comment' +
+        ' FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?' +
+        ' ORDER BY ORDINAL_POSITION',
       params: [ref.schema, ref.name],
     }
   },
@@ -312,10 +330,10 @@ export const MYSQL_DIALECT: SqlDialect = {
   listIndexesSql(ref: RelationRef): SqlText {
     return {
       text:
-        'SELECT INDEX_NAME AS name, NON_UNIQUE AS non_unique, SEQ_IN_INDEX AS seq,'
-        + ' COLUMN_NAME AS column_name'
-        + ' FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?'
-        + ' ORDER BY INDEX_NAME, SEQ_IN_INDEX',
+        'SELECT INDEX_NAME AS name, NON_UNIQUE AS non_unique, SEQ_IN_INDEX AS seq,' +
+        ' COLUMN_NAME AS column_name' +
+        ' FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?' +
+        ' ORDER BY INDEX_NAME, SEQ_IN_INDEX',
       params: [ref.schema, ref.name],
     }
   },
@@ -323,8 +341,8 @@ export const MYSQL_DIALECT: SqlDialect = {
   relationMetaSql(ref: RelationRef): SqlText {
     return {
       text:
-        'SELECT TABLE_ROWS AS est_rows, TABLE_COMMENT AS comment, TABLE_TYPE AS kind'
-        + ' FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?',
+        'SELECT TABLE_ROWS AS est_rows, TABLE_COMMENT AS comment, TABLE_TYPE AS kind' +
+        ' FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?',
       params: [ref.schema, ref.name],
     }
   },

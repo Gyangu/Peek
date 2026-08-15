@@ -119,11 +119,7 @@ export function InspectorView({ view }: { view: InspectorViewState }): ReactElem
         <span className="font-mono tabular-nums">{ref.kind}</span>
         <span className="h-divider w-px flex-none bg-border-strong" />
         <Button variant="ghost" disabled={loading || !canRead} onClick={fetchFull}>
-          {loading
-            ? t('inspector.fetching')
-            : isKeyValue
-              ? t('inspector.reload')
-              : t('inspector.fetchFull')}
+          {loading ? t('inspector.fetching') : isKeyValue ? t('inspector.reload') : t('inspector.fetchFull')}
         </Button>
         {more ? (
           <>
@@ -225,17 +221,15 @@ export function InspectorView({ view }: { view: InspectorViewState }): ReactElem
  * union in core buys, and a `default:` here would quietly turn a future shape
  * into a blank panel.
  */
-function KeyValueBody({
-  connId,
-  payload,
-}: {
-  connId: ConnId
-  payload: KeyValuePayload
-}): ReactElement {
+function KeyValueBody({ connId, payload }: { connId: ConnId; payload: KeyValuePayload }): ReactElement {
   const t = useT()
   switch (payload.shape) {
     case 'missing':
-      return <div className="max-h-full overflow-auto rounded-control border border-border bg-bg p-snug font-mono text-micro whitespace-pre-wrap wrap-anywhere select-text">{t('inspector.keyMissing')}</div>
+      return (
+        <div className="max-h-full overflow-auto rounded-control border border-border bg-bg p-snug font-mono text-micro whitespace-pre-wrap wrap-anywhere select-text">
+          {t('inspector.keyMissing')}
+        </div>
+      )
     case 'scalar':
       return (
         <div className="max-h-full overflow-auto rounded-control border border-border bg-bg p-snug font-mono text-micro whitespace-pre-wrap wrap-anywhere select-text">
@@ -285,9 +279,7 @@ function KeyValueBody({
           // labelled `<entry id> · <field>`, so both levels stay readable
           // without nesting a second grid inside this one.
           rows={payload.entries.flatMap((entry) =>
-            entry.fields.map(
-              (f): [string, KeyValueElement] => [`${entry.id} · ${f.field}`, f.value],
-            ),
+            entry.fields.map((f): [string, KeyValueElement] => [`${entry.id} · ${f.field}`, f.value]),
           )}
         />
       )
@@ -304,7 +296,12 @@ function ElementTable({
   rows: [string, KeyValueElement][]
 }): ReactElement {
   const t = useT()
-  if (rows.length === 0) return <div className="max-h-full overflow-auto rounded-control border border-border bg-bg p-snug font-mono text-micro whitespace-pre-wrap wrap-anywhere select-text">{t('inspector.windowEmpty')}</div>
+  if (rows.length === 0)
+    return (
+      <div className="max-h-full overflow-auto rounded-control border border-border bg-bg p-snug font-mono text-micro whitespace-pre-wrap wrap-anywhere select-text">
+        {t('inspector.windowEmpty')}
+      </div>
+    )
   return (
     <div>
       {/* Unstyled, and that is not an omission of this change — see ElementRow. */}
@@ -397,13 +394,7 @@ function ElementRow({
  * having been materialized into the window — which is the entire reason a
  * 10MB hash field does not break this panel.
  */
-function ElementText({
-  connId,
-  element,
-}: {
-  connId: ConnId
-  element: KeyValueElement
-}): ReactElement {
+function ElementText({ connId, element }: { connId: ConnId; element: KeyValueElement }): ReactElement {
   const t = useT()
   const [full, setFull] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -497,9 +488,7 @@ function refRows(t: TFunction, ref: ValueRef): [string, string][] {
       return [
         ['key', ref.key],
         ...(ref.db === undefined ? [] : ([['db', String(ref.db)]] as [string, string][])),
-        ...(ref.path === undefined
-          ? []
-          : ([[t('inspector.field.path'), ref.path]] as [string, string][])),
+        ...(ref.path === undefined ? [] : ([[t('inspector.field.path'), ref.path]] as [string, string][])),
       ]
     case 'qdrantPoint':
       return [

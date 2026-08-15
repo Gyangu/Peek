@@ -212,7 +212,8 @@ export function createSettingsStore(configDir: string): SettingsStore {
   function load(): Record<string, unknown> {
     if (cached !== null) return cached
     const raw = readJsonFile(path)
-    cached = typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
+    cached =
+      typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
     return cached
   }
 
@@ -337,7 +338,8 @@ function project(record: Record<string, unknown>): PeekSettings {
     if (isNonEmptyString(source['agentWorkdir'])) kept.agentWorkdir = source['agentWorkdir']
     const servers = readMcpServers(source['mcpServers'])
     if (servers.length > 0) kept.mcpServers = servers
-    if (isNonEmptyString(source['endpointApiKeySealed'])) kept.endpointApiKeySealed = source['endpointApiKeySealed']
+    if (isNonEmptyString(source['endpointApiKeySealed']))
+      kept.endpointApiKeySealed = source['endpointApiKeySealed']
     // Validated as a whole: a half-configured endpoint (a URL and no model) is
     // not something to half-apply — it would fail at the first token with an
     // error pointing at the wrong thing. Dropping it reads as "not configured",
@@ -403,7 +405,8 @@ function readMcpServers(value: unknown): StoredMcpServer[] {
     if (typeof name !== 'string' || !MCP_NAME.test(name) || name.length > 64) continue
     if (seen.has(name)) continue
     const transport = row['transport']
-    if (typeof transport !== 'string' || !(AGENT_MCP_TRANSPORTS as readonly string[]).includes(transport)) continue
+    if (typeof transport !== 'string' || !(AGENT_MCP_TRANSPORTS as readonly string[]).includes(transport))
+      continue
     const target = row['target']
     if (!isNonEmptyString(target)) continue
     seen.add(name)

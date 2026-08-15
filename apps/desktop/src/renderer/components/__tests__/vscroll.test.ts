@@ -87,7 +87,10 @@ describe('computeScroll — row mapping at very large row counts', () => {
     const legacyMaxScrollTop = LEGACY_CLAMP_PX - VIEWPORT_H
     const legacyLastVisible = Math.floor((legacyMaxScrollTop + VIEWPORT_H - HEAD_H) / ROW_H) - 1
     assert.ok(legacyLastVisible < 700_000, 'the old implementation could not even reach row 700,000')
-    assert.ok(rows - legacyLastVisible > 200_000, 'more unreachable rows than AHEAD_ROWS, so the ack was bound to starve')
+    assert.ok(
+      rows - legacyLastVisible > 200_000,
+      'more unreachable rows than AHEAD_ROWS, so the ack was bound to starve',
+    )
 
     // The new implementation: same 901k rows, last row reachable
     const s = computeScroll(rows, VIEWPORT_H, Number.MAX_SAFE_INTEGER, 2)
@@ -104,7 +107,10 @@ describe('computeScroll — the block origin, guarding against float32 in the co
         const surfaceShift = Math.abs(s.origin - s.top)
         assert.ok(surfaceShift < ORIGIN_BLOCK_PX, `surface shift ${surfaceShift} is out of bounds`)
         for (const i of [s.renderFirst, s.renderLast]) {
-          assert.ok(Math.abs(rowTopIn(i, s.origin)) < 100_000, `row top ${rowTopIn(i, s.origin)} is out of bounds`)
+          assert.ok(
+            Math.abs(rowTopIn(i, s.origin)) < 100_000,
+            `row top ${rowTopIn(i, s.origin)} is out of bounds`,
+          )
         }
       }
     }
@@ -135,8 +141,7 @@ describe('block origin: the surface shift must share an origin with the rows in 
     Number(/translate3d\(0,(-?[\d.]+)px,0\)/.exec(s.style.transform)?.[1] ?? NaN)
 
   /** Screen y of row i = its top prop (against the DOM origin) + the surface shift. */
-  const screenY = (i: number, domOrigin: number, shift: number): number =>
-    rowTopIn(i, domOrigin) + shift
+  const screenY = (i: number, domOrigin: number, shift: number): number => rowTopIn(i, domOrigin) + shift
 
   it('before React commits the new origin the surface keeps the old one: at most a stalled frame, never a misplaced one', () => {
     const driver = new VScrollDriver()
@@ -170,17 +175,14 @@ describe('block origin: the surface shift must share an origin with the rows in 
     }
     // Had the transform been written against snap.origin, this would be off by a
     // full block
-    assert.equal(Math.abs((driver.metrics.origin - driver.metrics.top) - shift), ORIGIN_BLOCK_PX)
+    assert.equal(Math.abs(driver.metrics.origin - driver.metrics.top - shift), ORIGIN_BLOCK_PX)
 
     // After React commits, report the new origin; the screen coordinates stay
     // correct, only the reference point moved
     driver.syncDomOrigin(driver.metrics.origin)
     const shift2 = shiftOf(surface)
     for (const i of [driver.metrics.renderFirst, driver.metrics.renderLast]) {
-      assert.equal(
-        screenY(i, driver.paintedOrigin, shift2),
-        i * ROW_H + HEAD_H - driver.metrics.top,
-      )
+      assert.equal(screenY(i, driver.paintedOrigin, shift2), i * ROW_H + HEAD_H - driver.metrics.top)
     }
   })
 
@@ -301,7 +303,11 @@ describe('VScrollDriver — viewport reporting and React notification', () => {
     const last = seen[seen.length - 1]
     assert.equal(last.last, 999_999)
     assert.equal(last.atBottom, true)
-    assert.equal(1_000_000 - last.last, 1, 'one row left ahead of the viewport, so the row-count rule can never trip')
+    assert.equal(
+      1_000_000 - last.last,
+      1,
+      'one row left ahead of the viewport, so the row-count rule can never trip',
+    )
   })
 
   it('scrollToRow is row-exact at any row count', () => {

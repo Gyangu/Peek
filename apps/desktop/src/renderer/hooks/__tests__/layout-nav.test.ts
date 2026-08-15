@@ -1,13 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import {
-  asPanelId,
-  asSplitId,
-  dropZonePlacement,
-  makePanel,
-  type LayoutNode,
-  type PanelId,
-} from '@peek/core'
+import { asPanelId, asSplitId, dropZonePlacement, makePanel, type LayoutNode, type PanelId } from '@peek/core'
 import {
   DIRECTIONS,
   arrowDirection,
@@ -84,10 +77,7 @@ const nested = split('row', [panel('a'), split('col', [panel('b'), panel('c')])]
  *   │ c │ d │
  *   └───┴───┘
  */
-const grid = split('col', [
-  split('row', [panel('a'), panel('b')]),
-  split('row', [panel('c'), panel('d')]),
-])
+const grid = split('col', [split('row', [panel('a'), panel('b')]), split('row', [panel('c'), panel('d')])])
 
 /**
  * Deliberately mismatched edges: the left column is split at 50%, the right one
@@ -256,10 +246,7 @@ describe('findPanelInDirection — deep and lopsided', () => {
    *   └───┴───┴───┘
    * Depth 3, and the right column's lower half is itself split.
    */
-  const deep = split('row', [
-    panel('a'),
-    split('col', [panel('b'), split('row', [panel('c'), panel('d')])]),
-  ])
+  const deep = split('row', [panel('a'), split('col', [panel('b'), split('row', [panel('c'), panel('d')])])])
 
   it('reaches three levels down for the panel on the other side of an edge', () => {
     assert.equal(go(deep, 'a', 'right'), 'b')

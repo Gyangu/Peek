@@ -75,11 +75,7 @@ describe('every kind of thing a package contributes', () => {
         clearInstalledPackages()
         installPackages(NOTHING)
 
-        assert.deepEqual(
-          [...gate.liveKeys()],
-          [],
-          `an uninstalled ${gate.what} is still being offered`,
-        )
+        assert.deepEqual([...gate.liveKeys()], [], `an uninstalled ${gate.what} is still being offered`)
       })
 
       test('declares exactly what the registry carries', () => {

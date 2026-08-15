@@ -33,7 +33,9 @@ export function startDriverHost(): void {
   started = true
   const parentPort = getParentPort()
   if (!parentPort) {
-    throw new Error('The driver host must run inside an Electron utilityProcess (process.parentPort is missing)')
+    throw new Error(
+      'The driver host must run inside an Electron utilityProcess (process.parentPort is missing)',
+    )
   }
 
   const host = createDriverHost(parentPort, {

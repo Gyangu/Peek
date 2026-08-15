@@ -309,9 +309,12 @@ describe('query.cancel', () => {
     const h = harness()
     const connId = await connect(h)
     const { resultId, viewId } = await runQuery(h, { connId, text: 'select 1' })
-    h.store.apply((draft) => {
-      finishResult(draft, resultId, { rows: 3, elapsedMs: 1 })
-    }, { source: 'system' })
+    h.store.apply(
+      (draft) => {
+        finishResult(draft, resultId, { rows: 3, elapsedMs: 1 })
+      },
+      { source: 'system' },
+    )
 
     const res = await h.bus.dispatch('query.cancel', { viewId }, 'mcp')
     assert.equal(res.ok, true)
@@ -333,9 +336,12 @@ describe('a rejected fetch falls back to the previous result', () => {
 
     // A first query that really did produce rows.
     const first = await runQuery(h, { connId, text: 'select * from orders' })
-    h.store.apply((draft) => {
-      finishResult(draft, first.resultId, { rows: 500, elapsedMs: 12 })
-    }, { source: 'system' })
+    h.store.apply(
+      (draft) => {
+        finishResult(draft, first.resultId, { rows: 500, elapsedMs: 12 })
+      },
+      { source: 'system' },
+    )
 
     // A second run in the same view, refused by the driver before a single frame.
     h.failNext(new CommandFailure(peekError('QUERY_FAILED', 'relation "odrers" does not exist')))
@@ -384,9 +390,12 @@ describe('a rejected fetch falls back to the previous result', () => {
     const connId = await connect(h)
 
     const first = await runQuery(h, { connId, text: 'select 1' })
-    h.store.apply((draft) => {
-      failResult(draft, first.resultId, peekError('QUERY_FAILED', 'boom'))
-    }, { source: 'system' })
+    h.store.apply(
+      (draft) => {
+        failResult(draft, first.resultId, peekError('QUERY_FAILED', 'boom'))
+      },
+      { source: 'system' },
+    )
 
     h.failNext(new CommandFailure(peekError('QUERY_FAILED', 'boom again')))
     await h.bus.dispatch('query.run', { viewId: first.viewId, text: 'select 2' }, 'ui')
@@ -404,11 +413,14 @@ describe('a rejected fetch falls back to the previous result', () => {
     const first = await runQuery(h, { connId, text: 'select * from big' })
     // Rows arrived, then the user pressed Cancel — core is explicit that those
     // rows stay usable (hasUsableRows('cancelled') === true).
-    h.store.apply((draft) => {
-      const meta = draft.results[first.resultId]
-      meta.rows = 40_000
-      meta.status = 'cancelled'
-    }, { source: 'system' })
+    h.store.apply(
+      (draft) => {
+        const meta = draft.results[first.resultId]
+        meta.rows = 40_000
+        meta.status = 'cancelled'
+      },
+      { source: 'system' },
+    )
 
     h.failNext(new CommandFailure(peekError('SYNTAX_ERROR', 'syntax error at or near "slect"')))
     await h.bus.dispatch('query.run', { viewId: first.viewId, text: 'slect 1' }, 'ui')
@@ -433,9 +445,12 @@ describe('a rejected fetch falls back to the previous result', () => {
     const viewId = opened.data.viewId
     const firstResultId = opened.data.resultId
     assert.ok(firstResultId !== undefined, 'opening a table starts a scan')
-    h.store.apply((draft) => {
-      finishResult(draft, firstResultId, { rows: 200, elapsedMs: 4 })
-    }, { source: 'system' })
+    h.store.apply(
+      (draft) => {
+        finishResult(draft, firstResultId, { rows: 200, elapsedMs: 4 })
+      },
+      { source: 'system' },
+    )
 
     // Paging forward, and the driver refuses.
     h.failNext(new CommandFailure(peekError('CONNECTION_LOST', 'the driver process has exited')))

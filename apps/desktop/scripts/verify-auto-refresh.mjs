@@ -284,7 +284,6 @@ async function waitForResultSettled(client, cdp, resultId, timeoutMs) {
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
 
-
 /* ==================================================================
  * Auto-refresh, end to end, in the real app.
  *
@@ -317,7 +316,9 @@ async function waitForResultSettled(client, cdp, resultId, timeoutMs) {
 
 const FIXTURE_ROWS = 5_000
 
-function q(s) { return JSON.stringify(s) }
+function q(s) {
+  return JSON.stringify(s)
+}
 
 const awaitGrid = `(async () => {
   for (let i = 0; i < 600; i += 1) {
@@ -392,7 +393,8 @@ const visibleFirstRow = `(() => {
 async function workspace(client) {
   const res = await client.callTool({ name: 'read_workspace', arguments: {} })
   const data = toolData(res)
-  if (data === null) throw new Error('read_workspace returned no structured block:\n' + textOf(res).slice(0, 800))
+  if (data === null)
+    throw new Error('read_workspace returned no structured block:\n' + textOf(res).slice(0, 800))
   return data
 }
 
@@ -425,15 +427,20 @@ async function main() {
     const endpoint = await waitForEndpoint(configDir, child)
     client = new Client({ name: 'peek-auto-refresh', version: '1.0.0' }, { capabilities: {} })
     await withTimeout(
-      client.connect(new StreamableHTTPClientTransport(new URL(endpoint.url), {
-        requestInit: { headers: { Authorization: `Bearer ${endpoint.token}` } },
-      })),
+      client.connect(
+        new StreamableHTTPClientTransport(new URL(endpoint.url), {
+          requestInit: { headers: { Authorization: `Bearer ${endpoint.token}` } },
+        }),
+      ),
       20_000,
       'MCP handshake',
     )
 
     const connectResult = await withTimeout(
-      client.callTool({ name: 'connect', arguments: { config: { driverId: 'sqlite', file: fixture, label: 'ar' } } }),
+      client.callTool({
+        name: 'connect',
+        arguments: { config: { driverId: 'sqlite', file: fixture, label: 'ar' } },
+      }),
       30_000,
       'connect',
     )
@@ -443,7 +450,9 @@ async function main() {
     const opened = await withTimeout(
       client.callTool({
         name: 'open_view',
-        arguments: { spec: { kind: 'table', connId, ref: { kind: 'relation', schema: 'main', name: 'bench' } } },
+        arguments: {
+          spec: { kind: 'table', connId, ref: { kind: 'relation', schema: 'main', name: 'bench' } },
+        },
       }),
       30_000,
       'open_view',
@@ -461,13 +470,21 @@ async function main() {
     /* set up something to preserve */
     const widths = await cdp.evaluate(widenFirstColumn)
     const anchorRow = await cdp.evaluate(scrollDown)
-    check('the reader scrolled away from the top', (anchorRow ?? 0) > 0, `first visible row ${String(anchorRow)}`)
+    check(
+      'the reader scrolled away from the top',
+      (anchorRow ?? 0) > 0,
+      `first visible row ${String(anchorRow)}`,
+    )
 
     /* 2. picking an interval reaches main */
     await cdp.evaluate(openMenuAndPick('ms-1000'))
     await delay(300)
     const on = await tableView(client)
-    check('picking 1s writes autoRefreshMs into the Workspace', on.autoRefreshMs === 1000, String(on.autoRefreshMs))
+    check(
+      'picking 1s writes autoRefreshMs into the Workspace',
+      on.autoRefreshMs === 1000,
+      String(on.autoRefreshMs),
+    )
     const label = await cdp.evaluate(readControl)
     check('and the button reports the interval', /1/.test(String(label)), String(label))
 
@@ -495,7 +512,11 @@ async function main() {
     await cdp.evaluate(openMenuAndPick('off'))
     await delay(300)
     const offView = await tableView(client)
-    check('picking Off clears the interval', offView.autoRefreshMs === undefined, String(offView.autoRefreshMs))
+    check(
+      'picking Off clears the interval',
+      offView.autoRefreshMs === undefined,
+      String(offView.autoRefreshMs),
+    )
     const settled = offView.result?.resultId
     await delay(3_000)
     check('and nothing refetches after that', (await tableView(client)).result?.resultId === settled)

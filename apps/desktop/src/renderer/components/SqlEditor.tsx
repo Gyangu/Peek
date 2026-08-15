@@ -94,8 +94,9 @@ const PEEK_THEME = EditorView.theme(
     // arrive through the same injector, so which one wins is a question of
     // injection order rather than of specificity — the flag is what made this
     // deterministic as CSS, and it is what keeps it deterministic here.
-    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection':
-      { background: 'var(--color-bg-sel) !important' },
+    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
+      background: 'var(--color-bg-sel) !important',
+    },
     '.cm-tooltip': {
       background: 'var(--color-bg-2)',
       border: '1px solid var(--color-border-strong)',
@@ -186,7 +187,13 @@ export function SqlEditor(props: SqlEditorProps): ReactElement {
     })
   }, [value])
 
-  return <div className="flex flex-none min-h-15 overflow-hidden border-b border-border" ref={hostRef} style={{ height }} />
+  return (
+    <div
+      className="flex flex-none min-h-15 overflow-hidden border-b border-border"
+      ref={hostRef}
+      style={{ height }}
+    />
+  )
 }
 
 /**

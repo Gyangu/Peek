@@ -34,7 +34,10 @@ describe('the registry itself', () => {
   it('has a parseable default for every entry', () => {
     for (const def of SHORTCUTS) {
       assert.ok(DEFAULT_PATTERNS.get(def.id), def.id)
-      assert.equal(chordText(DEFAULT_PATTERNS.get(def.id) as never), chordText(parseChord(def.default) as never))
+      assert.equal(
+        chordText(DEFAULT_PATTERNS.get(def.id) as never),
+        chordText(parseChord(def.default) as never),
+      )
     }
   })
 
@@ -140,10 +143,7 @@ describe('conflicts', () => {
  * ================================================================== */
 
 describe('menu accelerators', () => {
-  const source = readFileSync(
-    new URL('../../../main/menu.ts', import.meta.url),
-    'utf8',
-  )
+  const source = readFileSync(new URL('../../../main/menu.ts', import.meta.url), 'utf8')
 
   it('are all registered, so `findConflicts` can see them', () => {
     const written = [...source.matchAll(/accelerator: '([^']+)'/g)].map((hit) => hit[1] as string)

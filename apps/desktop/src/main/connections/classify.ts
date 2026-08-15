@@ -126,12 +126,12 @@ export function classifyConnectError(raw: unknown): PeekError {
   // Keyword fallback for auth failures (some drivers give no SQLSTATE)
   const text = haystack(err)
   if (
-    text.includes('PASSWORD AUTHENTICATION FAILED')
-    || text.includes('AUTHENTICATION FAILED')
-    || text.includes('NO PG_HBA.CONF ENTRY')
-    || text.includes('WRONGPASS')
-    || text.includes('NOAUTH')
-    || text.includes('UNAUTHORIZED')
+    text.includes('PASSWORD AUTHENTICATION FAILED') ||
+    text.includes('AUTHENTICATION FAILED') ||
+    text.includes('NO PG_HBA.CONF ENTRY') ||
+    text.includes('WRONGPASS') ||
+    text.includes('NOAUTH') ||
+    text.includes('UNAUTHORIZED')
   ) {
     return { ...err, code: 'CONNECTION_FAILED', retryable: false }
   }

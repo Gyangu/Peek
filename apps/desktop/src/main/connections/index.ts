@@ -31,12 +31,7 @@ export { ConnectionManager } from './manager'
 export { DriverHostProcess } from './host-process'
 export { DataPlaneLink } from './port-broker'
 export { TypedEmitter } from './emitter'
-export {
-  driverRegistry,
-  lookupDriver,
-  registeredDriverIds,
-  type DriverRegistration,
-} from './registry'
+export { driverRegistry, lookupDriver, registeredDriverIds, type DriverRegistration } from './registry'
 export {
   classifyConnectError,
   classifyExecError,

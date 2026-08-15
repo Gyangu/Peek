@@ -15,9 +15,8 @@ import { test } from 'node:test'
  */
 
 const { applyMenuAction } = await import('../useMenuActions')
-const { useSettingsDialogStore, closeSettings, DEFAULT_SETTINGS_SECTION } = await import(
-  '../../state/settingsDialogStore'
-)
+const { useSettingsDialogStore, closeSettings, DEFAULT_SETTINGS_SECTION } =
+  await import('../../state/settingsDialogStore')
 
 const section = (): string | null => useSettingsDialogStore.getState().section
 

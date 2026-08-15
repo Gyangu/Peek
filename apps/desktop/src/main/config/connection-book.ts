@@ -50,11 +50,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import {
-  stripUrlPassword,
-  type ConnectionConfig,
-  type SavedConnection,
-} from '@peek/core'
+import { stripUrlPassword, type ConnectionConfig, type SavedConnection } from '@peek/core'
 import { connectionIdentityOf, parseConnectionConfig, redactRulesFor } from '../../drivers/manifests'
 import { readJsonFile, writeJsonFile } from './json-file'
 import { connectionsFilePath } from './paths'
@@ -416,7 +412,10 @@ function pickDisplay(next: StoredDisplay, previous: StoredDisplay | undefined): 
 }
 
 /** Absent rather than a pair of empty strings: a row nobody has named says nothing. */
-function displayOrNothing(label: string | undefined, detail: string | undefined): { display?: StoredDisplay } {
+function displayOrNothing(
+  label: string | undefined,
+  detail: string | undefined,
+): { display?: StoredDisplay } {
   if (!label && !detail) return {}
   return { display: { label: label ?? '', detail: detail ?? '' } }
 }
@@ -474,7 +473,9 @@ function parseEntry(raw: unknown): StoredEntry | null {
     createdAt,
     lastUsedAt: isoOr(record['lastUsedAt'], createdAt),
     ...parseDisplay(record['display']),
-    ...(typeof record['secret'] === 'string' && record['secret'].length > 0 ? { secret: record['secret'] } : {}),
+    ...(typeof record['secret'] === 'string' && record['secret'].length > 0
+      ? { secret: record['secret'] }
+      : {}),
   }
 }
 

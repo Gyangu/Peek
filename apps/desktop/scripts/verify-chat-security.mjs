@@ -431,7 +431,10 @@ async function main() {
       Array.isArray(options.settingSources) && options.settingSources.length === 0,
       `settingSources = ${JSON.stringify(options.settingSources)}`,
     )
-    check('tools is empty — no built-in tool is enabled', Array.isArray(options.tools) && options.tools.length === 0)
+    check(
+      'tools is empty — no built-in tool is enabled',
+      Array.isArray(options.tools) && options.tools.length === 0,
+    )
     check(
       'mcpServers is empty — the user’s own MCP servers do not come along',
       options.mcpServers !== undefined && Object.keys(options.mcpServers).length === 0,
@@ -485,9 +488,8 @@ async function main() {
     /* ---------------------------------------------------------------- */
 
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
-    const { StreamableHTTPClientTransport } = await import(
-      '@modelcontextprotocol/sdk/client/streamableHttp.js'
-    )
+    const { StreamableHTTPClientTransport } =
+      await import('@modelcontextprotocol/sdk/client/streamableHttp.js')
     const client = new Client({ name: 'peek-verify', version: '0.0.1' }, { capabilities: {} })
     await client.connect(
       new StreamableHTTPClientTransport(new URL(endpoint.url), {
@@ -609,7 +611,9 @@ async function main() {
     check(
       'the canary command never produced output',
       canaryOutput.length === 0,
-      canaryOutput.length === 0 ? '' : `the nonce appears on ${String(canaryOutput.length)} line(s) of its own`,
+      canaryOutput.length === 0
+        ? ''
+        : `the nonce appears on ${String(canaryOutput.length)} line(s) of its own`,
     )
     if (canaryOutput.length > 0) for (const line of canaryOutput) note(line.trim().slice(0, 160))
     note(
@@ -632,7 +636,9 @@ async function main() {
       named.length === 0 ? 'the reply named no tools at all — read the transcript below' : named.join(', '),
     )
     if (named.length > 0 && named.length < expectedPrefixed.length) {
-      note(`the reply named ${String(named.length)}/${String(expectedPrefixed.length)}; a model listing a subset is not a finding`)
+      note(
+        `the reply named ${String(named.length)}/${String(expectedPrefixed.length)}; a model listing a subset is not a finding`,
+      )
     }
     // Note what is deliberately *not* checked here: whether the prose mentions
     // "Bash". The canary prompt asks the agent to run Bash, so a reply saying it
@@ -674,7 +680,13 @@ async function main() {
       fence: {
         lang: 'csv',
         text: renderCsv(
-          { columns, rows: [[1, 'Acme', 'ok'], [2, 'Globex', payload]] },
+          {
+            columns,
+            rows: [
+              [1, 'Acme', 'ok'],
+              [2, 'Globex', payload],
+            ],
+          },
           2,
           DEFAULT_CONTEXT_BUDGET,
         ),
@@ -682,8 +694,15 @@ async function main() {
     })
 
     const fenceRuns = (doc.match(/^`{3,}/gm) ?? []).length
-    check('the payload cannot close the fence it is inside', fenceRuns === 2, `${String(fenceRuns)} fence marker(s)`)
-    check('the payload cannot forge a new CSV record', !doc.split('```')[1]?.includes('\n\n# peek system notice'))
+    check(
+      'the payload cannot close the fence it is inside',
+      fenceRuns === 2,
+      `${String(fenceRuns)} fence marker(s)`,
+    )
+    check(
+      'the payload cannot forge a new CSV record',
+      !doc.split('```')[1]?.includes('\n\n# peek system notice'),
+    )
 
     resetTurn(rec, () => 'reject')
     const injectStatus = await runTurn(manager, rec, {
@@ -754,8 +773,13 @@ async function main() {
     const batches = rec.batches - batchesBefore
     const deltas = rec.deltaCount - deltasBefore
     const ratio = deltas / Math.max(batches, 1)
-    note(`coalescing: ${String(deltas)} delta(s) in ${String(batches)} batch(es) = ${ratio.toFixed(2)} per batch`)
-    check('no empty flush — every batch carried at least one delta', batches <= deltas && rec.emptyBatches === 0)
+    note(
+      `coalescing: ${String(deltas)} delta(s) in ${String(batches)} batch(es) = ${ratio.toFixed(2)} per batch`,
+    )
+    check(
+      'no empty flush — every batch carried at least one delta',
+      batches <= deltas && rec.emptyBatches === 0,
+    )
     const { DEFAULT_DELTA_BUDGET } = await src('main/acp/types.ts')
     check(
       'no batch exceeded the budget caps',
@@ -832,9 +856,7 @@ async function main() {
      * it goes red. A token in a log file is something everybody should believe.
      */
     const logDir = join(configDir, 'logs')
-    const logFiles = existsSync(logDir)
-      ? readdirSync(logDir).map((name) => join(logDir, name))
-      : []
+    const logFiles = existsSync(logDir) ? readdirSync(logDir).map((name) => join(logDir, name)) : []
     let leakedInFiles = 0
     for (const file of logFiles) {
       const body = readFileSync(file, 'utf8')

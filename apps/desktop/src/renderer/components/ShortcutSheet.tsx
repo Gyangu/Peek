@@ -7,7 +7,15 @@ import { useBindings } from '../keys/store'
 import { closeShortcutSheet, useShortcutSheetOpen } from '../state/shortcutSheetStore'
 import { Button } from '../ui/Button'
 import { Icon } from '../ui/Icon'
-import { MODAL_BODY, MODAL_FOOT, MODAL_HEAD, MODAL_MASK, MODAL_SHELL, MODAL_SIZE, MODAL_TITLE } from './modalClasses'
+import {
+  MODAL_BODY,
+  MODAL_FOOT,
+  MODAL_HEAD,
+  MODAL_MASK,
+  MODAL_SHELL,
+  MODAL_SIZE,
+  MODAL_TITLE,
+} from './modalClasses'
 
 /**
  * Every shortcut, on one screen, on `⌘/`.

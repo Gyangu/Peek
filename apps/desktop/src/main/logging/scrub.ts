@@ -49,8 +49,8 @@ const BEARER_RE = /\bbearer\s+[\w\-._~+/]{8,}=*/gi
  * the most common shape a secret actually travels in (`"password": "…"`) sailed
  * straight through, which is precisely what `scrub.test.ts` caught.
  */
-const ASSIGNED_SECRET_RE
-  = /\b(password|passwd|pwd|secret|token|api[-_]?key|access[-_]?key|auth)\b("?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;}\]&]+)/gi
+const ASSIGNED_SECRET_RE =
+  /\b(password|passwd|pwd|secret|token|api[-_]?key|access[-_]?key|auth)\b("?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;}\]&]+)/gi
 
 export interface Scrubber {
   /**

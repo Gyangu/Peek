@@ -61,7 +61,9 @@ function PathsForm({ info }: { info: SettingsReadResult | null }): ReactElement 
           row and the four below it were 28px out of line with each other until
           the element stopped being the caller's to pick. */}
       <FormRow label={t('settings.about.version')}>
-        <span className="font-mono tabular-nums">{info?.version === '' ? t('settings.about.unavailable') : info?.version}</span>
+        <span className="font-mono tabular-nums">
+          {info?.version === '' ? t('settings.about.unavailable') : info?.version}
+        </span>
       </FormRow>
 
       {PATHS.map(([key, label]) => (

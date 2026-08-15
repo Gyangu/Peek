@@ -170,9 +170,7 @@ export default defineCommandTool({
     const snap = ctx.getSnapshot()
     const view = snap.views.find((v) => String(v.id) === sent.viewId)
     const place =
-      view === undefined || view.panelId === null
-        ? 'a pane'
-        : panelPlacement(snap.layout, view.panelId)
+      view === undefined || view.panelId === null ? 'a pane' : panelPlacement(snap.layout, view.panelId)
     const attached =
       sent.attachments.length === 0
         ? 'no attachments'

@@ -45,7 +45,12 @@ const LAYOUT: LayoutNode = {
   dir: 'row',
   ratio: [1],
   children: [
-    { type: 'panel', id: asPanelId('panel_a'), viewIds: [asViewId('view_1')], activeViewId: asViewId('view_1') },
+    {
+      type: 'panel',
+      id: asPanelId('panel_a'),
+      viewIds: [asViewId('view_1')],
+      activeViewId: asViewId('view_1'),
+    },
   ],
 }
 
@@ -129,7 +134,15 @@ const GOOD_INPUT = { viewId: 'view_1', nodeId: '4:abc:12' }
 test('the mapping runs in the owning package, in two steps around the dispatch', async () => {
   const { h, caller } = harness((call) =>
     call.phase === 'commands'
-      ? { phase: 'commands', commands: [{ name: 'view.update', input: { viewId: asViewId('view_1'), patch: { kind: 'package', state: { focus: '4:abc:12' } } } }] }
+      ? {
+          phase: 'commands',
+          commands: [
+            {
+              name: 'view.update',
+              input: { viewId: asViewId('view_1'), patch: { kind: 'package', state: { focus: '4:abc:12' } } },
+            },
+          ],
+        }
       : { phase: 'render', output: { text: 'expanded' } },
   )
 
@@ -144,7 +157,10 @@ test('the mapping runs in the owning package, in two steps around the dispatch',
     'both halves of the mapping crossed, and to the package that declared the tool',
   )
   assert.deepEqual(h.sent, [
-    { name: 'view.update', input: { viewId: 'view_1', patch: { kind: 'package', state: { focus: '4:abc:12' } } } },
+    {
+      name: 'view.update',
+      input: { viewId: 'view_1', patch: { kind: 'package', state: { focus: '4:abc:12' } } },
+    },
   ])
   assert.match(out.text, /expanded/)
 })
@@ -154,7 +170,15 @@ test('the renderer is handed the workspace its own commands produced, not the on
   const { h, caller } = harness((call) => {
     seen.push(call.snapshot.rev)
     return call.phase === 'commands'
-      ? { phase: 'commands', commands: [{ name: 'view.update', input: { viewId: asViewId('view_1'), patch: { kind: 'package', state: { focus: 'n' } } } }] }
+      ? {
+          phase: 'commands',
+          commands: [
+            {
+              name: 'view.update',
+              input: { viewId: asViewId('view_1'), patch: { kind: 'package', state: { focus: 'n' } } },
+            },
+          ],
+        }
       : { phase: 'render', output: { text: 'ok' } }
   })
 

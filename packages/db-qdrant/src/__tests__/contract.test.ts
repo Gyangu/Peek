@@ -36,10 +36,7 @@ describe('db-qdrant contract', () => {
   })
 
   it('rejects a config routed to the wrong driver', () => {
-    assert.equal(
-      requireQdrantConfig({ driverId: 'qdrant', url: 'http://localhost:6333' }).driverId,
-      'qdrant',
-    )
+    assert.equal(requireQdrantConfig({ driverId: 'qdrant', url: 'http://localhost:6333' }).driverId, 'qdrant')
     try {
       requireQdrantConfig({ driverId: 'redis', url: 'redis://localhost:6379' })
       assert.fail('a redis config must not be accepted')
@@ -51,14 +48,23 @@ describe('db-qdrant contract', () => {
 
   it('keeps the payload in one json column by default, and flattens only on request', () => {
     const scroll = buildRowShape({ payloadColumns: [], withScore: false, withVector: false })
-    assert.deepEqual(scroll.columns.map((c) => c.name), ['id', 'payload'])
+    assert.deepEqual(
+      scroll.columns.map((c) => c.name),
+      ['id', 'payload'],
+    )
     assert.equal(scroll.columns[1]?.logical, 'json')
 
     const search = buildRowShape({ payloadColumns: [], withScore: true, withVector: false })
-    assert.deepEqual(search.columns.map((c) => c.name), ['id', 'score', 'payload'])
+    assert.deepEqual(
+      search.columns.map((c) => c.name),
+      ['id', 'score', 'payload'],
+    )
 
     const flat = buildRowShape({ payloadColumns: ['lang', 'title'], withScore: true, withVector: true })
-    assert.deepEqual(flat.columns.map((c) => c.name), ['id', 'score', 'lang', 'title', 'vector'])
+    assert.deepEqual(
+      flat.columns.map((c) => c.name),
+      ['id', 'score', 'lang', 'title', 'vector'],
+    )
     // The vector column is peekable: its body travels through valuePeek, never in a chunk
     assert.equal(flat.columns.at(-1)?.peekable, true)
   })

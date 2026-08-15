@@ -35,9 +35,8 @@ const stub: StorageStub = {
 
 ;(globalThis as { localStorage?: unknown }).localStorage = stub
 
-const { useSidebarStore, setSidebarCollapsed, toggleSidebar, resetSidebarForTest } = await import(
-  '../sidebarStore'
-)
+const { useSidebarStore, setSidebarCollapsed, toggleSidebar, resetSidebarForTest } =
+  await import('../sidebarStore')
 
 const KEY = 'peek.sidebar.collapsed'
 

@@ -7,6 +7,4 @@ import { redisDisplay } from '../display'
  * `../display` and never `../driver`: see the header of
  * `db-postgres/src/entry/contrib.ts` for the rule and for what checks it.
  */
-export const displays: readonly PackageDisplayEntry[] = [
-  { driverId: 'redis', display: redisDisplay },
-]
+export const displays: readonly PackageDisplayEntry[] = [{ driverId: 'redis', display: redisDisplay }]

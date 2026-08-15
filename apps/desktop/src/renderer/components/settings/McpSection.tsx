@@ -148,7 +148,13 @@ export function McpSection(): ReactElement {
 
         {/* The endpoint is an identifier; it is never translated. */}
         <FormRow label={t('mcp.endpoint')} htmlFor="peek-mcp-url">
-          <input id="peek-mcp-url" className="font-mono tabular-nums" readOnly value={status?.url ?? ''} spellCheck={false} />
+          <input
+            id="peek-mcp-url"
+            className="font-mono tabular-nums"
+            readOnly
+            value={status?.url ?? ''}
+            spellCheck={false}
+          />
         </FormRow>
 
         <FormRow label={t('mcp.token')} htmlFor="peek-mcp-token">

@@ -49,11 +49,7 @@ export interface MapSqlErrorContext extends MapDriverErrorContext {
  *   undefined for both, and the editor simply does not underline. Do **not**
  *   invent an offset by regex-matching the message.
  */
-export function mapSqlError(
-  dialect: SqlDialect,
-  value: unknown,
-  ctx: MapSqlErrorContext = {},
-): PeekError {
+export function mapSqlError(dialect: SqlDialect, value: unknown, ctx: MapSqlErrorContext = {}): PeekError {
   const fallback = ctx.fallback ?? 'QUERY_FAILED'
   // A PeekError raised inside the driver is already classified; re-mapping it
   // would relabel a deliberate BAD_REQUEST as a QUERY_FAILED
@@ -132,4 +128,3 @@ function detailOf(rec: Record<string, unknown>, ctx: MapSqlErrorContext): { deta
 function isRetryable(code: PeekErrorCode): boolean {
   return isRetryableErrorCode(code)
 }
-

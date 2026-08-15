@@ -1,17 +1,7 @@
-import {
-  newConnId,
-  type ConnId,
-  type LayoutSpecNode,
-  type PanelId,
-  type ViewId,
-} from '@peek/core'
+import { newConnId, type ConnId, type LayoutSpecNode, type PanelId, type ViewId } from '@peek/core'
 import type { CommandBus } from './bus'
 import type { ConnectionBook } from './config'
-import type {
-  PersistedNode,
-  PersistedView,
-  PersistedWorkspace,
-} from './config/workspace-file'
+import type { PersistedNode, PersistedView, PersistedWorkspace } from './config/workspace-file'
 
 /**
  * Putting the desk back, using nothing but the commands a person or a model
@@ -119,9 +109,7 @@ export async function restoreWorkspace(options: RestoreWorkspaceOptions): Promis
   const keys = new Set<string>()
   const tree = toLayoutSpec(workspace.layout, keys)
   const focusKey =
-    workspace.focusPanel !== undefined && keys.has(workspace.focusPanel)
-      ? workspace.focusPanel
-      : undefined
+    workspace.focusPanel !== undefined && keys.has(workspace.focusPanel) ? workspace.focusPanel : undefined
 
   const layout = await bus.dispatch(
     'layout.setLayout',
@@ -240,10 +228,10 @@ function kindOf(spec: unknown): string | null {
 }
 
 /** Every panel leaf, in the file's own order. */
-function panelsOf(node: PersistedNode, out: Extract<PersistedNode, { type: 'panel' }>[] = []): Extract<
-  PersistedNode,
-  { type: 'panel' }
->[] {
+function panelsOf(
+  node: PersistedNode,
+  out: Extract<PersistedNode, { type: 'panel' }>[] = [],
+): Extract<PersistedNode, { type: 'panel' }>[] {
   if (node.type === 'panel') {
     out.push(node)
     return out

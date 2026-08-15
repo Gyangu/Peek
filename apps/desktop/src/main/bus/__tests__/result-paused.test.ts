@@ -45,8 +45,8 @@ import { redactRulesFor } from '../../../drivers/manifests'
  * untranslated all the way to the UI and to MCP.
  */
 const PAUSE_REASON =
-  'Result stream paused: no consumption ack for 60s,'
-  + ' the server-side cursor and connection have been released'
+  'Result stream paused: no consumption ack for 60s,' +
+  ' the server-side cursor and connection have been released'
 
 const PG_CONFIG: PostgresConnectionConfig = {
   driverId: 'postgres',
@@ -122,13 +122,16 @@ test('backpressure pause: the result set lands on paused + truncated + resumable
   const h = harness()
   const { resultId, viewId } = await runningQuery(h)
 
-  h.store.apply((draft) => {
-    pauseResult(draft, resultId, {
-      rows: 901_000,
-      elapsedMs: 61_234,
-      reason: PAUSE_REASON,
-    })
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      pauseResult(draft, resultId, {
+        rows: 901_000,
+        elapsedMs: 61_234,
+        reason: PAUSE_REASON,
+      })
+    },
+    { source: 'system' },
+  )
 
   const state = h.store.getState()
   const meta = state.results[resultId]
@@ -149,9 +152,12 @@ test('pauses and real errors never contaminate each other: a SQL error still lan
   const h = harness()
   const { resultId, viewId } = await runningQuery(h)
 
-  h.store.apply((draft) => {
-    failResult(draft, resultId, peekError('QUERY_FAILED', 'relation "nope" does not exist'))
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      failResult(draft, resultId, peekError('QUERY_FAILED', 'relation "nope" does not exist'))
+    },
+    { source: 'system' },
+  )
 
   const state = h.store.getState()
   assert.equal(state.results[resultId].status, 'error')
@@ -163,20 +169,29 @@ test('pauses and real errors never contaminate each other: a SQL error still lan
 test('a result set already in a terminal state is not rewritten by a late pause (cancel/finish wins)', async () => {
   const h = harness()
   const a = await runningQuery(h)
-  h.store.apply((draft) => {
-    finishResult(draft, a.resultId, { rows: 12, elapsedMs: 3 })
-  }, { source: 'system' })
-  h.store.apply((draft) => {
-    pauseResult(draft, a.resultId, { rows: 999, elapsedMs: 9, reason: 'late' })
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      finishResult(draft, a.resultId, { rows: 12, elapsedMs: 3 })
+    },
+    { source: 'system' },
+  )
+  h.store.apply(
+    (draft) => {
+      pauseResult(draft, a.resultId, { rows: 999, elapsedMs: 9, reason: 'late' })
+    },
+    { source: 'system' },
+  )
   assert.equal(h.store.getState().results[a.resultId].status, 'done')
   assert.equal(h.store.getState().results[a.resultId].rows, 12)
 
   const b = await runningQuery(h)
   await h.bus.dispatch('query.cancel', { resultId: b.resultId }, 'ui')
-  h.store.apply((draft) => {
-    pauseResult(draft, b.resultId, { rows: 999, elapsedMs: 9, reason: 'late' })
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      pauseResult(draft, b.resultId, { rows: 999, elapsedMs: 9, reason: 'late' })
+    },
+    { source: 'system' },
+  )
   assert.equal(h.store.getState().results[b.resultId].status, 'cancelled')
 })
 
@@ -229,13 +244,16 @@ test('run_query receipt: paused is not isError, and it says outright that the da
       const ws = h.store.getState()
       const running = Object.values(ws.results).find((r) => r.status === 'running')
       assert.ok(running, 'there should be exactly one running result set')
-      h.store.apply((draft) => {
-        pauseResult(draft, running.id, {
-          rows: 200_000,
-          elapsedMs: 61_000,
-          reason: PAUSE_REASON,
-        })
-      }, { source: 'system' })
+      h.store.apply(
+        (draft) => {
+          pauseResult(draft, running.id, {
+            rows: 200_000,
+            elapsedMs: 61_000,
+            reason: PAUSE_REASON,
+          })
+        },
+        { source: 'system' },
+      )
     }, 0)
   })
 
@@ -258,13 +276,16 @@ test('run_query receipt: paused is not isError, and it says outright that the da
 test('read_workspace: a paused result set carries rowsUsable/resumable/pausedReason', async () => {
   const h = harness()
   const { resultId, viewId } = await runningQuery(h)
-  h.store.apply((draft) => {
-    pauseResult(draft, resultId, {
-      rows: 207_000,
-      elapsedMs: 60_278,
-      reason: PAUSE_REASON,
-    })
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      pauseResult(draft, resultId, {
+        rows: 207_000,
+        elapsedMs: 60_278,
+        reason: PAUSE_REASON,
+      })
+    },
+    { source: 'system' },
+  )
 
   const out = await readWorkspaceTool.run({}, toolCtx(h))
   const data = out.data as { results: Record<string, unknown>[]; panels: Record<string, unknown>[] }
@@ -291,9 +312,12 @@ test('read_workspace: a paused result set carries rowsUsable/resumable/pausedRea
 test('read_workspace: a genuinely failed result set has rowsUsable=false; the two paths never merge', async () => {
   const h = harness()
   const { resultId } = await runningQuery(h)
-  h.store.apply((draft) => {
-    failResult(draft, resultId, peekError('QUERY_FAILED', 'relation "nope" does not exist'))
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      failResult(draft, resultId, peekError('QUERY_FAILED', 'relation "nope" does not exist'))
+    },
+    { source: 'system' },
+  )
 
   const out = await readWorkspaceTool.run({}, toolCtx(h))
   const data = out.data as { results: Record<string, unknown>[] }
@@ -335,9 +359,12 @@ test('run_query receipt: a real error is still isError=true', async () => {
       const ws = h.store.getState()
       const running = Object.values(ws.results).find((r) => r.status === 'running')
       assert.ok(running)
-      h.store.apply((draft) => {
-        failResult(draft, running.id, peekError('QUERY_FAILED', 'syntax error at or near "slect"'))
-      }, { source: 'system' })
+      h.store.apply(
+        (draft) => {
+          failResult(draft, running.id, peekError('QUERY_FAILED', 'syntax error at or near "slect"'))
+        },
+        { source: 'system' },
+      )
     }, 0)
   })
 

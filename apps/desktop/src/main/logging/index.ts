@@ -211,7 +211,10 @@ let reportedWriteFailure = false
 function reportWriteFailure(error: unknown): void {
   if (reportedWriteFailure) return
   reportedWriteFailure = true
-  console.error('[peek/app] could not write to the log file; logging to disk is disabled for this session', error)
+  console.error(
+    '[peek/app] could not write to the log file; logging to disk is disabled for this session',
+    error,
+  )
 }
 
 /**
@@ -236,4 +239,3 @@ function scrubDetail(scrubber: Scrubber, detail: unknown): unknown {
     return scrubber.scrub(String(detail))
   }
 }
-

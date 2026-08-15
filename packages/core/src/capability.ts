@@ -381,7 +381,7 @@ export function hostPort(host: string | undefined, port: number | undefined): st
 export function baseName(file: string): string {
   const cut = file.replace(/[/\\]+$/, '')
   const at = Math.max(cut.lastIndexOf('/'), cut.lastIndexOf('\\'))
-  return at === -1 ? cut : (cut.slice(at + 1) || cut)
+  return at === -1 ? cut : cut.slice(at + 1) || cut
 }
 
 /**
@@ -392,7 +392,9 @@ export function baseName(file: string): string {
  * not an error worth reporting here — the caller falls back to another field,
  * and the driver is the one that gets to reject a bad URL.
  */
-export function urlParts(url: string | undefined): { host?: string; port?: number; database?: string } | undefined {
+export function urlParts(
+  url: string | undefined,
+): { host?: string; port?: number; database?: string } | undefined {
   if (url === undefined || url === '') return undefined
   let parsed: URL
   try {
@@ -606,9 +608,7 @@ export const QDRANT_VECTOR_FIELD = 'vector' as const
 export const QDRANT_VECTOR_FIELD_PREFIX = 'vector:' as const
 export const QDRANT_PAYLOAD_FIELD_PREFIX = 'payload:' as const
 
-export type QdrantFieldTarget =
-  | { target: 'vector'; name?: string }
-  | { target: 'payload'; key: string }
+export type QdrantFieldTarget = { target: 'vector'; name?: string } | { target: 'payload'; key: string }
 
 /** Decode a `qdrantPoint` ref's `field` per the convention above. */
 export function parseQdrantField(field: string): QdrantFieldTarget {
@@ -624,9 +624,9 @@ export function parseQdrantField(field: string): QdrantFieldTarget {
 
 /** Encode a payload key into a `field`, escaping it when it would read as a vector address. */
 export function qdrantPayloadField(key: string): string {
-  return key === QDRANT_VECTOR_FIELD
-    || key.startsWith(QDRANT_VECTOR_FIELD_PREFIX)
-    || key.startsWith(QDRANT_PAYLOAD_FIELD_PREFIX)
+  return key === QDRANT_VECTOR_FIELD ||
+    key.startsWith(QDRANT_VECTOR_FIELD_PREFIX) ||
+    key.startsWith(QDRANT_PAYLOAD_FIELD_PREFIX)
     ? `${QDRANT_PAYLOAD_FIELD_PREFIX}${key}`
     : key
 }
@@ -803,9 +803,7 @@ export function resolveCollectionBrowseStyle(
     offsetPaging: base.offsetPaging && declared.offsetPaging,
     cursorPaging: base.cursorPaging && declared.cursorPaging,
     ...(columns === undefined || !sortable ? {} : { sortableColumns: columns }),
-    ...(base.sortEndsPaging === true || declared.sortEndsPaging === true
-      ? { sortEndsPaging: true }
-      : {}),
+    ...(base.sortEndsPaging === true || declared.sortEndsPaging === true ? { sortEndsPaging: true } : {}),
     ...(filterable === undefined ? {} : { filterableColumns: filterable }),
   }
 }
@@ -861,8 +859,8 @@ export function assertBrowseSupported(
   if (!effectivelySortable(style)) {
     throw peekError(
       'BAD_REQUEST',
-      `The ${ctx.driverId} driver cannot order this collection; drop the sort,`
-      + ' or order the loaded page in the client',
+      `The ${ctx.driverId} driver cannot order this collection; drop the sort,` +
+        ' or order the loaded page in the client',
     )
   }
   const allowed = style.sortableColumns
@@ -871,16 +869,16 @@ export function assertBrowseSupported(
     if (rejected.length > 0) {
       throw peekError(
         'BAD_REQUEST',
-        `Cannot order by ${rejected.join(', ')}: this collection can only be ordered by`
-        + ` ${allowed.join(', ')}`,
+        `Cannot order by ${rejected.join(', ')}: this collection can only be ordered by` +
+          ` ${allowed.join(', ')}`,
       )
     }
   }
   if (style.sortEndsPaging === true && (req.cursorToken !== undefined || (req.offset ?? 0) > 0)) {
     throw peekError(
       'BAD_REQUEST',
-      `An ordered ${ctx.driverId} browse is a single page and cannot be combined with paging;`
-      + ' drop the sort, or drop the offset and cursorToken',
+      `An ordered ${ctx.driverId} browse is a single page and cannot be combined with paging;` +
+        ' drop the sort, or drop the offset and cursorToken',
     )
   }
 }
@@ -890,8 +888,18 @@ export function assertBrowseSupported(
 /* ================================================================== */
 
 export const FILTER_OPS = [
-  'eq', 'neq', 'lt', 'lte', 'gt', 'gte',
-  'like', 'ilike', 'in', 'contains', 'isNull', 'isNotNull',
+  'eq',
+  'neq',
+  'lt',
+  'lte',
+  'gt',
+  'gte',
+  'like',
+  'ilike',
+  'in',
+  'contains',
+  'isNull',
+  'isNotNull',
 ] as const
 export const FilterOpSchema = z.enum(FILTER_OPS)
 export type FilterOp = z.infer<typeof FilterOpSchema>
@@ -938,10 +946,7 @@ export type FilterSpec = z.infer<typeof FilterSpecSchema>
  * `resultColumns` is the frame-0 schema (or the projection about to become it),
  * which is the only thing that can answer the question.
  */
-export function filterTarget(
-  spec: FilterSpec,
-  resultColumns: readonly string[],
-): FilterTarget {
+export function filterTarget(spec: FilterSpec, resultColumns: readonly string[]): FilterTarget {
   if (spec.target !== undefined) return spec.target
   return resultColumns.includes(spec.column) ? 'column' : 'field'
 }
@@ -974,19 +979,18 @@ export function assertFilterSupported(
     if (!resultColumns.includes(spec.column)) {
       throw peekError(
         'BAD_REQUEST',
-        `No column named ${spec.column} in this result; the columns are`
-        + ` ${resultColumns.join(', ')}`,
+        `No column named ${spec.column} in this result; the columns are` + ` ${resultColumns.join(', ')}`,
       )
     }
     const filterable = style.filterableColumns
     if (filterable !== undefined && !filterable.includes(spec.column)) {
       throw peekError(
         'BAD_REQUEST',
-        `The ${ctx.driverId} driver cannot filter on the ${spec.column} column;`
-        + (filterable.length > 0
-          ? ` filterable columns are ${filterable.join(', ')}`
-          : ' project the underlying field into a column of its own first,'
-            + ' or send the predicate with target: "field"'),
+        `The ${ctx.driverId} driver cannot filter on the ${spec.column} column;` +
+          (filterable.length > 0
+            ? ` filterable columns are ${filterable.join(', ')}`
+            : ' project the underlying field into a column of its own first,' +
+              ' or send the predicate with target: "field"'),
       )
     }
   }
@@ -1004,8 +1008,18 @@ export type SortSpec = z.infer<typeof SortSpecSchema>
 /* ================================================================== */
 
 export const NAMESPACE_NODE_KINDS = [
-  'database', 'schema', 'table', 'view', 'materializedView',
-  'keyspace', 'keyPrefix', 'key', 'collection', 'index', 'column', 'folder',
+  'database',
+  'schema',
+  'table',
+  'view',
+  'materializedView',
+  'keyspace',
+  'keyPrefix',
+  'key',
+  'collection',
+  'index',
+  'column',
+  'folder',
 ] as const
 export type NamespaceNodeKind = (typeof NAMESPACE_NODE_KINDS)[number]
 
@@ -1198,9 +1212,7 @@ export interface VectorSearchRequest {
  * all `scalar`; a document store's top-level object is a `map`), and it is what
  * a `switch` in the UI is allowed to be exhaustive over.
  */
-export const KEY_VALUE_SHAPES = [
-  'scalar', 'map', 'list', 'set', 'sortedSet', 'stream', 'missing',
-] as const
+export const KEY_VALUE_SHAPES = ['scalar', 'map', 'list', 'set', 'sortedSet', 'stream', 'missing'] as const
 export type KeyValueShape = (typeof KEY_VALUE_SHAPES)[number]
 
 /**
@@ -1343,7 +1355,12 @@ export type KeyValueReadOptions =
   /** HSCAN / SSCAN: an opaque cursor, and a glob over field names / members */
   | (KeyValueReadCommon & { shape: 'map' | 'set'; offset?: never; cursorToken?: string; match?: string })
   /** LRANGE / ZRANGE: an absolute element index */
-  | (KeyValueReadCommon & { shape: 'list' | 'sortedSet'; offset?: number; cursorToken?: never; match?: never })
+  | (KeyValueReadCommon & {
+      shape: 'list' | 'sortedSet'
+      offset?: number
+      cursorToken?: never
+      match?: never
+    })
   /** XRANGE: an entry id, optionally with a local skip inside the returned range */
   | (KeyValueReadCommon & { shape: 'stream'; offset?: number; cursorToken?: string; match?: never })
 
@@ -1404,7 +1421,8 @@ export function keyValueReadOptions(
       // Unknown shape: infer the member from what was actually addressed. Both at
       // once is only meaningful for a stream, so that is what it must be.
       if (hasOffset && hasCursor) return { ...common, shape: 'stream', offset, cursorToken }
-      if (hasCursor) return { ...common, shape: 'map', cursorToken, ...(match === undefined ? {} : { match }) }
+      if (hasCursor)
+        return { ...common, shape: 'map', cursorToken, ...(match === undefined ? {} : { match }) }
       if (hasOffset) return { ...common, shape: 'list', offset }
       return common
     case 'scalar':

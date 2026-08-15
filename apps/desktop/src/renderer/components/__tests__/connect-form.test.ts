@@ -150,9 +150,10 @@ describe('connect form coverage', () => {
 describe('required fields gate the submit button', () => {
   test('a fresh form reports exactly the required fields that have no default', () => {
     // postgres in fields mode pre-fills host and port but cannot guess a database.
-    assert.deepEqual(missingRequiredFields('postgres', 'fields', initialConnectValues('postgres', 'fields')), [
-      'database',
-    ])
+    assert.deepEqual(
+      missingRequiredFields('postgres', 'fields', initialConnectValues('postgres', 'fields')),
+      ['database'],
+    )
     // qdrant's one required field ships with a working default, so the dialog
     // opens ready to submit.
     assert.deepEqual(missingRequiredFields('qdrant', 'fields', initialConnectValues('qdrant', 'fields')), [])
@@ -199,7 +200,12 @@ describe('values become a ConnectionConfig core accepts', () => {
     const built = buildConnectionConfig(
       'postgres',
       'url',
-      { url: 'postgresql://user@example.com:5432/prod', host: 'localhost', port: '5432', database: 'staging' },
+      {
+        url: 'postgresql://user@example.com:5432/prod',
+        host: 'localhost',
+        port: '5432',
+        database: 'staging',
+      },
       '',
     )
     assert.ok(built.ok)
@@ -213,7 +219,12 @@ describe('values become a ConnectionConfig core accepts', () => {
     // An empty password is a different claim from no password: one asks the
     // server to authenticate with "", the other lets the driver fall back to its
     // own resolution (.pgpass, a socket peer identity, an env var).
-    const built = buildConnectionConfig('postgres', 'fields', filled('postgres', 'fields', { password: '' }), '')
+    const built = buildConnectionConfig(
+      'postgres',
+      'fields',
+      filled('postgres', 'fields', { password: '' }),
+      '',
+    )
     assert.ok(built.ok)
     assert.equal((built.config as Record<string, unknown>)['password'], undefined)
   })
@@ -225,7 +236,12 @@ describe('values become a ConnectionConfig core accepts', () => {
   })
 
   test('numeric fields arrive as numbers, not as the strings the inputs hold', () => {
-    const built = buildConnectionConfig('redis', 'fields', filled('redis', 'fields', { port: '6380', db: '3' }), '')
+    const built = buildConnectionConfig(
+      'redis',
+      'fields',
+      filled('redis', 'fields', { port: '6380', db: '3' }),
+      '',
+    )
     assert.ok(built.ok)
     const config = built.config as Record<string, unknown>
     assert.equal(config['port'], 6380)
@@ -235,7 +251,12 @@ describe('values become a ConnectionConfig core accepts', () => {
   test('a non-numeric port is reported against the field instead of being dropped', () => {
     // Number('abc') is NaN and NaN is deliberately allowed to reach the parse:
     // silently omitting the port would connect to 5432 while the box says "abc".
-    const built = buildConnectionConfig('postgres', 'fields', filled('postgres', 'fields', { port: 'abc' }), '')
+    const built = buildConnectionConfig(
+      'postgres',
+      'fields',
+      filled('postgres', 'fields', { port: 'abc' }),
+      '',
+    )
     assert.equal(built.ok, false)
     if (!built.ok) assert.match(built.issue, /port/)
   })
@@ -243,7 +264,12 @@ describe('values become a ConnectionConfig core accepts', () => {
   test('sqlite carries the read-only choice explicitly in both directions', () => {
     // The driver's own default is read-only, so only the unticked case actually
     // needs to travel — but it does need to travel.
-    const on = buildConnectionConfig('sqlite', 'fields', filled('sqlite', 'fields', { file: '/tmp/a.db' }), '')
+    const on = buildConnectionConfig(
+      'sqlite',
+      'fields',
+      filled('sqlite', 'fields', { file: '/tmp/a.db' }),
+      '',
+    )
     assert.ok(on.ok)
     assert.equal((on.config as Record<string, unknown>)['readOnly'], true)
 
@@ -261,7 +287,12 @@ describe('values become a ConnectionConfig core accepts', () => {
     // `ssl: false` and "no ssl preference" are the same request today, but the
     // omission is what lets a driver keep its own default. sqlite's readOnly is
     // the deliberate exception above.
-    const built = buildConnectionConfig('postgres', 'fields', filled('postgres', 'fields', { ssl: false }), '')
+    const built = buildConnectionConfig(
+      'postgres',
+      'fields',
+      filled('postgres', 'fields', { ssl: false }),
+      '',
+    )
     assert.ok(built.ok)
     assert.equal((built.config as Record<string, unknown>)['ssl'], undefined)
   })
@@ -364,7 +395,10 @@ describe('what a rejected draft tells the user', () => {
   test('the accepted config is exactly what main will accept', () => {
     // Same parse, same answer — which is the entire reason to call it here
     // rather than to describe it a second time.
-    const outcome = validateConnectionConfig({ driverId: 'redis', host: 'localhost', port: 6379, db: 0 }, connectFormOf)
+    const outcome = validateConnectionConfig(
+      { driverId: 'redis', host: 'localhost', port: 6379, db: 0 },
+      connectFormOf,
+    )
     assert.ok(outcome.ok)
     assert.notEqual(parseConnectionConfig(outcome.config, 'keep'), null)
   })
@@ -417,10 +451,7 @@ describe('seedDriverId — the driver a blank connect form opens on', () => {
     // The regression that matters: uninstall the database you use most, and the
     // book still names it. Seeding from it is the same crash through a door the
     // picker does not have.
-    const book = [
-      entry('postgres', '2026-08-09T00:00:00.000Z'),
-      entry('redis', '2026-08-02T00:00:00.000Z'),
-    ]
+    const book = [entry('postgres', '2026-08-09T00:00:00.000Z'), entry('redis', '2026-08-02T00:00:00.000Z')]
     assert.equal(seedDriverId(book, ['neo4j', 'redis']), 'redis')
   })
 

@@ -1,14 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import {
-  app,
-  BrowserWindow,
-  dialog,
-  ipcMain,
-  nativeTheme,
-  safeStorage,
-  type WebContents,
-} from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, safeStorage, type WebContents } from 'electron'
 import type {
   ChatPermissionMode,
   ConnId,
@@ -38,12 +30,7 @@ import { installAppMenu } from './menu'
 import { hardenWindow } from './window-hardening'
 import { createAutoRefreshScheduler } from './auto-refresh'
 import { createConnectionWake } from './connection-wake'
-import {
-  createCommandBus,
-  type CommandBus,
-  type CommandDeps,
-  type PackageAdminService,
-} from './bus'
+import { createCommandBus, type CommandBus, type CommandDeps, type PackageAdminService } from './bus'
 import { CommandLog, COMMAND_LOG_CAPACITY } from './bus/command-log'
 import {
   createAppHandlers,
@@ -701,10 +688,7 @@ function adoptPackages(report: PackageLoadReport): void {
  */
 function createPackageCommandOptions(): PackageCommandOptions {
   const packagesRoot = packagesDir(resolveConfigDir())
-  const bundledRoot = bundledPackagesRoot(
-    import.meta.dirname,
-    app.isPackaged ? process.resourcesPath : null,
-  )
+  const bundledRoot = bundledPackagesRoot(import.meta.dirname, app.isPackaged ? process.resourcesPath : null)
   return {
     packagesRoot,
     bundledRoot,
@@ -1207,7 +1191,10 @@ function bootstrap(): void {
     isDev,
   })
   const appLog = logging.logger('app')
-  appLog.log('info', `peek ${app.getVersion()} starting`, { level: logging.level(), logFile: logging.diagnosticPath })
+  appLog.log('info', `peek ${app.getVersion()} starting`, {
+    level: logging.level(),
+    logFile: logging.diagnosticPath,
+  })
 
   const packageOptions = createPackageCommandOptions()
   // Wrapped rather than passed as `packageHosts.dispose`, which would arrive
@@ -1465,7 +1452,11 @@ function bootstrap(): void {
  * empty workspace it just started would destroy the thing it was opened to
  * rescue.
  */
-async function restoreDesk(bus: CommandBus, savedConnections: ConnectionBook | null, configDir: string): Promise<void> {
+async function restoreDesk(
+  bus: CommandBus,
+  savedConnections: ConnectionBook | null,
+  configDir: string,
+): Promise<void> {
   const path = workspaceFilePath(configDir)
 
   if (process.env['PEEK_NO_RESTORE'] === '1') {
@@ -1678,7 +1669,10 @@ function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
   const sink = createChatEventSink(store)
   const applyState = createChatStateApplier(store, announceTurn)
   const source = createContextSource({ store, connections, rows })
-  const onError = (chatId: Parameters<typeof sink.onAgentError>[0], error: Parameters<typeof sink.onAgentError>[1]): void => {
+  const onError = (
+    chatId: Parameters<typeof sink.onAgentError>[0],
+    error: Parameters<typeof sink.onAgentError>[1],
+  ): void => {
     sink.onAgentError(chatId, error)
   }
 
@@ -1752,9 +1746,7 @@ function wireChatHost(commandBus: CommandBus, rows: ResultRowsBroker): void {
       // endpoint backend's `endpoint/` directory rather than a tenant of it:
       // that one holds conversations peek owns, this one holds pictures of
       // conversations it does not. See `AcpSnapshotStore`.
-      snapshots: new AcpSnapshotStore(
-        join(chatRootDir(process.env['PEEK_CONFIG_DIR']), ACP_SNAPSHOT_DIR),
-      ),
+      snapshots: new AcpSnapshotStore(join(chatRootDir(process.env['PEEK_CONFIG_DIR']), ACP_SNAPSHOT_DIR)),
     },
     { ...acpConfig, clientVersion: app.getVersion() },
   )

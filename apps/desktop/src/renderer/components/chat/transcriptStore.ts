@@ -280,11 +280,11 @@ export function coalesce(deltas: readonly ChatDelta[]): ChatDelta[] {
   for (const delta of deltas) {
     const prev = out[out.length - 1]
     if (
-      prev
-      && (delta.type === 'text.append' || delta.type === 'thought.append')
-      && prev.type === delta.type
-      && prev.chatId === delta.chatId
-      && prev.messageId === delta.messageId
+      prev &&
+      (delta.type === 'text.append' || delta.type === 'thought.append') &&
+      prev.type === delta.type &&
+      prev.chatId === delta.chatId &&
+      prev.messageId === delta.messageId
     ) {
       out[out.length - 1] = { ...prev, text: prev.text + delta.text }
       continue

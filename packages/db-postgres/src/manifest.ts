@@ -41,9 +41,28 @@ const CONNECT_FORM = {
   fields: {
     url: [urlField('postgresql://user@localhost:5432/database')],
     fields: [
-      { name: 'host', type: 'text', label: { en: 'Host', 'zh-CN': '主机' }, defaultValue: 'localhost', required: true, mono: true },
-      { name: 'port', type: 'number', label: { en: 'Port', 'zh-CN': '端口' }, defaultValue: '5432', required: true },
-      { name: 'database', type: 'text', label: { en: 'Database', 'zh-CN': '数据库' }, required: true, mono: true },
+      {
+        name: 'host',
+        type: 'text',
+        label: { en: 'Host', 'zh-CN': '主机' },
+        defaultValue: 'localhost',
+        required: true,
+        mono: true,
+      },
+      {
+        name: 'port',
+        type: 'number',
+        label: { en: 'Port', 'zh-CN': '端口' },
+        defaultValue: '5432',
+        required: true,
+      },
+      {
+        name: 'database',
+        type: 'text',
+        label: { en: 'Database', 'zh-CN': '数据库' },
+        required: true,
+        mono: true,
+      },
       { name: 'user', type: 'text', label: { en: 'User', 'zh-CN': '用户名' }, mono: true },
       { name: 'password', type: 'password', label: { en: 'Password', 'zh-CN': '密码' } },
       { name: 'ssl', type: 'checkbox', label: { en: 'Use TLS', 'zh-CN': '使用 TLS' } },

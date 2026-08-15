@@ -72,8 +72,8 @@ function warnOnce(): void {
   // An English literal, not a catalog key: this is a wiring mistake only a
   // developer will ever see, and it names the function to call to fix it.
   console.warn(
-    '[peek] context-actions: no ContextActionPort registered, so attachments go nowhere. '
-    + 'The chat panel must call setContextActionPort() during start-up.',
+    '[peek] context-actions: no ContextActionPort registered, so attachments go nowhere. ' +
+      'The chat panel must call setContextActionPort() during start-up.',
   )
 }
 

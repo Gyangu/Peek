@@ -57,16 +57,25 @@ async function seed(): Promise<void> {
         UNIQUE KEY ix_items_name (name)
       ) COMMENT='peek integration fixture'`)
     await admin.query(
-      'INSERT INTO items (id, name, score, qty, body, blob_col, doc, made_at) VALUES'
-      + ' (1, ?, 1.5, 10, ?, UNHEX(?), ?, ?),'
-      + ' (2, ?, NULL, 20, ?, NULL, NULL, ?),'
-      + ' (3, ?, 2.5, NULL, ?, NULL, ?, NULL),'
-      + ' (4, ?, 3.5, 40, NULL, NULL, NULL, ?)',
+      'INSERT INTO items (id, name, score, qty, body, blob_col, doc, made_at) VALUES' +
+        ' (1, ?, 1.5, 10, ?, UNHEX(?), ?, ?),' +
+        ' (2, ?, NULL, 20, ?, NULL, NULL, ?),' +
+        ' (3, ?, 2.5, NULL, ?, NULL, ?, NULL),' +
+        ' (4, ?, 3.5, 40, NULL, NULL, NULL, ?)',
       [
-        'alpha', 'a'.repeat(LONG_TEXT_LENGTH), 'DEADBEEF', '{"k":1}', '2024-01-02 03:04:05',
-        "beta's", 'short', '2024-02-03 04:05:06',
-        '100% raw', 'has % and _ in it', '{"k":3}',
-        'delta', '2024-04-05 06:07:08',
+        'alpha',
+        'a'.repeat(LONG_TEXT_LENGTH),
+        'DEADBEEF',
+        '{"k":1}',
+        '2024-01-02 03:04:05',
+        "beta's",
+        'short',
+        '2024-02-03 04:05:06',
+        '100% raw',
+        'has % and _ in it',
+        '{"k":3}',
+        'delta',
+        '2024-04-05 06:07:08',
       ],
     )
     await admin.query('CREATE TABLE wide (id INT PRIMARY KEY, huge BIGINT)')
@@ -75,9 +84,9 @@ async function seed(): Promise<void> {
     await admin.query('CREATE TABLE big (id INT PRIMARY KEY, payload VARCHAR(400))')
     await admin.query('SET SESSION cte_max_recursion_depth = 1000000')
     await admin.query(
-      'INSERT INTO big (id, payload)'
-      + ` WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < ${BIG_ROWS})`
-      + " SELECT n, CONCAT('row-', n, '-', REPEAT('p', 380)) FROM s",
+      'INSERT INTO big (id, payload)' +
+        ` WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < ${BIG_ROWS})` +
+        " SELECT n, CONCAT('row-', n, '-', REPEAT('p', 380)) FROM s",
     )
     // TABLE_ROWS is a sampled estimate; ANALYZE makes it a useful one for the test
     await admin.query('ANALYZE TABLE items, big')
@@ -113,17 +122,22 @@ describe('db-sql against a real MySQL server', () => {
     assert.ok(session.serverInfo.flavor === 'MySQL' || session.serverInfo.flavor === 'MariaDB')
     assert.match(session.serverInfo.version, /^\d+\.\d+/)
     assert.deepEqual([...session.capabilities].sort(), [
-      'cancel', 'collectionScan', 'introspect', 'tabularQuery', 'valuePeek',
+      'cancel',
+      'collectionScan',
+      'introspect',
+      'tabularQuery',
+      'valuePeek',
     ])
   })
 
   it('fails to connect to a server that is not there', async () => {
     await assert.rejects(
-      () => mysqlDriver.connect({
-        driverId: 'mysql',
-        url: 'mysql://root:peektest@127.0.0.1:3399/peek_test',
-        connectTimeoutMs: 1000,
-      }),
+      () =>
+        mysqlDriver.connect({
+          driverId: 'mysql',
+          url: 'mysql://root:peektest@127.0.0.1:3399/peek_test',
+          connectTimeoutMs: 1000,
+        }),
       (err: unknown) => isPeekError(err) && err.code === 'CONNECTION_FAILED',
     )
   })
@@ -167,9 +181,10 @@ describe('db-sql against a real MySQL server', () => {
 
   it('describes a relation: columns, native types, primary key and indexes', async () => {
     const info = await session.describeCollection(items)
-    assert.deepEqual(info.columns.map((c) => c.name), [
-      'id', 'name', 'score', 'qty', 'body', 'blob_col', 'doc', 'made_at',
-    ])
+    assert.deepEqual(
+      info.columns.map((c) => c.name),
+      ['id', 'name', 'score', 'qty', 'body', 'blob_col', 'doc', 'made_at'],
+    )
     const byName = new Map(info.columns.map((c) => [c.name, c]))
     assert.equal(byName.get('id')?.logical, 'number')
     assert.equal(byName.get('score')?.logical, 'number')
@@ -186,7 +201,9 @@ describe('db-sql against a real MySQL server', () => {
     const indexes = new Map((info.indexes ?? []).map((i) => [i.name, i]))
     assert.deepEqual(indexes.get('PRIMARY'), { name: 'PRIMARY', columns: ['id'], unique: true })
     assert.deepEqual(indexes.get('ix_items_name'), {
-      name: 'ix_items_name', columns: ['name'], unique: true,
+      name: 'ix_items_name',
+      columns: ['name'],
+      unique: true,
     })
   })
 
@@ -205,9 +222,10 @@ describe('db-sql against a real MySQL server', () => {
   it('refuses to browse a collection kind it has no concept of', async () => {
     await assert.rejects(
       () => session.scan({ resultId: newResultId(), ref: { kind: 'keyPattern', pattern: '*' } }),
-      (err: unknown) => isPeekError(err)
-        && err.code === 'BAD_REQUEST'
-        && err.i18n?.key === 'error.collection.kindUnsupported',
+      (err: unknown) =>
+        isPeekError(err) &&
+        err.code === 'BAD_REQUEST' &&
+        err.i18n?.key === 'error.collection.kindUnsupported',
     )
   })
 
@@ -216,7 +234,11 @@ describe('db-sql against a real MySQL server', () => {
   /* ---------------------------------------------------------------- */
 
   it('scans a table, honouring the chunk protocol and carrying primary-key hints', async () => {
-    const cursor = await session.scan({ resultId: newResultId(), ref: items, sort: [{ column: 'id', dir: 'asc' }] })
+    const cursor = await session.scan({
+      resultId: newResultId(),
+      ref: items,
+      sort: [{ column: 'id', dir: 'asc' }],
+    })
     const frames = await drain(cursor)
     assertFrameProtocol(frames)
     const schema = frames[0]?.schema ?? []
@@ -238,7 +260,10 @@ describe('db-sql against a real MySQL server', () => {
 
   it('keeps a 64-bit integer exact instead of rounding it into a float', async () => {
     const frames = await drain(
-      await session.scan({ resultId: newResultId(), ref: { kind: 'relation', schema: SCHEMA, name: 'wide' } }),
+      await session.scan({
+        resultId: newResultId(),
+        ref: { kind: 'relation', schema: SCHEMA, name: 'wide' },
+      }),
     )
     assert.equal(cell(rowsOf(frames), 0, 'huge'), '9007199254740993')
   })
@@ -254,12 +279,9 @@ describe('db-sql against a real MySQL server', () => {
    *   a date / time / timestamp → a string, never a Date object
    */
   it('represents every logical type the way core says all four drivers must', async () => {
-    const frames = await drain(
-      await session.query({ resultId: newResultId(), text: LOGICAL_SQL }),
-    )
+    const frames = await drain(await session.query({ resultId: newResultId(), text: LOGICAL_SQL }))
     const schema = frames[0]?.schema ?? []
-    const at = (name: string): unknown =>
-      frames[0]?.cols[schema.findIndex((c) => c.name === name)]?.[0]
+    const at = (name: string): unknown => frames[0]?.cols[schema.findIndex((c) => c.name === name)]?.[0]
 
     // The reported divergence: postgres used to answer `"1"` where this answers `1`
     assert.equal(at('small_big'), 1)
@@ -273,34 +295,48 @@ describe('db-sql against a real MySQL server', () => {
   })
 
   it('binds filter values instead of splicing them, so quotes and wildcards stay data', async () => {
-    const quoted = await drain(await session.scan({
-      resultId: newResultId(),
-      ref: items,
-      filter: [{ column: 'name', op: 'eq', value: "beta's" }],
-    }))
-    assert.deepEqual(rowsOf(quoted).map((r) => r.get('id')), [2])
+    const quoted = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref: items,
+        filter: [{ column: 'name', op: 'eq', value: "beta's" }],
+      }),
+    )
+    assert.deepEqual(
+      rowsOf(quoted).map((r) => r.get('id')),
+      [2],
+    )
 
-    const percent = await drain(await session.scan({
-      resultId: newResultId(),
-      ref: items,
-      filter: [{ column: 'name', op: 'contains', value: '100%' }],
-    }))
-    assert.deepEqual(rowsOf(percent).map((r) => r.get('id')), [3])
+    const percent = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref: items,
+        filter: [{ column: 'name', op: 'contains', value: '100%' }],
+      }),
+    )
+    assert.deepEqual(
+      rowsOf(percent).map((r) => r.get('id')),
+      [3],
+    )
 
-    const injection = await drain(await session.scan({
-      resultId: newResultId(),
-      ref: items,
-      filter: [{ column: 'name', op: 'eq', value: "x' OR 1=1 -- " }],
-    }))
+    const injection = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref: items,
+        filter: [{ column: 'name', op: 'eq', value: "x' OR 1=1 -- " }],
+      }),
+    )
     assert.equal(rowsOf(injection).length, 0)
   })
 
   it('emits one done frame for an empty result set', async () => {
-    const frames = await drain(await session.scan({
-      resultId: newResultId(),
-      ref: items,
-      filter: [{ column: 'id', op: 'eq', value: -1 }],
-    }))
+    const frames = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref: items,
+        filter: [{ column: 'id', op: 'eq', value: -1 }],
+      }),
+    )
     assert.equal(frames.length, 1)
     assertFrameProtocol(frames)
     assert.equal(frames[0]?.rowCount, 0)
@@ -308,34 +344,64 @@ describe('db-sql against a real MySQL server', () => {
   })
 
   it('is NULL-safe on neq, and puts nulls where the caller asked', async () => {
-    const rows = rowsOf(await drain(await session.scan({
-      resultId: newResultId(),
-      ref: items,
-      filter: [{ column: 'score', op: 'neq', value: 1.5 }],
-      sort: [{ column: 'score', dir: 'asc', nulls: 'first' }],
-    })))
-    assert.deepEqual(rows.map((r) => r.get('id')), [2, 3, 4])
+    const rows = rowsOf(
+      await drain(
+        await session.scan({
+          resultId: newResultId(),
+          ref: items,
+          filter: [{ column: 'score', op: 'neq', value: 1.5 }],
+          sort: [{ column: 'score', dir: 'asc', nulls: 'first' }],
+        }),
+      ),
+    )
+    assert.deepEqual(
+      rows.map((r) => r.get('id')),
+      [2, 3, 4],
+    )
     assert.equal(rows[0]?.get('score'), null)
   })
 
   it('pages with cursorToken, and refuses a malformed one', async () => {
-    const first = await drain(await session.scan({
-      resultId: newResultId(), ref: items, sort: [{ column: 'id', dir: 'asc' }], limit: 2,
-    }))
+    const first = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref: items,
+        sort: [{ column: 'id', dir: 'asc' }],
+        limit: 2,
+      }),
+    )
     const page1 = first[first.length - 1]?.done?.nextCursor
     assert.equal(page1, rowOffsetCursor('mysql', 2), 'the cursor is core\u2019s envelope around a row offset')
-    assert.deepEqual(rowsOf(first).map((r) => r.get('id')), [1, 2])
+    assert.deepEqual(
+      rowsOf(first).map((r) => r.get('id')),
+      [1, 2],
+    )
 
-    const second = await drain(await session.scan({
-      resultId: newResultId(), ref: items, sort: [{ column: 'id', dir: 'asc' }], limit: 2, cursorToken: page1 ?? '',
-    }))
-    assert.deepEqual(rowsOf(second).map((r) => r.get('id')), [3, 4])
+    const second = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref: items,
+        sort: [{ column: 'id', dir: 'asc' }],
+        limit: 2,
+        cursorToken: page1 ?? '',
+      }),
+    )
+    assert.deepEqual(
+      rowsOf(second).map((r) => r.get('id')),
+      [3, 4],
+    )
     const page2 = second[second.length - 1]?.done?.nextCursor
     assert.equal(page2, rowOffsetCursor('mysql', 4))
 
-    const third = await drain(await session.scan({
-      resultId: newResultId(), ref: items, sort: [{ column: 'id', dir: 'asc' }], limit: 2, cursorToken: page2 ?? '',
-    }))
+    const third = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref: items,
+        sort: [{ column: 'id', dir: 'asc' }],
+        limit: 2,
+        cursorToken: page2 ?? '',
+      }),
+    )
     assert.equal(rowsOf(third).length, 0)
     assert.equal(third[third.length - 1]?.done?.nextCursor, undefined)
 
@@ -351,11 +417,12 @@ describe('db-sql against a real MySQL server', () => {
     )
     // …and neither is a well-formed token minted by a different driver
     await assert.rejects(
-      () => session.scan({
-        resultId: newResultId(),
-        ref: items,
-        cursorToken: encodeScanCursor({ driverId: 'redis', boundary: '238', skip: 17 }),
-      }),
+      () =>
+        session.scan({
+          resultId: newResultId(),
+          ref: items,
+          cursorToken: encodeScanCursor({ driverId: 'redis', boundary: '238', skip: 17 }),
+        }),
       (err: unknown) => isPeekError(err) && err.i18n?.key === 'error.sql.invalidCursorToken',
     )
   })
@@ -372,24 +439,34 @@ describe('db-sql against a real MySQL server', () => {
   /* ---------------------------------------------------------------- */
 
   it('runs a parameterized statement over the prepared-statement protocol', async () => {
-    const frames = await drain(await session.query({
-      resultId: newResultId(),
-      text: 'SELECT id, name, CHAR_LENGTH(body) AS body_len FROM items WHERE qty > ? ORDER BY id',
-      params: [15],
-    }))
+    const frames = await drain(
+      await session.query({
+        resultId: newResultId(),
+        text: 'SELECT id, name, CHAR_LENGTH(body) AS body_len FROM items WHERE qty > ? ORDER BY id',
+        params: [15],
+      }),
+    )
     assertFrameProtocol(frames)
     const rows = rowsOf(frames)
-    assert.deepEqual(rows.map((r) => r.get('id')), [2, 4])
+    assert.deepEqual(
+      rows.map((r) => r.get('id')),
+      [2, 4],
+    )
     assert.equal(cell(rows, 0, 'body_len'), 5)
     assert.equal(cell(rows, 1, 'body_len'), null)
   })
 
   it('disambiguates duplicate output column names', async () => {
-    const frames = await drain(await session.query({
-      resultId: newResultId(),
-      text: 'SELECT a.id, b.id FROM items a JOIN items b ON b.id = a.id WHERE a.id = 1',
-    }))
-    assert.deepEqual(frames[0]?.schema?.map((c) => c.name), ['id', 'id__2'])
+    const frames = await drain(
+      await session.query({
+        resultId: newResultId(),
+        text: 'SELECT a.id, b.id FROM items a JOIN items b ON b.id = a.id WHERE a.id = 1',
+      }),
+    )
+    assert.deepEqual(
+      frames[0]?.schema?.map((c) => c.name),
+      ['id', 'id__2'],
+    )
   })
 
   it('rejects an empty statement', async () => {
@@ -403,10 +480,11 @@ describe('db-sql against a real MySQL server', () => {
     const cursor = await session.query({ resultId: newResultId(), text: 'SELEKT 1' })
     await assert.rejects(
       () => cursor.next(),
-      (err: unknown) => isPeekError(err)
-        && err.code === 'SYNTAX_ERROR'
-        && err.i18n === undefined
-        && String(err.driverCode).startsWith('ER_PARSE_ERROR'),
+      (err: unknown) =>
+        isPeekError(err) &&
+        err.code === 'SYNTAX_ERROR' &&
+        err.i18n === undefined &&
+        String(err.driverCode).startsWith('ER_PARSE_ERROR'),
     )
     const missing = await session.query({ resultId: newResultId(), text: 'SELECT * FROM nope_at_all' })
     await assert.rejects(
@@ -428,7 +506,11 @@ describe('db-sql against a real MySQL server', () => {
       "WITH x AS (SELECT 1 AS n) INSERT INTO items (id, name) SELECT 98, 'y' FROM x",
     ]) {
       const cursor = await session.query({ resultId: newResultId(), text })
-      await assert.rejects(() => cursor.next(), (err: unknown) => isPeekError(err), text)
+      await assert.rejects(
+        () => cursor.next(),
+        (err: unknown) => isPeekError(err),
+        text,
+      )
     }
     const rows = rowsOf(await drain(await session.scan({ resultId: newResultId(), ref: items })))
     assert.equal(rows.length, 4)
@@ -519,9 +601,13 @@ describe('db-sql against a real MySQL server', () => {
 
   it('truncates a large cell to a preview and fetches the rest through valuePeek', async () => {
     const resultId = newResultId()
-    const frames = await drain(await session.scan({
-      resultId, ref: items, filter: [{ column: 'id', op: 'eq', value: 1 }],
-    }))
+    const frames = await drain(
+      await session.scan({
+        resultId,
+        ref: items,
+        filter: [{ column: 'id', op: 'eq', value: 1 }],
+      }),
+    )
     const rows = rowsOf(frames)
     const truncated = requireTruncated(cell(rows, 0, 'body'))
     assert.equal(truncated.encoding, 'utf8')
@@ -605,12 +691,14 @@ describe('db-sql against a real MySQL server', () => {
   })
 
   it('stops at maxRows and says so', async () => {
-    const frames = await drain(await session.query({
-      resultId: newResultId(),
-      text: 'SELECT id FROM big ORDER BY id',
-      maxRows: 2500,
-      chunkRows: 1000,
-    }))
+    const frames = await drain(
+      await session.query({
+        resultId: newResultId(),
+        text: 'SELECT id FROM big ORDER BY id',
+        maxRows: 2500,
+        chunkRows: 1000,
+      }),
+    )
     assertFrameProtocol(frames)
     const done = frames[frames.length - 1]?.done
     assert.equal(done?.rows, 2500)
@@ -620,7 +708,9 @@ describe('db-sql against a real MySQL server', () => {
   it('cancels a running scan server-side, and answers false when nothing is running', async () => {
     const resultId = newResultId()
     const cursor = await session.query({
-      resultId, text: 'SELECT id, payload FROM big ORDER BY id', chunkRows: 500,
+      resultId,
+      text: 'SELECT id, payload FROM big ORDER BY id',
+      chunkRows: 500,
     })
     await cursor.next()
     assert.equal(await session.cancel(resultId), true)
@@ -636,7 +726,8 @@ describe('db-sql against a real MySQL server', () => {
     // POOL_MAX is 8; a cursor that leaked its connection would wedge here
     for (let i = 0; i < 20; i += 1) {
       const cursor = await session.query({
-        resultId: newResultId(), text: 'SELECT id FROM items ORDER BY id',
+        resultId: newResultId(),
+        text: 'SELECT id FROM items ORDER BY id',
       })
       const frames = await drain(cursor)
       assert.equal(frames[frames.length - 1]?.done?.rows, 4)

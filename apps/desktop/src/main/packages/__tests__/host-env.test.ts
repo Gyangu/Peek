@@ -161,7 +161,9 @@ describe('the environment a package host is forked with', () => {
     // A host that derived it instead would be a host choosing its own code, which
     // is the same failure `PEEK_DRIVER_HOST_DIR` is kept off the allowlist for.
     assert.equal(env['PEEK_PACKAGE_ENTRY'], resolveContrib('neo4j'))
-    const peekVars = Object.keys(env).filter((name) => name.startsWith('PEEK_')).sort()
+    const peekVars = Object.keys(env)
+      .filter((name) => name.startsWith('PEEK_'))
+      .sort()
     assert.deepEqual(peekVars, ['PEEK_PACKAGE_ENTRY', 'PEEK_PACKAGE_ID'])
   })
 })

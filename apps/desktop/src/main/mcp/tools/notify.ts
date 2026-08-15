@@ -118,7 +118,7 @@ export default defineCommandTool({
         ? `Shown in the app: "${input.message}". The user is looking at peek right now, so no system ` +
           'notification was raised — they can already see it. Nothing further is needed.'
         : `Not delivered: "${input.message}" reached neither a banner nor the app. System notifications ` +
-          'are switched off in this user\'s settings and no window was available. Say it in the ' +
+          "are switched off in this user's settings and no window was available. Say it in the " +
           'conversation instead; do not retry.'
     return { text, data: parsed.data }
   },

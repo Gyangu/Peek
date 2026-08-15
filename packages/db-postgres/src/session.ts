@@ -154,12 +154,7 @@ export class PostgresSession implements DriverSession {
 
   private closed = false
 
-  private constructor(
-    pool: Pool,
-    poolConfig: PoolConfig,
-    catalog: PgTypeCatalog,
-    probe: ServerProbe,
-  ) {
+  private constructor(pool: Pool, poolConfig: PoolConfig, catalog: PgTypeCatalog, probe: ServerProbe) {
     this.pool = pool
     this.poolConfig = poolConfig
     this.catalog = catalog
@@ -183,10 +178,7 @@ export class PostgresSession implements DriverSession {
   /* Connecting                                                        */
   /* ---------------------------------------------------------------- */
 
-  static async connect(
-    cfg: PostgresConnectionConfig,
-    signal?: AbortSignal,
-  ): Promise<PostgresSession> {
+  static async connect(cfg: PostgresConnectionConfig, signal?: AbortSignal): Promise<PostgresSession> {
     if (signal?.aborted) throw peekErrorMsg('CANCELLED', 'error.conn.connectCancelled')
     const poolConfig = buildPoolConfig(cfg)
     const pool = new Pool(poolConfig)
@@ -360,9 +352,8 @@ export class PostgresSession implements DriverSession {
     // no intra-page skip (LIMIT/OFFSET addresses rows directly). Decoding it in
     // core is what makes a token minted by another driver a BAD_REQUEST instead
     // of a page of plausible-looking wrong rows.
-    const tokenOffset = req.cursorToken === undefined
-      ? undefined
-      : decodeRowOffsetCursor(req.cursorToken, 'postgres')
+    const tokenOffset =
+      req.cursorToken === undefined ? undefined : decodeRowOffsetCursor(req.cursorToken, 'postgres')
     const offset = clampInt(tokenOffset ?? req.offset ?? 0, 0, Number.MAX_SAFE_INTEGER) ?? 0
     const limit = clampInt(req.limit ?? DEFAULT_PAGE_LIMIT, 0, MAX_PAGE_LIMIT) ?? DEFAULT_PAGE_LIMIT
 

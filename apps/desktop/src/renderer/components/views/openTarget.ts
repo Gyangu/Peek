@@ -74,9 +74,6 @@ export function openSpecForNode(
  * this" entry point, which needs a query point and therefore cannot be the
  * result of a plain double-click.
  */
-export function canVectorSearchNode(
-  node: NamespaceNode,
-  capabilities: readonly Capability[],
-): boolean {
+export function canVectorSearchNode(node: NamespaceNode, capabilities: readonly Capability[]): boolean {
   return node.ref?.kind === 'vectorCollection' && capabilities.includes('vectorSearch')
 }

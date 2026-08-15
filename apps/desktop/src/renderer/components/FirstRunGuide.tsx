@@ -154,9 +154,7 @@ function Step({
       {/* The number is a position in a list, and reads the same in every language. */}
       <div className="text-fg">{`${String(index)}. ${title}`}</div>
       <div>{body}</div>
-      <div className="flex flex-wrap gap-tight mt-tight">
-        {children}
-      </div>
+      <div className="flex flex-wrap gap-tight mt-tight">{children}</div>
     </div>
   )
 }

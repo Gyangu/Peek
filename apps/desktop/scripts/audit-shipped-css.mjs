@@ -489,7 +489,19 @@ function declarations(css) {
 
 /** Functional colour notations. Not `color-mix` / `light-dark`: those are
  *  containers, and `colourTokens` walks into every function it meets anyway. */
-const COLOUR_FN = new Set(['rgb', 'rgba', 'hsl', 'hsla', 'hwb', 'lab', 'lch', 'oklab', 'oklch', 'color', 'device-cmyk'])
+const COLOUR_FN = new Set([
+  'rgb',
+  'rgba',
+  'hsl',
+  'hsla',
+  'hwb',
+  'lab',
+  'lch',
+  'oklab',
+  'oklch',
+  'color',
+  'device-cmyk',
+])
 
 const HEX = /#[0-9a-f]{3,8}\b/gi
 
@@ -711,7 +723,9 @@ const unworn = [...shipped.keys()].filter((name) => !worn.has(name) && !(name in
  * longer hit is evidence the scan went blind, so it has to be read as a result
  * rather than left as a comment.
  */
-const staleForeign = Object.keys(FOREIGN_DOM).filter((name) => !shipped.has(name)).sort()
+const staleForeign = Object.keys(FOREIGN_DOM)
+  .filter((name) => !shipped.has(name))
+  .sort()
 assert.deepEqual(
   staleForeign,
   [],
@@ -815,7 +829,9 @@ assert.ok(
     `assertion below would pass by finding nothing to look at.`,
 )
 
-const rootPalette = artifactDecls.filter((d) => /^:root\b|:host\b/.test(d.selector) && PALETTE_PROP.test(d.property))
+const rootPalette = artifactDecls.filter(
+  (d) => /^:root\b|:host\b/.test(d.selector) && PALETTE_PROP.test(d.property),
+)
 const undeclared = [...new Set(rootPalette.map((d) => d.property))].filter((p) => !themeNames.has(p)).sort()
 assert.deepEqual(
   undeclared,

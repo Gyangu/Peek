@@ -79,7 +79,9 @@ function assertChunkContract(frames: readonly ChunkFrame[]): void {
   })
 }
 
-async function expectPeekError(fn: () => Promise<unknown>): Promise<{ code: string; message: string; key?: string }> {
+async function expectPeekError(
+  fn: () => Promise<unknown>,
+): Promise<{ code: string; message: string; key?: string }> {
   try {
     await fn()
   } catch (err) {
@@ -116,10 +118,22 @@ before(async () => {
   })
   await restOk('PUT', `/collections/${COLLECTION}/points?wait=true`, {
     points: [
-      { id: 1, vector: { title: [1, 0, 0, 0], body: [1, 0, 0] }, payload: { lang: 'en', n: 1, blob: BIG_TEXT } },
-      { id: 2, vector: { title: [0.9, 0.1, 0, 0], body: [0, 1, 0] }, payload: { lang: 'en', n: 2, blob: 'short' } },
+      {
+        id: 1,
+        vector: { title: [1, 0, 0, 0], body: [1, 0, 0] },
+        payload: { lang: 'en', n: 1, blob: BIG_TEXT },
+      },
+      {
+        id: 2,
+        vector: { title: [0.9, 0.1, 0, 0], body: [0, 1, 0] },
+        payload: { lang: 'en', n: 2, blob: 'short' },
+      },
       { id: 3, vector: { title: [0, 1, 0, 0], body: [0, 0, 1] }, payload: { lang: 'zh', n: 3 } },
-      { id: 4, vector: { title: [0, 0, 1, 0], body: [1, 1, 0] }, payload: { lang: 'zh', n: 4, nested: { a: 1 } } },
+      {
+        id: 4,
+        vector: { title: [0, 0, 1, 0], body: [1, 1, 0] },
+        payload: { lang: 'zh', n: 4, nested: { a: 1 } },
+      },
     ],
   })
   session = await QdrantSession.connect({ driverId: 'qdrant', url: URL })
@@ -148,7 +162,10 @@ describe('db-qdrant row shape', () => {
       withScore: true,
       withVector: false,
     })
-    assert.deepEqual(shape.columns.map((c) => c.name), ['id', 'score', 'id__2', 'score__2', 'lang'])
+    assert.deepEqual(
+      shape.columns.map((c) => c.name),
+      ['id', 'score', 'id__2', 'score__2', 'lang'],
+    )
     // The payload keys themselves are untouched: they are what the lookup uses
     assert.deepEqual([...shape.payloadColumns], ['id', 'score', 'lang'])
 
@@ -204,13 +221,19 @@ describe('db-qdrant against a live server', () => {
     const s = live(t)
     if (!s) return
     const info = await s.describeCollection({ kind: 'vectorCollection', collection: COLLECTION })
-    assert.deepEqual(info.columns.map((c) => c.name), ['id', 'payload'])
+    assert.deepEqual(
+      info.columns.map((c) => c.name),
+      ['id', 'payload'],
+    )
     assert.deepEqual(info.primaryKey, ['id'])
     assert.equal(info.rowCountEstimate, 4)
     assert.equal(info.comment, 'body: 3d · Dot, title: 4d · Cosine')
     // Payload indexes are reported as indexes, not folded into the columns: the
     // frame-0 schema must not depend on mutable server-side index state
-    assert.deepEqual(info.indexes?.map((i) => i.columns[0]), ['lang', 'n'])
+    assert.deepEqual(
+      info.indexes?.map((i) => i.columns[0]),
+      ['lang', 'n'],
+    )
 
     // The per-collection browse style, which the kind-keyed table could not
     // express: `order_by` needs a payload index, so *these two keys* are the
@@ -270,7 +293,10 @@ describe('db-qdrant against a live server', () => {
         limit: 10,
       }),
     )
-    assert.deepEqual(frames[0]?.schema?.map((c) => c.name), ['id', 'lang'])
+    assert.deepEqual(
+      frames[0]?.schema?.map((c) => c.name),
+      ['id', 'lang'],
+    )
     assert.ok((frames.at(-1)?.done?.rows ?? 0) > 0, 'the projected-column filter still selects rows')
 
     // And a column that is not in the result at all is a hard error, because a
@@ -312,22 +338,36 @@ describe('db-qdrant against a live server', () => {
     const s = live(t)
     if (!s) return
     const frames = await drain(
-      await s.scan({ resultId: rid('t-scan'), ref: { kind: 'vectorCollection', collection: COLLECTION }, limit: 10 }),
+      await s.scan({
+        resultId: rid('t-scan'),
+        ref: { kind: 'vectorCollection', collection: COLLECTION },
+        limit: 10,
+      }),
     )
-    assert.deepEqual(frames[0]?.schema?.map((c) => c.name), ['id', 'payload'])
+    assert.deepEqual(
+      frames[0]?.schema?.map((c) => c.name),
+      ['id', 'payload'],
+    )
     assert.equal(frames.at(-1)?.done?.rows, 4)
     assert.deepEqual(frames[0]?.cols[0], [1, 2, 3, 4], 'numeric point ids stay numeric')
     // The whole collection fits in one page, so there is nothing to continue
     assert.equal(frames.at(-1)?.done?.nextCursor, undefined)
     // No vector column at all — the body is reachable only through valuePeek
-    assert.equal(frames[0]?.schema?.some((c) => c.name === 'vector'), false)
+    assert.equal(
+      frames[0]?.schema?.some((c) => c.name === 'vector'),
+      false,
+    )
   })
 
   it('cuts a large payload down to a preview plus a ref back to the point', async (t) => {
     const s = live(t)
     if (!s) return
     const frames = await drain(
-      await s.scan({ resultId: rid('t-big'), ref: { kind: 'vectorCollection', collection: COLLECTION }, limit: 10 }),
+      await s.scan({
+        resultId: rid('t-big'),
+        ref: { kind: 'vectorCollection', collection: COLLECTION },
+        limit: 10,
+      }),
     )
     const cell = frames[0]?.cols[1]?.[0]
     assert.ok(isTruncatedValue(cell), 'a 9KB payload cannot travel in a chunk')
@@ -348,7 +388,11 @@ describe('db-qdrant against a live server', () => {
     const s = live(t)
     if (!s) return
     const first = await drain(
-      await s.scan({ resultId: rid('t-p1'), ref: { kind: 'vectorCollection', collection: COLLECTION }, limit: 2 }),
+      await s.scan({
+        resultId: rid('t-p1'),
+        ref: { kind: 'vectorCollection', collection: COLLECTION },
+        limit: 2,
+      }),
     )
     assert.deepEqual(first[0]?.cols[0], [1, 2])
     const token = first.at(-1)?.done?.nextCursor
@@ -422,7 +466,10 @@ describe('db-qdrant against a live server', () => {
       }),
     )
     assert.equal(frames.length, 2)
-    assert.deepEqual(frames.map((f) => f.rowCount), [2, 2])
+    assert.deepEqual(
+      frames.map((f) => f.rowCount),
+      [2, 2],
+    )
   })
 
   it('flattens payload keys into columns only when asked', async (t) => {
@@ -436,7 +483,10 @@ describe('db-qdrant against a live server', () => {
         limit: 10,
       }),
     )
-    assert.deepEqual(frames[0]?.schema?.map((c) => c.name), ['id', 'lang', 'n', 'absent'])
+    assert.deepEqual(
+      frames[0]?.schema?.map((c) => c.name),
+      ['id', 'lang', 'n', 'absent'],
+    )
     assert.deepEqual(frames[0]?.cols[1], ['en', 'en', 'zh', 'zh'])
     assert.deepEqual(frames[0]?.cols[2], [1, 2, 3, 4])
     // A key no point carries is a column of nulls, not a missing column
@@ -469,7 +519,10 @@ describe('db-qdrant against a live server', () => {
     assert.deepEqual(await ids([{ column: 'nested', op: 'isNull' }]), [1, 2, 3])
     // Several specs are ANDed, like every other driver
     assert.deepEqual(
-      await ids([{ column: 'lang', op: 'eq', value: 'zh' }, { column: 'n', op: 'gt', value: 3 }]),
+      await ids([
+        { column: 'lang', op: 'eq', value: 'zh' },
+        { column: 'n', op: 'gt', value: 3 },
+      ]),
       [4],
     )
   })
@@ -520,7 +573,10 @@ describe('db-qdrant against a live server', () => {
       s.scan({
         resultId: rid('t-sort2'),
         ref: { kind: 'vectorCollection', collection: COLLECTION },
-        sort: [{ column: 'n', dir: 'asc' }, { column: 'lang', dir: 'asc' }],
+        sort: [
+          { column: 'n', dir: 'asc' },
+          { column: 'lang', dir: 'asc' },
+        ],
       }),
     )
     assert.equal(multi.code, 'BAD_REQUEST')
@@ -598,7 +654,10 @@ describe('db-qdrant against a live server', () => {
         columns: ['lang'],
       }),
     )
-    assert.deepEqual(frames[0]?.schema?.map((c) => c.name), ['id', 'score', 'lang'])
+    assert.deepEqual(
+      frames[0]?.schema?.map((c) => c.name),
+      ['id', 'score', 'lang'],
+    )
     // "more like this" ranks point 2 first and leaves the reference point out
     assert.equal(frames[0]?.cols[0]?.[0], 2)
     const best = frames[0]?.cols[1]?.[0]
@@ -622,7 +681,10 @@ describe('db-qdrant against a live server', () => {
         withVector: true,
       }),
     )
-    assert.deepEqual(frames[0]?.schema?.map((c) => c.name), ['id', 'score', 'payload', 'vector'])
+    assert.deepEqual(
+      frames[0]?.schema?.map((c) => c.name),
+      ['id', 'score', 'payload', 'vector'],
+    )
     assert.deepEqual(frames[0]?.cols[0], [1, 2], 'the two far vectors fall below the threshold')
     assert.deepEqual(frames[0]?.cols[3]?.[0], [1, 0, 0, 0])
   })
@@ -727,7 +789,7 @@ describe('db-qdrant against a live server', () => {
     assert.equal(collection.code, 'NOT_FOUND')
   })
 
-  it('refuses another driver\'s refs instead of half-answering', async (t) => {
+  it("refuses another driver's refs instead of half-answering", async (t) => {
     const s = live(t)
     if (!s) return
     const ref = await expectPeekError(() => s.peekValue({ kind: 'redisValue', key: 'k' }))

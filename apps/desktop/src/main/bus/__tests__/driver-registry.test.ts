@@ -3,16 +3,8 @@ import { describe, test } from 'node:test'
 import { DRIVER_IDS } from '@peek/core'
 import '../../../drivers/__tests__/in-repo-registry'
 import { DRIVER_DISPLAYS } from '../../../drivers/__tests__/in-repo-displays'
-import {
-  driverManifests,
-  lookupManifest,
-  manifestDriverIds,
-} from '../../../drivers/manifests'
-import {
-  driverRegistry,
-  lookupDriver,
-  registeredDriverIds,
-} from '../../connections/registry'
+import { driverManifests, lookupManifest, manifestDriverIds } from '../../../drivers/manifests'
+import { driverRegistry, lookupDriver, registeredDriverIds } from '../../connections/registry'
 
 /**
  * The wiring invariant behind "adding a database is a package plus a few lines".

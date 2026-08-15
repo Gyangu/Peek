@@ -69,10 +69,7 @@ export function resolveWidth(column: GridColumn, sizing: ColumnSizing): number {
   return override === undefined ? column.size : clampWidth(override, column.minSize, column.maxSize)
 }
 
-export function resolveWidths(
-  columns: readonly GridColumn[],
-  sizing: ColumnSizing,
-): number[] {
+export function resolveWidths(columns: readonly GridColumn[], sizing: ColumnSizing): number[] {
   return columns.map((column) => resolveWidth(column, sizing))
 }
 
@@ -207,10 +204,7 @@ export interface ColumnWindowItem {
  * close the one case the geometry cannot see: two interior columns changing by
  * equal and opposite amounts, which leaves `last.end` untouched.
  */
-export function columnWindowKey(
-  cols: readonly ColumnWindowItem[],
-  widthKey: string,
-): string {
+export function columnWindowKey(cols: readonly ColumnWindowItem[], widthKey: string): string {
   const first = cols[0]
   const last = cols[cols.length - 1]
   if (!first || !last) return `empty:${widthKey}`

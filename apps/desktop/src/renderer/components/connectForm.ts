@@ -112,7 +112,10 @@ export function defaultConnectMode(driverId: DriverId): ConnectMode {
 }
 
 /** Initial values, so switching driver or mode lands on a form that is ready to submit. */
-export function initialConnectValues(driverId: DriverId, mode: ConnectMode): Record<string, string | boolean> {
+export function initialConnectValues(
+  driverId: DriverId,
+  mode: ConnectMode,
+): Record<string, string | boolean> {
   const values: Record<string, string | boolean> = {}
   for (const field of connectFields(driverId, mode)) {
     values[field.name] = field.defaultValue ?? (field.type === 'checkbox' ? false : '')
@@ -236,9 +239,7 @@ export function missingRequiredFields(
 /* Values → ConnectionConfig                                           */
 /* ------------------------------------------------------------------ */
 
-export type BuildConfigOutcome =
-  | { ok: true; config: ConnectionConfig }
-  | { ok: false; issue: string }
+export type BuildConfigOutcome = { ok: true; config: ConnectionConfig } | { ok: false; issue: string }
 
 /**
  * Assemble a `ConnectionConfig` and check it against the contract before it

@@ -103,7 +103,13 @@ export function stageableAttachment(spec: ChatAttachmentSpec, label: string): Ch
   const base = { id: newAttachmentId(), label: spec.label ?? label }
   switch (spec.kind) {
     case 'rows':
-      return { ...base, kind: 'rows', viewId: spec.viewId, resultId: spec.resultId, rowIndexes: [...spec.rowIndexes] }
+      return {
+        ...base,
+        kind: 'rows',
+        viewId: spec.viewId,
+        resultId: spec.resultId,
+        rowIndexes: [...spec.rowIndexes],
+      }
     case 'result':
       // One page of the table, matching what `context-actions/descriptors.ts`
       // asks for from the grid — "add this result" must mean the same amount
@@ -250,13 +256,15 @@ export function attachCandidates(
         label: t('chat.attach.option.selection'),
         // The hint carries what the selection *is*; the label cannot, because it
         // has to stay the same phrase the shortcut and the menu both refer to.
-        hint: columns === null
-          ? t('chat.attach.option.selectionRowsHint', { source, count: rows })
-          : t('chat.attach.option.selectionCellsHint', { source, rows, columns }),
+        hint:
+          columns === null
+            ? t('chat.attach.option.selectionRowsHint', { source, count: rows })
+            : t('chat.attach.option.selectionCellsHint', { source, rows, columns }),
         token: t('chat.attach.token.selection'),
-        chipLabel: columns === null
-          ? rowsChipLabel(t, view, rows)
-          : t('context.label.cells', { source, rows, columns }),
+        chipLabel:
+          columns === null
+            ? rowsChipLabel(t, view, rows)
+            : t('context.label.cells', { source, rows, columns }),
         identity: attachmentIdentity(selection),
         spec: selection,
       })

@@ -4,7 +4,13 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
 
-import { attributeClassNames, blankComments, decomment, openingTags, stylesheets } from '../../__tests__/sourceScan'
+import {
+  attributeClassNames,
+  blankComments,
+  decomment,
+  openingTags,
+  stylesheets,
+} from '../../__tests__/sourceScan'
 import {
   ACTION_ID_PATTERN,
   BUTTON_MODIFIERS,
@@ -608,7 +614,14 @@ describe('hover and active are not the same gesture', () => {
  * `inset` and `outset`, and no utility spells any of them. A class naming one
  * would fail here, correctly — there is no rule for it to compile to.
  */
-const BORDER_STYLE_KEYWORDS: ReadonlySet<string> = new Set(['solid', 'dashed', 'dotted', 'double', 'hidden', 'none'])
+const BORDER_STYLE_KEYWORDS: ReadonlySet<string> = new Set([
+  'solid',
+  'dashed',
+  'dotted',
+  'double',
+  'hidden',
+  'none',
+])
 
 describe('no atomic class invents a colour', () => {
   /*
@@ -633,7 +646,15 @@ describe('no atomic class invents a colour', () => {
    * is. They did, and the message below is written to say which of the two
    * lists an offender belongs on.
    */
-  const KEYWORDS = new Set([...BORDER_STYLE_KEYWORDS, 'transparent', 'current', 'inherit', 'left', 'right', 'center'])
+  const KEYWORDS = new Set([
+    ...BORDER_STYLE_KEYWORDS,
+    'transparent',
+    'current',
+    'inherit',
+    'left',
+    'right',
+    'center',
+  ])
   /**
    * The type half of the `text-` prefix, read from Tailwind rather than listed.
    *
@@ -658,9 +679,9 @@ describe('no atomic class invents a colour', () => {
    * so this one asserts it read something.
    */
   const TYPE_RUNGS = new Set(
-    [
-      ...readFileSync(join(RENDERER, 'styles.css'), 'utf8').matchAll(/^\s*--text-([a-z0-9]+)\s*:/gm),
-    ].map((m) => m[1]),
+    [...readFileSync(join(RENDERER, 'styles.css'), 'utf8').matchAll(/^\s*--text-([a-z0-9]+)\s*:/gm)].map(
+      (m) => m[1],
+    ),
   )
   assert.ok(
     TYPE_RUNGS.size >= 4,
@@ -703,7 +724,7 @@ describe('no atomic class invents a colour', () => {
         unknown.push(
           m[1] === 'border'
             ? `${label} → \`${name}\`: \`${value}\` is neither a colour ${token} names nor a ` +
-              `border-style keyword (${[...BORDER_STYLE_KEYWORDS].join(', ')})`
+                `border-style keyword (${[...BORDER_STYLE_KEYWORDS].join(', ')})`
             : `${label} → \`${name}\` wants ${token}`,
         )
       }
@@ -1295,7 +1316,8 @@ const LAYOUT_UTILITY =
  * one is not positioning the button, it is arguing with the primitive about what
  * a button is.
  */
-const PAINT_UTILITY = /^(bg-|text-|border|rounded|p[xytrbl]?-|h-|max-h-|min-h-|shadow|opacity|font-|ring|outline)/
+const PAINT_UTILITY =
+  /^(bg-|text-|border|rounded|p[xytrbl]?-|h-|max-h-|min-h-|shadow|opacity|font-|ring|outline)/
 
 type ClassKind = 'layout' | 'paint' | 'unknown'
 
@@ -1444,7 +1466,11 @@ describe('className on a Button is layout only', () => {
     assert.equal(classify('bg-bg-2'), 'paint')
     assert.equal(classify('hover:bg-bg-2'), 'paint', 'a variant must not launder a paint utility')
     assert.equal(classify('h-row'), 'paint', 'box height belongs to the size rung, not to the caller')
-    assert.equal(classify('w-full'), 'layout', 'width is the caller\'s, height is not — see LAYOUT_ONLY_PROPERTIES')
+    assert.equal(
+      classify('w-full'),
+      'layout',
+      "width is the caller's, height is not — see LAYOUT_ONLY_PROPERTIES",
+    )
     assert.equal(classify('invisible'), 'layout')
     assert.equal(
       classify('group-hover/tab:visible'),
@@ -1467,7 +1493,11 @@ describe('className on a Button is layout only', () => {
     assert.deepEqual(opaque("active ? 'mt-2' : 'mt-2 invisible'"), [], 'a test is not a class list')
     assert.deepEqual(opaque("kind === 'wide' && 'w-full'"), [], 'nor is a comparison')
     assert.deepEqual(opaque("on ? 'w-full' : undefined"), [], 'nor is a value that renders nothing')
-    assert.deepEqual(opaque('`mt-2 ${on ? "z-10" : "w-full"}`'), [], 'a template made of literals is readable')
+    assert.deepEqual(
+      opaque('`mt-2 ${on ? "z-10" : "w-full"}`'),
+      [],
+      'a template made of literals is readable',
+    )
 
     assert.deepEqual(opaque('PAINT'), ['PAINT'], 'the one-line bypass: a constant handed over by name')
     assert.deepEqual(
@@ -1509,9 +1539,7 @@ describe('className on a Button is layout only', () => {
         case 'unknown': {
           const entry = CLASSNAME_LEDGER.find((e) => e.name === name)
           if (entry === undefined) {
-            offenders.push(
-              `${file} → "${name}" matches no utility family, and is not on CLASSNAME_LEDGER`,
-            )
+            offenders.push(`${file} → "${name}" matches no utility family, and is not on CLASSNAME_LEDGER`)
             break
           }
           const declared = owners.get(name)
@@ -1639,7 +1667,9 @@ describe('action handles', () => {
       if (u.action === undefined) continue
       seen.set(u.action, [...(seen.get(u.action) ?? []), u.file])
     }
-    const dupes = [...seen].filter(([, files]) => files.length > 1).map(([id, files]) => `${id} → ${files.join(', ')}`)
+    const dupes = [...seen]
+      .filter(([, files]) => files.length > 1)
+      .map(([id, files]) => `${id} → ${files.join(', ')}`)
     assert.deepEqual(
       dupes,
       [],
@@ -1754,7 +1784,7 @@ const NOT_CONTROLS: readonly { where: string; count: number; reason: string }[] 
     where: 'components/chat/AttachMenu.tsx',
     count: 1,
     reason:
-      'A listbox option, in the @-mention list. The `<Menu>` primitive that took the context menu\'s ' +
+      "A listbox option, in the @-mention list. The `<Menu>` primitive that took the context menu's " +
       'two items anchors to a *point* and takes focus; this list is aimed by the composer while ' +
       'focus stays in the textarea, which is a different element entirely.',
   },
@@ -1768,7 +1798,7 @@ const NOT_CONTROLS: readonly { where: string; count: number; reason: string }[] 
   {
     where: 'components/chat/MessageItem.tsx',
     count: 1,
-    reason: 'The thinking block\'s disclosure header. Same kind as ToolCallCard\'s.',
+    reason: "The thinking block's disclosure header. Same kind as ToolCallCard's.",
   },
   {
     where: 'components/settings/SettingsDialog.tsx',

@@ -111,7 +111,10 @@ describe('quoteLabel is the escape for the one value that cannot be a parameter'
     const { text } = composeGraphQuery(readGraphState({ label: '`) DETACH DELETE n //' }))
     // One MATCH, one OPTIONAL MATCH, and no DELETE outside the backticks.
     assert.equal(text.match(/MATCH/g)?.length, 2)
-    assert.ok(!/DELETE\s+n\s*$/m.test(text.replace(/`[^`]*`/g, '``')), 'the injection stays inside the quotes')
+    assert.ok(
+      !/DELETE\s+n\s*$/m.test(text.replace(/`[^`]*`/g, '``')),
+      'the injection stays inside the quotes',
+    )
   })
 })
 
@@ -229,7 +232,16 @@ describe('toCell makes every Bolt value survive a structuredClone', () => {
   it('flattens a path into segments the harvester can walk', () => {
     const a = node('4:db:1', ['Person'], { name: 'Ada' })
     const b = node('4:db:2', ['Person'], { name: 'Bob' })
-    const rel = new Relationship(neo4j.int(9), neo4j.int(1), neo4j.int(2), 'KNOWS', {}, '4:db:9', '4:db:1', '4:db:2')
+    const rel = new Relationship(
+      neo4j.int(9),
+      neo4j.int(1),
+      neo4j.int(2),
+      'KNOWS',
+      {},
+      '4:db:9',
+      '4:db:1',
+      '4:db:2',
+    )
     const cell = toCell(new Path(a, b, [new PathSegment(a, rel, b)])) as {
       _peek: string
       segments: { start: { id: string }; relationship: { id: string }; end: { id: string } }[]
@@ -284,7 +296,10 @@ describe('toCell makes every Bolt value survive a structuredClone', () => {
 describe('toChunkCell applies the long-value ceiling to leaves only', () => {
   it('truncates a long string into the shape the rest of peek already renders', () => {
     const cell = toChunkCell('x'.repeat(5000))
-    assert.ok(isTruncatedValue(cell), 'a long value becomes a TruncatedValue, not a silently shortened string')
+    assert.ok(
+      isTruncatedValue(cell),
+      'a long value becomes a TruncatedValue, not a silently shortened string',
+    )
   })
 
   it('leaves a short string alone', () => {

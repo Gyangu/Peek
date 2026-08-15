@@ -29,11 +29,14 @@ import {
  */
 describe('scan cursor', () => {
   test('round-trips a boundary and an intra-page skip', () => {
-    assert.deepEqual(tryDecodeScanCursor(encodeScanCursor({ driverId: 'redis', boundary: '238', skip: 17 })), {
-      driverId: 'redis',
-      boundary: '238',
-      skip: 17,
-    })
+    assert.deepEqual(
+      tryDecodeScanCursor(encodeScanCursor({ driverId: 'redis', boundary: '238', skip: 17 })),
+      {
+        driverId: 'redis',
+        boundary: '238',
+        skip: 17,
+      },
+    )
     // The boundary is driver text and may contain anything, colons included:
     // only the first two colons delimit
     const messy = 'a:b::c"42"'
@@ -88,7 +91,10 @@ describe('scan cursor', () => {
   test('a malformed token is refused rather than read as a fresh scan', () => {
     for (const bad of ['', '400', '238:17', 'postgres:400', 'postgres::400', 'POSTGRES:0:1', '"42"']) {
       assert.equal(tryDecodeScanCursor(bad), null, bad)
-      assert.throws(() => decodeScanCursor(bad, 'postgres'), (err: unknown) => isPeekError(err))
+      assert.throws(
+        () => decodeScanCursor(bad, 'postgres'),
+        (err: unknown) => isPeekError(err),
+      )
     }
     // A skip too large to be an exact integer is not a skip
     assert.equal(tryDecodeScanCursor('redis:99999999999999999999:1'), null)
@@ -106,7 +112,8 @@ describe('scan cursor', () => {
     // A boundary that is not a row number is refused, not coerced to 0 — a
     // silent restart from row 0 is a page of rows the caller already saw
     assert.throws(
-      () => decodeRowOffsetCursor(encodeScanCursor({ driverId: 'postgres', boundary: 'x', skip: 0 }), 'postgres'),
+      () =>
+        decodeRowOffsetCursor(encodeScanCursor({ driverId: 'postgres', boundary: 'x', skip: 0 }), 'postgres'),
       (err: unknown) => isPeekError(err) && err.code === 'BAD_REQUEST',
     )
   })

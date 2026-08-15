@@ -255,11 +255,7 @@ export interface ResultPausePatch {
  * overwritten by a pause. When a cancel and a pause race, whichever arrived
  * first wins — a cancel must not be rewritten into a pause.
  */
-export function pauseResult(
-  draft: Draft<Workspace>,
-  resultId: ResultId,
-  patch: ResultPausePatch,
-): void {
+export function pauseResult(draft: Draft<Workspace>, resultId: ResultId, patch: ResultPausePatch): void {
   const meta = draft.results[resultId]
   if (!meta || meta.status !== 'running') return
   meta.status = 'paused'

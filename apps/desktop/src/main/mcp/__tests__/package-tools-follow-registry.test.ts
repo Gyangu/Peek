@@ -70,7 +70,10 @@ describe('the package tools main offers', () => {
     })
 
     assert.deepEqual(before, ['expand_node'])
-    assert.deepEqual(packageTools(null).map((tool) => tool.name), [])
+    assert.deepEqual(
+      packageTools(null).map((tool) => tool.name),
+      [],
+    )
   })
 
   test('nothing installed means no package tools, not a compiled-in fallback', () => {
@@ -87,7 +90,10 @@ describe('the package tools main offers', () => {
     installPackages(registryOf([expandNodeDeclaration()]))
 
     assert.deepEqual(before, [])
-    assert.deepEqual(packageTools(null).map((tool) => tool.name), ['expand_node'])
+    assert.deepEqual(
+      packageTools(null).map((tool) => tool.name),
+      ['expand_node'],
+    )
   })
 })
 
@@ -111,7 +117,13 @@ describe('what the manifest carries is what the tool is built from', () => {
     const declared = expandNodeDeclaration()
     installPackages(
       registryOf([
-        { ...declared, kind: 'read', hasRenderer: undefined, name: 'peek_at', packageId: 'sample' } as InstalledTool,
+        {
+          ...declared,
+          kind: 'read',
+          hasRenderer: undefined,
+          name: 'peek_at',
+          packageId: 'sample',
+        } as InstalledTool,
       ]),
     )
     const tool = packageTools(null)[0]
@@ -148,11 +160,18 @@ describe('what the manifest carries is what the tool is built from', () => {
         // conversion and refuses the package by name — but the alternative here
         // is a throw on the path that opens an MCP session, which would cost the
         // kernel's fourteen tools as well as this one.
-        { ...declared, name: 'broken', inputSchema: { type: 'object', properties: { a: { type: 'nonsense' } } } },
+        {
+          ...declared,
+          name: 'broken',
+          inputSchema: { type: 'object', properties: { a: { type: 'nonsense' } } },
+        },
       ]),
     )
 
-    assert.deepEqual(packageTools(null).map((tool) => tool.name), ['expand_node'])
+    assert.deepEqual(
+      packageTools(null).map((tool) => tool.name),
+      ['expand_node'],
+    )
   })
 })
 

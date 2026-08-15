@@ -137,7 +137,11 @@ describe('what reaches the disk', () => {
     assert.ok(entry)
     assert.equal(entry.driverId, 'postgres')
     assert.equal(entry.hasSecret, true)
-    assert.equal('password' in entry.config, false, 'the listed config must not carry a password field at all')
+    assert.equal(
+      'password' in entry.config,
+      false,
+      'the listed config must not carry a password field at all',
+    )
   })
 
   test('a password hidden inside a URL is stripped, and the user part survives', () => {
@@ -241,7 +245,11 @@ describe('the name a saved connection carries', () => {
 
     const [ledger, orders] = book.list()
     assert.equal(orders?.label, 'postgres', 'with nothing else to go on, the driver id names the row')
-    assert.equal(orders?.detail, '', 'inventing a long form for a guessed short form would look authoritative')
+    assert.equal(
+      orders?.detail,
+      '',
+      'inventing a long form for a guessed short form would look authoritative',
+    )
     assert.equal(ledger?.label, 'the user typed this', 'a name the user typed needs nothing computed')
   })
 
@@ -306,7 +314,11 @@ describe('putting the credential back', () => {
       pg({ password: undefined, database: 'other' }),
     ]) {
       const hydrated = book.hydrate(elsewhere) as Record<string, unknown>
-      assert.equal(hydrated['password'], undefined, `${connectionIdentityOf(elsewhere)} was handed a saved password`)
+      assert.equal(
+        hydrated['password'],
+        undefined,
+        `${connectionIdentityOf(elsewhere)} was handed a saved password`,
+      )
     }
   })
 
@@ -360,7 +372,10 @@ describe('when the keychain is not there', () => {
       seal: () => null,
       open: () => null,
     })
-    assert.equal((reader.hydrate(pg({ password: undefined })) as Record<string, unknown>)['password'], undefined)
+    assert.equal(
+      (reader.hydrate(pg({ password: undefined })) as Record<string, unknown>)['password'],
+      undefined,
+    )
   })
 })
 
@@ -385,7 +400,11 @@ describe('the file is hand-editable, so it is also breakable', () => {
     )
     const entries = bookAt(dir).list()
     assert.equal(entries.length, 1)
-    assert.equal((entries[0]?.config as Record<string, unknown>)['file'], '/tmp/a.db', 'the wrong row survived')
+    assert.equal(
+      (entries[0]?.config as Record<string, unknown>)['file'],
+      '/tmp/a.db',
+      'the wrong row survived',
+    )
     // And not `fine`: a top-level `label` next to a row is a key an older peek
     // may have written, and this file has always ignored it. The name it stores
     // now lives under `display` — see `StoredEntry`.
@@ -399,7 +418,11 @@ describe('the file is hand-editable, so it is also breakable', () => {
       JSON.stringify({
         version: 1,
         entries: [
-          { id: 'x', label: 'written by an older version', config: { driverId: 'sqlite', file: '/tmp/a.db' } },
+          {
+            id: 'x',
+            label: 'written by an older version',
+            config: { driverId: 'sqlite', file: '/tmp/a.db' },
+          },
           { id: 'y', config: { driverId: 'sqlite', file: '/tmp/b.db', label: 'scratch' } },
         ],
       }),
@@ -453,7 +476,13 @@ describe('the file is hand-editable, so it is also breakable', () => {
     const saved = JSON.parse(fileText(dir)) as { entries: Record<string, unknown>[] }
     const stolen = saved.entries[0]
     assert.ok(stolen)
-    stolen['config'] = { driverId: 'postgres', host: 'evil.example.com', port: 5432, database: 'x', user: 'app' }
+    stolen['config'] = {
+      driverId: 'postgres',
+      host: 'evil.example.com',
+      port: 5432,
+      database: 'x',
+      user: 'app',
+    }
     writeFileSync(join(dir, CONNECTIONS_FILE_NAME), JSON.stringify(saved))
 
     const reloaded = bookAt(dir)
@@ -472,7 +501,10 @@ describe('the file is hand-editable, so it is also breakable', () => {
     const entries = book.list()
     assert.equal(entries.length, MAX_BOOK_ENTRIES)
     // Newest first, so the survivors are the last MAX_BOOK_ENTRIES written.
-    assert.equal((entries[0]?.config as Record<string, unknown>)['file'], `/tmp/peek-${String(MAX_BOOK_ENTRIES + 4)}.db`)
+    assert.equal(
+      (entries[0]?.config as Record<string, unknown>)['file'],
+      `/tmp/peek-${String(MAX_BOOK_ENTRIES + 4)}.db`,
+    )
   })
 })
 
@@ -509,7 +541,9 @@ function busWith(dir: string): { bus: CommandBus; book: ReturnType<typeof create
     log: () => {},
     onEndpoint: () => {},
   })
-  bus.registerAll(createConfigHandlers({ book, mcp, settings, vault: fakeVault(), configDir: dir, version: '0.0.0-test' }))
+  bus.registerAll(
+    createConfigHandlers({ book, mcp, settings, vault: fakeVault(), configDir: dir, version: '0.0.0-test' }),
+  )
   return { bus, book }
 }
 

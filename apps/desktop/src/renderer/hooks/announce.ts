@@ -272,11 +272,7 @@ export function announcementFor(
 }
 
 /** The sentence for an announcement, or null when the panel has left the tree. */
-export function announcementMessage(
-  t: TFunction,
-  ws: Workspace,
-  a: Announcement,
-): string | null {
+export function announcementMessage(t: TFunction, ws: Workspace, a: Announcement): string | null {
   switch (a.kind) {
     case 'panelFocused':
       return panelFocusMessage(t, ws, a.panelId)

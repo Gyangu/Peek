@@ -82,16 +82,7 @@ export type ToolCallStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
  * table. `other` is what every MCP tool arrives as, peek's own included.
  */
 export type ToolCallKind =
-  | 'read'
-  | 'edit'
-  | 'delete'
-  | 'move'
-  | 'search'
-  | 'execute'
-  | 'think'
-  | 'fetch'
-  | 'switch_mode'
-  | 'other'
+  'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'think' | 'fetch' | 'switch_mode' | 'other'
 
 /** One tool invocation, accumulated across the `tool_call` / `tool_call_update` pair. */
 export interface ToolCallRecord {
@@ -122,8 +113,7 @@ export interface ToolCallRecord {
 
 /** Display content attached to a tool call. Only the shapes peek renders. */
 export type ToolCallContent =
-  | { type: 'text'; text: string }
-  | { type: 'diff'; path: string; oldText: string | null; newText: string }
+  { type: 'text'; text: string } | { type: 'diff'; path: string; oldText: string | null; newText: string }
 
 /**
  * A block within one message.
@@ -134,9 +124,7 @@ export type ToolCallContent =
  * path, but do not build the layout around it always being there.
  */
 export type ChatBlock =
-  | { type: 'text'; text: string }
-  | { type: 'thought'; text: string }
-  | { type: 'tool'; call: ToolCallRecord }
+  { type: 'text'; text: string } | { type: 'thought'; text: string } | { type: 'tool'; call: ToolCallRecord }
 
 export interface ChatMessage {
   id: ChatMessageId
@@ -219,10 +207,7 @@ export type ChatDelta =
  * Pure and non-mutating: returns `messages` itself when nothing changed, so a
  * caller can use reference equality to decide whether to write to disk.
  */
-export function applyChatDeltaToMessages(
-  messages: readonly ChatMessage[],
-  delta: ChatDelta,
-): ChatMessage[] {
+export function applyChatDeltaToMessages(messages: readonly ChatMessage[], delta: ChatDelta): ChatMessage[] {
   switch (delta.type) {
     case 'reset':
       return messages.length === 0 ? (messages as ChatMessage[]) : []
@@ -245,9 +230,7 @@ export function applyChatDeltaToMessages(
 
     case 'tool.upsert':
       return patch(messages, delta.messageId, (m) => {
-        const at = m.blocks.findIndex(
-          (b) => b.type === 'tool' && b.call.toolCallId === delta.call.toolCallId,
-        )
+        const at = m.blocks.findIndex((b) => b.type === 'tool' && b.call.toolCallId === delta.call.toolCallId)
         const blocks = [...m.blocks]
         if (at === -1) blocks.push({ type: 'tool', call: delta.call })
         else blocks[at] = { type: 'tool', call: delta.call }
@@ -329,32 +312,33 @@ export function transcriptToDeltas(chatId: ChatId, messages: readonly ChatMessag
  * Main resolves each descriptor into an ACP `ContentBlock` when the prompt is
  * sent — see `AttachmentPayload`.
  */
-export type ChatAttachment = { id: AttachmentId; label: string } & (
+export type ChatAttachment = { id: AttachmentId; label: string } &
   /** Specific rows the user selected in a grid. */
-  | { kind: 'rows'; viewId: ViewId; resultId: ResultId; rowIndexes: number[] }
-  /** A whole result set, capped. */
-  | { kind: 'result'; viewId: ViewId; resultId: ResultId; maxRows: number }
-  /** One cell — the case where a truncated preview is not enough. */
-  | { kind: 'cell'; viewId: ViewId; resultId: ResultId; rowIndex: number; column: string }
-  /**
-   * A rectangle of cells — what a drag-selection in the grid produces.
-   *
-   * Rows are a closed interval and not a list of indexes, because a rectangle is
-   * contiguous by definition: `rows` above is the one that carries hand-picked
-   * scattered indexes, and that is the whole of what distinguishes them. Columns
-   * are names and not indexes for the reason `cell` uses a name — a result
-   * re-run with a different projection leaves an index pointing silently at the
-   * wrong column, where a name can fail to resolve and say so.
-   * See design/2026-08-15-cell-range-attachment.md §2.1.
-   */
-  | { kind: 'cells'; viewId: ViewId; resultId: ResultId; r0: number; r1: number; columns: string[] }
-  /** DDL / column list for a table, keyspace or collection. */
-  | { kind: 'schema'; connId: ConnId; ref: CollectionRef }
-  /** The SQL currently in a query editor. */
-  | { kind: 'query'; viewId: ViewId }
-  /** The layout and view summaries — "here is what I am looking at". */
-  | { kind: 'workspace' }
-)
+  (
+    | { kind: 'rows'; viewId: ViewId; resultId: ResultId; rowIndexes: number[] }
+    /** A whole result set, capped. */
+    | { kind: 'result'; viewId: ViewId; resultId: ResultId; maxRows: number }
+    /** One cell — the case where a truncated preview is not enough. */
+    | { kind: 'cell'; viewId: ViewId; resultId: ResultId; rowIndex: number; column: string }
+    /**
+     * A rectangle of cells — what a drag-selection in the grid produces.
+     *
+     * Rows are a closed interval and not a list of indexes, because a rectangle is
+     * contiguous by definition: `rows` above is the one that carries hand-picked
+     * scattered indexes, and that is the whole of what distinguishes them. Columns
+     * are names and not indexes for the reason `cell` uses a name — a result
+     * re-run with a different projection leaves an index pointing silently at the
+     * wrong column, where a name can fail to resolve and say so.
+     * See design/2026-08-15-cell-range-attachment.md §2.1.
+     */
+    | { kind: 'cells'; viewId: ViewId; resultId: ResultId; r0: number; r1: number; columns: string[] }
+    /** DDL / column list for a table, keyspace or collection. */
+    | { kind: 'schema'; connId: ConnId; ref: CollectionRef }
+    /** The SQL currently in a query editor. */
+    | { kind: 'query'; viewId: ViewId }
+    /** The layout and view summaries — "here is what I am looking at". */
+    | { kind: 'workspace' }
+  )
 
 export type ChatAttachmentKind = ChatAttachment['kind']
 

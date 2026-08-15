@@ -7,7 +7,15 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { AUTH_HELP, classifyAcpError, isAuthFailure, isConnectionClosed, previewInput, redact, sanitizeLine } from '../errors'
+import {
+  AUTH_HELP,
+  classifyAcpError,
+  isAuthFailure,
+  isConnectionClosed,
+  previewInput,
+  redact,
+  sanitizeLine,
+} from '../errors'
 
 const TOKEN = 'aVeryLongLookingBearerTokenValue0123456789'
 
@@ -58,7 +66,11 @@ test('the auth-required code is recognised', () => {
 })
 
 test('an authentication failure disguised as an internal error is recognised', () => {
-  const raw = { code: -32603, message: 'API Error: 401 authentication_error', data: { errorKind: 'server_error' } }
+  const raw = {
+    code: -32603,
+    message: 'API Error: 401 authentication_error',
+    data: { errorKind: 'server_error' },
+  }
   assert.equal(isAuthFailure(raw), true)
   const error = classifyAcpError(raw)
   assert.equal(error.code, 'CONNECTION_FAILED')
@@ -143,7 +155,10 @@ test('a cancelled request maps to CANCELLED', () => {
 })
 
 test('invalid params map to BAD_REQUEST', () => {
-  assert.equal(classifyAcpError({ code: -32602, message: 'cwd must be an absolute path' }).code, 'BAD_REQUEST')
+  assert.equal(
+    classifyAcpError({ code: -32602, message: 'cwd must be an absolute path' }).code,
+    'BAD_REQUEST',
+  )
 })
 
 test('a non-object rejection still produces a PeekError', () => {

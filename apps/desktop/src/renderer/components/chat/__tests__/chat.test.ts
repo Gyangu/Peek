@@ -37,13 +37,7 @@ import {
   orderPermissionOptions,
   permissionButtonVariant,
 } from '../permissionOptions'
-import {
-  extractPlan,
-  parseToolTitle,
-  rawOutputText,
-  summarizeToolInput,
-  toolResultText,
-} from '../toolCalls'
+import { extractPlan, parseToolTitle, rawOutputText, summarizeToolInput, toolResultText } from '../toolCalls'
 import { composerDisabled, strandedOnSnapshot, transcriptState } from '../panelState'
 import {
   applyChatDelta,
@@ -68,9 +62,7 @@ function agentMessage(id: ChatMessageId): ChatMessage {
 
 /** The plain text of an inline tree, so a test can assert nothing was cut. */
 function flatten(nodes: readonly MdInline[]): string {
-  return nodes
-    .map((n) => (n.type === 'text' || n.type === 'code' ? n.text : flatten(n.children)))
-    .join('')
+  return nodes.map((n) => (n.type === 'text' || n.type === 'code' ? n.text : flatten(n.children))).join('')
 }
 
 /* ================================================================== */
@@ -299,7 +291,13 @@ test('summarizeToolInput clips, and says so', () => {
 test('rawOutputText reads the array shape MCP tools actually return', () => {
   // Typing this field as a record is precisely the bug that made an older ACP
   // client drop every completion notification.
-  assert.equal(rawOutputText([{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }]), 'a\nb')
+  assert.equal(
+    rawOutputText([
+      { type: 'text', text: 'a' },
+      { type: 'text', text: 'b' },
+    ]),
+    'a\nb',
+  )
   assert.equal(rawOutputText('plain'), 'plain')
   assert.equal(rawOutputText(undefined), '')
 })
@@ -517,12 +515,7 @@ test('i18n: no chat string was left in English by accident', () => {
   // Not a spell-check: it catches the copy-paste where a key is added to the
   // Chinese catalog by duplicating the English value.
   // Proper nouns and pure notation are identical in both catalogs by design.
-  const shared = new Set([
-    'chat.usage',
-    'chat.plan.progress',
-    'chat.tool.elapsed',
-    'chat.role.agent',
-  ])
+  const shared = new Set(['chat.usage', 'chat.plan.progress', 'chat.tool.elapsed', 'chat.role.agent'])
   for (const [key, value] of Object.entries(chatEn)) {
     if (shared.has(key) || typeof value !== 'string') continue
     const zh = chatZhCN[key as keyof typeof chatZhCN]
@@ -543,7 +536,10 @@ test('i18n: no chat string was left in English by accident', () => {
 const src = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
 /** Source with comments removed, so a rule stated in prose cannot satisfy itself. */
-const code = (rel: string): string => src(rel).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+const code = (rel: string): string =>
+  src(rel)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '')
 
 test('composer: Enter does not send while an IME is composing', () => {
   // Without this guard the panel is unusable in Chinese and Japanese: every
@@ -687,7 +683,11 @@ test('defaultChatViewId prefers the focused panel, then a visible chat, then any
     page: { offset: 0, limit: 100 },
   })
 
-  const left = makePanel('p_left' as PanelId, ['v_table' as ViewId, 'v_chat_bg' as ViewId], 'v_table' as ViewId)
+  const left = makePanel(
+    'p_left' as PanelId,
+    ['v_table' as ViewId, 'v_chat_bg' as ViewId],
+    'v_table' as ViewId,
+  )
   const right = makePanel('p_right' as PanelId, ['v_chat_vis' as ViewId], 'v_chat_vis' as ViewId)
   const ws: Workspace = {
     rev: 1,
@@ -752,7 +752,11 @@ test('no permission answer is the primary button', () => {
   // Moving the emphasis to reject would be the same mistake pointed the other
   // way: it manufactures confirmation fatigue.
   for (const option of OPTIONS) {
-    assert.notEqual(permissionButtonVariant(option), 'primary', `${option.kind} must not be the primary button`)
+    assert.notEqual(
+      permissionButtonVariant(option),
+      'primary',
+      `${option.kind} must not be the primary button`,
+    )
   }
   assert.equal(permissionButtonVariant(OPTIONS[0]), 'default', 'allow_once is a plain button')
   assert.equal(permissionButtonVariant(OPTIONS[2]), 'danger', 'reject reads as the negative answer')
@@ -842,7 +846,13 @@ const PROJECTION_FIXTURE: ChatDelta[] = (() => {
     {
       type: 'message.start',
       chatId,
-      message: { id: user, role: 'user', blocks: [{ type: 'text', text: 'how many?' }], createdAt: 1, complete: true },
+      message: {
+        id: user,
+        role: 'user',
+        blocks: [{ type: 'text', text: 'how many?' }],
+        createdAt: 1,
+        complete: true,
+      },
     },
     { type: 'message.end', chatId, messageId: user, stopReason: 'end_turn' },
     {
@@ -863,7 +873,13 @@ const PROJECTION_FIXTURE: ChatDelta[] = (() => {
     {
       type: 'message.start',
       chatId,
-      message: { id: user, role: 'user', blocks: [{ type: 'text', text: 'how many?' }], createdAt: 1, complete: true },
+      message: {
+        id: user,
+        role: 'user',
+        blocks: [{ type: 'text', text: 'how many?' }],
+        createdAt: 1,
+        complete: true,
+      },
     },
     { type: 'message.end', chatId, messageId: agent, stopReason: 'end_turn' },
   ]
@@ -900,12 +916,18 @@ test('a stored transcript replays into the same thing it was', () => {
   // sent.
   for (const delta of transcriptToDeltas(chatId, built)) applyChatDelta(delta)
   const slice = useTranscriptStore.getState().chats[chatId]
-  assert.deepEqual((slice?.order ?? []).map((id) => slice?.byId[id]), built)
+  assert.deepEqual(
+    (slice?.order ?? []).map((id) => slice?.byId[id]),
+    built,
+  )
 
   // And twice, because a mirror that is not empty must not double up.
   for (const delta of transcriptToDeltas(chatId, built)) applyChatDelta(delta)
   const again = useTranscriptStore.getState().chats[chatId]
-  assert.deepEqual((again?.order ?? []).map((id) => again?.byId[id]), built)
+  assert.deepEqual(
+    (again?.order ?? []).map((id) => again?.byId[id]),
+    built,
+  )
   forgetChat(chatId)
 })
 

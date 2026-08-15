@@ -270,9 +270,11 @@ const plant = (() => {
   const entry = PLANTS[name]
   if (entry === undefined) {
     process.stderr.write(
-      (name === 'list' ? 'probe-hardening: the seeded defects are:\n' : `probe-hardening: no plant named ${JSON.stringify(name)}. The seeded defects are:\n`) +
+      (name === 'list'
+        ? 'probe-hardening: the seeded defects are:\n'
+        : `probe-hardening: no plant named ${JSON.stringify(name)}. The seeded defects are:\n`) +
         Object.entries(PLANTS)
-          .map(([k, v]) => `    --plant=${k.padEnd(20)} [${[v.catches].flat().join(", ")}] ${v.what}\n`)
+          .map(([k, v]) => `    --plant=${k.padEnd(20)} [${[v.catches].flat().join(', ')}] ${v.what}\n`)
           .join(''),
     )
     process.exit(1)
@@ -792,7 +794,9 @@ const settle = () => new Promise((r) => setTimeout(r, 750))
 async function packageFrame(win, match) {
   const deadline = Date.now() + 8000
   for (;;) {
-    const frame = win.webContents.mainFrame.frames.find((f) => f.url.startsWith('peek-package://') && match(f))
+    const frame = win.webContents.mainFrame.frames.find(
+      (f) => f.url.startsWith('peek-package://') && match(f),
+    )
     if (frame !== undefined) return frame
     if (Date.now() > deadline) return null
     await new Promise((r) => setTimeout(r, 100))
@@ -904,7 +908,12 @@ async function run() {
   // tell "never sent" from "sent, answered, discarded" — which is the whole
   // reason the server is here and why this term is asserted alongside it rather
   // than instead of it.
-  const REFUSED_AS = { fetch: 'threw:TypeError', xhr: 'refused', websocket: 'refused', eventsource: 'refused' }
+  const REFUSED_AS = {
+    fetch: 'threw:TypeError',
+    xhr: 'refused',
+    websocket: 'refused',
+    eventsource: 'refused',
+  }
   const apisRefused = Object.entries(REFUSED_AS).every(([name, want]) => network.attempts[name] === want)
   const blockedUris = new Set(
     network.violations.filter((v) => v.directive === 'connect-src').map((v) => v.blocked),
@@ -987,7 +996,8 @@ async function run() {
   note(`the frame reports: ${JSON.stringify(asked)}`)
   note(`the handlers answered: ${JSON.stringify(permissions)}`)
 
-  const answered = (via, permission) => permissions.filter((e) => e.via === via && e.permission === permission)
+  const answered = (via, permission) =>
+    permissions.filter((e) => e.via === via && e.permission === permission)
   const deniedBy = (via, permission) => {
     const seen = answered(via, permission)
     return seen.length > 0 && seen.every((e) => e.granted === false)

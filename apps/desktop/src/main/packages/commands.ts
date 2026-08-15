@@ -14,12 +14,7 @@ import type { CommandHandlerMap } from '../bus/types'
 import { removeConnection } from '../store/mutations'
 import { packageLoadNotices } from './installed'
 import type { PackageLoadReport } from './loader'
-import {
-  driverIdsOfPackage,
-  installPackage,
-  packageListing,
-  restoreBundledPackages,
-} from './manage'
+import { driverIdsOfPackage, installPackage, packageListing, restoreBundledPackages } from './manage'
 
 /* ==================================================================
  * `packages.read` / `packages.install` / `packages.uninstall` / `packages.restore`.

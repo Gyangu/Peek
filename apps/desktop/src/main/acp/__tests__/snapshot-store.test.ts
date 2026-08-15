@@ -117,7 +117,11 @@ test('a corrupt file degrades to absent rather than taking the panel down', () =
 test('a version peek does not know is declined rather than guessed at', () => {
   withStore((store, dir) => {
     store.write(SESSION, transcript(), 1)
-    writeFileSync(join(dir, `${SESSION}.json`), JSON.stringify({ version: 2, sessionId: SESSION, transcript: [] }), 'utf8')
+    writeFileSync(
+      join(dir, `${SESSION}.json`),
+      JSON.stringify({ version: 2, sessionId: SESSION, transcript: [] }),
+      'utf8',
+    )
     assert.equal(store.read(SESSION), null)
   })
 })

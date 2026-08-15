@@ -173,8 +173,15 @@ describe('db-neo4j against a live server', () => {
       text: `MATCH (n:${LABEL}) RETURN n.name AS name, n.n AS n ORDER BY n.n`,
     })
     const frames = await drain(cursor)
-    assert.deepEqual(frames[0]?.schema?.map((c) => c.name), ['name', 'n'])
-    assert.deepEqual(rowsOf(frames), [['Ada', 1], ['Bob', 2], ['Cy', 3]])
+    assert.deepEqual(
+      frames[0]?.schema?.map((c) => c.name),
+      ['name', 'n'],
+    )
+    assert.deepEqual(rowsOf(frames), [
+      ['Ada', 1],
+      ['Bob', 2],
+      ['Cy', 3],
+    ])
   })
 
   it('binds positional params, including the integer LIMIT takes', async (t) => {
@@ -316,7 +323,10 @@ describe('db-neo4j against a live server', () => {
       ...(fetch.params ? { params: [...fetch.params] } : {}),
     })
     const frames = await drain(cursor)
-    assert.deepEqual(frames[0]?.schema?.map((c) => c.name), ['n', 'p'])
+    assert.deepEqual(
+      frames[0]?.schema?.map((c) => c.name),
+      ['n', 'p'],
+    )
     assert.ok(rowsOf(frames).length >= 3)
   })
 

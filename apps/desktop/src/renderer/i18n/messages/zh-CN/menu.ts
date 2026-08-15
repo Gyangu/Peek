@@ -16,7 +16,6 @@ export const menu: CatalogFor<MenuMessages> = {
   'menu.conn.label': '连接操作',
   'menu.session.label': '会话操作',
 
-
   /* ---------------- Second batch: the rest of the window ---------------- */
 
   'menu.error.label': '错误操作',

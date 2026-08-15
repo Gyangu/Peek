@@ -156,8 +156,8 @@ export function resolveHostDir(
     return {
       dir: defaultDir,
       note:
-        `PEEK_DRIVER_HOST_DIR is set (${raw}) but this is a packaged build; ignoring it `
-        + 'and loading the driver host from the app bundle.',
+        `PEEK_DRIVER_HOST_DIR is set (${raw}) but this is a packaged build; ignoring it ` +
+        'and loading the driver host from the app bundle.',
     }
   }
   if (!isAbsolute(raw)) {
@@ -177,4 +177,3 @@ export function resolveHostDir(
     note: `PEEK_DRIVER_HOST_DIR is set: loading the driver host from ${raw}, not from the app bundle.`,
   }
 }
-

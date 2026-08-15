@@ -26,11 +26,7 @@ async function ok(promise: Promise<unknown>): Promise<boolean> {
   return (await promise) !== null
 }
 
-export function sendChat(
-  viewId: ViewId,
-  text: string,
-  attachments?: ChatAttachmentSpec[],
-): Promise<boolean> {
+export function sendChat(viewId: ViewId, text: string, attachments?: ChatAttachmentSpec[]): Promise<boolean> {
   return ok(
     dispatch('chat.send', {
       viewId,
@@ -61,9 +57,7 @@ export function attachToChat(viewId: ViewId, attachments: ChatAttachmentSpec[]):
 
 /** Omit `attachmentIds` to unstage everything. */
 export function detachFromChat(viewId: ViewId, attachmentIds?: AttachmentId[]): Promise<boolean> {
-  return ok(
-    dispatch('chat.detach', { viewId, ...(attachmentIds ? { attachmentIds } : {}) }),
-  )
+  return ok(dispatch('chat.detach', { viewId, ...(attachmentIds ? { attachmentIds } : {}) }))
 }
 
 /**
@@ -78,11 +72,7 @@ export function detachFromChat(viewId: ViewId, attachmentIds?: AttachmentId[]): 
  * option's `kind` (`allow` vs `allow_once`) — the UI localizes the label but
  * always sends back the id it was given.
  */
-export function respondPermission(
-  viewId: ViewId,
-  optionId: string,
-  requestId?: string,
-): Promise<boolean> {
+export function respondPermission(viewId: ViewId, optionId: string, requestId?: string): Promise<boolean> {
   return ok(
     dispatch('chat.respondPermission', {
       viewId,

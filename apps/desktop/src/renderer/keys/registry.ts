@@ -362,10 +362,7 @@ interface RawShortcutDef extends Omit<ShortcutDef, 'id'> {
 export type ShortcutId = (typeof SHORTCUTS)[number]['id']
 
 /** The ids `useGlobalKeys` can be asked to act on. */
-export type WindowShortcutId = Extract<
-  (typeof SHORTCUTS)[number],
-  { scope: 'window' }
->['id']
+export type WindowShortcutId = Extract<(typeof SHORTCUTS)[number], { scope: 'window' }>['id']
 
 /**
  * One entry, by id.

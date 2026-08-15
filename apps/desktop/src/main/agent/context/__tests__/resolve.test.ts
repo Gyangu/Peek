@@ -167,10 +167,13 @@ describe('resolveAttachment · result', () => {
   it('states the true total when it sends only part of a result', async () => {
     const source = stubSource({
       rows: (_o, limit) =>
-        slice(Array.from({ length: Math.min(limit, 50) }, (_v, i) => [i, 'x', null]), {
-          totalRows: 12_345,
-          truncated: true,
-        }),
+        slice(
+          Array.from({ length: Math.min(limit, 50) }, (_v, i) => [i, 'x', null]),
+          {
+            totalRows: 12_345,
+            truncated: true,
+          },
+        ),
     })
     const out = await resolveAttachment(attachment, { source })
     assert.ok(out.text.includes('12,345'), 'the model must see the real size')
@@ -210,7 +213,11 @@ describe('resolveAttachment · cells', () => {
     const source = stubSource({
       rows: (offset, limit) => {
         asked = { offset, limit }
-        return slice([[1, 'lisbon', 'a'], [2, 'porto', 'b'], [3, 'faro', 'c']])
+        return slice([
+          [1, 'lisbon', 'a'],
+          [2, 'porto', 'b'],
+          [3, 'faro', 'c'],
+        ])
       },
     })
     const out = await resolveAttachment(cells(), { source })
@@ -461,9 +468,32 @@ describe('defaultAttachmentLabel', () => {
     const kinds: ChatAttachment[] = [
       rowsAttachment([1, 2]),
       { id: asAttachmentId('x'), label: '', kind: 'result', viewId: VIEW, resultId: RESULT, maxRows: 1 },
-      { id: asAttachmentId('x'), label: '', kind: 'cell', viewId: VIEW, resultId: RESULT, rowIndex: 1, column: 'c' },
-      { id: asAttachmentId('x'), label: '', kind: 'cells', viewId: VIEW, resultId: RESULT, r0: 0, r1: 2, columns: ['c'] },
-      { id: asAttachmentId('x'), label: '', kind: 'schema', connId: CONN, ref: { kind: 'relation', schema: 's', name: 't' } },
+      {
+        id: asAttachmentId('x'),
+        label: '',
+        kind: 'cell',
+        viewId: VIEW,
+        resultId: RESULT,
+        rowIndex: 1,
+        column: 'c',
+      },
+      {
+        id: asAttachmentId('x'),
+        label: '',
+        kind: 'cells',
+        viewId: VIEW,
+        resultId: RESULT,
+        r0: 0,
+        r1: 2,
+        columns: ['c'],
+      },
+      {
+        id: asAttachmentId('x'),
+        label: '',
+        kind: 'schema',
+        connId: CONN,
+        ref: { kind: 'relation', schema: 's', name: 't' },
+      },
       { id: asAttachmentId('x'), label: '', kind: 'query', viewId: VIEW },
       { id: asAttachmentId('x'), label: '', kind: 'workspace' },
     ]
@@ -506,7 +536,11 @@ describe('toContentBlock', () => {
     const big = resolved({ text: 'x'.repeat(60_000), estimatedTokens: 20_000 })
     const { block } = toContentBlock(big, { embeddedContext: true })
     if (block.type !== 'resource') throw new Error('expected resource')
-    assert.equal(block.resource.text.length, 60_000, 'pointing at a tool that is not registered would be worse')
+    assert.equal(
+      block.resource.text.length,
+      60_000,
+      'pointing at a tool that is not registered would be worse',
+    )
   })
 
   it('sends a head plus a fetch instruction when a fetch tool exists', () => {
@@ -528,7 +562,10 @@ describe('toContentBlock', () => {
       estimatedTokens: 20_000,
       error: peekError('NOT_FOUND', 'gone'),
     })
-    const { block } = toContentBlock(bad, { embeddedContext: true, fetchToolName: 'mcp__peek__read_attachment' })
+    const { block } = toContentBlock(bad, {
+      embeddedContext: true,
+      fetchToolName: 'mcp__peek__read_attachment',
+    })
     if (block.type !== 'resource') throw new Error('expected resource')
     assert.ok(!block.resource.text.includes('read_attachment'))
   })

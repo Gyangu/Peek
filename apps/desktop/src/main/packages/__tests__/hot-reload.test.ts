@@ -276,12 +276,19 @@ describe('packages.read', () => {
     const bus = new CommandBus({
       store,
       deps: {
-        connections: { async open() { return { capabilities: [] } }, async close() {} },
+        connections: {
+          async open() {
+            return { capabilities: [] }
+          },
+          async close() {},
+        },
         results: {
           async runQuery() {},
           async scanCollection() {},
           async vectorSearch() {},
-          async cancel() { return true },
+          async cancel() {
+            return true
+          },
         },
       },
       ids: createSeqIdFactory(),
@@ -465,10 +472,7 @@ describe('packages.install', () => {
     // taken — `inspectPackageDir` drops the id being replaced for exactly this.
     assert.equal(res.data.replaced, true)
     assert.equal(res.data.version, '2.5.0')
-    assert.equal(
-      res.data.packages.find((entry) => entry.id === 'echo')?.version,
-      '2.5.0',
-    )
+    assert.equal(res.data.packages.find((entry) => entry.id === 'echo')?.version, '2.5.0')
 
     // §2.4bis(f) from the install side, and the only assertion that separates a
     // replaced package from a replaced *directory*: the host holding the old
@@ -842,12 +846,19 @@ describe('a bus with no packages root', () => {
     const bus = new CommandBus({
       store: new WorkspaceStore(createEmptyWorkspace(asPanelId('panel_root'))),
       deps: {
-        connections: { async open() { return { capabilities: [] } }, async close() {} },
+        connections: {
+          async open() {
+            return { capabilities: [] }
+          },
+          async close() {},
+        },
         results: {
           async runQuery() {},
           async scanCollection() {},
           async vectorSearch() {},
-          async cancel() { return true },
+          async cancel() {
+            return true
+          },
         },
       },
       ids: createSeqIdFactory(),

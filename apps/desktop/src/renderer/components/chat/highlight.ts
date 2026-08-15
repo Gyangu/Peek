@@ -51,33 +51,35 @@ export function normalizeLang(raw: string): HighlightLang {
 
 const SQL_KEYWORDS = new Set(
   (
-    'select from where group by order having limit offset insert into values update set delete '
-    + 'create alter drop table view index schema database materialized join inner left right full outer '
-    + 'cross on using union all distinct as and or not null is in like ilike between exists case when '
-    + 'then else end asc desc with recursive returning conflict do nothing primary key foreign references '
-    + 'constraint unique check default cascade begin commit rollback explain analyze vacuum grant revoke '
-    + 'window partition over rows range preceding following unbounded current row lateral fetch next only'
+    'select from where group by order having limit offset insert into values update set delete ' +
+    'create alter drop table view index schema database materialized join inner left right full outer ' +
+    'cross on using union all distinct as and or not null is in like ilike between exists case when ' +
+    'then else end asc desc with recursive returning conflict do nothing primary key foreign references ' +
+    'constraint unique check default cascade begin commit rollback explain analyze vacuum grant revoke ' +
+    'window partition over rows range preceding following unbounded current row lateral fetch next only'
   ).split(' '),
 )
 
 const SQL_TYPES = new Set(
   (
-    'int integer bigint smallint serial bigserial numeric decimal real double precision float text varchar '
-    + 'char boolean bool date time timestamp timestamptz interval json jsonb uuid bytea array vector'
+    'int integer bigint smallint serial bigserial numeric decimal real double precision float text varchar ' +
+    'char boolean bool date time timestamp timestamptz interval json jsonb uuid bytea array vector'
   ).split(' '),
 )
 
 const JS_KEYWORDS = new Set(
   (
-    'const let var function return if else for while do break continue switch case default new delete '
-    + 'typeof instanceof in of this class extends super import export from as async await yield try catch '
-    + 'finally throw void null undefined true false interface type enum implements readonly public private '
-    + 'protected static satisfies keyof infer declare namespace abstract'
+    'const let var function return if else for while do break continue switch case default new delete ' +
+    'typeof instanceof in of this class extends super import export from as async await yield try catch ' +
+    'finally throw void null undefined true false interface type enum implements readonly public private ' +
+    'protected static satisfies keyof infer declare namespace abstract'
   ).split(' '),
 )
 
 const SHELL_KEYWORDS = new Set(
-  'if then else elif fi for while do done case esac function return export local set unset source cd echo'.split(' '),
+  'if then else elif fi for while do done case esac function return export local set unset source cd echo'.split(
+    ' ',
+  ),
 )
 
 const IDENT_START = /[A-Za-z_$]/

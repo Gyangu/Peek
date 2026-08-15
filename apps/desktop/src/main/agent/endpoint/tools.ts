@@ -122,7 +122,11 @@ function toParameters(tool: PeekTool, logger: Logger): Tool['parameters'] {
     // get one: the model receives a tool that takes no arguments, calls it,
     // fails, and the reason — known right here, at the moment the conversion
     // threw — was discarded. The empty schema is still the right degradation.
-    logger.log('warn', `tool ${tool.name}: its schema could not be described to the model, so it takes no arguments`, error)
+    logger.log(
+      'warn',
+      `tool ${tool.name}: its schema could not be described to the model, so it takes no arguments`,
+      error,
+    )
     return Type.Object({})
   }
 }

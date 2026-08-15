@@ -54,7 +54,8 @@ export const errors: CatalogFor<ErrorMessageCatalog> = {
   'error.layout.tooManyTabs': '一个面板最多容纳 {max} 个标签页',
   'error.layout.tooDeep': '布局树最多嵌套 {max} 层',
   'error.layout.revMismatch': '工作区已从版本 {expected} 变化到 {actual}，请重新读取后重试',
-  'error.layout.wouldUnplace': '目标布局遗漏了 {count} 个已打开的视图；用 unplaced="close" 关闭它们，或 "keep" 让它们卸载但保留',
+  'error.layout.wouldUnplace':
+    '目标布局遗漏了 {count} 个已打开的视图；用 unplaced="close" 关闭它们，或 "keep" 让它们卸载但保留',
 
   /* ---- Queries and result sets ------------------------------------- */
   'error.query.emptyText': '查询语句为空',
@@ -131,7 +132,8 @@ export const errors: CatalogFor<ErrorMessageCatalog> = {
   /* ---- agent 提问（ask 工具） ---- */
   'error.chat.noPendingQuestion': '这个对话现在没有在等你回答',
   'error.chat.askDuplicateOption': '有两个选项用了同一个 optionId，每个都得不一样',
-  'error.chat.questionStale': '问题 {requestId} 已经不是当前在问的那个了（现在是 {actual}），请重新读一次对话',
+  'error.chat.questionStale':
+    '问题 {requestId} 已经不是当前在问的那个了（现在是 {actual}），请重新读一次对话',
   'error.chat.answerRejected': '这不是这个问题的有效答案；可选是 {options}，而单选题只能选一个',
   'error.chat.answerNotAnswerableByAgent':
     'agent 提的问题只能由键盘前的本人、或从外部驱动 peek 的 operator 来回答，agent 永远无权代答',

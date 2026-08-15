@@ -38,7 +38,10 @@ describe('the contracts the window is allowed to register', () => {
     installPackages(NOTHING)
 
     assert.deepEqual(installedViewKindContracts(), [])
-    assert.ok(VIEW_KIND_CONTRACTS.length > 0, 'the previous assertion is only meaningful if there was something to filter')
+    assert.ok(
+      VIEW_KIND_CONTRACTS.length > 0,
+      'the previous assertion is only meaningful if there was something to filter',
+    )
   })
 
   test('the two halves are keyed by the same string', () => {

@@ -81,7 +81,10 @@ function harness(): Harness {
   return { bus, store, runs }
 }
 
-async function connect(h: Harness, config: PostgresConnectionConfig | MysqlConnectionConfig): Promise<ConnId> {
+async function connect(
+  h: Harness,
+  config: PostgresConnectionConfig | MysqlConnectionConfig,
+): Promise<ConnId> {
   const res = await h.bus.dispatch('conn.open', { config }, 'ui')
   assert.equal(res.ok, true)
   if (!res.ok) throw new Error('unreachable')

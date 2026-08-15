@@ -163,8 +163,7 @@ const openTable = (
   )
 
 /** Every panel's tab bar, in visual order. */
-const tabs = (state: Workspace): string[][] =>
-  collectPanels(state.layout).map((p) => p.viewIds.map(String))
+const tabs = (state: Workspace): string[][] => collectPanels(state.layout).map((p) => p.viewIds.map(String))
 
 const panelIds = (state: Workspace): string[] => collectPanels(state.layout).map((p) => String(p.id))
 
@@ -199,10 +198,7 @@ test('an occupied second column takes the view as another tab rather than a new 
   const second = openTable(first.state, 'agent', {}, ids)
 
   assert.deepEqual(panelIds(second.state), ['panel_a', 'panel_b'])
-  assert.deepEqual(tabs(second.state), [
-    [chat],
-    [String(first.result.viewId), String(second.result.viewId)],
-  ])
+  assert.deepEqual(tabs(second.state), [[chat], [String(first.result.viewId), String(second.result.viewId)]])
   const target = collectPanels(second.state.layout)[1]
   assert.equal(target.activeViewId, second.result.viewId, 'and it is the tab on top there')
   assert.equal(second.state.focusedPanel, 'panel_a', 'a run of opens never steals the cursor')
@@ -244,10 +240,7 @@ test('a run of opens lands in the same column instead of walking rightwards', ()
   )
 
   assert.equal(panelIds(second.state).length, 2, 'the second open splits nothing further')
-  assert.deepEqual(tabs(second.state), [
-    [chat],
-    [String(first.result.viewId), String(second.result.viewId)],
-  ])
+  assert.deepEqual(tabs(second.state), [[chat], [String(first.result.viewId), String(second.result.viewId)]])
   assert.equal(second.state.focusedPanel, 'panel_a')
 })
 

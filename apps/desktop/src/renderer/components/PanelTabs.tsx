@@ -101,10 +101,12 @@ export function PanelTabs({ panel, focus }: PanelTabsProps): ReactElement {
     if (el instanceof HTMLElement) el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [panel.activeViewId])
 
-  const split = (dir: 'row' | 'col') => (e: ReactMouseEvent): void => {
-    e.stopPropagation()
-    void dispatch('layout.split', { panelId: panel.id, dir })
-  }
+  const split =
+    (dir: 'row' | 'col') =>
+    (e: ReactMouseEvent): void => {
+      e.stopPropagation()
+      void dispatch('layout.split', { panelId: panel.id, dir })
+    }
 
   /* The panel's ✕ always closes the *panel*. Before tabs it had to guess —
    * closing the view when there was one and the panel when there was not — and
@@ -140,7 +142,9 @@ export function PanelTabs({ panel, focus }: PanelTabsProps): ReactElement {
     >
       {/* An empty panel has no tabs to label itself with, and a bare strip reads
           as a rendering fault. */}
-      {empty ? <span className="flex flex-none items-center px-snug text-fg-faint">{t('panel.empty')}</span> : null}
+      {empty ? (
+        <span className="flex flex-none items-center px-snug text-fg-faint">{t('panel.empty')}</span>
+      ) : null}
       <div
         ref={listRef}
         /* `panel-tabs` keeps three declarations and only three: both overflow
@@ -300,7 +304,15 @@ interface PanelTabProps {
  * behaves unpredictably. The roving `tabIndex` comes from `useTabRoving`, so
  * only the focused panel's active tab is ever in the document's tab order.
  */
-function PanelTab({ panelId, viewId, index, active, focus, roving, onContextMenu }: PanelTabProps): ReactElement {
+function PanelTab({
+  panelId,
+  viewId,
+  index,
+  active,
+  focus,
+  roving,
+  onContextMenu,
+}: PanelTabProps): ReactElement {
   const t = useT()
   const view = useView(viewId)
   const title = view ? viewTitleOf(t, view) : String(viewId)
@@ -397,7 +409,9 @@ function PanelTab({ panelId, viewId, index, active, focus, roving, onContextMenu
           It is a plain conditional instead because the state is a `const` three
           lines up: reading it off the DOM to feed it back into the same
           component is machinery, not expression. */}
-      <span className={provisional ? 'min-w-0 flex-1 truncate italic' : 'min-w-0 flex-1 truncate'}>{title}</span>
+      <span className={provisional ? 'min-w-0 flex-1 truncate italic' : 'min-w-0 flex-1 truncate'}>
+        {title}
+      </span>
       {/* Not a tab stop of its own: a strip of twelve tabs would otherwise be
           twenty-four stops. The keyboard closes a tab with Delete/Backspace
           (see `useTabRoving`), the mouse clicks this. */}

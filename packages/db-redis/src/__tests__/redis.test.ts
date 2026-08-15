@@ -218,7 +218,11 @@ describe('db-redis against a live server', () => {
     const s = live()
     assert.equal(s.driverId, 'redis')
     assert.deepEqual([...s.capabilities].sort(), [
-      'cancel', 'collectionScan', 'introspect', 'keyValue', 'valuePeek',
+      'cancel',
+      'collectionScan',
+      'introspect',
+      'keyValue',
+      'valuePeek',
     ])
     assert.match(s.serverInfo.version, /^\d+\.\d+/)
     assert.ok(s.serverInfo.flavor && s.serverInfo.flavor.length > 0)
@@ -241,8 +245,8 @@ describe('db-redis against a live server', () => {
     assert.ok(n >= BULK_KEYS, `the bulk fixture is missing; only ${n} keys under ${PREFIX}`)
     assert.ok(
       n < PREFIX_SAMPLE_KEYS,
-      `${n} keys under ${PREFIX} exceeds the ${PREFIX_SAMPLE_KEYS}-key sample ceiling: `
-      + 'the tree can no longer see every key at that level. Lower BULK_KEYS.',
+      `${n} keys under ${PREFIX} exceeds the ${PREFIX_SAMPLE_KEYS}-key sample ceiling: ` +
+        'the tree can no longer see every key at that level. Lower BULK_KEYS.',
     )
   })
 
@@ -271,7 +275,9 @@ describe('db-redis against a live server', () => {
     // Deeper prefixes …
     assert.equal(byName.get('user')?.kind, 'keyPrefix')
     assert.deepEqual(byName.get('user')?.ref, {
-      kind: 'keyPattern', pattern: 'peek:test:user:*', db: 0,
+      kind: 'keyPattern',
+      pattern: 'peek:test:user:*',
+      db: 0,
     })
     // … and the keys that stop right here, carrying their type
     const tags = byName.get('tags')
@@ -355,11 +361,13 @@ describe('db-redis against a live server', () => {
     let token: string | undefined
     let pages = 0
     do {
-      const cursor = await s.scan(scanRequest({
-        ref: pattern(`${PREFIX}bulk:*`),
-        limit: 400,
-        ...(token === undefined ? {} : { cursorToken: token }),
-      }))
+      const cursor = await s.scan(
+        scanRequest({
+          ref: pattern(`${PREFIX}bulk:*`),
+          limit: 400,
+          ...(token === undefined ? {} : { cursorToken: token }),
+        }),
+      )
       const { frames, rows } = await drain(cursor)
       const keyAt = colIndex(frames[0] as ChunkFrame, KEYSPACE_SCAN_COLUMNS.key)
       for (const row of rows) seen.add(String(row[keyAt]))
@@ -392,10 +400,14 @@ describe('db-redis against a live server', () => {
     if (!available) return t.skip('no redis')
     const s = live()
     for (const limit of [1, 5, 50, 400, BULK_KEYS]) {
-      const { frames, rows } = await drain(await s.scan(scanRequest({
-        ref: pattern(`${PREFIX}bulk:*`),
-        limit,
-      })))
+      const { frames, rows } = await drain(
+        await s.scan(
+          scanRequest({
+            ref: pattern(`${PREFIX}bulk:*`),
+            limit,
+          }),
+        ),
+      )
       assert.ok(rows.length <= limit, `limit ${limit}: got ${rows.length} rows`)
       assert.equal(frames[frames.length - 1]?.done?.rows, rows.length)
     }
@@ -415,11 +427,15 @@ describe('db-redis against a live server', () => {
     let token: string | undefined
     let pages = 0
     do {
-      const { frames, rows } = await drain(await s.scan(scanRequest({
-        ref: pattern(`${PREFIX}bulk:*`),
-        limit: 137,
-        ...(token === undefined ? {} : { cursorToken: token }),
-      })))
+      const { frames, rows } = await drain(
+        await s.scan(
+          scanRequest({
+            ref: pattern(`${PREFIX}bulk:*`),
+            limit: 137,
+            ...(token === undefined ? {} : { cursorToken: token }),
+          }),
+        ),
+      )
       const keyAt = colIndex(frames[0] as ChunkFrame, KEYSPACE_SCAN_COLUMNS.key)
       assert.ok(rows.length <= 137, `page ${pages} had ${rows.length} rows`)
       for (const row of rows) seen.push(String(row[keyAt]))
@@ -436,35 +452,50 @@ describe('db-redis against a live server', () => {
   it('pushes a type filter into SCAN and applies the rest client-side', async (t) => {
     if (!available) return t.skip('no redis')
     const s = live()
-    const typed = await s.scan(scanRequest({
-      ref: pattern(`${PREFIX}*`),
-      filter: [{ column: 'type', op: 'eq', value: 'zset' }],
-      limit: 1_000,
-    }))
+    const typed = await s.scan(
+      scanRequest({
+        ref: pattern(`${PREFIX}*`),
+        filter: [{ column: 'type', op: 'eq', value: 'zset' }],
+        limit: 1_000,
+      }),
+    )
     const zsets = await drain(typed)
     const keyAt = colIndex(zsets.frames[0] as ChunkFrame, KEYSPACE_SCAN_COLUMNS.key)
-    assert.deepEqual(zsets.rows.map((r) => r[keyAt]), [`${PREFIX}leaderboard`])
+    assert.deepEqual(
+      zsets.rows.map((r) => r[keyAt]),
+      [`${PREFIX}leaderboard`],
+    )
 
     // `contains` has no server-side equivalent and must still be honoured
-    const contained = await s.scan(scanRequest({
-      ref: pattern(`${PREFIX}*`),
-      filter: [{ column: 'key', op: 'contains', value: 'leaderboard' }],
-      limit: 5_000,
-    }))
+    const contained = await s.scan(
+      scanRequest({
+        ref: pattern(`${PREFIX}*`),
+        filter: [{ column: 'key', op: 'contains', value: 'leaderboard' }],
+        limit: 5_000,
+      }),
+    )
     const hits = await drain(contained)
     const hitKeyAt = colIndex(hits.frames[0] as ChunkFrame, KEYSPACE_SCAN_COLUMNS.key)
-    assert.deepEqual(hits.rows.map((r) => r[hitKeyAt]), [`${PREFIX}leaderboard`])
+    assert.deepEqual(
+      hits.rows.map((r) => r[hitKeyAt]),
+      [`${PREFIX}leaderboard`],
+    )
   })
 
   it('projects the scan schema, and rejects a column that does not exist', async (t) => {
     if (!available) return t.skip('no redis')
     const s = live()
-    const cursor = await s.scan(scanRequest({
-      ref: pattern(`${PREFIX}tags`),
-      columns: ['key', 'type'],
-    }))
+    const cursor = await s.scan(
+      scanRequest({
+        ref: pattern(`${PREFIX}tags`),
+        columns: ['key', 'type'],
+      }),
+    )
     const { frames } = await drain(cursor)
-    assert.deepEqual(frames[0]?.schema?.map((c) => c.name), ['key', 'type'])
+    assert.deepEqual(
+      frames[0]?.schema?.map((c) => c.name),
+      ['key', 'type'],
+    )
 
     await assert.rejects(
       () => s.scan(scanRequest({ ref: pattern('*'), columns: ['nope'] })),
@@ -523,9 +554,11 @@ describe('db-redis against a live server', () => {
     // The client map is private on purpose; a test is the one caller allowed to
     // reach past it, because there is no other way to make a live server refuse
     // exactly one command
-    const clients = (s as unknown as {
-      clients: Map<number, Promise<{ memoryUsage: unknown }>>
-    }).clients
+    const clients = (
+      s as unknown as {
+        clients: Map<number, Promise<{ memoryUsage: unknown }>>
+      }
+    ).clients
     const conn = await [...clients.values()][0]
     assert.ok(conn, 'the session holds a client for its default database')
     const original = conn.memoryUsage
@@ -537,16 +570,26 @@ describe('db-redis against a live server', () => {
       )
     }
     try {
-      const { frames, rows } = await drain(await s.scan(scanRequest({
-        ref: pattern(`${PREFIX}bulk:*`),
-        limit: 400,
-        chunkRows: 100,
-      })))
+      const { frames, rows } = await drain(
+        await s.scan(
+          scanRequest({
+            ref: pattern(`${PREFIX}bulk:*`),
+            limit: 400,
+            chunkRows: 100,
+          }),
+        ),
+      )
       assert.equal(rows.length, 400, 'the scan still delivers its page')
       const bytesAt = colIndex(frames[0] as ChunkFrame, KEYSPACE_SCAN_COLUMNS.bytes)
-      assert.ok(rows.every((r) => r[bytesAt] === null), 'the refused column degrades to null')
+      assert.ok(
+        rows.every((r) => r[bytesAt] === null),
+        'the refused column degrades to null',
+      )
       const typeAt = colIndex(frames[0] as ChunkFrame, KEYSPACE_SCAN_COLUMNS.type)
-      assert.ok(rows.every((r) => r[typeAt] === 'string'), 'the columns that work still work')
+      assert.ok(
+        rows.every((r) => r[typeAt] === 'string'),
+        'the columns that work still work',
+      )
       // Latched off after the first wholly-refused batch: re-issuing one doomed
       // command per key for every remaining page is pure waste
       assert.ok(calls > 0, 'it really was attempted')
@@ -562,12 +605,14 @@ describe('db-redis against a live server', () => {
     if (!available) return t.skip('no redis')
     const s = live()
     const resultId = newResultId()
-    const cursor = await s.scan(scanRequest({
-      resultId,
-      ref: pattern(`${PREFIX}bulk:*`),
-      limit: 5_000,
-      chunkRows: 50,
-    }))
+    const cursor = await s.scan(
+      scanRequest({
+        resultId,
+        ref: pattern(`${PREFIX}bulk:*`),
+        limit: 5_000,
+        chunkRows: 50,
+      }),
+    )
     const first = await cursor.next()
     assert.ok(first, 'the scan produced a frame before the cancel')
     assert.equal(first.done, undefined, 'the scan was still running')
@@ -585,12 +630,14 @@ describe('db-redis against a live server', () => {
   it('stops a scan on an AbortSignal', async (t) => {
     if (!available) return t.skip('no redis')
     const ac = new AbortController()
-    const cursor = await live().scan(scanRequest({
-      ref: pattern(`${PREFIX}bulk:*`),
-      limit: 5_000,
-      chunkRows: 50,
-      signal: ac.signal,
-    }))
+    const cursor = await live().scan(
+      scanRequest({
+        ref: pattern(`${PREFIX}bulk:*`),
+        limit: 5_000,
+        chunkRows: 50,
+        signal: ac.signal,
+      }),
+    )
     assert.ok(await cursor.next())
     ac.abort()
     await assert.rejects(
@@ -639,7 +686,10 @@ describe('db-redis against a live server', () => {
     assert.equal(zset.type, 'zset')
     assert.deepEqual(zset.value, {
       shape: 'sortedSet',
-      entries: [{ member: 'alice', score: 10 }, { member: 'bob', score: 20 }],
+      entries: [
+        { member: 'alice', score: 10 },
+        { member: 'bob', score: 20 },
+      ],
     })
 
     const stream = await get(`${PREFIX}events`)
@@ -647,10 +697,10 @@ describe('db-redis against a live server', () => {
     assert.equal(stream.value.shape, 'stream')
     if (stream.value.shape === 'stream') {
       assert.equal(stream.value.entries.length, 1)
-      assert.deepEqual(
-        stream.value.entries[0]?.fields,
-        [{ field: 'kind', value: 'signup' }, { field: 'user', value: 'alice' }],
-      )
+      assert.deepEqual(stream.value.entries[0]?.fields, [
+        { field: 'kind', value: 'signup' },
+        { field: 'user', value: 'alice' },
+      ])
     }
 
     // A key that is not there is `missing`, not an error: it expiring between the
@@ -714,11 +764,14 @@ describe('db-redis against a live server', () => {
   it('windows a list and a sorted set by index', async (t) => {
     if (!available) return t.skip('no redis')
     const s = live()
-    const list = await s.getValue({ kind: 'redisValue', key: `${PREFIX}queue:jobs` }, {
-      shape: 'list',
-      offset: 1,
-      limit: 1,
-    })
+    const list = await s.getValue(
+      { kind: 'redisValue', key: `${PREFIX}queue:jobs` },
+      {
+        shape: 'list',
+        offset: 1,
+        limit: 1,
+      },
+    )
     assert.deepEqual(list.value, { shape: 'list', start: 1, items: ['j2'] })
     assert.equal(list.truncated, true)
     assert.equal(list.nextCursor, '2')
@@ -732,7 +785,9 @@ describe('db-redis against a live server', () => {
     if (!available) return t.skip('no redis')
     const s = live()
     const field = await s.getValue({
-      kind: 'redisValue', key: `${PREFIX}user:1:profile`, path: 'city',
+      kind: 'redisValue',
+      key: `${PREFIX}user:1:profile`,
+      path: 'city',
     })
     assert.equal(field.type, 'hash')
     assert.deepEqual(field.value, { shape: 'map', fields: [{ field: 'city', value: 'Berlin' }] })
@@ -804,7 +859,9 @@ describe('db-redis against a live server', () => {
     if (!available) return t.skip('no redis')
     const s = live()
     const field = await s.peekValue({
-      kind: 'redisValue', key: `${PREFIX}user:1:profile`, path: 'city',
+      kind: 'redisValue',
+      key: `${PREFIX}user:1:profile`,
+      path: 'city',
     })
     assert.equal(field.data, 'Berlin')
     assert.equal(field.eof, true)
@@ -854,7 +911,10 @@ describe('db-redis against a live server', () => {
       const cursor = await s.scan(scanRequest({ ref: pattern(`${PREFIX}in-db-one`, 1) }))
       const { frames, rows } = await drain(cursor)
       const keyAt = colIndex(frames[0] as ChunkFrame, KEYSPACE_SCAN_COLUMNS.key)
-      assert.deepEqual(rows.map((r) => r[keyAt]), [`${PREFIX}in-db-one`])
+      assert.deepEqual(
+        rows.map((r) => r[keyAt]),
+        [`${PREFIX}in-db-one`],
+      )
 
       const value = await s.getValue({ kind: 'redisValue', key: `${PREFIX}in-db-one`, db: 1 })
       assert.deepEqual(value.value, { shape: 'scalar', value: 'yes' })

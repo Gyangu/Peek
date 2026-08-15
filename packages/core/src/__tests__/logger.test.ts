@@ -66,7 +66,10 @@ describe('createLogger', () => {
     log.log('info', 'nope')
     log.log('warn', 'yes')
     log.log('error', 'yes')
-    assert.deepEqual(records.map((r) => r.message), ['yes', 'yes'])
+    assert.deepEqual(
+      records.map((r) => r.message),
+      ['yes', 'yes'],
+    )
   })
 
   test('reads the minimum on every call, so the level can change mid-session', () => {
@@ -81,7 +84,10 @@ describe('createLogger', () => {
     // captured is lost — the next call simply passes the new filter.
     level = 'debug'
     log.log('debug', 'after')
-    assert.deepEqual(records.map((r) => r.message), ['after'])
+    assert.deepEqual(
+      records.map((r) => r.message),
+      ['after'],
+    )
   })
 
   test('with() stamps a tag and leaves the parent alone', () => {
@@ -94,7 +100,10 @@ describe('createLogger', () => {
     two.log('info', 'b')
     base.log('info', 'c')
 
-    assert.deepEqual(records.map((r) => r.tag), ['chat_1', 'chat_2', undefined])
+    assert.deepEqual(
+      records.map((r) => r.tag),
+      ['chat_1', 'chat_2', undefined],
+    )
   })
 
   test('omits absent members rather than writing undefined', () => {
@@ -113,7 +122,13 @@ describe('formatLogLine', () => {
   const at = Date.parse('2026-08-15T09:14:02.113Z')
 
   test('lays out timestamp, level, namespace, tag and message', () => {
-    const line = formatLogLine({ ts: at, level: 'warn', ns: 'agent', tag: 'chat_7f3a', message: 'unknown:tool_stream' })
+    const line = formatLogLine({
+      ts: at,
+      level: 'warn',
+      ns: 'agent',
+      tag: 'chat_7f3a',
+      message: 'unknown:tool_stream',
+    })
     assert.equal(line, '2026-08-15T09:14:02.113Z  WARN   agent     [chat_7f3a]  unknown:tool_stream')
   })
 
@@ -123,7 +138,13 @@ describe('formatLogLine', () => {
   })
 
   test('indents a detail under its line', () => {
-    const line = formatLogLine({ ts: at, level: 'error', ns: 'conn', message: 'failed', detail: { code: 42 } })
+    const line = formatLogLine({
+      ts: at,
+      level: 'error',
+      ns: 'conn',
+      message: 'failed',
+      detail: { code: 42 },
+    })
     assert.equal(line.split('\n')[1], '  {')
     assert.ok(line.includes('"code": 42'))
   })

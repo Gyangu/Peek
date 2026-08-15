@@ -35,9 +35,9 @@ const InputSchema = commandSchemas['query.cancel'].safeExtend({
     'The result set to stop, as returned by run_query or open_view and listed by read_workspace.',
   ),
   viewId: ViewIdSchema.optional().describe(
-      'Stop whatever result set this view is currently running. Use it when you know the pane but ' +
-        'not the result id; exactly one of resultId or viewId is required.',
-    ),
+    'Stop whatever result set this view is currently running. Use it when you know the pane but ' +
+      'not the result id; exactly one of resultId or viewId is required.',
+  ),
 })
 
 /* ================================================================== */

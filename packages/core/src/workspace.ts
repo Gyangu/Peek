@@ -10,11 +10,7 @@ import type {
   SortSpec,
   ValueRef,
 } from './capability'
-import {
-  collectionBrowseStyle,
-  collectionRefLabel,
-  redactConnectionConfig,
-} from './capability'
+import { collectionBrowseStyle, collectionRefLabel, redactConnectionConfig } from './capability'
 import type { RedactRules } from './capability'
 // Type-only, so the commands.ts → workspace.ts edge stays the only real one:
 // `import type` is erased entirely and creates no module cycle at runtime.
@@ -47,13 +43,7 @@ import type {
 
 // The branded types are re-exported here so they can be pulled straight from
 // workspace, the way PLAN §5 describes them.
-export {
-  type ConnId,
-  type PanelId,
-  type ResultId,
-  type SplitId,
-  type ViewId,
-} from './ids'
+export { type ConnId, type PanelId, type ResultId, type SplitId, type ViewId } from './ids'
 
 /* ================================================================== */
 /* 1. Connection state machine                                         */
@@ -847,9 +837,7 @@ export function insertPanelTab(
   const at = clampIndex(opts.index ?? rest.length, rest.length)
   const viewIds = [...rest.slice(0, at), viewId, ...rest.slice(at)]
   const activeViewId = opts.activate === false ? (panel.activeViewId ?? viewId) : viewId
-  return samePanelContent(panel, viewIds, activeViewId)
-    ? panel
-    : { ...panel, viewIds, activeViewId }
+  return samePanelContent(panel, viewIds, activeViewId) ? panel : { ...panel, viewIds, activeViewId }
 }
 
 /**
@@ -1195,9 +1183,11 @@ export function describeView(view: ViewState, lookup?: ViewKindLookup): string {
     // lookup stays for the renderer, which holds the registration in-process and
     // reaches this before any patch has been prefetched for a restored view.
     case 'package':
-      return view.packageText?.describe
-        ?? lookup?.(view.packageKind)?.describe(view)
-        ?? unregisteredPackageView(view)
+      return (
+        view.packageText?.describe ??
+        lookup?.(view.packageKind)?.describe(view) ??
+        unregisteredPackageView(view)
+      )
   }
 }
 

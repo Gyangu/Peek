@@ -225,10 +225,7 @@ describe('columnWindowKey — the cached column window must follow what is rende
     // `last.end` is blind to this one, which is why widthKey stays in the key.
     const before = [item(0, 0, 100), item(1, 100, 100), item(2, 200, 100)]
     const after = [item(0, 0, 100), item(1, 100, 140), item(2, 240, 60)]
-    assert.notEqual(
-      columnWindowKey(after, '100,140,60'),
-      columnWindowKey(before, '100,100,100'),
-    )
+    assert.notEqual(columnWindowKey(after, '100,140,60'), columnWindowKey(before, '100,100,100'))
   })
 
   it('scrolling the column window changes the key', () => {

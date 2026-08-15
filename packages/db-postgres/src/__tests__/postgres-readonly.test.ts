@@ -147,8 +147,12 @@ describe('db-postgres read-only enforcement', () => {
     assert.equal(await serverCount(), SEEDED_ROWS, 'nothing was added, changed or removed')
     assert.equal(
       await admin(async (c) =>
-        Number((await c.query(`SELECT count(*)::int8 AS n FROM information_schema.tables
-                               WHERE table_schema = '${SCHEMA}'`)).rows[0]?.n),
+        Number(
+          (
+            await c.query(`SELECT count(*)::int8 AS n FROM information_schema.tables
+                               WHERE table_schema = '${SCHEMA}'`)
+          ).rows[0]?.n,
+        ),
       ),
       1,
       'no table was created and none was dropped',

@@ -57,25 +57,44 @@ const LOGICAL_BY_NAME: Readonly<Record<string, LogicalType>> = {
 /** typcategory fallback mapping */
 function logicalFromCategory(category: string): LogicalType {
   switch (category) {
-    case 'A': return 'array'
-    case 'B': return 'boolean'
-    case 'N': return 'number'
-    case 'S': return 'string'
-    case 'E': return 'string'
-    case 'G': return 'geo'
-    case 'I': return 'string'
-    case 'V': return 'string'
-    case 'T': return 'interval'
-    case 'D': return 'timestamp'
-    case 'R': return 'string'
-    case 'C': return 'json'
-    default: return 'unknown'
+    case 'A':
+      return 'array'
+    case 'B':
+      return 'boolean'
+    case 'N':
+      return 'number'
+    case 'S':
+      return 'string'
+    case 'E':
+      return 'string'
+    case 'G':
+      return 'geo'
+    case 'I':
+      return 'string'
+    case 'V':
+      return 'string'
+    case 'T':
+      return 'interval'
+    case 'D':
+      return 'timestamp'
+    case 'R':
+      return 'string'
+    case 'C':
+      return 'json'
+    default:
+      return 'unknown'
   }
 }
 
 /** Values of these logical types can be huge, so the UI needs a valuePeek entry point ready up front */
 const PEEKABLE: ReadonlySet<LogicalType> = new Set<LogicalType>([
-  'string', 'json', 'bytes', 'array', 'vector', 'geo', 'unknown',
+  'string',
+  'json',
+  'bytes',
+  'array',
+  'vector',
+  'geo',
+  'unknown',
 ])
 
 export function isPeekableLogical(logical: LogicalType): boolean {
@@ -131,5 +150,4 @@ export class PgTypeCatalog {
 }
 
 /** SQL that reads pg_type. */
-export const PG_TYPE_QUERY =
-  `SELECT oid::int4 AS oid, typname, typcategory, typelem::int4 AS typelem FROM pg_catalog.pg_type`
+export const PG_TYPE_QUERY = `SELECT oid::int4 AS oid, typname, typcategory, typelem::int4 AS typelem FROM pg_catalog.pg_type`

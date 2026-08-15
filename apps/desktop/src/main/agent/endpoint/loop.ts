@@ -646,9 +646,10 @@ export class EndpointManager {
     // 401 rather than failing before the request is built. That is a worse
     // diagnosis than the one it replaced unless somebody says this out loud.
     const keyless = this.#config.apiKey === null || this.#config.apiKey === ''
-    const detail = keyless && LOOKS_LIKE_AUTH_FAILURE.test(message)
-      ? `${message}\n\nThis endpoint is configured without an API key.`
-      : message
+    const detail =
+      keyless && LOOKS_LIKE_AUTH_FAILURE.test(message)
+        ? `${message}\n\nThis endpoint is configured without an API key.`
+        : message
     return { code: 'CONNECTION_FAILED', message: 'The chat endpoint could not answer.', detail }
   }
 
@@ -683,7 +684,11 @@ export class EndpointManager {
     // whatever streamed before the failure are part of the conversation, and
     // losing them because the model timed out would be its own bug.
     this.#save(session)
-    this.#deps.notify({ level: 'error', message: safe.message, ...(safe.detail ? { detail: safe.detail } : {}) })
+    this.#deps.notify({
+      level: 'error',
+      message: safe.message,
+      ...(safe.detail ? { detail: safe.detail } : {}),
+    })
   }
 
   /* ---------------- Plumbing ---------------- */

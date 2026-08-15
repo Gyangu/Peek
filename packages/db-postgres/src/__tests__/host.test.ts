@@ -146,10 +146,7 @@ describe('driver host protocol', () => {
     ridSeq += 1
     const myRid = ridSeq
     channel.send({ kind: 'req', rid: myRid, method, params } as HostRequest)
-    await waitFor(
-      () => channel.responses().some((r) => r.rid === myRid),
-      `the response to RPC ${method}`,
-    )
+    await waitFor(() => channel.responses().some((r) => r.rid === myRid), `the response to RPC ${method}`)
     const res = channel.responses().find((r) => r.rid === myRid)
     assert.ok(res)
     return res
@@ -193,14 +190,21 @@ describe('driver host protocol', () => {
   it('emits ready and returns the capability set with the connect response', () => {
     const ready = channel.events().find((e) => e.type === 'ready')
     assert.ok(ready)
-    const statuses = channel.events().filter((e) => e.type === 'status').map((e) => e.status)
+    const statuses = channel
+      .events()
+      .filter((e) => e.type === 'status')
+      .map((e) => e.status)
     assert.deepEqual(statuses, ['connecting', 'ready'])
 
     const connectRes = channel.responses().find((r) => r.method === 'connect')
     assert.ok(connectRes?.ok)
     const result = connectRes.result as HostResult<'connect'>
     assert.deepEqual([...result.capabilities].sort(), [
-      'cancel', 'collectionScan', 'introspect', 'tabularQuery', 'valuePeek',
+      'cancel',
+      'collectionScan',
+      'introspect',
+      'tabularQuery',
+      'valuePeek',
     ])
     assert.equal(result.serverInfo?.flavor, 'PostgreSQL')
     assert.equal(port.started, true, 'attachPort must be followed by start()')

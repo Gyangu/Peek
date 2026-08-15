@@ -39,10 +39,7 @@ export function assertPanelInvariants(node: LayoutNode, label: string): void {
     )
     // P2
     if (n.activeViewId !== null) {
-      assert.ok(
-        n.viewIds.includes(n.activeViewId),
-        `${label}: ${n.id} breaks P2 (active tab is not a tab)`,
-      )
+      assert.ok(n.viewIds.includes(n.activeViewId), `${label}: ${n.id} breaks P2 (active tab is not a tab)`)
     }
     // P3 within the panel, P4 across the tree — one set catches both.
     for (const viewId of n.viewIds) {

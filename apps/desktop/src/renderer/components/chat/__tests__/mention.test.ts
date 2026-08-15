@@ -140,10 +140,7 @@ describe('dropMention · taking the word out when the chip goes', () => {
   })
 
   it('removes one occurrence, not every one', () => {
-    assert.equal(
-      dropMention('@public.orders vs @public.orders', 'public.orders'),
-      'vs @public.orders',
-    )
+    assert.equal(dropMention('@public.orders vs @public.orders', 'public.orders'), 'vs @public.orders')
   })
 })
 
@@ -182,8 +179,14 @@ describe('filterByMention', () => {
   })
 
   it('matches the token, the label or the hint, case-insensitively', () => {
-    assert.deepEqual(filterByMention(items, 'ORDERS').map((i) => i.token), ['public.orders'])
-    assert.deepEqual(filterByMention(items, 'order_items').map((i) => i.token), ['Query1'])
+    assert.deepEqual(
+      filterByMention(items, 'ORDERS').map((i) => i.token),
+      ['public.orders'],
+    )
+    assert.deepEqual(
+      filterByMention(items, 'order_items').map((i) => i.token),
+      ['Query1'],
+    )
   })
 })
 
@@ -245,7 +248,10 @@ describe('attachCandidates', () => {
   })
 
   it('skips the chat itself — attaching a conversation to itself is a loop', () => {
-    assert.deepEqual(attachCandidates([chatView], t).map((c) => c.key), ['workspace'])
+    assert.deepEqual(
+      attachCandidates([chatView], t).map((c) => c.key),
+      ['workspace'],
+    )
   })
 
   it('leads with the selection when a grid has one, and drops it when none', () => {

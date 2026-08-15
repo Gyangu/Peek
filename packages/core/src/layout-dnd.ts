@@ -183,9 +183,7 @@ export interface TabRect {
   width: number
 }
 
-export type PanelDrop =
-  | { kind: 'zone'; zone: DropZone }
-  | { kind: 'tab'; caret: number }
+export type PanelDrop = { kind: 'zone'; zone: DropZone } | { kind: 'tab'; caret: number }
 
 /**
  * The insertion caret for a pointer over the tab strip: the number of tabs whose

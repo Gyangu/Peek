@@ -24,9 +24,7 @@ import { graphViewKind } from '../view'
  * exists to hold, and `subpath-purity.test.ts` follows those relative imports to
  * keep it.
  */
-export const displays: readonly PackageDisplayEntry[] = [
-  { driverId: 'neo4j', display: neo4jDisplay },
-]
+export const displays: readonly PackageDisplayEntry[] = [{ driverId: 'neo4j', display: neo4jDisplay }]
 
 export const viewKinds: readonly ViewKindRegistration[] = [graphViewKind]
 

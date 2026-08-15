@@ -105,16 +105,19 @@ describe('db-sql against a real SQLite database', () => {
     assert.equal(session.serverInfo.flavor, 'SQLite')
     assert.match(session.serverInfo.version, /^\d+\.\d+/)
     assert.deepEqual([...session.capabilities].sort(), [
-      'cancel', 'collectionScan', 'introspect', 'tabularQuery', 'valuePeek',
+      'cancel',
+      'collectionScan',
+      'introspect',
+      'tabularQuery',
+      'valuePeek',
     ])
   })
 
   it('refuses a path that is not a readable database file', async () => {
     await assert.rejects(
       () => sqliteDriver.connect({ driverId: 'sqlite', file: join(dir, 'nope.db') }),
-      (err: unknown) => isPeekError(err)
-        && err.code === 'CONNECTION_FAILED'
-        && err.i18n?.key === 'error.file.notFound',
+      (err: unknown) =>
+        isPeekError(err) && err.code === 'CONNECTION_FAILED' && err.i18n?.key === 'error.file.notFound',
     )
   })
 
@@ -124,7 +127,10 @@ describe('db-sql against a real SQLite database', () => {
 
   it('lists attached databases at the root and relations one level down', async () => {
     const roots = await session.listChildren(null)
-    assert.deepEqual(roots.map((n) => n.name), ['main'])
+    assert.deepEqual(
+      roots.map((n) => n.name),
+      ['main'],
+    )
     assert.equal(roots[0]?.kind, 'schema')
     assert.equal(roots[0]?.id, sqlNodeId.schema('main'))
 
@@ -149,9 +155,10 @@ describe('db-sql against a real SQLite database', () => {
 
   it('describes a relation: columns, affinity-derived types, primary key and indexes', async () => {
     const info = await session.describeCollection(items)
-    assert.deepEqual(info.columns.map((c) => c.name), [
-      'id', 'name', 'score', 'qty', 'body', 'blob_col', 'doc', 'made_at',
-    ])
+    assert.deepEqual(
+      info.columns.map((c) => c.name),
+      ['id', 'name', 'score', 'qty', 'body', 'blob_col', 'doc', 'made_at'],
+    )
     const byName = new Map(info.columns.map((c) => [c.name, c]))
     assert.equal(byName.get('id')?.logical, 'bigint')
     assert.equal(byName.get('score')?.logical, 'number')
@@ -181,9 +188,10 @@ describe('db-sql against a real SQLite database', () => {
   it('refuses to browse a collection kind it has no concept of', async () => {
     await assert.rejects(
       () => session.scan({ resultId: newResultId(), ref: { kind: 'keyPattern', pattern: '*' } }),
-      (err: unknown) => isPeekError(err)
-        && err.code === 'BAD_REQUEST'
-        && err.i18n?.key === 'error.collection.kindUnsupported',
+      (err: unknown) =>
+        isPeekError(err) &&
+        err.code === 'BAD_REQUEST' &&
+        err.i18n?.key === 'error.collection.kindUnsupported',
     )
   })
 
@@ -192,7 +200,11 @@ describe('db-sql against a real SQLite database', () => {
   /* ---------------------------------------------------------------- */
 
   it('scans a table, honouring the chunk protocol and carrying primary-key hints', async () => {
-    const cursor = await session.scan({ resultId: newResultId(), ref: items, sort: [{ column: 'id', dir: 'asc' }] })
+    const cursor = await session.scan({
+      resultId: newResultId(),
+      ref: items,
+      sort: [{ column: 'id', dir: 'asc' }],
+    })
     const frames = await drain(cursor)
     assertFrameProtocol(frames)
     const schema = frames[0]?.schema ?? []
@@ -212,7 +224,10 @@ describe('db-sql against a real SQLite database', () => {
 
   it('keeps a 64-bit integer exact instead of rounding it into a float', async () => {
     const frames = await drain(
-      await session.scan({ resultId: newResultId(), ref: { kind: 'relation', schema: 'main', name: 'wide' } }),
+      await session.scan({
+        resultId: newResultId(),
+        ref: { kind: 'relation', schema: 'main', name: 'wide' },
+      }),
     )
     assert.equal(cell(rowsOf(frames), 0, 'huge'), '9007199254740993')
   })
@@ -228,12 +243,9 @@ describe('db-sql against a real SQLite database', () => {
    *   a date / time / timestamp → a string, never a Date object
    */
   it('represents every logical type the way core says all four drivers must', async () => {
-    const frames = await drain(
-      await session.query({ resultId: newResultId(), text: LOGICAL_SQL }),
-    )
+    const frames = await drain(await session.query({ resultId: newResultId(), text: LOGICAL_SQL }))
     const schema = frames[0]?.schema ?? []
-    const at = (name: string): unknown =>
-      frames[0]?.cols[schema.findIndex((c) => c.name === name)]?.[0]
+    const at = (name: string): unknown => frames[0]?.cols[schema.findIndex((c) => c.name === name)]?.[0]
 
     // The reported divergence: postgres used to answer `"1"` where this answers `1`
     assert.equal(at('small_big'), 1)
@@ -248,36 +260,50 @@ describe('db-sql against a real SQLite database', () => {
 
   it('binds filter values instead of splicing them, so quotes and wildcards stay data', async () => {
     // A value containing a quote would end the string literal if it were spliced in
-    const quoted = await drain(await session.scan({
-      resultId: newResultId(),
-      ref: items,
-      filter: [{ column: 'name', op: 'eq', value: "beta's" }],
-    }))
-    assert.deepEqual(rowsOf(quoted).map((r) => r.get('id')), [2])
+    const quoted = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref: items,
+        filter: [{ column: 'name', op: 'eq', value: "beta's" }],
+      }),
+    )
+    assert.deepEqual(
+      rowsOf(quoted).map((r) => r.get('id')),
+      [2],
+    )
 
     // `contains` is a literal substring match: '%' is a percent sign, not a wildcard
-    const percent = await drain(await session.scan({
-      resultId: newResultId(),
-      ref: items,
-      filter: [{ column: 'name', op: 'contains', value: '100%' }],
-    }))
-    assert.deepEqual(rowsOf(percent).map((r) => r.get('id')), [3])
+    const percent = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref: items,
+        filter: [{ column: 'name', op: 'contains', value: '100%' }],
+      }),
+    )
+    assert.deepEqual(
+      rowsOf(percent).map((r) => r.get('id')),
+      [3],
+    )
 
     // An injection attempt is a value, and stays one
-    const injection = await drain(await session.scan({
-      resultId: newResultId(),
-      ref: items,
-      filter: [{ column: 'name', op: 'eq', value: "x' OR 1=1 --" }],
-    }))
+    const injection = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref: items,
+        filter: [{ column: 'name', op: 'eq', value: "x' OR 1=1 --" }],
+      }),
+    )
     assert.equal(rowsOf(injection).length, 0)
   })
 
   it('emits one done frame for an empty result set', async () => {
-    const frames = await drain(await session.scan({
-      resultId: newResultId(),
-      ref: items,
-      filter: [{ column: 'id', op: 'eq', value: -1 }],
-    }))
+    const frames = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref: items,
+        filter: [{ column: 'id', op: 'eq', value: -1 }],
+      }),
+    )
     assert.equal(frames.length, 1)
     assertFrameProtocol(frames)
     assert.equal(frames[0]?.rowCount, 0)
@@ -285,38 +311,72 @@ describe('db-sql against a real SQLite database', () => {
   })
 
   it('is NULL-safe on neq, and puts nulls where the caller asked', async () => {
-    const rows = rowsOf(await drain(await session.scan({
-      resultId: newResultId(),
-      ref: items,
-      filter: [{ column: 'score', op: 'neq', value: 1.5 }],
-      sort: [{ column: 'score', dir: 'asc', nulls: 'first' }],
-    })))
+    const rows = rowsOf(
+      await drain(
+        await session.scan({
+          resultId: newResultId(),
+          ref: items,
+          filter: [{ column: 'score', op: 'neq', value: 1.5 }],
+          sort: [{ column: 'score', dir: 'asc', nulls: 'first' }],
+        }),
+      ),
+    )
     // A plain `<>` would drop the NULL row entirely
-    assert.deepEqual(rows.map((r) => r.get('id')), [2, 3, 4])
+    assert.deepEqual(
+      rows.map((r) => r.get('id')),
+      [2, 3, 4],
+    )
     assert.equal(rows[0]?.get('score'), null)
   })
 
   it('pages with cursorToken, and refuses a malformed one', async () => {
-    const first = await drain(await session.scan({
-      resultId: newResultId(), ref: items, sort: [{ column: 'id', dir: 'asc' }], limit: 2,
-    }))
+    const first = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref: items,
+        sort: [{ column: 'id', dir: 'asc' }],
+        limit: 2,
+      }),
+    )
     const page1 = first[first.length - 1]?.done?.nextCursor
-    assert.equal(page1, rowOffsetCursor('sqlite', 2), 'the cursor is core\u2019s envelope around a row offset')
-    assert.deepEqual(rowsOf(first).map((r) => r.get('id')), [1, 2])
+    assert.equal(
+      page1,
+      rowOffsetCursor('sqlite', 2),
+      'the cursor is core\u2019s envelope around a row offset',
+    )
+    assert.deepEqual(
+      rowsOf(first).map((r) => r.get('id')),
+      [1, 2],
+    )
 
-    const second = await drain(await session.scan({
-      resultId: newResultId(), ref: items, sort: [{ column: 'id', dir: 'asc' }], limit: 2, cursorToken: page1 ?? '',
-    }))
-    assert.deepEqual(rowsOf(second).map((r) => r.get('id')), [3, 4])
+    const second = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref: items,
+        sort: [{ column: 'id', dir: 'asc' }],
+        limit: 2,
+        cursorToken: page1 ?? '',
+      }),
+    )
+    assert.deepEqual(
+      rowsOf(second).map((r) => r.get('id')),
+      [3, 4],
+    )
     // A full page still hands back a cursor: the driver cannot know the table
     // ended exactly there without reading one more row, and guessing would drop
     // the tail of any table whose size is a multiple of the page
     const page2 = second[second.length - 1]?.done?.nextCursor
     assert.equal(page2, rowOffsetCursor('sqlite', 4))
 
-    const third = await drain(await session.scan({
-      resultId: newResultId(), ref: items, sort: [{ column: 'id', dir: 'asc' }], limit: 2, cursorToken: page2 ?? '',
-    }))
+    const third = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref: items,
+        sort: [{ column: 'id', dir: 'asc' }],
+        limit: 2,
+        cursorToken: page2 ?? '',
+      }),
+    )
     assert.equal(rowsOf(third).length, 0)
     assert.equal(third[third.length - 1]?.done?.nextCursor, undefined)
 
@@ -332,11 +392,12 @@ describe('db-sql against a real SQLite database', () => {
     )
     // …and neither is a well-formed token minted by a different driver
     await assert.rejects(
-      () => session.scan({
-        resultId: newResultId(),
-        ref: items,
-        cursorToken: encodeScanCursor({ driverId: 'redis', boundary: '238', skip: 17 }),
-      }),
+      () =>
+        session.scan({
+          resultId: newResultId(),
+          ref: items,
+          cursorToken: encodeScanCursor({ driverId: 'redis', boundary: '238', skip: 17 }),
+        }),
       (err: unknown) => isPeekError(err) && err.i18n?.key === 'error.sql.invalidCursorToken',
     )
   })
@@ -353,14 +414,19 @@ describe('db-sql against a real SQLite database', () => {
   /* ---------------------------------------------------------------- */
 
   it('runs a parameterized statement and types its columns from the first value', async () => {
-    const frames = await drain(await session.query({
-      resultId: newResultId(),
-      text: 'SELECT id, name, length(body) AS body_len FROM items WHERE qty > ? ORDER BY id',
-      params: [15],
-    }))
+    const frames = await drain(
+      await session.query({
+        resultId: newResultId(),
+        text: 'SELECT id, name, length(body) AS body_len FROM items WHERE qty > ? ORDER BY id',
+        params: [15],
+      }),
+    )
     assertFrameProtocol(frames)
     const rows = rowsOf(frames)
-    assert.deepEqual(rows.map((r) => r.get('id')), [2, 4])
+    assert.deepEqual(
+      rows.map((r) => r.get('id')),
+      [2, 4],
+    )
     // `length(...)` has no declared type; the schema is refined from the first
     // non-null value rather than left as `any`
     assert.equal(frames[0]?.schema?.find((c) => c.name === 'body_len')?.logical, 'bigint')
@@ -368,11 +434,16 @@ describe('db-sql against a real SQLite database', () => {
   })
 
   it('disambiguates duplicate output column names', async () => {
-    const frames = await drain(await session.query({
-      resultId: newResultId(),
-      text: 'SELECT a.id, b.id FROM items a JOIN items b ON b.id = a.id WHERE a.id = 1',
-    }))
-    assert.deepEqual(frames[0]?.schema?.map((c) => c.name), ['id', 'id__2'])
+    const frames = await drain(
+      await session.query({
+        resultId: newResultId(),
+        text: 'SELECT a.id, b.id FROM items a JOIN items b ON b.id = a.id WHERE a.id = 1',
+      }),
+    )
+    assert.deepEqual(
+      frames[0]?.schema?.map((c) => c.name),
+      ['id', 'id__2'],
+    )
   })
 
   it('rejects an empty statement', async () => {
@@ -404,7 +475,11 @@ describe('db-sql against a real SQLite database', () => {
       "WITH x AS (SELECT 1) INSERT INTO items (id, name) SELECT 98, 'y' FROM x",
     ]) {
       const cursor = await session.query({ resultId: newResultId(), text })
-      await assert.rejects(() => cursor.next(), (err: unknown) => isPeekError(err), text)
+      await assert.rejects(
+        () => cursor.next(),
+        (err: unknown) => isPeekError(err),
+        text,
+      )
     }
     // …and the table is untouched
     const rows = rowsOf(await drain(await session.scan({ resultId: newResultId(), ref: items })))
@@ -445,11 +520,13 @@ describe('db-sql against a real SQLite database', () => {
       const cleared = await writable.query({ resultId: newResultId(), text: 'PRAGMA query_only = 0' })
       await drainWithin(cleared, 5_000, 'PRAGMA query_only = 0')
 
-      const readBack = rowsOf(await drainWithin(
-        await writable.query({ resultId: newResultId(), text: 'PRAGMA query_only' }),
-        5_000,
-        'PRAGMA query_only',
-      ))
+      const readBack = rowsOf(
+        await drainWithin(
+          await writable.query({ resultId: newResultId(), text: 'PRAGMA query_only' }),
+          5_000,
+          'PRAGMA query_only',
+        ),
+      )
       assert.equal(Number(cell(readBack, 0, 'query_only')), 1, 'the pragma must be back on')
 
       for (const text of ["INSERT INTO t VALUES (2, 'b')", 'UPDATE t SET v = ?', 'DROP TABLE t']) {
@@ -465,11 +542,13 @@ describe('db-sql against a real SQLite database', () => {
         )
       }
       // The table is still there, which is the only proof that matters
-      const rows = rowsOf(await drainWithin(
-        await writable.query({ resultId: newResultId(), text: 'SELECT count(*) AS n FROM t' }),
-        5_000,
-        'count',
-      ))
+      const rows = rowsOf(
+        await drainWithin(
+          await writable.query({ resultId: newResultId(), text: 'SELECT count(*) AS n FROM t' }),
+          5_000,
+          'count',
+        ),
+      )
       assert.equal(Number(cell(rows, 0, 'n')), 1)
     } finally {
       await writable.close()
@@ -482,9 +561,13 @@ describe('db-sql against a real SQLite database', () => {
 
   it('truncates a large cell to a preview and fetches the rest through valuePeek', async () => {
     const resultId = newResultId()
-    const frames = await drain(await session.scan({
-      resultId, ref: items, filter: [{ column: 'id', op: 'eq', value: 1 }],
-    }))
+    const frames = await drain(
+      await session.scan({
+        resultId,
+        ref: items,
+        filter: [{ column: 'id', op: 'eq', value: 1 }],
+      }),
+    )
     const rows = rowsOf(frames)
     const truncated = requireTruncated(cell(rows, 0, 'body'))
     assert.equal(truncated.encoding, 'utf8')
@@ -571,12 +654,14 @@ describe('db-sql against a real SQLite database', () => {
   })
 
   it('stops at maxRows and says so', async () => {
-    const frames = await drain(await session.query({
-      resultId: newResultId(),
-      text: 'SELECT id FROM big ORDER BY id',
-      maxRows: 2500,
-      chunkRows: 1000,
-    }))
+    const frames = await drain(
+      await session.query({
+        resultId: newResultId(),
+        text: 'SELECT id FROM big ORDER BY id',
+        maxRows: 2500,
+        chunkRows: 1000,
+      }),
+    )
     assertFrameProtocol(frames)
     const done = frames[frames.length - 1]?.done
     assert.equal(done?.rows, 2500)
@@ -586,7 +671,9 @@ describe('db-sql against a real SQLite database', () => {
   it('cancels a running scan, and answers false when nothing is running', async () => {
     const resultId = newResultId()
     const cursor = await session.query({
-      resultId, text: 'SELECT id, payload FROM big ORDER BY id', chunkRows: 500,
+      resultId,
+      text: 'SELECT id, payload FROM big ORDER BY id',
+      chunkRows: 500,
     })
     await cursor.next()
     assert.equal(await session.cancel(resultId), true)

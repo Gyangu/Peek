@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, ReactElement } from 'react'
-import { CHAT_PERMISSION_MODES, type ChatAgentStatus, type ChatPermissionMode, type ChatViewState } from '@peek/core'
+import {
+  CHAT_PERMISSION_MODES,
+  type ChatAgentStatus,
+  type ChatPermissionMode,
+  type ChatViewState,
+} from '@peek/core'
 import { useT } from '../../i18n'
 import { useConnection, useViews } from '../../state/workspaceStore'
 import { formatCount } from '../../util/format'
@@ -242,16 +247,16 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
       <ViewError error={view.error} />
 
       {/*
-        * A conversation peek is showing from its own snapshot says so, and says
-        * it differently depending on whether the agent's copy is still coming.
-        *
-        * The `strandedOnSnapshot` branch is the one that matters, and it is the
-        * one rule this feature is not allowed to soften: the transcript on
-        * screen is real, but the agent does not have it, so continuing the
-        * conversation here would have the model answer questions it cannot see.
-        * The composer below is disabled for that reason and no other. See
-        * `design/2026-08-06-opening-a-stored-conversation.md` §2.4.
-        */}
+       * A conversation peek is showing from its own snapshot says so, and says
+       * it differently depending on whether the agent's copy is still coming.
+       *
+       * The `strandedOnSnapshot` branch is the one that matters, and it is the
+       * one rule this feature is not allowed to soften: the transcript on
+       * screen is real, but the agent does not have it, so continuing the
+       * conversation here would have the model answer questions it cannot see.
+       * The composer below is disabled for that reason and no other. See
+       * `design/2026-08-06-opening-a-stored-conversation.md` §2.4.
+       */}
       {stranded ? (
         <div
           className="flex-none mx-tight mb-tight px-snug py-tight rounded-control select-text text-micro bg-warn-bg border border-warn"
@@ -327,9 +332,7 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
       {/* Below the permission prompt, and never both: the agent cannot be
           blocked on a tool call and on a question of its own at the same moment
           — it asked one of them and is suspended in it. */}
-      {view.pendingQuestion ? (
-        <QuestionPrompt viewId={view.id} question={view.pendingQuestion} />
-      ) : null}
+      {view.pendingQuestion ? <QuestionPrompt viewId={view.id} question={view.pendingQuestion} /> : null}
 
       {/* The recovery placeholder below invites the user to send, which is right
           for a crashed agent and wrong for a stranded snapshot — there, sending
@@ -344,11 +347,11 @@ export function ChatView({ view }: { view: ChatViewState }): ReactElement {
           ? { disabledReason: t('chat.status.awaiting-permission') }
           : asking
             ? { disabledReason: t('chat.status.awaiting-answer') }
-          : stranded
-            ? { disabledReason: t('chat.snapshot.composer') }
-            : notReady
-              ? { disabledReason: t(statusKey(view.agentStatus)) }
-              : {})}
+            : stranded
+              ? { disabledReason: t('chat.snapshot.composer') }
+              : notReady
+                ? { disabledReason: t(statusKey(view.agentStatus)) }
+                : {})}
         {...(failed && !stranded ? { placeholderOverride: t('chat.retry.placeholder') } : {})}
         onSend={onSend}
         onStop={onStop}
@@ -396,21 +399,14 @@ function ModeConfirm({
       aria-live="assertive"
     >
       <div className="mb-tight font-semibold text-warn">{t('chat.mode.confirmTitle')}</div>
-      <div className="mb-snug text-fg-dim">
-        {t('chat.mode.confirmBody', { mode: t(modeKey(mode)) })}
-      </div>
+      <div className="mb-snug text-fg-dim">{t('chat.mode.confirmBody', { mode: t(modeKey(mode)) })}</div>
       <div className="flex flex-wrap gap-tight">
         <Button ref={cancelRef} onClick={onCancel}>
           {t('chat.mode.confirmCancel')}
         </Button>
         {/* Turning the asking off is not destructive — it is the other thing
             `caution` names: a choice whose consequence outlives the click. */}
-        <Button
-          variant="caution"
-          action="chat.setMode"
-          exposure="human-only"
-          onClick={onAccept}
-        >
+        <Button variant="caution" action="chat.setMode" exposure="human-only" onClick={onAccept}>
           {t('chat.mode.confirmAccept')}
         </Button>
       </div>

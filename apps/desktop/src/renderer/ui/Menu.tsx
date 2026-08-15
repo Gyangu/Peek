@@ -149,7 +149,15 @@ export function Menu(props: MenuProps): ReactElement | null {
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
     const key =
-      e.key === 'ArrowDown' ? 'down' : e.key === 'ArrowUp' ? 'up' : e.key === 'Home' ? 'home' : e.key === 'End' ? 'end' : null
+      e.key === 'ArrowDown'
+        ? 'down'
+        : e.key === 'ArrowUp'
+          ? 'up'
+          : e.key === 'Home'
+            ? 'home'
+            : e.key === 'End'
+              ? 'end'
+              : null
     if (key === null) return
     e.preventDefault()
     e.stopPropagation()
@@ -193,7 +201,10 @@ export function Menu(props: MenuProps): ReactElement | null {
             )
           if (node.kind === 'note')
             return (
-              <div key={node.id} className={`${CHROME.note} ${MENU_TONES[node.tone ?? 'default'].noteClasses}`}>
+              <div
+                key={node.id}
+                className={`${CHROME.note} ${MENU_TONES[node.tone ?? 'default'].noteClasses}`}
+              >
                 {node.text}
               </div>
             )
@@ -247,9 +258,7 @@ function preventAndClose(onClose: () => void) {
 }
 
 /** `useModalDialog` owns one ref and the measurement needs another; same node. */
-function mergeRefs<T extends HTMLElement>(
-  ...refs: { current: T | null }[]
-): (el: T | null) => void {
+function mergeRefs<T extends HTMLElement>(...refs: { current: T | null }[]): (el: T | null) => void {
   return (el) => {
     for (const ref of refs) ref.current = el
   }

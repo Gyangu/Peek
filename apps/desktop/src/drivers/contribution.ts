@@ -112,7 +112,9 @@ export interface PackageContributionSpec<Live> {
  * belong to the modules that would have to run the missing half
  * (`registerPackageViewKindNames`, `build-packages.mjs`).
  */
-export function definePackageContribution<Live>(spec: PackageContributionSpec<Live>): PackageContribution<Live> {
+export function definePackageContribution<Live>(
+  spec: PackageContributionSpec<Live>,
+): PackageContribution<Live> {
   const live = (): Live[] => {
     const declared = new Set(spec.declaredKeys())
     return spec.compiled().filter((entry) => declared.has(spec.keyOf(entry)))

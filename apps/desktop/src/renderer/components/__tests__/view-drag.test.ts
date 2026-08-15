@@ -324,13 +324,22 @@ describe('a second writer moves the layout mid-gesture', () => {
     // and a workspace revision bumps on changes that touch no panel at all — a
     // query finishing, a connection going ready.
     const state = dragTo(600, 150)
-    assert.equal(remeasureDrag(state, () => PANELS.map((p) => ({ ...p }))), state)
+    assert.equal(
+      remeasureDrag(state, () => PANELS.map((p) => ({ ...p }))),
+      state,
+    )
   })
 
   it('re-measuring an idle or armed machine is a no-op', () => {
-    assert.equal(remeasureDrag(IDLE, () => SWAPPED), IDLE)
+    assert.equal(
+      remeasureDrag(IDLE, () => SWAPPED),
+      IDLE,
+    )
     const armed = armDrag(V, A, { x: 100, y: 100 })
-    assert.equal(remeasureDrag(armed, () => SWAPPED), armed)
+    assert.equal(
+      remeasureDrag(armed, () => SWAPPED),
+      armed,
+    )
   })
 })
 
@@ -619,10 +628,7 @@ describe('a strip that changes shape mid-gesture', () => {
     // A tab closing in another window moves every caret in that strip. Treating
     // the strip as part of the panel's geometry is what makes the re-measure
     // notice; otherwise the line keeps pointing at a gap that no longer exists.
-    const narrowed: PanelHit[] = [
-      TABBED[0],
-      { ...TABBED[1], tabRects: [{ left: 0, width: 120 }] },
-    ]
+    const narrowed: PanelHit[] = [TABBED[0], { ...TABBED[1], tabRects: [{ left: 0, width: 120 }] }]
     const state = dragTab(470, 10, A, ACTIVE_FIRST)
     assert.equal(panelTabCaret(state, B), 1)
     const after = remeasureDrag(state, () => narrowed)
@@ -729,13 +735,7 @@ function classesOn(source: string, identity: string, where: string): Set<string>
  * Both halves, and the second one names what it could not check when there is no
  * build so that a reader of the output can tell a skip from a pass.
  */
-function paints(
-  source: string,
-  identity: string,
-  utility: string,
-  property: RegExp,
-  where: string,
-): void {
+function paints(source: string, identity: string, utility: string, property: RegExp, where: string): void {
   const worn = classesOn(source, identity, where)
   assert.ok(
     worn.has(utility),
@@ -806,7 +806,7 @@ describe('structure — where the gesture lives', () => {
     // Moved from the panel head to the individual tabs, because the thing being
     // dragged is now one of several. The body still owns grid scrolling and text
     // selection, and taking its pointer stream would still break both.
-    const tab = PANEL_TABS_TSX.indexOf("role=\"tab\"")
+    const tab = PANEL_TABS_TSX.indexOf('role="tab"')
     assert.notEqual(tab, -1, 'no tab element to drag')
     assert.ok(PANEL_TABS_TSX.includes('beginViewDrag'), 'a tab does not start a drag')
     assert.ok(PANEL_TABS_TSX.includes('onPointerDown'), 'a tab has no pointer handler')
@@ -817,10 +817,7 @@ describe('structure — where the gesture lives', () => {
     // under `paints`.
     const body = PANEL_TSX.indexOf('panel-body')
     assert.notEqual(body, -1, 'the body element lost its name')
-    assert.ok(
-      !PANEL_TSX.slice(body).includes('onPointerDown'),
-      'the panel body must not start a drag',
-    )
+    assert.ok(!PANEL_TSX.slice(body).includes('onPointerDown'), 'the panel body must not start a drag')
   })
 
   it('the tab ✕ closes the view and the panel ✕ closes the panel', () => {

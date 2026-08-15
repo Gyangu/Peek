@@ -1,0 +1,13 @@
+# Markdown is hand-wrapped Chinese prose and hand-aligned tables. prettier pads
+# table cells by code point count, not display width, so every CJK table comes
+# out hundreds of columns wide and misaligned. 62 files, 2,462 lines, zero gain.
+# See docs/design/2026-08-15-prettier.md §3.2.
+*.md
+
+# Build output and vendored bundles — not ours to format.
+dist/
+out/
+build/
+release/
+node_modules/
+pnpm-lock.yaml

@@ -122,11 +122,7 @@ async function connect(h: Harness): Promise<ConnId> {
 }
 
 async function open(h: Harness, spec: unknown, panelId?: PanelId): Promise<ViewId> {
-  const res = await h.bus.dispatch(
-    'view.open',
-    { spec, ...(panelId === undefined ? {} : { panelId }) },
-    'ui',
-  )
+  const res = await h.bus.dispatch('view.open', { spec, ...(panelId === undefined ? {} : { panelId }) }, 'ui')
   assert.equal(res.ok, true)
   if (!res.ok) throw new Error('unreachable')
   return res.data.viewId
@@ -212,9 +208,12 @@ test('a query that runs, streams and finishes leaves the projection untouched', 
   // would. This is the change that arrives many times a second in real use.
   const resultId = resultIdOf(h, viewId)
   assert.ok(resultId)
-  h.store.apply((draft) => {
-    finishResult(draft, resultId, { rows: 5_000, elapsedMs: 12 })
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      finishResult(draft, resultId, { rows: 5_000, elapsedMs: 12 })
+    },
+    { source: 'system' },
+  )
 
   assert.equal(JSON.stringify(projectWorkspace(h.store.getState())), before)
 })
@@ -222,11 +221,7 @@ test('a query that runs, streams and finishes leaves the projection untouched', 
 test('a provisional view is not saved: it was never being kept', async () => {
   const h = harness()
   const connId = await connect(h)
-  await h.bus.dispatch(
-    'view.open',
-    { spec: { kind: 'table', connId, ref: ORDERS }, provisional: true },
-    'ui',
-  )
+  await h.bus.dispatch('view.open', { spec: { kind: 'table', connId, ref: ORDERS }, provisional: true }, 'ui')
 
   assert.equal(projectWorkspace(h.store.getState()).views.length, 0)
 })
@@ -241,14 +236,17 @@ test('a chat with no agent session has nothing to resume, so it is not saved', a
 test('a chat that has a session is saved as that id and nothing else', async () => {
   const h = harness()
   const viewId = await open(h, { kind: 'chat' })
-  h.store.apply((draft) => {
-    const view = draft.views[viewId]
-    if (view?.kind === 'chat') {
-      view.agentSessionId = 'sess_42'
-      view.messageCount = 7
-      view.lastMessagePreview = 'the transcript peek drew'
-    }
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      const view = draft.views[viewId]
+      if (view?.kind === 'chat') {
+        view.agentSessionId = 'sess_42'
+        view.messageCount = 7
+        view.lastMessagePreview = 'the transcript peek drew'
+      }
+    },
+    { source: 'system' },
+  )
 
   const projection = projectWorkspace(h.store.getState())
   assert.equal(projection.views.length, 1)
@@ -289,7 +287,13 @@ test('a projection survives a round trip through the file', async () => {
 
 test('a file from another version is refused rather than half-read', () => {
   assert.equal(
-    parseWorkspaceFile({ version: 99, savedAt: '', connections: [], views: [], layout: { type: 'panel', key: 'p1', views: [] } }),
+    parseWorkspaceFile({
+      version: 99,
+      savedAt: '',
+      connections: [],
+      views: [],
+      layout: { type: 'panel', key: 'p1', views: [] },
+    }),
     null,
   )
 })
@@ -298,7 +302,13 @@ test('a malformed tree is refused as a file, not repaired', () => {
   const base = { version: WORKSPACE_FILE_VERSION, savedAt: '', connections: [], views: [] }
   // A split with one child is a tree `layout.setLayout` would reject anyway;
   // catching it here makes it a bad *file* rather than a failed command.
-  assert.equal(parseWorkspaceFile({ ...base, layout: { type: 'split', dir: 'row', children: [{ type: 'panel', key: 'p1', views: [] }] } }), null)
+  assert.equal(
+    parseWorkspaceFile({
+      ...base,
+      layout: { type: 'split', dir: 'row', children: [{ type: 'panel', key: 'p1', views: [] }] },
+    }),
+    null,
+  )
   assert.equal(parseWorkspaceFile({ ...base, layout: { type: 'panel', views: [] } }), null)
   assert.equal(parseWorkspaceFile({ ...base, layout: null }), null)
 })
@@ -358,9 +368,12 @@ test('the persister writes once per burst, and not at all for a result', async (
 
     const resultId = resultIdOf(h, viewId)
     assert.ok(resultId)
-    h.store.apply((draft) => {
-      finishResult(draft, resultId, { rows: 5_000, elapsedMs: 12 })
-    }, { source: 'system' })
+    h.store.apply(
+      (draft) => {
+        finishResult(draft, resultId, { rows: 5_000, elapsedMs: 12 })
+      },
+      { source: 'system' },
+    )
     persister.flush()
 
     assert.equal(readFileSync(path, 'utf8'), afterOpen, 'a result is not part of the desk')
@@ -386,9 +399,17 @@ test('a saved desk comes back: the tree, the tabs, their order and the active on
   if (!split.ok) throw new Error('unreachable')
 
   await open(saved, { kind: 'table', connId, ref: ORDERS }, asPanelId('panel_root'))
-  const queryId = await open(saved, { kind: 'query', connId, text: 'select count(*) from orders' }, split.data.panelId)
+  const queryId = await open(
+    saved,
+    { kind: 'query', connId, text: 'select count(*) from orders' },
+    split.data.panelId,
+  )
   const treeId = await open(saved, { kind: 'tree', connId, expanded: ['public'] }, split.data.panelId)
-  await saved.bus.dispatch('view.update', { viewId: treeId, patch: { kind: 'tree', selected: 'public.orders' } }, 'ui')
+  await saved.bus.dispatch(
+    'view.update',
+    { viewId: treeId, patch: { kind: 'tree', selected: 'public.orders' } },
+    'ui',
+  )
   // Leave the *first* tab of the two-tab panel in front, so restoring the active
   // tab is something more than "whichever was opened last".
   await saved.bus.dispatch('view.activate', { viewId: queryId }, 'ui')
@@ -467,10 +488,7 @@ test('a spec this build cannot parse costs one view, not the file', async () => 
     version: WORKSPACE_FILE_VERSION,
     savedAt: '',
     ...projection,
-    views: [
-      { ref: 'v0', conn: 'c1', spec: { kind: 'table' } },
-      ...projection.views,
-    ],
+    views: [{ ref: 'v0', conn: 'c1', spec: { kind: 'table' } }, ...projection.views],
   }
   const panel = damaged.layout
   if (panel.type !== 'panel') throw new Error('the fixture is a single panel')
@@ -528,10 +546,13 @@ test('a status event that arrives before the handshake settles does not fetch', 
   // `wireConnectionEvents`: the status, and nothing else. The connection manager
   // has not filled in its capability set yet, so a fetch started here comes back
   // UNSUPPORTED_CAPABILITY for a driver that supports it.
-  h.store.apply((draft) => {
-    const conn = draft.connections[connId]
-    if (conn) conn.status = 'ready'
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      const conn = draft.connections[connId]
+      if (conn) conn.status = 'ready'
+    },
+    { source: 'system' },
+  )
   await new Promise((resolve) => setImmediate(resolve))
   assert.deepEqual(h.started, [], 'ready without a settled handshake is not a reason to fetch')
 
@@ -549,26 +570,35 @@ test('a view that already fetched is left alone when the connection comes back',
   const viewId = await open(h, { kind: 'table', connId, ref: ORDERS })
   const resultId = resultIdOf(h, viewId)
   assert.ok(resultId)
-  h.store.apply((draft) => {
-    finishResult(draft, resultId, { rows: 3, elapsedMs: 1 })
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      finishResult(draft, resultId, { rows: 3, elapsedMs: 1 })
+    },
+    { source: 'system' },
+  )
 
   const wake = createConnectionWake({ store: h.store, bus: h.bus })
   const before = h.started.length
 
   // A reconnect: away, and back with a handshake that really settled (a fresh
   // `readyAt`, which is what the wake watches).
-  h.store.apply((draft) => {
-    const conn = draft.connections[connId]
-    if (conn) conn.status = 'error'
-  }, { source: 'system' })
-  h.store.apply((draft) => {
-    const conn = draft.connections[connId]
-    if (conn) {
-      conn.status = 'ready'
-      conn.readyAt = (conn.readyAt ?? 0) + 1_000
-    }
-  }, { source: 'system' })
+  h.store.apply(
+    (draft) => {
+      const conn = draft.connections[connId]
+      if (conn) conn.status = 'error'
+    },
+    { source: 'system' },
+  )
+  h.store.apply(
+    (draft) => {
+      const conn = draft.connections[connId]
+      if (conn) {
+        conn.status = 'ready'
+        conn.readyAt = (conn.readyAt ?? 0) + 1_000
+      }
+    },
+    { source: 'system' },
+  )
   await new Promise((resolve) => setImmediate(resolve))
 
   assert.equal(h.started.length, before, 'rows on screen are not thrown away by a reconnect')

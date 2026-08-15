@@ -99,7 +99,7 @@ export function mapNeo4jError(value: unknown, ctx: MapNeo4jErrorContext = {}): P
   // `ServiceUnavailable` / `SessionExpired` arrive as plain Errors whose `cause`
   // holds the socket errno, which is exactly what the shared classifier reads.
   return (
-    classifyTransportError(value, ctx.statement === undefined ? undefined : { detail: ctx.statement })
-    ?? toPeekError(value, fallback)
+    classifyTransportError(value, ctx.statement === undefined ? undefined : { detail: ctx.statement }) ??
+    toPeekError(value, fallback)
   )
 }

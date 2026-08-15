@@ -26,6 +26,4 @@ import { postgresDisplay } from '../display'
  * `display` case gives — the lookup is keyed by `driverId`, so a display is only
  * ever handed a config carrying its own.
  */
-export const displays: readonly PackageDisplayEntry[] = [
-  { driverId: 'postgres', display: postgresDisplay },
-]
+export const displays: readonly PackageDisplayEntry[] = [{ driverId: 'postgres', display: postgresDisplay }]

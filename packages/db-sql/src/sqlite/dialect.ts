@@ -1,11 +1,5 @@
 import type { CollectionSchemaInfo, LogicalType, PeekErrorCode, RelationRef, SortSpec } from '@peek/core'
-import type {
-  FilterSpec,
-  SqlColumnMeta,
-  SqlDialect,
-  SqlRelationInfo,
-  SqlText,
-} from '../dialect'
+import type { FilterSpec, SqlColumnMeta, SqlDialect, SqlRelationInfo, SqlText } from '../dialect'
 import { assertIdentifier, requireFilterArray, requireFilterValue } from '../sql'
 import { cellBool, cellNumber, cellText, columnIndex } from '../values'
 
@@ -160,11 +154,8 @@ export const SQLITE_DIALECT: SqlDialect = {
       const dir = s.dir === 'desc' ? 'DESC' : 'ASC'
       // SQLite gained NULLS FIRST/LAST in 3.30; the `IS NULL` form works on every
       // version and on files written by older tools
-      const nulls = s.nulls === 'first'
-        ? `${col} IS NULL DESC, `
-        : s.nulls === 'last'
-          ? `${col} IS NULL ASC, `
-          : ''
+      const nulls =
+        s.nulls === 'first' ? `${col} IS NULL DESC, ` : s.nulls === 'last' ? `${col} IS NULL ASC, ` : ''
       return `${nulls}${col} ${dir}`
     })
     return ` ORDER BY ${parts.join(', ')}`
@@ -210,9 +201,9 @@ export const SQLITE_DIALECT: SqlDialect = {
     const src = `${quoteIdent(schema === '' ? SQLITE_DEFAULT_SCHEMA : schema)}.sqlite_master`
     return {
       text:
-        `SELECT name, type AS kind FROM ${src}`
-        + " WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'"
-        + ' ORDER BY name',
+        `SELECT name, type AS kind FROM ${src}` +
+        " WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'" +
+        ' ORDER BY name',
       params: [],
     }
   },
@@ -225,8 +216,8 @@ export const SQLITE_DIALECT: SqlDialect = {
   listColumnsSql(ref: RelationRef): SqlText {
     return {
       text:
-        'SELECT name, type AS data_type, "notnull" AS not_null, pk'
-        + ' FROM pragma_table_info(?, ?) ORDER BY cid',
+        'SELECT name, type AS data_type, "notnull" AS not_null, pk' +
+        ' FROM pragma_table_info(?, ?) ORDER BY cid',
       params: [ref.name, ref.schema === '' ? SQLITE_DEFAULT_SCHEMA : ref.schema],
     }
   },
@@ -235,11 +226,11 @@ export const SQLITE_DIALECT: SqlDialect = {
     const schema = ref.schema === '' ? SQLITE_DEFAULT_SCHEMA : ref.schema
     return {
       text:
-        'SELECT il.name AS name, il."unique" AS is_unique, ii.seqno AS seq,'
-        + ' ii.name AS column_name'
-        + ' FROM pragma_index_list(?, ?) AS il'
-        + ' JOIN pragma_index_info(il.name, ?) AS ii'
-        + ' ORDER BY il.seq, ii.seqno',
+        'SELECT il.name AS name, il."unique" AS is_unique, ii.seqno AS seq,' +
+        ' ii.name AS column_name' +
+        ' FROM pragma_index_list(?, ?) AS il' +
+        ' JOIN pragma_index_info(il.name, ?) AS ii' +
+        ' ORDER BY il.seq, ii.seqno',
       params: [ref.name, schema, schema],
     }
   },
@@ -253,8 +244,8 @@ export const SQLITE_DIALECT: SqlDialect = {
     const src = `${quoteIdent(ref.schema === '' ? SQLITE_DEFAULT_SCHEMA : ref.schema)}.sqlite_master`
     return {
       text:
-        `SELECT NULL AS est_rows, NULL AS comment, type AS kind FROM ${src}`
-        + " WHERE name = ? AND type IN ('table', 'view')",
+        `SELECT NULL AS est_rows, NULL AS comment, type AS kind FROM ${src}` +
+        " WHERE name = ? AND type IN ('table', 'view')",
       params: [ref.name],
     }
   },

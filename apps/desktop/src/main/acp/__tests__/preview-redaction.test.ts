@@ -50,13 +50,17 @@ test('a connect config loses its password and its DSN credentials', () => {
 
 test('the DSN observed in a real session is masked', () => {
   // Verbatim from the security run: this is what stood in the permission prompt.
-  const preview = previewInput({ config: { driverId: 'mysql', url: 'mysql://root:peektest@127.0.0.1:3307/peek_test' } })
+  const preview = previewInput({
+    config: { driverId: 'mysql', url: 'mysql://root:peektest@127.0.0.1:3307/peek_test' },
+  })
   assert.ok(!preview.includes('peektest'), preview)
   assert.ok(preview.includes('mysql://root:***@127.0.0.1:3307/peek_test'), preview)
 })
 
 test('a qdrant api key never reaches the prompt', () => {
-  const preview = previewInput({ config: { driverId: 'qdrant', url: 'http://localhost:6333', apiKey: 'qk_live_abc123' } })
+  const preview = previewInput({
+    config: { driverId: 'qdrant', url: 'http://localhost:6333', apiKey: 'qk_live_abc123' },
+  })
   assert.ok(!preview.includes('qk_live_abc123'), preview)
   assert.ok(preview.includes('localhost:6333'), preview)
 })
@@ -83,7 +87,11 @@ test('a DSN in a plain-string argument is masked too', () => {
 })
 
 test('over-masking is avoided: an ordinary argument is shown as it is', () => {
-  const preview = previewInput({ viewId: 'view_3', sort: [{ column: 'created_at', dir: 'desc' }], withLayoutTree: true })
+  const preview = previewInput({
+    viewId: 'view_3',
+    sort: [{ column: 'created_at', dir: 'desc' }],
+    withLayoutTree: true,
+  })
   assert.ok(preview.includes('created_at'), preview)
   assert.ok(!preview.includes('***'), preview)
 })
@@ -121,7 +129,11 @@ test('the pending permission the Workspace publishes carries no cleartext passwo
     toolCallId: 'toolu_1',
     toolName: 'mcp__peek__connect',
     rawInput: {
-      config: { driverId: 'postgres', url: `postgresql://admin:${PASSWORD}@prod-db:5432/app`, password: PASSWORD },
+      config: {
+        driverId: 'postgres',
+        url: `postgresql://admin:${PASSWORD}@prod-db:5432/app`,
+        password: PASSWORD,
+      },
       openTree: true,
     },
     options: OPTIONS,

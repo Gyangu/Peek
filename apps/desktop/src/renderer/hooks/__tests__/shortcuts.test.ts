@@ -85,32 +85,29 @@ describe('resolveShortcut — panel management (existing chords)', () => {
     // Moved off the bare digits when panels grew tabs. ⌥ is already the panel
     // family — ⌘⌥+arrow moves focus between panels — so panel addressing landed
     // where the rest of panel navigation lives.
-    assert.deepEqual(
-      resolveShortcut(chord({ key: '1', code: 'Digit1', meta: true, alt: true }), WINDOW),
-      { kind: 'focusIndex', index: 0 },
-    )
-    assert.deepEqual(
-      resolveShortcut(chord({ key: '9', code: 'Digit9', meta: true, alt: true }), WINDOW),
-      { kind: 'focusIndex', index: MAX_PANEL_DIGIT - 1 },
-    )
-    assert.equal(
-      resolveShortcut(chord({ key: '0', code: 'Digit0', meta: true, alt: true }), WINDOW),
-      null,
-    )
+    assert.deepEqual(resolveShortcut(chord({ key: '1', code: 'Digit1', meta: true, alt: true }), WINDOW), {
+      kind: 'focusIndex',
+      index: 0,
+    })
+    assert.deepEqual(resolveShortcut(chord({ key: '9', code: 'Digit9', meta: true, alt: true }), WINDOW), {
+      kind: 'focusIndex',
+      index: MAX_PANEL_DIGIT - 1,
+    })
+    assert.equal(resolveShortcut(chord({ key: '0', code: 'Digit0', meta: true, alt: true }), WINDOW), null)
   })
 
   it('reads the panel digit off `code`, because ⌥1 is not a digit on macOS', () => {
     // With ⌥ held, macOS reports `key: '¡'` for the 1 key. Reading `key` would
     // make the whole panel-digit family unreachable on the platform peek ships
     // on first, and it would fail silently — the chord would simply do nothing.
-    assert.deepEqual(
-      resolveShortcut(chord({ key: '¡', code: 'Digit1', meta: true, alt: true }), WINDOW),
-      { kind: 'focusIndex', index: 0 },
-    )
-    assert.deepEqual(
-      resolveShortcut(chord({ key: '£', code: 'Numpad3', ctrl: true, alt: true }), WINDOW),
-      { kind: 'focusIndex', index: 2 },
-    )
+    assert.deepEqual(resolveShortcut(chord({ key: '¡', code: 'Digit1', meta: true, alt: true }), WINDOW), {
+      kind: 'focusIndex',
+      index: 0,
+    })
+    assert.deepEqual(resolveShortcut(chord({ key: '£', code: 'Numpad3', ctrl: true, alt: true }), WINDOW), {
+      kind: 'focusIndex',
+      index: 2,
+    })
   })
 })
 
@@ -139,10 +136,7 @@ describe('resolveShortcut — tabs', () => {
 
   it('⌘0 is nobody’s, and ⌘⇧1 stays free', () => {
     assert.equal(resolveShortcut(chord({ key: '0', code: 'Digit0', meta: true }), WINDOW), null)
-    assert.equal(
-      resolveShortcut(chord({ key: '!', code: 'Digit1', meta: true, shift: true }), WINDOW),
-      null,
-    )
+    assert.equal(resolveShortcut(chord({ key: '!', code: 'Digit1', meta: true, shift: true }), WINDOW), null)
   })
 
   it('⌃Tab cycles forwards and ⌃⇧Tab backwards', () => {
@@ -205,11 +199,7 @@ describe('resolveShortcut — the editor wins the arrows', () => {
     for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
       assert.equal(resolveShortcut(chord({ key, meta: true, alt: true }), EDITOR), null, key)
       assert.equal(resolveShortcut(chord({ key, meta: true, shift: true }), EDITOR), null, key)
-      assert.equal(
-        resolveShortcut(chord({ key, meta: true, alt: true, shift: true }), EDITOR),
-        null,
-        key,
-      )
+      assert.equal(resolveShortcut(chord({ key, meta: true, alt: true, shift: true }), EDITOR), null, key)
     }
   })
 
@@ -241,10 +231,10 @@ describe('resolveShortcut — the editor wins the arrows', () => {
       kind: 'cycleTab',
       delta: 1,
     })
-    assert.deepEqual(
-      resolveShortcut(chord({ key: '1', code: 'Digit1', meta: true, alt: true }), EDITOR),
-      { kind: 'focusIndex', index: 0 },
-    )
+    assert.deepEqual(resolveShortcut(chord({ key: '1', code: 'Digit1', meta: true, alt: true }), EDITOR), {
+      kind: 'focusIndex',
+      index: 0,
+    })
   })
 
   it('Esc inside a text entry is the way back out; outside one it is nobody’s', () => {
@@ -255,18 +245,12 @@ describe('resolveShortcut — the editor wins the arrows', () => {
   it('an Esc somebody has already handled is left alone', () => {
     // CodeMirror's autocomplete calls preventDefault to close its popup. Blurring
     // on that same keystroke would take the editor away mid-typing.
-    assert.equal(
-      resolveShortcut(chord({ key: 'Escape', defaultPrevented: true }), EDITOR),
-      null,
-    )
+    assert.equal(resolveShortcut(chord({ key: 'Escape', defaultPrevented: true }), EDITOR), null)
   })
 
   it('ignores any keystroke another handler already claimed', () => {
     assert.equal(
-      resolveShortcut(
-        chord({ key: 'ArrowRight', meta: true, alt: true, defaultPrevented: true }),
-        WINDOW,
-      ),
+      resolveShortcut(chord({ key: 'ArrowRight', meta: true, alt: true, defaultPrevented: true }), WINDOW),
       null,
     )
   })
@@ -353,10 +337,7 @@ describe('resolveShortcut — the user’s own bindings', () => {
       resolveShortcut(chord({ key: '\\', code: 'Backslash', meta: true, alt: true }), WINDOW, table),
       { kind: 'split', dir: 'row' },
     )
-    assert.equal(
-      resolveShortcut(chord({ key: '\\', code: 'Backslash', meta: true }), WINDOW, table),
-      null,
-    )
+    assert.equal(resolveShortcut(chord({ key: '\\', code: 'Backslash', meta: true }), WINDOW, table), null)
   })
 
   it('a disabled shortcut is nobody’s, and takes nothing else down with it', () => {

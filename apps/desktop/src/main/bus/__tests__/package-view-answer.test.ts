@@ -16,7 +16,12 @@ import {
 } from '@peek/core'
 import { WorkspaceStore } from '../../store/workspace-store'
 import { CommandBus } from '../command-bus'
-import { coreHandlers, createViewHandlers, type PackageViewQuestion, type PackageViewSource } from '../handlers'
+import {
+  coreHandlers,
+  createViewHandlers,
+  type PackageViewQuestion,
+  type PackageViewSource,
+} from '../handlers'
 import { createSeqIdFactory } from '../ids'
 import type { CommandDeps } from '../deps'
 import type { EffectIntent } from '../intents'
@@ -102,7 +107,11 @@ async function connect(h: Harness): Promise<ConnId> {
 }
 
 async function openGraph(h: Harness, connId: ConnId, state: Record<string, unknown>): Promise<ViewId> {
-  const res = await h.bus.dispatch('view.open', { spec: { kind: 'package', packageKind: 'graph', connId, state } }, 'ui')
+  const res = await h.bus.dispatch(
+    'view.open',
+    { spec: { kind: 'package', packageKind: 'graph', connId, state } },
+    'ui',
+  )
   assert.equal(res.ok, true)
   if (!res.ok) throw new Error('unreachable')
   return res.data.viewId

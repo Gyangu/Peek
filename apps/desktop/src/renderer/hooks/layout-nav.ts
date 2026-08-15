@@ -20,7 +20,13 @@
  */
 
 import type { LayoutNode, PanelId } from '@peek/core'
-import { collectPanels, dropZonePlacement, normalizeRatio, type DropEdgeZone, type DropSplitPlacement } from '@peek/core'
+import {
+  collectPanels,
+  dropZonePlacement,
+  normalizeRatio,
+  type DropEdgeZone,
+  type DropSplitPlacement,
+} from '@peek/core'
 
 /* ================================================================== */
 /* 1. Directions                                                       */
@@ -170,11 +176,7 @@ interface Candidate {
  * navigation key that lands somewhere different each time is worse than one that
  * lands somewhere arguable.
  */
-export function findPanelInDirection(
-  root: LayoutNode,
-  from: PanelId,
-  dir: Direction,
-): PanelId | null {
+export function findPanelInDirection(root: LayoutNode, from: PanelId, dir: Direction): PanelId | null {
   const boxes = panelBoxes(root)
   const source = boxes.find((b) => b.panelId === from)
   if (!source) return null

@@ -219,22 +219,37 @@ export function PackagesSection(): ReactElement {
       <table className="w-full border-collapse mt-tight mb-loose text-body">
         <thead>
           <tr>
-            <th scope="col" className="text-left align-top py-tight pr-snug pl-0 border-b border-border text-fg-faint font-medium">
+            <th
+              scope="col"
+              className="text-left align-top py-tight pr-snug pl-0 border-b border-border text-fg-faint font-medium"
+            >
               {t('settings.packages.name')}
             </th>
-            <th scope="col" className="text-left align-top py-tight pr-snug pl-0 border-b border-border text-fg-faint font-medium">
+            <th
+              scope="col"
+              className="text-left align-top py-tight pr-snug pl-0 border-b border-border text-fg-faint font-medium"
+            >
               {t('settings.packages.version')}
             </th>
-            <th scope="col" className="text-left align-top py-tight pr-snug pl-0 border-b border-border text-fg-faint font-medium">
+            <th
+              scope="col"
+              className="text-left align-top py-tight pr-snug pl-0 border-b border-border text-fg-faint font-medium"
+            >
               {t('settings.packages.capabilities')}
             </th>
-            <th scope="col" className="text-left align-top py-tight pr-snug pl-0 border-b border-border text-fg-faint font-medium">
+            <th
+              scope="col"
+              className="text-left align-top py-tight pr-snug pl-0 border-b border-border text-fg-faint font-medium"
+            >
               {t('settings.packages.source')}
             </th>
             {/* The buttons say what they do, so a visible heading over them
                 would be a word that helps nobody read the table. It is still a
                 column, and a screen reader walking the row announces it. */}
-            <th scope="col" className="text-left align-top py-tight pr-snug pl-0 border-b border-border text-fg-faint font-medium">
+            <th
+              scope="col"
+              className="text-left align-top py-tight pr-snug pl-0 border-b border-border text-fg-faint font-medium"
+            >
               <span className="sr-only">{t('settings.packages.manage')}</span>
             </th>
           </tr>
@@ -258,7 +273,10 @@ export function PackagesSection(): ReactElement {
               const manifest = lookupManifest(driverId)
               return (
                 <tr key={driverId}>
-                  <th scope="row" className="text-left align-top py-tight pr-snug pl-0 border-b border-border font-medium whitespace-nowrap">
+                  <th
+                    scope="row"
+                    className="text-left align-top py-tight pr-snug pl-0 border-b border-border font-medium whitespace-nowrap"
+                  >
                     {manifest?.displayName ?? driverId}
                     {/* The id, not just the proper name: it is what a connection
                         config, an MCP `connect` call and an error message all say,
@@ -275,21 +293,29 @@ export function PackagesSection(): ReactElement {
                       loader stamps it onto each of its drivers. Reading it off
                       the listing keeps this cell answerable during the frame in
                       which the registry is a round trip ahead. */}
-                  <td className="font-mono tabular-nums align-top py-tight pr-snug pl-0 border-b border-border">{pkg.version}</td>
+                  <td className="font-mono tabular-nums align-top py-tight pr-snug pl-0 border-b border-border">
+                    {pkg.version}
+                  </td>
                   {/* Capabilities are the longest cell and the least urgent, so they
                       are the one allowed to wrap. */}
                   <td className="font-mono tabular-nums align-top py-tight pr-snug pl-0 border-b border-border text-fg-dim whitespace-normal">
                     {manifest?.capabilities.join(' · ') ?? ''}
                   </td>
                   {index > 0 ? null : (
-                    <td rowSpan={pkg.driverIds.length} className="align-top py-tight pr-snug pl-0 border-b border-border text-fg-dim whitespace-nowrap">
+                    <td
+                      rowSpan={pkg.driverIds.length}
+                      className="align-top py-tight pr-snug pl-0 border-b border-border text-fg-dim whitespace-nowrap"
+                    >
                       {pkg.source === 'bundled'
                         ? t('settings.packages.sourceBundled')
                         : t('settings.packages.sourceUser')}
                     </td>
                   )}
                   {index > 0 ? null : (
-                    <td rowSpan={pkg.driverIds.length} className="align-top py-tight pr-snug pl-0 border-b border-border">
+                    <td
+                      rowSpan={pkg.driverIds.length}
+                      className="align-top py-tight pr-snug pl-0 border-b border-border"
+                    >
                       <div className="flex flex-wrap gap-tight">
                         {pkg.upgradeVersion === undefined ? null : (
                           <Button

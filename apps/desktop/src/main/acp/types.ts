@@ -248,7 +248,6 @@ export const DEFAULT_ACP_TIMEOUTS: AcpTimeouts = {
   exitMs: 3_000,
 }
 
-
 export interface AcpRestartPolicy {
   /** Restart attempts allowed inside `windowMs`. */
   maxAttempts: number

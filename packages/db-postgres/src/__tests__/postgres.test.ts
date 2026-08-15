@@ -66,7 +66,11 @@ function assertFrameProtocol(frames: ChunkFrame[]): void {
     if (i === 0) assert.ok(f.schema, 'the first frame must carry the schema')
     else assert.equal(f.schema, undefined, 'later frames must not repeat the schema')
     const cols = f.cols
-    assert.equal(cols.length, frames[0]?.schema?.length, 'the number of cols must equal the number of columns')
+    assert.equal(
+      cols.length,
+      frames[0]?.schema?.length,
+      'the number of cols must equal the number of columns',
+    )
     for (const col of cols) assert.equal(col.length, f.rowCount, 'every column must be rowCount long')
   })
   const last = frames[frames.length - 1]
@@ -103,10 +107,13 @@ describe('db-postgres against a real database', () => {
   })
 
   it('the capability set after connecting matches core DRIVER_CAPABILITIES.postgres', () => {
-    assert.deepEqual(
-      [...session.capabilities].sort(),
-      ['cancel', 'collectionScan', 'introspect', 'tabularQuery', 'valuePeek'],
-    )
+    assert.deepEqual([...session.capabilities].sort(), [
+      'cancel',
+      'collectionScan',
+      'introspect',
+      'tabularQuery',
+      'valuePeek',
+    ])
     assert.equal(session.serverInfo.flavor, 'PostgreSQL')
     assert.match(session.serverInfo.version, /^\d+/)
   })
@@ -170,10 +177,7 @@ describe('db-postgres against a real database', () => {
     const probe = 'peek_refresh_probe'
 
     const before = await session.describeCollection(ref)
-    assert.ok(
-      !before.columns.some((c) => c.name === probe),
-      'the probe column must not exist yet',
-    )
+    assert.ok(!before.columns.some((c) => c.name === probe), 'the probe column must not exist yet')
 
     const client = new pg.Client({ connectionString: TEST_URL })
     await client.connect()
@@ -217,9 +221,7 @@ describe('db-postgres against a real database', () => {
    *   a date / time / timestamp → a string, never a Date object
    */
   it('represents every logical type the way core says all four drivers must', async () => {
-    const frames = await drain(
-      await session.query({ resultId: newResultId(), text: PG_LOGICAL_SQL }),
-    )
+    const frames = await drain(await session.query({ resultId: newResultId(), text: PG_LOGICAL_SQL }))
     const schema = frames[0]?.schema ?? []
     const at = (name: string): unknown => frames[0]?.cols[schema.findIndex((c) => c.name === name)]?.[0]
 
@@ -241,7 +243,10 @@ describe('db-postgres against a real database', () => {
       schema: SCHEMA,
       name: 'item',
     })
-    assert.deepEqual(info.columns.map((c) => c.name), ['id', 'account_id', 'created_at', 'name'])
+    assert.deepEqual(
+      info.columns.map((c) => c.name),
+      ['id', 'account_id', 'created_at', 'name'],
+    )
     assert.deepEqual(info.primaryKey, ['id'])
     const createdAt = info.columns.find((c) => c.name === 'created_at')
     assert.equal(createdAt?.logical, 'timestamp')
@@ -262,14 +267,20 @@ describe('db-postgres against a real database', () => {
   it('scanning item yields exactly count(*) rows, and the first-frame schema flags the primary key', async () => {
     const expected = await rowCountOf(`${SCHEMA}.item`)
     assert.equal(expected, ITEM_ROWS, 'the fixture decides how many rows item has')
-    const cursor = await session.scan({ resultId: newResultId(), ref: { kind: 'relation', schema: SCHEMA, name: 'item' } })
+    const cursor = await session.scan({
+      resultId: newResultId(),
+      ref: { kind: 'relation', schema: SCHEMA, name: 'item' },
+    })
     const frames = await drain(cursor)
     assertFrameProtocol(frames)
     const total = frames.reduce((n, f) => n + f.rowCount, 0)
     assert.equal(total, expected, 'a scan must emit every row in the table, no more and no fewer')
     assert.equal(frames[frames.length - 1]?.done?.rows, expected)
     const schema = frames[0]?.schema ?? []
-    assert.deepEqual(schema.map((c) => c.name), ['id', 'account_id', 'created_at', 'name'])
+    assert.deepEqual(
+      schema.map((c) => c.name),
+      ['id', 'account_id', 'created_at', 'name'],
+    )
     assert.equal(schema.find((c) => c.name === 'id')?.primaryKey, true)
     assert.equal(schema.find((c) => c.name === 'created_at')?.nullable, false)
   })
@@ -282,7 +293,11 @@ describe('db-postgres against a real database', () => {
     })
     const frames = await drain(cursor)
     assertFrameProtocol(frames)
-    assert.equal(frames[frames.length - 1]?.done?.rows, 0, 'an empty result set still emits one frame carrying done')
+    assert.equal(
+      frames[frames.length - 1]?.done?.rows,
+      0,
+      'an empty result set still emits one frame carrying done',
+    )
     assert.equal(frames[0]?.rowCount, 0)
     // The table is still there, so the injection did nothing
     const after = await session.describeCollection({ kind: 'relation', schema: SCHEMA, name: 'item' })
@@ -291,7 +306,9 @@ describe('db-postgres against a real database', () => {
 
   it('pagination returns a nextCursor that fetches the following page', async () => {
     const ref = { kind: 'relation', schema: SCHEMA, name: 'item' } as const
-    const first = await drain(await session.scan({ resultId: newResultId(), ref, limit: 2, sort: [{ column: 'id', dir: 'asc' }] }))
+    const first = await drain(
+      await session.scan({ resultId: newResultId(), ref, limit: 2, sort: [{ column: 'id', dir: 'asc' }] }),
+    )
     const done = first[first.length - 1]?.done
     assert.equal(done?.rows, 2)
     // core's envelope around a row offset, not a bare number: the token names the
@@ -299,13 +316,15 @@ describe('db-postgres against a real database', () => {
     // into this one (core/cursor.ts)
     assert.equal(done?.nextCursor, rowOffsetCursor('postgres', 2))
 
-    const second = await drain(await session.scan({
-      resultId: newResultId(),
-      ref,
-      limit: 2,
-      sort: [{ column: 'id', dir: 'asc' }],
-      cursorToken: done?.nextCursor ?? '',
-    }))
+    const second = await drain(
+      await session.scan({
+        resultId: newResultId(),
+        ref,
+        limit: 2,
+        sort: [{ column: 'id', dir: 'asc' }],
+        cursorToken: done?.nextCursor ?? '',
+      }),
+    )
     assert.equal(second[second.length - 1]?.done?.rows, 2)
     const firstIds = first.flatMap((f) => f.cols[0] ?? [])
     const secondIds = second.flatMap((f) => f.cols[0] ?? [])
@@ -313,11 +332,12 @@ describe('db-postgres against a real database', () => {
     assert.notDeepEqual(firstIds, secondIds, 'the second page must hold different rows')
 
     await assert.rejects(
-      () => session.scan({
-        resultId: newResultId(),
-        ref,
-        cursorToken: encodeScanCursor({ driverId: 'qdrant', boundary: '"42"', skip: 0 }),
-      }),
+      () =>
+        session.scan({
+          resultId: newResultId(),
+          ref,
+          cursorToken: encodeScanCursor({ driverId: 'qdrant', boundary: '"42"', skip: 0 }),
+        }),
       (err: unknown) => isPeekError(err) && err.i18n?.key === 'error.sql.invalidCursorToken',
     )
   })
@@ -346,7 +366,10 @@ describe('db-postgres against a real database', () => {
     const frames = await drain(cursor)
     assertFrameProtocol(frames)
     assert.ok(frames.length >= 2, `expected multiple frames, got ${frames.length}`)
-    assert.equal(frames.reduce((n, f) => n + f.rowCount, 0), 4000)
+    assert.equal(
+      frames.reduce((n, f) => n + f.rowCount, 0),
+      4000,
+    )
     // Adaptive sizing keeps every frame inside core's 500-2000 row budget
     for (const f of frames.slice(0, -1)) {
       assert.ok(f.rowCount >= 500 && f.rowCount <= 2000, `frame of ${f.rowCount} rows is outside the budget`)
@@ -468,10 +491,12 @@ describe('db-postgres against a real database', () => {
 
   it('bytea comes back as base64', async () => {
     const resultId = newResultId()
-    const frames = await drain(await session.query({
-      resultId,
-      text: `SELECT decode('48656c6c6f', 'hex') AS b`,
-    }))
+    const frames = await drain(
+      await session.query({
+        resultId,
+        text: `SELECT decode('48656c6c6f', 'hex') AS b`,
+      }),
+    )
     assert.equal(frames[0]?.schema?.[0]?.logical, 'bytes')
     assert.equal(frames[0]?.cols[0]?.[0], Buffer.from('Hello').toString('base64'))
     const peeked = await session.peekValue({ kind: 'resultCell', resultId, row: 0, col: 0 })
@@ -507,7 +532,10 @@ describe('db-postgres against a real database', () => {
       isPeekError(outcome) && outcome.code === 'CANCELLED',
       `after a cancel, next() must fail with CANCELLED; got ${JSON.stringify(outcome)}`,
     )
-    assert.ok(Date.now() - t0 < 5000, 'the cancel must take effect at once, not wait for the query to end on its own')
+    assert.ok(
+      Date.now() - t0 < 5000,
+      'the cancel must take effect at once, not wait for the query to end on its own',
+    )
     assert.equal(await session.cancel(resultId), false, 'a repeated cancel returns false without throwing')
   })
 
@@ -533,22 +561,24 @@ describe('db-postgres against a real database', () => {
 describe('connection failure classification', () => {
   it('a missing database maps to CONNECTION_FAILED', async () => {
     await assert.rejects(
-      () => PostgresSession.connect({
-        driverId: 'postgres',
-        url: 'postgresql://postgres@localhost:5432/no_such_db_xyz_peek',
-        connectTimeoutMs: 3000,
-      }),
+      () =>
+        PostgresSession.connect({
+          driverId: 'postgres',
+          url: 'postgresql://postgres@localhost:5432/no_such_db_xyz_peek',
+          connectTimeoutMs: 3000,
+        }),
       (err: unknown) => isPeekError(err) && err.code === 'CONNECTION_FAILED',
     )
   })
 
   it('an unreachable port maps to CONNECTION_FAILED and is retryable', async () => {
     await assert.rejects(
-      () => PostgresSession.connect({
-        driverId: 'postgres',
-        url: 'postgresql://postgres@127.0.0.1:1/whatever',
-        connectTimeoutMs: 2000,
-      }),
+      () =>
+        PostgresSession.connect({
+          driverId: 'postgres',
+          url: 'postgresql://postgres@127.0.0.1:1/whatever',
+          connectTimeoutMs: 2000,
+        }),
       (err: unknown) => isPeekError(err) && err.code === 'CONNECTION_FAILED' && err.retryable === true,
     )
   })

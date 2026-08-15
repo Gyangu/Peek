@@ -116,12 +116,18 @@ export function AttachMenu({
                     somewhere the theme census structurally cannot look — the
                     same call the receipt chips made, see `chipClasses`. */}
                 <span className="flex items-baseline gap-tight">
-                  <span className={`font-mono ${disabled ? 'text-fg-faint' : 'text-accent'}`}>@{c.token}</span>
+                  <span className={`font-mono ${disabled ? 'text-fg-faint' : 'text-accent'}`}>
+                    @{c.token}
+                  </span>
                   <span className={disabled ? 'text-fg-faint' : ''}>{c.label}</span>
-                  {already ? <span className="text-micro text-fg-faint">{t('context.mention.added')}</span> : null}
+                  {already ? (
+                    <span className="text-micro text-fg-faint">{t('context.mention.added')}</span>
+                  ) : null}
                 </span>
                 {c.hint ? (
-                  <span className="font-mono tabular-nums max-w-full truncate text-micro text-fg-faint">{c.hint}</span>
+                  <span className="font-mono tabular-nums max-w-full truncate text-micro text-fg-faint">
+                    {c.hint}
+                  </span>
                 ) : null}
               </button>
             )

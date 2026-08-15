@@ -37,10 +37,7 @@ export const qdrantDriver = new QdrantDriver()
  */
 export function requireQdrantConfig(cfg: ConnectionConfig): QdrantConnectionConfig {
   if (!isDriverConfig<QdrantConnectionConfig>(cfg, 'qdrant')) {
-    throw peekError(
-      'BAD_REQUEST',
-      `db-qdrant received a connection config with driverId=${cfg.driverId}`,
-    )
+    throw peekError('BAD_REQUEST', `db-qdrant received a connection config with driverId=${cfg.driverId}`)
   }
   return cfg
 }

@@ -253,20 +253,22 @@ describe('tabActivationMessage', () => {
  * `role=group` element", which is the only place an "Empty panel N" label is
  * read out.
  */
-const probe = (where: {
-  inside?: PanelId[]
-  onTab?: PanelId[]
-  onPanel?: PanelId[]
-} = {}): FocusProbe => ({
+const probe = (
+  where: {
+    inside?: PanelId[]
+    onTab?: PanelId[]
+    onPanel?: PanelId[]
+  } = {},
+): FocusProbe => ({
   insidePanel: (id) => (where.inside ?? []).includes(id),
   onTabIn: (id) => (where.onTab ?? []).includes(id),
   onPanelElement: (id) => (where.onPanel ?? []).includes(id),
 })
 
-const snapshot = (
-  focusedPanel: PanelId | null,
-  active: [PanelId, ViewId | null][],
-): LayoutSnapshot => ({ focusedPanel, active: new Map(active) })
+const snapshot = (focusedPanel: PanelId | null, active: [PanelId, ViewId | null][]): LayoutSnapshot => ({
+  focusedPanel,
+  active: new Map(active),
+})
 
 describe('announcementFor — the live region speaks only what focus did not', () => {
   const twoPanels = (a: ViewId | null, b: ViewId | null): [PanelId, ViewId | null][] => [

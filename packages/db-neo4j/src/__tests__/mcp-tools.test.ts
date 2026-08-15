@@ -110,10 +110,7 @@ describe('expand_node maps onto view.update, and refuses rather than mapping bad
 
   it('passes depth through only when it was given', async () => {
     const tool = commandTool('expand_node')
-    const withDepth = await tool.toCommands(
-      { viewId: 'view_g', nodeId: 'n', depth: 2 },
-      ctxWith([view()]),
-    )
+    const withDepth = await tool.toCommands({ viewId: 'view_g', nodeId: 'n', depth: 2 }, ctxWith([view()]))
     const state = (withDepth[0]?.input as { patch: { state: Record<string, unknown> } }).patch.state
     assert.equal(state['depth'], 2)
 
@@ -128,7 +125,10 @@ describe('expand_node maps onto view.update, and refuses rather than mapping bad
     // failure, but only if the numbers agree.
     const tool = commandTool('expand_node')
     assert.equal(tool.inputSchema.safeParse({ viewId: 'v', nodeId: 'n', depth: MAX_DEPTH }).success, true)
-    assert.equal(tool.inputSchema.safeParse({ viewId: 'v', nodeId: 'n', depth: MAX_DEPTH + 1 }).success, false)
+    assert.equal(
+      tool.inputSchema.safeParse({ viewId: 'v', nodeId: 'n', depth: MAX_DEPTH + 1 }).success,
+      false,
+    )
     assert.equal(tool.inputSchema.safeParse({ viewId: 'v', nodeId: 'n', depth: 0 }).success, false)
     assert.equal(tool.inputSchema.safeParse({ viewId: 'v', nodeId: 'n', depth: 1.5 }).success, false)
   })

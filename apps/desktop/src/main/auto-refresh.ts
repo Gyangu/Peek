@@ -78,9 +78,11 @@ export interface AutoRefreshOptions {
 export function createAutoRefreshScheduler(options: AutoRefreshOptions): AutoRefreshScheduler {
   const { store, bus } = options
   const setTimer = options.setTimer ?? ((fn, ms) => setTimeout(fn, ms))
-  const clearTimer = options.clearTimer ?? ((handle) => {
-    clearTimeout(handle)
-  })
+  const clearTimer =
+    options.clearTimer ??
+    ((handle) => {
+      clearTimeout(handle)
+    })
 
   const tracked = new Map<ViewId, Tracked>()
 
@@ -120,9 +122,12 @@ export function createAutoRefreshScheduler(options: AutoRefreshOptions): AutoRef
     const graded = gradeLastRound(state, entry)
     if (graded.consecutiveErrors >= AUTO_REFRESH_ERROR_LIMIT) {
       tracked.delete(viewId)
-      store.apply((draft) => {
-        setAutoRefresh(draft, viewId, null, 'error')
-      }, { source: 'system' })
+      store.apply(
+        (draft) => {
+          setAutoRefresh(draft, viewId, null, 'error')
+        },
+        { source: 'system' },
+      )
       return
     }
 
@@ -243,4 +248,3 @@ function gradeLastRound(state: Workspace, entry: Tracked): { consecutiveErrors: 
   }
   return { consecutiveErrors: 0, consumed: true }
 }
-

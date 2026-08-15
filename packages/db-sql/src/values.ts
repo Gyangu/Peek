@@ -52,7 +52,13 @@ import {
 
 /** Values of these logical types can be huge, so the UI wires up a valuePeek entry point ahead of time */
 const PEEKABLE: ReadonlySet<LogicalType> = new Set<LogicalType>([
-  'string', 'json', 'bytes', 'array', 'vector', 'geo', 'unknown',
+  'string',
+  'json',
+  'bytes',
+  'array',
+  'vector',
+  'geo',
+  'unknown',
 ])
 
 /** Whether a column of this logical type may carry a truncated value (`ColumnDef.peekable`) */

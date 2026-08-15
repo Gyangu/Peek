@@ -82,9 +82,27 @@ function template({ isDev, onZoom, onOpenSettings }: AppMenuOptions): MenuItemCo
        * push the 11px text minimum back under 9px, which is the whole point of
        * design/2026-08-02-ui-legibility-baseline.md.
        */
-      { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => { onZoom(0) } },
-      { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: () => { onZoom(1) } },
-      { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => { onZoom(-1) } },
+      {
+        label: 'Actual Size',
+        accelerator: 'CmdOrCtrl+0',
+        click: () => {
+          onZoom(0)
+        },
+      },
+      {
+        label: 'Zoom In',
+        accelerator: 'CmdOrCtrl+Plus',
+        click: () => {
+          onZoom(1)
+        },
+      },
+      {
+        label: 'Zoom Out',
+        accelerator: 'CmdOrCtrl+-',
+        click: () => {
+          onZoom(-1)
+        },
+      },
       { type: 'separator' },
       { role: 'togglefullscreen' },
       ...(isDev
@@ -108,8 +126,16 @@ function template({ isDev, onZoom, onOpenSettings }: AppMenuOptions): MenuItemCo
       { role: 'copy' },
       { role: 'paste' },
       ...(mac
-        ? ([{ role: 'pasteAndMatchStyle' }, { role: 'delete' }, { role: 'selectAll' }] satisfies MenuItemConstructorOptions[])
-        : ([{ role: 'delete' }, { type: 'separator' }, { role: 'selectAll' }] satisfies MenuItemConstructorOptions[])),
+        ? ([
+            { role: 'pasteAndMatchStyle' },
+            { role: 'delete' },
+            { role: 'selectAll' },
+          ] satisfies MenuItemConstructorOptions[])
+        : ([
+            { role: 'delete' },
+            { type: 'separator' },
+            { role: 'selectAll' },
+          ] satisfies MenuItemConstructorOptions[])),
     ],
   }
 

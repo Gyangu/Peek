@@ -21,11 +21,7 @@ export type TFunction = <K extends MessageKey>(key: K, ...args: MessageArgs<Mess
  * does not know, so the caller can fall back to the English `message` instead of
  * printing a raw key at the user.
  */
-export function translateDynamic(
-  locale: Locale,
-  key: string,
-  params?: MessageParamMap,
-): string | undefined {
+export function translateDynamic(locale: Locale, key: string, params?: MessageParamMap): string | undefined {
   const message = CATALOGS[locale][key] ?? CATALOGS[DEFAULT_LOCALE][key]
   return message === undefined ? undefined : formatMessage(message, locale, params)
 }

@@ -76,7 +76,11 @@ describe('a display handed a config that skipped its schema', () => {
         // implementation that returns a missing field returns `undefined` here,
         // which type-checks at the call site and then reaches an MCP receipt as
         // the word "undefined".
-        assert.equal(typeof answer, 'string', `${driverId}: ${which} answered a ${typeof answer}, not a string`)
+        assert.equal(
+          typeof answer,
+          'string',
+          `${driverId}: ${which} answered a ${typeof answer}, not a string`,
+        )
         assert.notEqual(answer, '', `${driverId}: ${which} answered an empty string, which names nothing`)
       }
     })

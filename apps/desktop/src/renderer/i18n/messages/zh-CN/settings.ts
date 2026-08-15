@@ -71,9 +71,11 @@ export const settings: CatalogFor<SettingsMessages> = {
   'mcp.portInvalid': '端口必须是 1 到 65535 之间的整数。',
   'mcp.portUnchanged': '当前用的就是这个端口。',
   'mcp.portApplied': '端口已保存，之后每次启动都会用它。',
-  'mcp.portFallback': '端口 {preferred} 被占用，端点实际在 {actual}。请重新复制命令，或者腾出该端口后再应用一次。',
+  'mcp.portFallback':
+    '端口 {preferred} 被占用，端点实际在 {actual}。请重新复制命令，或者腾出该端口后再应用一次。',
   'mcp.rotateToken': '轮换 token',
-  'mcp.rotateWarning': '轮换 token、或者更换端口，都会让已经注册过的 AI 客户端全部失效 —— 需要在每个客户端里重新执行上面这条命令。',
+  'mcp.rotateWarning':
+    '轮换 token、或者更换端口，都会让已经注册过的 AI 客户端全部失效 —— 需要在每个客户端里重新执行上面这条命令。',
   'mcp.tokenRotated': '新 token 已生效。旧的从现在起一律拒绝，请重新注册你的客户端。',
   'mcp.reregisterRequired': '端点已经变了，请用上面的命令重新注册 AI 客户端。',
 

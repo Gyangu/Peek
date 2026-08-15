@@ -115,8 +115,8 @@ export function createAttachmentStore(options: AttachmentStoreOptions = {}): Att
       if (!entry) {
         return peekError(
           'NOT_FOUND',
-          `No attachment is staged at ${req.uri}. It was never attached, or it has since been `
-          + 'released — peek keeps only the most recent attachments. Ask the user to attach it again.',
+          `No attachment is staged at ${req.uri}. It was never attached, or it has since been ` +
+            'released — peek keeps only the most recent attachments. Ask the user to attach it again.',
         )
       }
       const offset = Math.max(0, Math.trunc(req.offset ?? 0))

@@ -104,7 +104,10 @@ describe('driver manifest labels', () => {
       const { modes, fields } = manifest.connectForm
       // `defaultConnectMode` falls back to 'fields' for an empty list, so an
       // empty `modes` does not throw — it opens a dialog with nothing in it.
-      assert.ok(modes.length > 0, `${manifest.driverId}: connectForm.modes is empty, so no mode can be offered`)
+      assert.ok(
+        modes.length > 0,
+        `${manifest.driverId}: connectForm.modes is empty, so no mode can be offered`,
+      )
       for (const mode of modes) {
         // A driver whose offered mode draws no field is one the user cannot
         // connect with, however complete the rest of its package is: the form

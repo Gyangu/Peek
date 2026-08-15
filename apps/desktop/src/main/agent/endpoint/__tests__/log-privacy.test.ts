@@ -54,7 +54,7 @@ function replayTurnIntoLog(): LogRecord[] {
 }
 
 const SECRET_PROSE = 'the user asked about their salary of 123456'
-const SECRET_ARGS = 'SELECT * FROM payroll WHERE name = \'alice\''
+const SECRET_ARGS = "SELECT * FROM payroll WHERE name = 'alice'"
 
 test('no conversation text or tool argument reaches a log record', () => {
   const records = replayTurnIntoLog()
@@ -75,5 +75,8 @@ test('what is recorded is still enough to debug the turn', () => {
 
   assert.ok(messages.some((m) => m.includes('unknown:a_shape_from_the_future')))
   assert.ok(messages.some((m) => m.includes('tool_execution_start without an id')))
-  assert.ok(records.every((r) => r.tag === 'chat_test'), 'every record is attributable to its conversation')
+  assert.ok(
+    records.every((r) => r.tag === 'chat_test'),
+    'every record is attributable to its conversation',
+  )
 })

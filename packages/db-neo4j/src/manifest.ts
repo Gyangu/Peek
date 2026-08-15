@@ -52,7 +52,13 @@ const CONNECT_FORM = {
       },
     ],
     fields: [
-      { name: 'host', type: 'text', label: { en: 'Host', 'zh-CN': '主机' }, defaultValue: 'localhost', mono: true },
+      {
+        name: 'host',
+        type: 'text',
+        label: { en: 'Host', 'zh-CN': '主机' },
+        defaultValue: 'localhost',
+        mono: true,
+      },
       { name: 'port', type: 'number', label: { en: 'Port', 'zh-CN': '端口' }, defaultValue: '7687' },
       { name: 'user', type: 'text', label: { en: 'User', 'zh-CN': '用户名' }, defaultValue: 'neo4j' },
       { name: 'password', type: 'password', label: { en: 'Password', 'zh-CN': '密码' } },

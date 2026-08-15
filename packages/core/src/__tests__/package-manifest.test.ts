@@ -141,14 +141,24 @@ describe('peek-package.json', () => {
   })
 
   test('a package declaring no driver contributes no database', () => {
-    refusedAt(broken((m) => { m['drivers'] = [] }), 'drivers')
+    refusedAt(
+      broken((m) => {
+        m['drivers'] = []
+      }),
+      'drivers',
+    )
   })
 
   test('an id that is not servable is refused, rather than becoming a directory name', () => {
     // The same class `peek-package://` hosts and scan cursors are drawn from. A
     // dot is refused with the separators, so `..` never has to be reasoned about.
     for (const id of ['../etc', 'Postgres', 'com.example.db', '-lead', '']) {
-      refusedAt(broken((m) => { m['id'] = id }), 'id')
+      refusedAt(
+        broken((m) => {
+          m['id'] = id
+        }),
+        'id',
+      )
     }
   })
 
@@ -156,17 +166,31 @@ describe('peek-package.json', () => {
     // §2.5 orders packages by the first three numbers; 'latest' would compare
     // equal to everything and an upgrade would silently never be offered.
     for (const version of ['1.2', 'latest', 'v1.2.3']) {
-      refusedAt(broken((m) => { m['version'] = version }), 'version')
+      refusedAt(
+        broken((m) => {
+          m['version'] = version
+        }),
+        'version',
+      )
     }
-    const ok = parsePackageManifest(broken((m) => { m['version'] = '1.2.3-beta.1' }))
-    assert.ok(ok.ok, 'a pre-release tag after three segments is not the schema\'s business')
+    const ok = parsePackageManifest(
+      broken((m) => {
+        m['version'] = '1.2.3-beta.1'
+      }),
+    )
+    assert.ok(ok.ok, "a pre-release tag after three segments is not the schema's business")
   })
 
   test('an entry path that leaves the package directory is refused', () => {
     // A manifest is written by whoever wrote the package, so this string is one
     // peek would otherwise hand to `import()`.
     for (const path of ['../../../.ssh/id_rsa', '/etc/passwd', 'a/../../b', 'C:\\x']) {
-      refusedAt(broken((m) => { m['entry'] = { driver: path } }), 'entry.driver')
+      refusedAt(
+        broken((m) => {
+          m['entry'] = { driver: path }
+        }),
+        'entry.driver',
+      )
     }
   })
 
@@ -205,7 +229,9 @@ describe('peek-package.json', () => {
     // A dialog with no boxes: nothing to type into, and `assembleFromForm` reads
     // nothing, so the user is offered a database they cannot connect to.
     refusedAt(
-      broken((m) => { fieldsOfMode(m, 'url').length = 0 }),
+      broken((m) => {
+        fieldsOfMode(m, 'url').length = 0
+      }),
       'drivers.0.connectForm.fields.url',
     )
   })
@@ -226,7 +252,9 @@ describe('peek-package.json', () => {
     // It scrubs nothing, and whatever it was meant to scrub goes verbatim into
     // the MCP receipt, the renderer broadcast and the command log.
     refusedAt(
-      broken((m) => { driverOf(m)['redact'] = { passwrd: 'value' } }),
+      broken((m) => {
+        driverOf(m)['redact'] = { passwrd: 'value' }
+      }),
       'drivers.0.redact.passwrd',
     )
   })
@@ -234,12 +262,22 @@ describe('peek-package.json', () => {
   test('an identity field that does not exist is refused', () => {
     // It reads as empty on every connection, so two that differ only there share
     // one keychain entry — one account's saved password released to the other.
-    refusedAt(broken((m) => { driverOf(m)['identity'] = ['hostname'] }), 'drivers.0.identity')
+    refusedAt(
+      broken((m) => {
+        driverOf(m)['identity'] = ['hostname']
+      }),
+      'drivers.0.identity',
+    )
   })
 
   test('a driver with no identity fields at all is refused', () => {
     // Every connection of that driver would reduce to the same identity string.
-    refusedAt(broken((m) => { driverOf(m)['identity'] = [] }), 'drivers.0.identity')
+    refusedAt(
+      broken((m) => {
+        driverOf(m)['identity'] = []
+      }),
+      'drivers.0.identity',
+    )
   })
 
   test('an omitted redact block parses — the loader warns, it does not refuse', () => {
@@ -248,13 +286,22 @@ describe('peek-package.json', () => {
     // anyway. Absence survives the parse as `undefined` rather than being
     // defaulted to `{}`, which is what leaves the loader something to warn about
     // and still lets sqlite's explicit `{}` mean "I hold no secret".
-    const outcome = parsePackageManifest(broken((m) => { delete driverOf(m)['redact'] }))
+    const outcome = parsePackageManifest(
+      broken((m) => {
+        delete driverOf(m)['redact']
+      }),
+    )
     assert.ok(outcome.ok, outcome.ok ? '' : outcome.issues.join('\n'))
     assert.equal(outcome.manifest.drivers[0]?.redact, undefined)
   })
 
   test('a driver claiming no capability is refused — no view could ever be opened on it', () => {
-    refusedAt(broken((m) => { driverOf(m)['capabilities'] = [] }), 'drivers.0.capabilities')
+    refusedAt(
+      broken((m) => {
+        driverOf(m)['capabilities'] = []
+      }),
+      'drivers.0.capabilities',
+    )
   })
 
   test('two drivers of one package under the same id are refused', () => {
@@ -271,12 +318,20 @@ describe('peek-package.json', () => {
   })
 
   test('every issue is reported at once, so one round of fixing is enough', () => {
-    const issues = issuesOf(broken((m) => {
-      m['id'] = 'Bad Id'
-      m['version'] = 'nope'
-    }))
-    assert.ok(issues.some((issue) => issue.startsWith('id:')), issues.join('\n'))
-    assert.ok(issues.some((issue) => issue.startsWith('version:')), issues.join('\n'))
+    const issues = issuesOf(
+      broken((m) => {
+        m['id'] = 'Bad Id'
+        m['version'] = 'nope'
+      }),
+    )
+    assert.ok(
+      issues.some((issue) => issue.startsWith('id:')),
+      issues.join('\n'),
+    )
+    assert.ok(
+      issues.some((issue) => issue.startsWith('version:')),
+      issues.join('\n'),
+    )
   })
 })
 
@@ -296,7 +351,12 @@ describe('the view kinds a package contributes', () => {
     // Unlike `redact`, where absent and empty are two different statements, a
     // package with no view kind and one with an empty list are the same package
     // — so the parse answers with a list every consumer can loop over.
-    const outcome = parsePackageManifest(broken((m) => { delete m['viewKinds']; delete m['tools'] }))
+    const outcome = parsePackageManifest(
+      broken((m) => {
+        delete m['viewKinds']
+        delete m['tools']
+      }),
+    )
     assert.ok(outcome.ok, outcome.ok ? '' : outcome.issues.join('\n'))
     assert.deepEqual(outcome.manifest.viewKinds, [])
     assert.deepEqual(outcome.manifest.tools, [])
@@ -315,23 +375,37 @@ describe('the view kinds a package contributes', () => {
     // and opening it forks this package's host to plan a fetch against a
     // database it has never heard of.
     refusedAt(
-      broken((m) => { entryOf(m, 'viewKinds')['driverIds'] = ['mysql'] }),
+      broken((m) => {
+        entryOf(m, 'viewKinds')['driverIds'] = ['mysql']
+      }),
       'viewKinds.0.driverIds',
     )
   })
 
   test('a view kind offered on no driver at all is refused', () => {
     // Nothing decides where it appears, so it appears nowhere.
-    refusedAt(broken((m) => { entryOf(m, 'viewKinds')['driverIds'] = [] }), 'viewKinds.0.driverIds')
+    refusedAt(
+      broken((m) => {
+        entryOf(m, 'viewKinds')['driverIds'] = []
+      }),
+      'viewKinds.0.driverIds',
+    )
   })
 
   test('a nameless kind is refused — the string is what both registries are keyed by', () => {
-    refusedAt(broken((m) => { entryOf(m, 'viewKinds')['kind'] = '' }), 'viewKinds.0.kind')
+    refusedAt(
+      broken((m) => {
+        entryOf(m, 'viewKinds')['kind'] = ''
+      }),
+      'viewKinds.0.kind',
+    )
   })
 
   test('a title without English is refused, for the reason a label without English is', () => {
     refusedAt(
-      broken((m) => { entryOf(m, 'viewKinds')['title'] = { 'zh-CN': '关系图' } }),
+      broken((m) => {
+        entryOf(m, 'viewKinds')['title'] = { 'zh-CN': '关系图' }
+      }),
       'viewKinds.0.title.en',
     )
   })
@@ -370,12 +444,22 @@ describe('the MCP tools a package contributes', () => {
     // there takes the whole tool list with it, one process away from anything
     // that could name the package responsible.
     for (const name of ['expand node', 'expand.node', 'expand/node', '', 'x'.repeat(65)]) {
-      refusedAt(broken((m) => { entryOf(m, 'tools')['name'] = name }), 'tools.0.name')
+      refusedAt(
+        broken((m) => {
+          entryOf(m, 'tools')['name'] = name
+        }),
+        'tools.0.name',
+      )
     }
   })
 
   test('a tool with no description is refused — it is all the model has to choose by', () => {
-    refusedAt(broken((m) => { entryOf(m, 'tools')['description'] = '' }), 'tools.0.description')
+    refusedAt(
+      broken((m) => {
+        entryOf(m, 'tools')['description'] = ''
+      }),
+      'tools.0.description',
+    )
   })
 
   test('an input schema that is not an object schema is refused', () => {
@@ -391,7 +475,12 @@ describe('the MCP tools a package contributes', () => {
       true,
     ]
     for (const schema of schemas) {
-      refusedAt(broken((m) => { entryOf(m, 'tools')['inputSchema'] = schema }), 'tools.0.inputSchema')
+      refusedAt(
+        broken((m) => {
+          entryOf(m, 'tools')['inputSchema'] = schema
+        }),
+        'tools.0.inputSchema',
+      )
     }
   })
 
@@ -399,7 +488,9 @@ describe('the MCP tools a package contributes', () => {
     const badProperties: Json[] = [{ viewId: 'string' }, ['viewId'], { viewId: null }]
     for (const properties of badProperties) {
       refusedAt(
-        broken((m) => { entryOf(m, 'tools')['inputSchema'] = { type: 'object', properties } }),
+        broken((m) => {
+          entryOf(m, 'tools')['inputSchema'] = { type: 'object', properties }
+        }),
         'tools.0.inputSchema',
       )
     }
@@ -409,14 +500,16 @@ describe('the MCP tools a package contributes', () => {
     // `$ref`, `allOf`, a boolean subschema: all legal JSON Schema, none of it
     // something peek reads. Refusing it would be a second opinion about a value
     // that is forwarded verbatim.
-    const outcome = parsePackageManifest(broken((m) => {
-      entryOf(m, 'tools')['inputSchema'] = {
-        $schema: 'https://json-schema.org/draft/2020-12/schema',
-        type: 'object',
-        properties: { viewId: { $ref: '#/$defs/id' }, anything: true },
-        $defs: { id: { type: 'string', minLength: 1 } },
-      }
-    }))
+    const outcome = parsePackageManifest(
+      broken((m) => {
+        entryOf(m, 'tools')['inputSchema'] = {
+          $schema: 'https://json-schema.org/draft/2020-12/schema',
+          type: 'object',
+          properties: { viewId: { $ref: '#/$defs/id' }, anything: true },
+          $defs: { id: { type: 'string', minLength: 1 } },
+        }
+      }),
+    )
     assert.ok(outcome.ok, outcome.ok ? '' : outcome.issues.join('\n'))
   })
 
@@ -443,15 +536,30 @@ describe('the MCP tools a package contributes', () => {
     // `read` and `command` are two constructors in the executor. Defaulting to
     // either would wire half of every package's tools to the wrong one, and
     // silently: a read tool built as a command tool answers by dispatching.
-    refusedAt(broken((m) => { delete entryOf(m, 'tools')['kind'] }), 'tools.0.kind')
-    refusedAt(broken((m) => { entryOf(m, 'tools')['kind'] = 'query' }), 'tools.0.kind')
+    refusedAt(
+      broken((m) => {
+        delete entryOf(m, 'tools')['kind']
+      }),
+      'tools.0.kind',
+    )
+    refusedAt(
+      broken((m) => {
+        entryOf(m, 'tools')['kind'] = 'query'
+      }),
+      'tools.0.kind',
+    )
   })
 
   test('a command tool that does not say whether it writes a receipt is refused', () => {
     // `defineCommandTool` reads a missing `render` as "use the default receipt"
     // and there is no third answer, so a stand-in that guessed would either drop
     // a receipt the package wrote or ask for one it does not have.
-    refusedAt(broken((m) => { delete entryOf(m, 'tools')['hasRenderer'] }), 'tools.0.hasRenderer')
+    refusedAt(
+      broken((m) => {
+        delete entryOf(m, 'tools')['hasRenderer']
+      }),
+      'tools.0.hasRenderer',
+    )
   })
 
   test('hasRenderer on a read tool is refused rather than ignored', () => {
@@ -468,20 +576,24 @@ describe('the MCP tools a package contributes', () => {
   })
 
   test('a read tool needs nothing beyond the shared fields', () => {
-    const outcome = parsePackageManifest(broken((m) => {
-      const tool = entryOf(m, 'tools')
-      tool['kind'] = 'read'
-      delete tool['hasRenderer']
-    }))
+    const outcome = parsePackageManifest(
+      broken((m) => {
+        const tool = entryOf(m, 'tools')
+        tool['kind'] = 'read'
+        delete tool['hasRenderer']
+      }),
+    )
     assert.ok(outcome.ok, outcome.ok ? '' : outcome.issues.join('\n'))
   })
 
   test('title and annotations are carried, and neither is required', () => {
-    const outcome = parsePackageManifest(broken((m) => {
-      const tool = entryOf(m, 'tools')
-      delete tool['title']
-      delete tool['annotations']
-    }))
+    const outcome = parsePackageManifest(
+      broken((m) => {
+        const tool = entryOf(m, 'tools')
+        delete tool['title']
+        delete tool['annotations']
+      }),
+    )
     assert.ok(outcome.ok, outcome.ok ? '' : outcome.issues.join('\n'))
 
     const kept = parsePackageManifest(valid())
@@ -519,13 +631,15 @@ describe('the MCP tools a package contributes', () => {
       { viewId: { allOf: [{ type: 'string' }] } },
       { anything: true },
     ] as Json[]) {
-      const outcome = parsePackageManifest(broken((m) => {
-        entryOf(m, 'tools')['inputSchema'] = {
-          type: 'object',
-          properties,
-          $defs: { id: { type: 'string', minLength: 1 } },
-        }
-      }))
+      const outcome = parsePackageManifest(
+        broken((m) => {
+          entryOf(m, 'tools')['inputSchema'] = {
+            type: 'object',
+            properties,
+            $defs: { id: { type: 'string', minLength: 1 } },
+          }
+        }),
+      )
       assert.ok(outcome.ok, outcome.ok ? '' : outcome.issues.join('\n'))
     }
   })

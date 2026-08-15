@@ -330,8 +330,8 @@ function packageToolContext(snapshot: WorkspaceSnapshot): ToolContext {
   const dispatch: CommandDispatch = () => {
     throw peekError(
       'BAD_REQUEST',
-      'A package tool may not dispatch Commands. Return them from toCommands instead; '
-        + 'main is what puts them on the bus.',
+      'A package tool may not dispatch Commands. Return them from toCommands instead; ' +
+        'main is what puts them on the bus.',
     )
   }
   return {

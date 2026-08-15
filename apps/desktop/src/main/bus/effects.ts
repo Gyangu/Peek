@@ -153,9 +153,7 @@ async function runIntent(intent: EffectIntent, ctx: EffectRunnerCtx): Promise<vo
         // while its directory is untouched and the next launch registers it
         // again. The connections the reducer already closed stay closed, which
         // is visible and one click to undo.
-        throw new CommandFailure(
-          peekError('INTERNAL', 'This peek was assembled without a package manager'),
-        )
+        throw new CommandFailure(peekError('INTERNAL', 'This peek was assembled without a package manager'))
       }
       await packages.uninstall({ packageId: intent.packageId, version: intent.version })
       return

@@ -25,8 +25,8 @@ const calls: IntrospectCall[] = []
 let answer: (call: IntrospectCall) => Promise<NamespaceNode[]> = () => Promise.resolve([])
 
 // `sync.ts` pulls in resultCache, which lives on the data plane's rAF loop.
-;(globalThis as unknown as { requestAnimationFrame: (cb: () => void) => number })
-  .requestAnimationFrame = (): number => 0
+;(globalThis as unknown as { requestAnimationFrame: (cb: () => void) => number }).requestAnimationFrame =
+  (): number => 0
 ;(globalThis as unknown as { window: Record<string, unknown> }).window = {
   peek: {
     invoke: () => Promise.resolve(),
@@ -39,14 +39,8 @@ let answer: (call: IntrospectCall) => Promise<NamespaceNode[]> = () => Promise.r
   },
 }
 
-const {
-  getNodes,
-  invalidateConnection,
-  loadChildren,
-  nodesKey,
-  refetchConnection,
-  useNamespaceStore,
-} = await import('../namespaceStore')
+const { getNodes, invalidateConnection, loadChildren, nodesKey, refetchConnection, useNamespaceStore } =
+  await import('../namespaceStore')
 const { useWorkspaceStore } = await import('../workspaceStore')
 const { syncNamespaceCache } = await import('../sync')
 
@@ -191,10 +185,7 @@ describe('replaying parked levels once the connection comes up', () => {
     refetchConnection(CONN)
     await settle()
 
-    assert.deepEqual(
-      calls.map((c) => c.parentId).sort(),
-      [null, 'public'].sort(),
-    )
+    assert.deepEqual(calls.map((c) => c.parentId).sort(), [null, 'public'].sort())
     assert.equal(
       calls.every((c) => c.refresh === true),
       true,

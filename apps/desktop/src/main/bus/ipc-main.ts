@@ -125,10 +125,7 @@ export function sendNotify(renderers: readonly WebContents[], message: NotifyMes
  * (`installPackages` refuses to merge, so that a package cannot survive its own
  * uninstall).
  */
-export function sendPackagesChanged(
-  renderers: readonly WebContents[],
-  installed: InstalledPackages,
-): void {
+export function sendPackagesChanged(renderers: readonly WebContents[], installed: InstalledPackages): void {
   for (const wc of renderers) {
     if (!wc.isDestroyed()) wc.send(IPC.PACKAGES_CHANGED, installed)
   }

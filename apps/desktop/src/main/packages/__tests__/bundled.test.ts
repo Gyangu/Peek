@@ -147,7 +147,10 @@ describe('rule 1 — absent and not tombstoned', () => {
 
     // The staged name is what a killed copy leaves; a successful one renames it
     // away, and anything still wearing it would be scanned as litter forever.
-    assert.deepEqual(readdirSync(packages).filter((name) => name.startsWith('.installing-')), [])
+    assert.deepEqual(
+      readdirSync(packages).filter((name) => name.startsWith('.installing-')),
+      [],
+    )
   })
 })
 
@@ -188,7 +191,11 @@ describe('rule 2 — something is already installed', () => {
     writePackage(bundled, 'sql', { version: '0.0.1' })
     writePackage(packages, 'sql', { version: '0.0.1' })
 
-    assertOutcome(layOutBundledPackages({ bundledRoot: bundled, packagesRoot: packages }).statuses, 'sql', 'kept')
+    assertOutcome(
+      layOutBundledPackages({ bundledRoot: bundled, packagesRoot: packages }).statuses,
+      'sql',
+      'kept',
+    )
   })
 
   test('an installed directory with no readable manifest is compared with nothing, and left alone', () => {
@@ -286,11 +293,14 @@ describe('rule 3 — tombstones', () => {
     writeTombstone(packages, 'postgres', '2.0.0')
 
     const stones = readTombstones(packages)
-    assert.deepEqual(
-      stones.map((stone) => `${stone.id}@${stone.version}`).sort(),
-      ['postgres@2.0.0', 'redis@0.0.1'],
+    assert.deepEqual(stones.map((stone) => `${stone.id}@${stone.version}`).sort(), [
+      'postgres@2.0.0',
+      'redis@0.0.1',
+    ])
+    assert.ok(
+      stones.every((stone) => !Number.isNaN(Date.parse(stone.at))),
+      'at has to be a timestamp',
     )
-    assert.ok(stones.every((stone) => !Number.isNaN(Date.parse(stone.at))), 'at has to be a timestamp')
   })
 
   test('a tombstone file peek cannot parse restores everything rather than hiding it', () => {
@@ -344,10 +354,7 @@ describe('what it refuses to guess', () => {
     const { statuses } = layOutBundledPackages({ bundledRoot: bundled, packagesRoot: packages })
 
     assertOutcome(statuses, 'postgres', 'failed')
-    assert.match(
-      statusOf(statuses, 'postgres').detail ?? '',
-      /already provided by the package 'my-postgres'/,
-    )
+    assert.match(statusOf(statuses, 'postgres').detail ?? '', /already provided by the package 'my-postgres'/)
     // The copy is what would make this silent: the directory would sit there,
     // be refused by every scan for the rest of the install's life, and — through
     // `packages.restore` — be reported as restored on the way in.
@@ -413,7 +420,10 @@ describe('litter from an interrupted copy', () => {
 
     layOutBundledPackages({ bundledRoot: bundled, packagesRoot: packages })
 
-    assert.deepEqual(readdirSync(packages).filter((name) => name.startsWith(STAGING_PREFIX)), [])
+    assert.deepEqual(
+      readdirSync(packages).filter((name) => name.startsWith(STAGING_PREFIX)),
+      [],
+    )
   })
 
   test('a lay-out that fails leaves none of itself behind', () => {
@@ -430,7 +440,10 @@ describe('litter from an interrupted copy', () => {
     const { statuses } = layOutBundledPackages({ bundledRoot: bundled, packagesRoot: packages })
 
     assertOutcome(statuses, 'neo4j', 'failed')
-    assert.deepEqual(readdirSync(packages).filter((name) => name.startsWith(STAGING_PREFIX)), [])
+    assert.deepEqual(
+      readdirSync(packages).filter((name) => name.startsWith(STAGING_PREFIX)),
+      [],
+    )
   })
 })
 
@@ -455,7 +468,10 @@ describe('where the shipped copies are', () => {
     // `@peek/core`). Renaming one alone ships an app whose bundled root is
     // empty — which looks exactly like a legitimate first run, so nothing else
     // would report it.
-    const script = readFileSync(join(import.meta.dirname, '..', '..', '..', '..', 'scripts', 'package-mac.mjs'), 'utf8')
+    const script = readFileSync(
+      join(import.meta.dirname, '..', '..', '..', '..', 'scripts', 'package-mac.mjs'),
+      'utf8',
+    )
     assert.ok(
       script.includes(`const BUNDLED_PACKAGES_DIR_NAME = '${BUNDLED_PACKAGES_DIR_NAME}'`),
       `scripts/package-mac.mjs does not declare BUNDLED_PACKAGES_DIR_NAME = '${BUNDLED_PACKAGES_DIR_NAME}'`,

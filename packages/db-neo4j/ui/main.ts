@@ -496,9 +496,7 @@ function rebuild(message: PackageDataMessage): boolean {
     // different pairs could collide on — and colliding pairs would share a bundle
     // and bow their edges apart from each other for no reason.
     const key =
-      edge.source < edge.target
-        ? `${edge.source}\u0000${edge.target}`
-        : `${edge.target}\u0000${edge.source}`
+      edge.source < edge.target ? `${edge.source}\u0000${edge.target}` : `${edge.target}\u0000${edge.source}`
     const rank = bundles.get(key) ?? 0
     edge.rank = rank
     bundles.set(key, rank + 1)
@@ -983,8 +981,7 @@ function draw(): void {
     // the layout's rules, and it has to stay visible afterwards or the "Release
     // pinned" button has no referent anywhere on screen.
     ctx.lineWidth = node.pinned ? 2.5 : 1.5
-    ctx.strokeStyle =
-      node.id === hotId ? palette.edgeHot : node.pinned ? palette.label : palette.nodeStroke
+    ctx.strokeStyle = node.id === hotId ? palette.edgeHot : node.pinned ? palette.label : palette.nodeStroke
     ctx.stroke()
 
     if (!withLabels) continue
@@ -1278,8 +1275,7 @@ function showTip(node: GraphNode, x: number, y: number): void {
 
   const hint = document.createElement('div')
   hint.className = 'tip-hint'
-  hint.textContent =
-    node.id === view.focus ? 'focused · drag to pin' : 'double-click to focus · drag to pin'
+  hint.textContent = node.id === view.focus ? 'focused · drag to pin' : 'double-click to focus · drag to pin'
   tip.append(hint)
 
   tip.hidden = false
@@ -1410,9 +1406,9 @@ function renderStatus(): void {
   truncatedBanner.hidden = !truncated
   if (truncated) {
     truncatedBanner.textContent =
-      `Partial graph — built from the first ${numbers.format(shownRows)} of `
-      + `${numbers.format(rowCount)} rows. Relationships past that point are missing, so a node shown here `
-      + `without edges may well have them. Narrow the label or lower the node limit to see all of it.`
+      `Partial graph — built from the first ${numbers.format(shownRows)} of ` +
+      `${numbers.format(rowCount)} rows. Relationships past that point are missing, so a node shown here ` +
+      `without edges may well have them. Narrow the label or lower the node limit to see all of it.`
   }
 
   let title = ''
@@ -1539,8 +1535,7 @@ function applyHostMessage(message: PackageViewHostMessage): void {
       truncated = message.truncated
       rowCount = message.rowCount
       shownRows = message.rows.length
-      queryError =
-        message.error ?? (message.status === 'error' ? 'The query failed with no message.' : null)
+      queryError = message.error ?? (message.status === 'error' ? 'The query failed with no message.' : null)
       const changed = rebuild(message)
       renderChrome()
       renderStatus()
@@ -1596,4 +1591,3 @@ window.addEventListener('message', onWindowMessage)
 resize()
 renderChrome()
 renderStatus()
-

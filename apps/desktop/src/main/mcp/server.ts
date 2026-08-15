@@ -222,7 +222,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
    * rounds of fixes aimed one layer lower; `smoke-drivers.mjs` is what found it,
    * and is still the only thing guarding this line (§4vicies(c)).
    */
-  const collectOptions = options.callPackageTool === undefined ? {} : { callPackageTool: options.callPackageTool }
+  const collectOptions =
+    options.callPackageTool === undefined ? {} : { callPackageTool: options.callPackageTool }
   let tools = options.tools ?? collectTools(collectOptions)
   const rebuildTools = (): void => {
     if (options.tools === undefined) tools = collectTools(collectOptions)
@@ -279,7 +280,10 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
         if (oldest === null || entry.lastSeenAt < oldest.lastSeenAt) oldest = entry
       }
       if (!oldest) break
-      logger.log('warn', `MCP session limit ${MAX_SESSIONS} reached, evicting least recently active ${oldest.id}`)
+      logger.log(
+        'warn',
+        `MCP session limit ${MAX_SESSIONS} reached, evicting least recently active ${oldest.id}`,
+      )
       await closeSession(oldest.id)
     }
   }
@@ -340,7 +344,12 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
 
   /* ---------------- HTTP layer ---------------- */
 
-  function sendJson(res: ServerResponse, status: number, body: unknown, headers?: Record<string, string>): void {
+  function sendJson(
+    res: ServerResponse,
+    status: number,
+    body: unknown,
+    headers?: Record<string, string>,
+  ): void {
     const text = JSON.stringify(body)
     res.writeHead(status, {
       'content-type': 'application/json',
@@ -350,7 +359,13 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
     res.end(text)
   }
 
-  function sendRpcError(res: ServerResponse, status: number, code: number, message: string, headers?: Record<string, string>): void {
+  function sendRpcError(
+    res: ServerResponse,
+    status: number,
+    code: number,
+    message: string,
+    headers?: Record<string, string>,
+  ): void {
     sendJson(res, status, { jsonrpc: '2.0', error: { code, message }, id: null }, headers)
   }
 
@@ -393,9 +408,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
     return resolveCommandSource(req.headers.authorization, { token, agentToken, externalSource })
   }
 
-  type BodyRead =
-    | { ok: true; value: unknown }
-    | { ok: false; status: number; code: number; message: string }
+  type BodyRead = { ok: true; value: unknown } | { ok: false; status: number; code: number; message: string }
 
   function readJsonBody(req: IncomingMessage): Promise<BodyRead> {
     return new Promise<BodyRead>((resolve) => {
@@ -429,7 +442,12 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
         }
       })
       req.on('error', (err) => {
-        finish({ ok: false, status: 400, code: -32600, message: `Failed to read request body: ${err.message}` })
+        finish({
+          ok: false,
+          status: 400,
+          code: -32600,
+          message: `Failed to read request body: ${err.message}`,
+        })
       })
     })
   }
@@ -460,9 +478,15 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
 
     const source = identify(req)
     if (source === null) {
-      sendRpcError(res, 401, -32000, 'Unauthorized: Authorization: Bearer <token> is required (see ~/.peek/mcp.json)', {
-        'www-authenticate': 'Bearer realm="peek"',
-      })
+      sendRpcError(
+        res,
+        401,
+        -32000,
+        'Unauthorized: Authorization: Bearer <token> is required (see ~/.peek/mcp.json)',
+        {
+          'www-authenticate': 'Bearer realm="peek"',
+        },
+      )
       return
     }
 
@@ -488,7 +512,12 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServerHandl
       } else if (isInitializeRequest(body.value)) {
         transport = await createSession(source)
       } else {
-        sendRpcError(res, 400, -32000, 'Bad Request: missing mcp-session-id, and this is not an initialize request')
+        sendRpcError(
+          res,
+          400,
+          -32000,
+          'Bad Request: missing mcp-session-id, and this is not an initialize request',
+        )
         return
       }
       await transport.handleRequest(req, res, body.value)

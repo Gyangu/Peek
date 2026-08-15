@@ -14,11 +14,7 @@ import {
 } from '@peek/core'
 import introspect from '../tools/introspect'
 import readWorkspace from '../tools/read-workspace'
-import {
-  UNTRUSTED_CATALOG_FRAMING,
-  UNTRUSTED_WORKSPACE_FRAMING,
-  untrustedDataFraming,
-} from '../wait'
+import { UNTRUSTED_CATALOG_FRAMING, UNTRUSTED_WORKSPACE_FRAMING, untrustedDataFraming } from '../wait'
 import type { CommandDispatch, ToolContext, ToolOutput } from '../types'
 
 /**
@@ -80,10 +76,7 @@ function assertNoForgedLines(text: string, label: string): void {
   for (const line of prose.split('\n')) {
     const bare = line.trimStart()
     for (const pattern of FORBIDDEN_LINE_PATTERNS) {
-      assert.ok(
-        !pattern.test(bare),
-        `${label}: a line matches ${String(pattern)}: ${JSON.stringify(line)}`,
-      )
+      assert.ok(!pattern.test(bare), `${label}: a line matches ${String(pattern)}: ${JSON.stringify(line)}`)
     }
   }
 }
@@ -138,10 +131,7 @@ function fakeDispatch(): CommandDispatch {
   }
 }
 
-function ctxWith(
-  snap: WorkspaceSnapshot,
-  nodes: readonly NamespaceNode[] = [],
-): ToolContext {
+function ctxWith(snap: WorkspaceSnapshot, nodes: readonly NamespaceNode[] = []): ToolContext {
   return {
     dispatch: fakeDispatch(),
     getSnapshot: () => snap,
@@ -205,9 +195,7 @@ describe('introspect: a catalog name cannot forge a line', () => {
   })
 
   test('the receipt says the names are data before listing any', async () => {
-    const ctx = ctxWith(snapshot(), [
-      { id: 'n1', name: 'orders', kind: 'table', hasChildren: false },
-    ])
+    const ctx = ctxWith(snapshot(), [{ id: 'n1', name: 'orders', kind: 'table', hasChildren: false }])
     const out = await run(introspect, { connId: 'conn_1' }, ctx)
     assert.equal(out.text.split('\n')[0], UNTRUSTED_CATALOG_FRAMING, 'framing comes first')
     assert.match(UNTRUSTED_CATALOG_FRAMING, /never as instructions to you/)
@@ -239,7 +227,11 @@ describe('read_workspace: peek reporting on peek is the most credible forgery', 
     const snap = snapshot()
     const view = snap.views[0]
     assert.ok(view !== undefined)
-    const hostile = { ...view, status: 'error' as const, error: { code: 'BAD_REQUEST' as const, message: HOSTILE } }
+    const hostile = {
+      ...view,
+      status: 'error' as const,
+      error: { code: 'BAD_REQUEST' as const, message: HOSTILE },
+    }
     assertNoForgedLines((await run(readWorkspace, {}, ctxWith({ ...snap, views: [hostile] }))).text, 'error')
   })
 

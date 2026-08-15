@@ -278,9 +278,11 @@ export function createWorkspacePersister(options: WorkspacePersisterOptions): Wo
   const delayMs = options.delayMs ?? WORKSPACE_SAVE_DELAY_MS
   const now = options.now ?? ((): Date => new Date())
   const setTimer = options.setTimer ?? ((fn, ms) => setTimeout(fn, ms))
-  const clearTimer = options.clearTimer ?? ((handle): void => {
-    clearTimeout(handle)
-  })
+  const clearTimer =
+    options.clearTimer ??
+    ((handle): void => {
+      clearTimeout(handle)
+    })
   const onError = options.onError ?? ((): void => {})
 
   /**

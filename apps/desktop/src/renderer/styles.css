@@ -627,8 +627,8 @@
    */
   --leading-mark: 12px;
 
-  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI',
-    'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-mono: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
 
   /*
@@ -773,7 +773,6 @@
    * --leading-row，实测两列文字中心完全重合（§31.3 的修正段）。
    */
   --leading-row: var(--spacing-row);
-
 
   /*
    * The focused panel's two marks, minted so that `.layout-root .panel.focused`
@@ -2206,7 +2205,7 @@ body.view-dragging.view-drag-nodrop * {
    it stays because it has no `--shadow-*` token and is not worth minting one for:
    the theme's five shadows each name a *kind of surface that floats*, and this is
    a 2px line. The rule has to exist for the other two anyway. */
- /* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
 /* Shared view toolbar                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -2489,4 +2488,3 @@ body.view-dragging.view-drag-nodrop * {
    visible to a grep in a way an ancestor selector is not. `SEGMENTED.group` still
    spends the shorthand on itself; when `ui/spec.ts` stops, these six can drop
    the three longhands and keep only the width. */
-

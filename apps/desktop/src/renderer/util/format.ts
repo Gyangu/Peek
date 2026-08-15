@@ -106,8 +106,7 @@ export function cellText(v: unknown): string {
  * That compensation used to be `--fs-data: 11.5px` — half a pixel over the
  * 11px chrome. It is a whole rung now (§31.6).
  */
-const CELL =
-  'grid-cell absolute top-0 h-row leading-row px-cell font-mono text-body truncate shadow-cell'
+const CELL = 'grid-cell absolute top-0 h-row leading-row px-cell font-mono text-body truncate shadow-cell'
 
 const CELL_NUM = `${CELL} text-right`
 const CELL_NULL = `${CELL} text-fg-faint italic`
@@ -208,18 +207,16 @@ export function fullValueText(v: unknown): string {
 /* ------------------------------------------------------------------ */
 
 function oneLine(s: string): string {
-  return s.includes('\n') || s.includes('\r') || s.includes('\t')
-    ? s.replace(/[\r\n\t]+/g, ' ')
-    : s
+  return s.includes('\n') || s.includes('\r') || s.includes('\t') ? s.replace(/[\r\n\t]+/g, ' ') : s
 }
 
 function isoLocal(d: Date): string {
   if (Number.isNaN(d.getTime())) return 'Invalid Date'
   const p = (n: number, w = 2): string => String(n).padStart(w, '0')
   return (
-    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
-    + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
-    + (d.getMilliseconds() ? `.${p(d.getMilliseconds(), 3)}` : '')
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+    `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}` +
+    (d.getMilliseconds() ? `.${p(d.getMilliseconds(), 3)}` : '')
   )
 }
 

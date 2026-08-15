@@ -99,8 +99,8 @@ export function createResultRowsBroker(options: ResultRowsBrokerOptions): Result
           reject(
             peekErrorMsg('TIMEOUT', 'error.result.sampleTimedOut', undefined, {
               detail:
-                'The window may not have attached the sampling channel yet, or the result '
-                + 'set may have been evicted from its cache.',
+                'The window may not have attached the sampling channel yet, or the result ' +
+                'set may have been evicted from its cache.',
               retryable: true,
             }),
           )

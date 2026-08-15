@@ -57,12 +57,7 @@ export {
   type ResolvedAttachment,
 } from './resolve'
 
-export {
-  buildPromptBlocks,
-  toContentBlock,
-  type BlockOptions,
-  type PeekContentBlock,
-} from './blocks'
+export { buildPromptBlocks, toContentBlock, type BlockOptions, type PeekContentBlock } from './blocks'
 
 export {
   DEFAULT_PAGE_CHARS,
@@ -73,17 +68,6 @@ export {
   type StoredAttachment,
 } from './store'
 
-export {
-  PEEK_URI_SCHEME,
-  queryUri,
-  resultCellUri,
-  resultRowsUri,
-  schemaUri,
-  workspaceUri,
-} from './uri'
+export { PEEK_URI_SCHEME, queryUri, resultCellUri, resultRowsUri, schemaUri, workspaceUri } from './uri'
 
-export type {
-  ContextSource,
-  ReadResultRowsRequest,
-  TabularSlice,
-} from './types'
+export type { ContextSource, ReadResultRowsRequest, TabularSlice } from './types'

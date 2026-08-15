@@ -13,12 +13,7 @@
  * surfaces sharing one bus.
  */
 
-import type {
-  LogLevel,
-  LogNamespace,
-  LogReadCommandsResult,
-  LogReadResult,
-} from '@peek/core'
+import type { LogLevel, LogNamespace, LogReadCommandsResult, LogReadResult } from '@peek/core'
 import { LOG_NAMESPACES } from '@peek/core'
 import type { CommandLog } from '../command-log'
 import type { CommandHandlerMap } from '../types'
@@ -62,7 +57,8 @@ export function createLogHandlers(options: LogHandlerOptions): CommandHandlerMap
         // means fifty agent commands rather than however many of the last fifty
         // commands happened to be the agent's.
         const all = commandLog.entries()
-        const filtered = input.source === undefined ? all : all.filter((entry) => entry.source === input.source)
+        const filtered =
+          input.source === undefined ? all : all.filter((entry) => entry.source === input.source)
         const limit = input.limit ?? 200
         return {
           entries: filtered.slice(Math.max(0, filtered.length - limit)),

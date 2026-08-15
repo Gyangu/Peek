@@ -295,7 +295,12 @@ export class TranscriptTranslator {
         // to have asked, which is what this branch used to do and what the
         // real-agent check caught.
         if (!this.#replaying) return { deltas: [], state: {}, ignored: 'user_message_chunk' }
-        return this.#appendChunk('text.append', contentBlockText(update.content), update.messageId ?? null, 'user')
+        return this.#appendChunk(
+          'text.append',
+          contentBlockText(update.content),
+          update.messageId ?? null,
+          'user',
+        )
       case 'tool_call':
         return this.#toolCall(update)
       case 'tool_call_update':

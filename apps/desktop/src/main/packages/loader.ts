@@ -190,10 +190,7 @@ export function loadPackages(packagesRoot: string): PackageLoadReport {
  * over an id is how a package is upgraded or repaired — measured against its own
  * previous copy, every driver it ships would read as taken.
  */
-export function inspectPackageDir(
-  dir: string,
-  alongside: readonly LoadedPackage[],
-): PackageInspection {
+export function inspectPackageDir(dir: string, alongside: readonly LoadedPackage[]): PackageInspection {
   const resolved = resolve(dir)
   const source = readManifestFile(join(resolved, PACKAGE_MANIFEST_FILE))
   if (!source.ok) return { ok: false, id: basename(resolved), issues: [source.issue] }
@@ -278,15 +275,15 @@ function readPackage(name: string, dir: string, accepted: readonly LoadedPackage
   }
 
   for (const driverEntry of manifest.drivers) {
-    const owner = accepted.find((pkg) => pkg.manifest.drivers.some((d) => d.driverId === driverEntry.driverId))
+    const owner = accepted.find((pkg) =>
+      pkg.manifest.drivers.some((d) => d.driverId === driverEntry.driverId),
+    )
     if (owner === undefined) continue
     // Two packages offering one driverId is not a merge: a connection stores the
     // id and nothing else, so which package opens it would come down to which
     // registry answered. The one already accepted keeps it, and the second is
     // refused whole rather than half-registered.
-    issues.push(
-      `drivers: '${driverEntry.driverId}' is already provided by the package '${owner.id}'`,
-    )
+    issues.push(`drivers: '${driverEntry.driverId}' is already provided by the package '${owner.id}'`)
   }
 
   for (const tool of manifest.tools) {
@@ -418,7 +415,10 @@ function readManifestFile(path: string): ManifestSource {
   } catch (error) {
     // The parser's own message, which names the offset — the one detail that
     // makes a syntax error in a hand-edited file findable.
-    return { ok: false, issue: `${PACKAGE_MANIFEST_FILE}: ${error instanceof Error ? error.message : 'not valid JSON'}` }
+    return {
+      ok: false,
+      issue: `${PACKAGE_MANIFEST_FILE}: ${error instanceof Error ? error.message : 'not valid JSON'}`,
+    }
   }
 }
 

@@ -98,7 +98,13 @@ describe('planRowFit', () => {
   })
 
   it('carries an unknown total through as null rather than inventing one', () => {
-    const plan = planRowFit({ available: 500, total: null, sourceTruncated: false, render: (n) => 'x'.repeat(n), budget })
+    const plan = planRowFit({
+      available: 500,
+      total: null,
+      sourceTruncated: false,
+      render: (n) => 'x'.repeat(n),
+      budget,
+    })
     assert.equal(plan.notice?.total, null)
   })
 

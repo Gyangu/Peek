@@ -198,7 +198,7 @@
       elementCount: all().length,
       buttonCount: buttons.length,
       shapedButtonCount: shaped.length,
-      firstButton: buttons.length === 0 ? null : shaped[0] ?? null,
+      firstButton: buttons.length === 0 ? null : (shaped[0] ?? null),
     }
   }
 
@@ -928,8 +928,7 @@
     const el = stateSubjectEls.hover[index]
     if (el === undefined) return { ok: false, why: 'no hover subject at index ' + String(index) }
     let r = el.getBoundingClientRect()
-    const outside =
-      r.top < 0 || r.left < 0 || r.bottom > window.innerHeight || r.right > window.innerWidth
+    const outside = r.top < 0 || r.left < 0 || r.bottom > window.innerHeight || r.right > window.innerWidth
     if (outside) {
       el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' })
       r = el.getBoundingClientRect()
@@ -960,10 +959,7 @@
     const el = stateSubjectEls[state]?.[index]
     if (el === undefined) return { ok: false, why: 'no ' + state + ' subject at index ' + String(index) }
     const r = el.getBoundingClientRect()
-    const at = document.elementFromPoint(
-      Math.round(r.left + r.width / 2),
-      Math.round(r.top + r.height / 2),
-    )
+    const at = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2))
     const walked = pairsOver([el, ...el.querySelectorAll('*')])
     return {
       ok: true,
@@ -1383,7 +1379,8 @@
     let node = el.parentElement
     while (node !== null) {
       const c = canon(getComputedStyle(node).backgroundColor)
-      if (c !== null && c[3] !== 0) return { where: describe(node), value: getComputedStyle(node).backgroundColor }
+      if (c !== null && c[3] !== 0)
+        return { where: describe(node), value: getComputedStyle(node).backgroundColor }
       node = node.parentElement
     }
     return { where: 'body', value: getComputedStyle(document.body).backgroundColor }
@@ -1463,7 +1460,12 @@
       const cs = getComputedStyle(node)
       if (cs.overflow !== 'visible' || cs.overflowY !== 'visible' || cs.overflowX !== 'visible') {
         const pr = node.getBoundingClientRect()
-        if (r.top < pr.top - 0.5 || r.bottom > pr.bottom + 0.5 || r.left < pr.left - 0.5 || r.right > pr.right + 0.5) {
+        if (
+          r.top < pr.top - 0.5 ||
+          r.bottom > pr.bottom + 0.5 ||
+          r.left < pr.left - 0.5 ||
+          r.right > pr.right + 0.5
+        ) {
           clippedBy = { where: describe(node), rect: rectOf(node) }
         }
       }
@@ -1477,7 +1479,10 @@
       rect: rectOf(el),
       viewport: { width: window.innerWidth, height: window.innerHeight },
       inViewport:
-        r.top >= -0.5 && r.left >= -0.5 && r.bottom <= window.innerHeight + 0.5 && r.right <= window.innerWidth + 0.5,
+        r.top >= -0.5 &&
+        r.left >= -0.5 &&
+        r.bottom <= window.innerHeight + 0.5 &&
+        r.right <= window.innerWidth + 0.5,
       hit: at === null ? null : describe(at),
       hitIsSelf: at !== null && (at === el || el.contains(at)),
       clippedBy,

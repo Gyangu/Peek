@@ -116,9 +116,10 @@ export interface ScanSql {
  */
 export function buildScanSql(dialect: SqlDialect, input: ScanSqlInput): ScanSql {
   const p = new ParamList(dialect)
-  const cols = input.columns && input.columns.length > 0
-    ? input.columns.map((c) => dialect.quoteIdent(c)).join(', ')
-    : '*'
+  const cols =
+    input.columns && input.columns.length > 0
+      ? input.columns.map((c) => dialect.quoteIdent(c)).join(', ')
+      : '*'
   const where = renderWhere(dialect, input.filter, p.list)
   const order = dialect.renderOrderBy(input.sort)
 
@@ -158,12 +159,7 @@ export function buildScanSql(dialect: SqlDialect, input: ScanSqlInput): ScanSql 
  * column name are both known, so the slice happens server-side through
  * `SqlDialect.byteSliceExpr`, which is what a genuinely large blob needs.
  */
-export function wrapResultRow(
-  dialect: SqlDialect,
-  text: string,
-  offset: number,
-  params: unknown[],
-): string {
+export function wrapResultRow(dialect: SqlDialect, text: string, offset: number, params: unknown[]): string {
   const tail = dialect.renderLimitOffset(1, Math.max(0, Math.trunc(offset)), params)
   return `SELECT * FROM (${text}) AS _peek_src${tail}`
 }

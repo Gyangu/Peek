@@ -12,7 +12,12 @@ import {
   type ViewOpenSpec,
 } from '@peek/core'
 import { CommandBus } from '../../bus/command-bus'
-import { coreHandlers, createViewHandlers, type PackageViewSource, type ViewHandlerMap } from '../../bus/handlers'
+import {
+  coreHandlers,
+  createViewHandlers,
+  type PackageViewSource,
+  type ViewHandlerMap,
+} from '../../bus/handlers'
 import { createSeqIdFactory } from '../../bus/ids'
 import { WorkspaceStore } from '../../store/workspace-store'
 import type { CommandDeps } from '../../bus/deps'

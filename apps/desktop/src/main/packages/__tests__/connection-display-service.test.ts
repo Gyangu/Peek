@@ -72,7 +72,11 @@ function serviceAnswering(answer: unknown): ReturnType<typeof createConnectionDi
 }
 
 /** What a well-behaved `postgres` package answers. */
-const GOOD = { label: 'orders', detail: 'postgres://app@localhost:5432/orders', endpoint: 'localhost:5432/orders' }
+const GOOD = {
+  label: 'orders',
+  detail: 'postgres://app@localhost:5432/orders',
+  endpoint: 'localhost:5432/orders',
+}
 
 const pg = (over: Partial<ConnectionConfig> = {}): ConnectionConfig => ({
   driverId: 'postgres',
@@ -107,7 +111,7 @@ describe('a name the user typed', () => {
     const display = serviceAnswering(GOOD)
     const named = await display.describe({ config: pg({ label: 'staging' }) })
 
-    assert.equal(named.label, 'staging', "the package renamed a connection its owner had named")
+    assert.equal(named.label, 'staging', 'the package renamed a connection its owner had named')
     // Only `label` is the kernel's. The other two are the package's answer
     // verbatim, which is what makes this a rule and not a veto.
     assert.equal(named.detail, GOOD.detail)

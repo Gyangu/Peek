@@ -272,15 +272,17 @@ export const ChatAttachmentSpecSchema = z.discriminatedUnion('kind', [
     column: z.string().min(1),
     label: z.string().min(1).max(120).optional(),
   }),
-  z.object({
-    kind: z.literal('cells'),
-    viewId: ViewIdSchema,
-    resultId: ResultIdSchema,
-    r0: z.number().int().nonnegative(),
-    r1: z.number().int().nonnegative(),
-    columns: z.array(z.string().min(1)).min(1),
-    label: z.string().min(1).max(120).optional(),
-  }).refine((v) => v.r1 >= v.r0, { message: 'r1 must not be less than r0' })
+  z
+    .object({
+      kind: z.literal('cells'),
+      viewId: ViewIdSchema,
+      resultId: ResultIdSchema,
+      r0: z.number().int().nonnegative(),
+      r1: z.number().int().nonnegative(),
+      columns: z.array(z.string().min(1)).min(1),
+      label: z.string().min(1).max(120).optional(),
+    })
+    .refine((v) => v.r1 >= v.r0, { message: 'r1 must not be less than r0' })
     .refine((v) => v.r1 - v.r0 + 1 <= MAX_CHAT_ATTACHMENT_ROWS, {
       message: `A cell rectangle may span at most ${MAX_CHAT_ATTACHMENT_ROWS} rows`,
     }),
@@ -413,15 +415,7 @@ export const MAX_AUTO_REFRESH_MS = 3_600_000
 
 /** What the interval menu offers: 1s 5s 10s 30s 1m 5m 10m 30m 1h. */
 export const AUTO_REFRESH_PRESETS_MS = [
-  1_000,
-  5_000,
-  10_000,
-  30_000,
-  60_000,
-  300_000,
-  600_000,
-  1_800_000,
-  3_600_000,
+  1_000, 5_000, 10_000, 30_000, 60_000, 300_000, 600_000, 1_800_000, 3_600_000,
 ] as const
 
 /**
@@ -436,13 +430,7 @@ export const AUTO_REFRESH_PRESETS_MS = [
  * `setAutoRefreshOn` in main ignores those kinds rather than trusting the schema
  * to have made them impossible.
  */
-const autoRefreshMs = z
-  .number()
-  .int()
-  .min(MIN_AUTO_REFRESH_MS)
-  .max(MAX_AUTO_REFRESH_MS)
-  .nullable()
-  .optional()
+const autoRefreshMs = z.number().int().min(MIN_AUTO_REFRESH_MS).max(MAX_AUTO_REFRESH_MS).nullable().optional()
 
 /**
  * Incremental patch for view.update. `kind` is mandatory: main checks it against
@@ -542,9 +530,7 @@ export type ViewPatch = z.infer<typeof ViewPatchSchema>
  * rule that must not have two implementations.
  */
 export function refreshPatch(ref: CollectionRef): ViewPatch {
-  return collectionBrowseStyle(ref).offsetPaging
-    ? { kind: 'table' }
-    : { kind: 'table', offset: 0 }
+  return collectionBrowseStyle(ref).offsetPaging ? { kind: 'table' } : { kind: 'table', offset: 0 }
 }
 
 /* ================================================================== */
@@ -663,10 +649,9 @@ export const QueryRunInputSchema = z
     panelId: PanelIdSchema.optional(),
   })
   // Zod issue messages surface in PeekError.detail, which is never translated.
-  .refine(
-    (v) => v.viewId !== undefined || (v.connId !== undefined && v.text !== undefined),
-    { message: 'Provide either viewId, or connId together with text' },
-  )
+  .refine((v) => v.viewId !== undefined || (v.connId !== undefined && v.text !== undefined), {
+    message: 'Provide either viewId, or connId together with text',
+  })
 
 export const QueryCancelInputSchema = z
   .object({
@@ -1898,8 +1883,7 @@ export const AppNotifyInputSchema = z.object({
  * (`ipc.ts` imports this file) is erased before it can exist at runtime.
  */
 type _AssertNotifyLevel = z.infer<typeof AppNotifyInputSchema>['level'] extends
-  | import('./ipc').NotifyLevel
-  | undefined
+  import('./ipc').NotifyLevel | undefined
   ? true
   : never
 const _assertNotifyLevel: _AssertNotifyLevel = true
@@ -2809,8 +2793,7 @@ export function commandErr(commandId: string, error: PeekError): CommandErr {
 /* ================================================================== */
 
 export type ParsedCommand<K extends CommandName> =
-  | { ok: true; input: CommandInput<K> }
-  | { ok: false; error: PeekError }
+  { ok: true; input: CommandInput<K> } | { ok: false; error: PeekError }
 
 /**
  * Validate one command's input. The UI and the MCP tools **both** have to clear
@@ -2826,9 +2809,14 @@ export function parseCommandInput<K extends CommandName>(name: K, raw: unknown):
   return {
     ok: false,
     // The summary is localizable; the zod issue list in `detail` never is.
-    error: peekErrorMsg('BAD_REQUEST', 'error.command.badInput', { name }, {
-      detail: zodIssueLines(result.error).join('\n'),
-    }),
+    error: peekErrorMsg(
+      'BAD_REQUEST',
+      'error.command.badInput',
+      { name },
+      {
+        detail: zodIssueLines(result.error).join('\n'),
+      },
+    ),
   }
 }
 

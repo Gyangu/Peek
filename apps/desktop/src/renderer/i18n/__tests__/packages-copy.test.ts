@@ -58,11 +58,7 @@ const ALL: readonly Locale[] = LOCALES.map((l) => l.id)
  * anything is a key that quietly left the scan, which is what the last test in
  * this file refuses to let happen silently.
  */
-const PACKAGE_KEY_PREFIXES = [
-  'settings.packages.',
-  'connect.noPackages',
-  'connect.driverGone',
-] as const
+const PACKAGE_KEY_PREFIXES = ['settings.packages.', 'connect.noPackages', 'connect.driverGone'] as const
 
 /** Every message under one of those prefixes, one locale at a time. */
 function packageCopy(locale: Locale): { key: string; text: string }[] {
@@ -115,7 +111,8 @@ describe('package copy never claims a package was checked', () => {
       for (const { key, text } of packageCopy(locale)) {
         const lowered = text.toLowerCase()
         for (const word of BANNED) {
-          if (lowered.includes(word)) offenders.push(`${locale} / ${key}: “${word}” in ${JSON.stringify(text)}`)
+          if (lowered.includes(word))
+            offenders.push(`${locale} / ${key}: “${word}” in ${JSON.stringify(text)}`)
         }
       }
     }

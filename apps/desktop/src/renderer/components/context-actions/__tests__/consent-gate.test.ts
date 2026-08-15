@@ -49,11 +49,11 @@ function handlerBodies(): ts.Node[] {
   const out: ts.Node[] = []
   const walk = (node: ts.Node): void => {
     if (
-      ts.isJsxAttribute(node)
-      && node.name.getText(sf) === 'onClose'
-      && node.initializer !== undefined
-      && ts.isJsxExpression(node.initializer)
-      && node.initializer.expression !== undefined
+      ts.isJsxAttribute(node) &&
+      node.name.getText(sf) === 'onClose' &&
+      node.initializer !== undefined &&
+      ts.isJsxExpression(node.initializer) &&
+      node.initializer.expression !== undefined
     ) {
       out.push(node.initializer.expression)
     }
@@ -74,8 +74,11 @@ function closeCalls(root: ts.Node): { guarded: boolean }[] {
       out.push({ guarded })
       return
     }
-    const nowGuarded = guarded || ts.isIfStatement(node) || ts.isConditionalExpression(node)
-      || node.kind === ts.SyntaxKind.AmpersandAmpersandToken
+    const nowGuarded =
+      guarded ||
+      ts.isIfStatement(node) ||
+      ts.isConditionalExpression(node) ||
+      node.kind === ts.SyntaxKind.AmpersandAmpersandToken
     ts.forEachChild(node, (child) => {
       walk(child, nowGuarded)
     })
@@ -89,8 +92,8 @@ describe('the right-click menu must not close over its own consent dialog', () =
     assert.match(
       SRC,
       /import \{ hasContextConsent \} from '\.\/consent'/,
-      'the menu has to consult the gate itself; `add()` returns a promise, and by the time it '
-      + 'settles the decision to unmount has already been taken',
+      'the menu has to consult the gate itself; `add()` returns a promise, and by the time it ' +
+        'settles the decision to unmount has already been taken',
     )
   })
 
@@ -103,8 +106,8 @@ describe('the right-click menu must not close over its own consent dialog', () =
     assert.deepEqual(
       closeCalls(staging[0]!),
       [],
-      'the staging handler must not close anything: `<Menu>` closes after every choice on its own, '
-      + 'so a close here would be the second one and there is nothing left to guard it',
+      'the staging handler must not close anything: `<Menu>` closes after every choice on its own, ' +
+        'so a close here would be the second one and there is nothing left to guard it',
     )
   })
 
@@ -120,8 +123,8 @@ describe('the right-click menu must not close over its own consent dialog', () =
     assert.ok(calls.length > 0, 'the menu still has to close on the ordinary path')
     assert.ok(
       calls.every((c) => c.guarded),
-      'an unconditional onClose() here is the original incident: the right-click path silently did '
-      + 'nothing at all on first use, with no error and no console output',
+      'an unconditional onClose() here is the original incident: the right-click path silently did ' +
+        'nothing at all on first use, with no error and no console output',
     )
   })
 

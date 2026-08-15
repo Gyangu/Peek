@@ -154,8 +154,14 @@ describe('recordChord', () => {
   })
 
   it('records a digit or an arrow as its family, because that is the unit bound', () => {
-    assert.equal(chordText(recordChord(chord({ key: '3', code: 'Digit3', meta: true, alt: true })) as never), 'Mod+Alt+<digit>')
-    assert.equal(chordText(recordChord(chord({ key: 'ArrowLeft', meta: true, shift: true })) as never), 'Mod+Shift+<arrow>')
+    assert.equal(
+      chordText(recordChord(chord({ key: '3', code: 'Digit3', meta: true, alt: true })) as never),
+      'Mod+Alt+<digit>',
+    )
+    assert.equal(
+      chordText(recordChord(chord({ key: 'ArrowLeft', meta: true, shift: true })) as never),
+      'Mod+Shift+<arrow>',
+    )
   })
 
   it('records Ctrl as Mod, so a binding made on a PC works on a Mac', () => {

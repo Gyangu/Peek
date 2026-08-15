@@ -68,7 +68,7 @@ describe('finding the selected option', () => {
   test('numbers compare as numbers', () => {
     const steps = [{ value: 0.8 }, { value: 1 }, { value: 1.25 }]
     assert.equal(indexOfValue(steps, 1.25), 2)
-    assert.equal(indexOfValue(steps, 1.2500000000001), -1, 'exactness is the caller\'s problem to round away')
+    assert.equal(indexOfValue(steps, 1.2500000000001), -1, "exactness is the caller's problem to round away")
   })
 
   test('NaN finds itself, so a broken value never silently means "nothing selected"', () => {
@@ -170,9 +170,7 @@ describe('the classes cover the states the old rules did not', () => {
         ['off', SEGMENTED.off],
         ['on', SEGMENTED.on],
       ] as const) {
-        const rest = spec
-          .split(/\s+/)
-          .filter((name) => !name.includes(':') && name.startsWith(family))
+        const rest = spec.split(/\s+/).filter((name) => !name.includes(':') && name.startsWith(family))
         assert.equal(
           rest.length,
           1,
@@ -185,7 +183,7 @@ describe('the classes cover the states the old rules did not', () => {
       SEGMENTED.item,
       /(^|\s)(bg-|border-[a-z])/,
       'SEGMENTED.item must not paint: whatever it set would collide with `on` or `off`, and the ' +
-        'collision resolves in Tailwind\'s emission order rather than the author\'s.',
+        "collision resolves in Tailwind's emission order rather than the author's.",
     )
   })
 

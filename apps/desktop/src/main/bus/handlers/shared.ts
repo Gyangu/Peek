@@ -491,7 +491,12 @@ function buildViewState(spec: ViewOpenSpec, ctx: ReduceCtx): ViewState {
       ...(spec.resumeSessionId === undefined ? {} : { resumeSessionId: spec.resumeSessionId }),
     })
   }
-  const base = { id, connId: spec.connId, status: 'idle' as const, ...(spec.title ? { title: spec.title } : {}) }
+  const base = {
+    id,
+    connId: spec.connId,
+    status: 'idle' as const,
+    ...(spec.title ? { title: spec.title } : {}),
+  }
   switch (spec.kind) {
     case 'table':
       return {
@@ -605,8 +610,8 @@ export function autoFetch(
     case 'vector':
       // Either query entry point will do; with neither the driver would reject
       // the search, so the view simply stays idle until one is filled in.
-      return (view.queryVec !== undefined || view.queryPointId !== undefined)
-        && canFetch(draft, view.connId, 'vectorSearch')
+      return (view.queryVec !== undefined || view.queryPointId !== undefined) &&
+        canFetch(draft, view.connId, 'vectorSearch')
         ? startVectorSearch(draft, view, ctx)
         : undefined
     case 'query':

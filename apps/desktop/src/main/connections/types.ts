@@ -131,11 +131,7 @@ export interface ConnectionEffects {
   getValue(connId: ConnId, ref: ValueRef, window?: KeyValueWindow): Promise<KeyValueResult>
 
   /** Fetch a large value in full, on demand */
-  peekValue(
-    connId: ConnId,
-    ref: ValueRef,
-    range?: { offset?: number; length?: number },
-  ): Promise<PeekedValue>
+  peekValue(connId: ConnId, ref: ValueRef, range?: { offset?: number; length?: number }): Promise<PeekedValue>
 
   /**
    * Cancel a result set.

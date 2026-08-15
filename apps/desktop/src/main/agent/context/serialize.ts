@@ -44,12 +44,7 @@
  */
 
 import type { ColumnDef, CollectionSchemaInfo } from '@peek/core'
-import {
-  collectionRefLabel,
-  escapeLineBreaks,
-  isTruncatedValue,
-  metaText as coreMetaText,
-} from '@peek/core'
+import { collectionRefLabel, escapeLineBreaks, isTruncatedValue, metaText as coreMetaText } from '@peek/core'
 import { clampValue, describeTruncation, type ContextBudget, type TruncationNotice } from './budget'
 
 /** SQL NULL in a CSV field. PostgreSQL `COPY`'s default, and stated in every header. */
@@ -361,8 +356,7 @@ function fenceFor(payload: string): string {
 }
 
 /** The one line that tells the model how to read the CSV. Emitted with every tabular body. */
-export const CSV_CONVENTION =
-  `CSV below uses RFC 4180 quoting. \`${NULL_SENTINEL}\` is SQL NULL; \`""\` is the empty string.`
+export const CSV_CONVENTION = `CSV below uses RFC 4180 quoting. \`${NULL_SENTINEL}\` is SQL NULL; \`""\` is the empty string.`
 
 /* ================================================================== */
 /* 4. Structure (schema) rendering                                     */
@@ -379,7 +373,9 @@ export const CSV_CONVENTION =
 export function renderSchema(info: CollectionSchemaInfo): string {
   const facts: string[] = []
   if (info.rowCountEstimate !== undefined) {
-    facts.push(`Estimated rows: ${info.rowCountEstimate.toLocaleString('en-US')} (an estimate, not a COUNT(*)).`)
+    facts.push(
+      `Estimated rows: ${info.rowCountEstimate.toLocaleString('en-US')} (an estimate, not a COUNT(*)).`,
+    )
   }
   if (info.primaryKey && info.primaryKey.length > 0) {
     facts.push(`Primary key: ${info.primaryKey.map((c) => metaText(c)).join(', ')}`)

@@ -500,8 +500,7 @@ function connectionFieldSchema(field: ConnectionField): z.ZodType<unknown> {
 export type UnknownConfigKeys = 'drop' | 'keep'
 
 export type ConnectionConfigOutcome =
-  | { ok: true; config: ConnectionConfig }
-  | { ok: false; issues: readonly string[] }
+  { ok: true; config: ConnectionConfig } | { ok: false; issues: readonly string[] }
 
 /**
  * Parse a value into a config for **this** driver, or say what is wrong with it.
@@ -684,10 +683,7 @@ export interface FormReaders {
   has(name: string): boolean
 }
 
-export function formReaders(
-  fields: readonly ConnectField[],
-  values: ConnectFormValues,
-): FormReaders {
+export function formReaders(fields: readonly ConnectField[], values: ConnectFormValues): FormReaders {
   const names = new Set(fields.map((f) => f.name))
   const text = (name: string): string | undefined => {
     if (!names.has(name)) return undefined

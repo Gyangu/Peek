@@ -118,7 +118,11 @@ function splitInside(split: SplitNode, opts: SplitPanelOptions): SplitPanelOutco
       const children = [...split.children]
       children.splice(at, 0, created)
       return {
-        layout: { ...split, children, ratio: ratioAfterInsert(split.ratio, i, at, children.length, opts.ratio) },
+        layout: {
+          ...split,
+          children,
+          ratio: ratioAfterInsert(split.ratio, i, at, children.length, opts.ratio),
+        },
         splitId: split.id,
         panelId: opts.newPanelId,
       }
@@ -455,10 +459,7 @@ export function splitPanelWithView(root: LayoutNode, opts: SplitWithViewOptions)
 
   const source = findPanelOfView(root, opts.viewId)
   const wouldCollapseBack =
-    source !== null &&
-    source.id === target.id &&
-    source.viewIds.length === 1 &&
-    opts.keepSourcePanel !== true
+    source !== null && source.id === target.id && source.viewIds.length === 1 && opts.keepSourcePanel !== true
   if (source && wouldCollapseBack) {
     return {
       ok: true,
@@ -580,7 +581,8 @@ export function buildLayoutFromSpec(
   // Pass 1: explicit pins, which must name a panel that exists today.
   for (const leaf of specPanels) {
     if (leaf.panelId === undefined) continue
-    if (!findPanel(current, leaf.panelId)) return { ok: false, reason: 'panelNotFound', panelId: leaf.panelId }
+    if (!findPanel(current, leaf.panelId))
+      return { ok: false, reason: 'panelNotFound', panelId: leaf.panelId }
     if (taken.has(leaf.panelId)) return { ok: false, reason: 'panelTaken', panelId: leaf.panelId }
     taken.add(leaf.panelId)
   }

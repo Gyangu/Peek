@@ -112,13 +112,15 @@ function buildTargets({ echo }) {
   if (redis) rows.push({ name: 'redis', config: { driverId: 'redis', url: redis, label: 'smoke-redis' } })
 
   const qdrant = env('PEEK_TEST_QDRANT_URL')
-  if (qdrant) rows.push({ name: 'qdrant', config: { driverId: 'qdrant', url: qdrant, label: 'smoke-qdrant' } })
+  if (qdrant)
+    rows.push({ name: 'qdrant', config: { driverId: 'qdrant', url: qdrant, label: 'smoke-qdrant' } })
 
   const mysql = env('PEEK_TEST_MYSQL_URL')
   if (mysql) rows.push({ name: 'mysql', config: { driverId: 'mysql', url: mysql, label: 'smoke-mysql' } })
 
   const sqlite = env('PEEK_TEST_SQLITE_FILE')
-  if (sqlite) rows.push({ name: 'sqlite', config: { driverId: 'sqlite', file: sqlite, label: 'smoke-sqlite' } })
+  if (sqlite)
+    rows.push({ name: 'sqlite', config: { driverId: 'sqlite', file: sqlite, label: 'smoke-sqlite' } })
 
   // Neo4j needs a password as well as a URL, and has no default for it — see the
   // note in `db-neo4j`'s live suite about failed-auth rate limiting.
@@ -214,11 +216,15 @@ function launchApp({ port, cdpPort, configDir, userDataDir }) {
   // be poked at by hand after the checks have run.
   if (!KEEP_OPEN) childEnv['PEEK_SMOKE_EXIT_MS'] = String(APP_LIFETIME_MS)
 
-  const child = spawn(electronBin, ['.', `--user-data-dir=${userDataDir}`, `--remote-debugging-port=${String(cdpPort)}`], {
-    cwd: DESKTOP_DIR,
-    env: childEnv,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const child = spawn(
+    electronBin,
+    ['.', `--user-data-dir=${userDataDir}`, `--remote-debugging-port=${String(cdpPort)}`],
+    {
+      cwd: DESKTOP_DIR,
+      env: childEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  )
 
   const logLines = []
   const capture = (stream, tag) => {
@@ -338,7 +344,8 @@ async function exerciseDriver(client, target) {
   const match = /Connection\s+(\S+)\s+is\s+(\w+)/.exec(connectText)
   if (!match) throw new Error(`could not read a connId out of the connect result:\n${connectText}`)
   const [, connId, status] = match
-  if (status !== 'ready') throw new Error(`connection ${connId} came up as "${status}", not ready:\n${connectText}`)
+  if (status !== 'ready')
+    throw new Error(`connection ${connId} came up as "${status}", not ready:\n${connectText}`)
 
   // depth 3 is the tool's maximum, and it is the minimum that reaches something
   // openable on every driver: postgres nests database → schema → table, while
@@ -418,11 +425,12 @@ async function exerciseDriver(client, target) {
     const packageLine = /Result\s+\S+:\s+(\w+)\s+·\s+(\d+)\s+rows/.exec(packageText)
     if (!packageLine) {
       throw new Error(
-        `a ${target.packageView.packageKind} view opened but never fetched — the registration's `
-          + `autoFetch is the thing to look at:\n${packageText}`,
+        `a ${target.packageView.packageKind} view opened but never fetched — the registration's ` +
+          `autoFetch is the thing to look at:\n${packageText}`,
       )
     }
-    if (packageLine[1] === 'error') throw new Error(`the ${target.packageView.packageKind} view failed:\n${packageText}`)
+    if (packageLine[1] === 'error')
+      throw new Error(`the ${target.packageView.packageKind} view failed:\n${packageText}`)
     packageRows = Number(packageLine[2])
 
     // --- and the tool that package contributed ---------------------------
@@ -464,8 +472,8 @@ async function exerciseDriver(client, target) {
       }
       if (!expandedText.includes(nodeId)) {
         throw new Error(
-          `${target.packageView.tool} succeeded but its receipt does not mention the node it was `
-            + `asked to expand, so it is not clear what it did:\n${expandedText}`,
+          `${target.packageView.tool} succeeded but its receipt does not mention the node it was ` +
+            `asked to expand, so it is not clear what it did:\n${expandedText}`,
         )
       }
       packageTool = target.packageView.tool
@@ -686,16 +694,19 @@ async function readPackagesPanel(cdp) {
  * change — the one read taken without reopening — the wait is that claim, so
  * `what` has to spell it out well enough to stand as the failure message.
  */
-async function packagesPanel(cdp, {
-  reopen = true,
-  until = (groups) => groups.length > 0,
-  what = 'the settings panel to fill in its package table',
-} = {}) {
+async function packagesPanel(
+  cdp,
+  {
+    reopen = true,
+    until = (groups) => groups.length > 0,
+    what = 'the settings panel to fill in its package table',
+  } = {},
+) {
   const deadline = Date.now() + PANEL_TIMEOUT_MS
   let groups = null
   let why = null
   for (;;) {
-    why = reopen ? (await openPackagesPanel(cdp)).error ?? null : null
+    why = reopen ? ((await openPackagesPanel(cdp)).error ?? null) : null
     if (why === null) {
       const read = await readPackagesPanel(cdp)
       if (read.malformed !== undefined) throw new Error(read.malformed)
@@ -707,8 +718,8 @@ async function packagesPanel(cdp, {
     }
     if (Date.now() >= deadline) {
       throw new Error(
-        `waited ${String(PANEL_TIMEOUT_MS)}ms for ${what}; `
-          + (why ?? `it lists [${groups.map((group) => group.ids.join('+')).join(', ')}]`),
+        `waited ${String(PANEL_TIMEOUT_MS)}ms for ${what}; ` +
+          (why ?? `it lists [${groups.map((group) => group.ids.join('+')).join(', ')}]`),
       )
     }
     await delay(100)
@@ -735,9 +746,9 @@ async function panelGroupsArePackages(cdp, groups) {
   const actual = groups.map((group) => group.ids.join('+'))
   if (expected.join(' | ') !== actual.join(' | ')) {
     throw new Error(
-      `the settings table groups its rows as [${actual.join(', ')}] but the packages are `
-        + `[${expected.join(', ')}] — uninstall is per package, so a row group that is not a package `
-        + `puts a button next to the wrong set of databases`,
+      `the settings table groups its rows as [${actual.join(', ')}] but the packages are ` +
+        `[${expected.join(', ')}] — uninstall is per package, so a row group that is not a package ` +
+        `puts a button next to the wrong set of databases`,
     )
   }
   for (const [index, group] of groups.entries()) {
@@ -751,8 +762,8 @@ async function panelGroupsArePackages(cdp, groups) {
     const wanted = pkg.upgradeVersion === undefined ? 1 : 2
     if (group.buttons !== wanted) {
       throw new Error(
-        `'${pkg.id}' offers ${group.buttons} button(s); expected ${wanted} `
-          + `(upgradeVersion=${pkg.upgradeVersion ?? 'none'})`,
+        `'${pkg.id}' offers ${group.buttons} button(s); expected ${wanted} ` +
+          `(upgradeVersion=${pkg.upgradeVersion ?? 'none'})`,
       )
     }
   }
@@ -808,16 +819,16 @@ async function checkRegistryProjections({ client, cdp, driverId }) {
   // choose and an assertion about it would fail on a formatting difference.
   if (!connectExamples(connect.description).some((ex) => ex.driverId === driverId)) {
     throw new Error(
-      `the connect tool's description offers no ${driverId} example, so an AI client cannot learn the `
-        + `config shape of a package that is installed:\n${connect.description}`,
+      `the connect tool's description offers no ${driverId} example, so an AI client cannot learn the ` +
+        `config shape of a package that is installed:\n${connect.description}`,
     )
   }
 
   const options = await connectDialogDrivers(cdp)
   if (!options.includes(driverId)) {
     throw new Error(
-      `the window's connect dialog offers [${options.join(', ')}] — ${driverId} is installed and main `
-        + `accepts connections to it, but nobody can start one from the UI`,
+      `the window's connect dialog offers [${options.join(', ')}] — ${driverId} is installed and main ` +
+        `accepts connections to it, but nobody can start one from the UI`,
     )
   }
   return { drivers: options }
@@ -837,9 +848,7 @@ async function checkRegistryProjections({ client, cdp, driverId }) {
  * against main's copy of the answer.
  */
 async function invokeInWindow(cdp, name, input) {
-  const answer = await cdp.evaluate(
-    `window.peek.invoke(${JSON.stringify(name)}, ${JSON.stringify(input)})`,
-  )
+  const answer = await cdp.evaluate(`window.peek.invoke(${JSON.stringify(name)}, ${JSON.stringify(input)})`)
   if (!answer || answer.ok !== true) {
     throw new Error(`${name} failed: ${answer?.error?.message ?? JSON.stringify(answer)}`)
   }
@@ -926,8 +935,8 @@ async function hotInstall({ client, cdp, sourceDir, driverId, notifications }) {
   const unlisted = declared.filter((name) => !toolsAfter.includes(name))
   if (unlisted.length > 0) {
     throw new Error(
-      `${driverId} declares [${declared.join(', ')}] and tools/list still answers `
-        + `[${toolsAfter.join(', ')}] — the notification arrived and the list behind it did not move`,
+      `${driverId} declares [${declared.join(', ')}] and tools/list still answers ` +
+        `[${toolsAfter.join(', ')}] — the notification arrived and the list behind it did not move`,
     )
   }
 
@@ -953,8 +962,8 @@ async function hotInstall({ client, cdp, sourceDir, driverId, notifications }) {
   const after = await connectDialogDrivers(cdp, { reopen: false })
   if (!after.includes(driverId)) {
     throw new Error(
-      `the window's connect dialog offers [${after.join(', ')}] — ${driverId} was just installed and `
-        + `the dialog was open the whole time, so nobody can start a connection to it`,
+      `the window's connect dialog offers [${after.join(', ')}] — ${driverId} was just installed and ` +
+        `the dialog was open the whole time, so nobody can start a connection to it`,
     )
   }
 
@@ -967,8 +976,9 @@ async function hotInstall({ client, cdp, sourceDir, driverId, notifications }) {
   const panelAfter = await packagesPanel(cdp, {
     reopen: false,
     until: (groups) => groups.some((group) => group.ids.includes(driverId)),
-    what: `the open settings panel to list '${driverId}' — it was just installed and the panel was open the `
-      + `whole time, so a row that never arrives is an uninstall button next to a stale list`,
+    what:
+      `the open settings panel to list '${driverId}' — it was just installed and the panel was open the ` +
+      `whole time, so a row that never arrives is an uninstall button next to a stale list`,
   })
   await panelGroupsArePackages(cdp, panelAfter)
   await closeSettingsPanel(cdp)
@@ -1011,8 +1021,8 @@ async function hotUninstall({ client, cdp, driverId, declaredTools = [], notific
   const stillListed = declaredTools.filter((name) => tools.tools.some((tool) => tool.name === name))
   if (stillListed.length > 0) {
     throw new Error(
-      `tools/list still offers [${stillListed.join(', ')}] after ${driverId} was uninstalled — `
-        + `the model is being shown a tool for a database peek cannot connect to`,
+      `tools/list still offers [${stillListed.join(', ')}] after ${driverId} was uninstalled — ` +
+        `the model is being shown a tool for a database peek cannot connect to`,
     )
   }
 
@@ -1091,22 +1101,22 @@ async function checkDialogOutlivesItsDrivers({ cdp }) {
       const packages = new Set(Object.values(owners))
       if (packages.size > removed.length) {
         throw new Error(
-          `the new-connection button is disabled while ${packages.size - removed.length} package(s) are `
-            + `still installed`,
+          `the new-connection button is disabled while ${packages.size - removed.length} package(s) are ` +
+            `still installed`,
         )
       }
       break
     }
     if (state.selected === null) {
       throw new Error(
-        `the connect dialog opened with no driver picker while packages are still installed `
-          + `(removed so far: [${removed.join(', ')}])\n${state.text}`,
+        `the connect dialog opened with no driver picker while packages are still installed ` +
+          `(removed so far: [${removed.join(', ')}])\n${state.text}`,
       )
     }
     if (!state.options.includes(state.selected)) {
       throw new Error(
-        `the connect dialog opened on '${state.selected}', which is not among the drivers it offers `
-          + `[${state.options.join(', ')}]`,
+        `the connect dialog opened on '${state.selected}', which is not among the drivers it offers ` +
+          `[${state.options.join(', ')}]`,
       )
     }
     defaults.push(state.selected)
@@ -1126,8 +1136,8 @@ async function checkDialogOutlivesItsDrivers({ cdp }) {
     }
     if (!during.text.includes(state.selected)) {
       throw new Error(
-        `the open connect dialog does not say what happened to '${state.selected}' after its package was `
-          + `uninstalled; it shows: ${JSON.stringify(during.text.slice(0, 200))}`,
+        `the open connect dialog does not say what happened to '${state.selected}' after its package was ` +
+          `uninstalled; it shows: ${JSON.stringify(during.text.slice(0, 200))}`,
       )
     }
     await closeConnectDialog(cdp)
@@ -1165,7 +1175,8 @@ async function main() {
   // is an environment fact like an absent container: the run goes on without it
   // and says so, rather than failing on a file it was never given.
   const echoSource = stageEchoFixture(stagingDir)
-  if (!echoSource) console.log(`smoke: no echo fixture at ${ECHO_FIXTURE}; the from-disk package row is skipped`)
+  if (!echoSource)
+    console.log(`smoke: no echo fixture at ${ECHO_FIXTURE}; the from-disk package row is skipped`)
 
   const targets = buildTargets({ echo: echoSource !== null })
   if (targets.length === 0) {
@@ -1224,9 +1235,9 @@ async function main() {
       })
       echoTools = installed.tools
       console.log(
-        `smoke: installed '${installed.installed}' at runtime; picker offers ${installed.picker.join('/')}; `
-          + `settings panel lists ${installed.panel.join(', ')}; `
-          + `tools/list gained ${installed.tools.length === 0 ? 'nothing' : installed.tools.join(', ')}`,
+        `smoke: installed '${installed.installed}' at runtime; picker offers ${installed.picker.join('/')}; ` +
+          `settings panel lists ${installed.panel.join(', ')}; ` +
+          `tools/list gained ${installed.tools.length === 0 ? 'nothing' : installed.tools.join(', ')}`,
       )
     }
 
@@ -1241,7 +1252,9 @@ async function main() {
         console.log(
           `  PASS ${target.name.padEnd(9)} ${info.nodes} node(s); ` +
             `scanned "${info.opened}" → ${info.rows} row(s) (${info.resultStatus})` +
-            (info.packageKind === undefined ? '' : `; ${info.packageKind} view → ${info.packageRows} row(s)`) +
+            (info.packageKind === undefined
+              ? ''
+              : `; ${info.packageKind} view → ${info.packageRows} row(s)`) +
             (info.packageTool === undefined ? '' : `; ${info.packageTool} ok`) +
             (info.drivers === undefined ? '' : `; picker offers ${info.drivers.join('/')}`) +
             `  [${info.capabilities}]`,
@@ -1281,8 +1294,8 @@ async function main() {
     try {
       const survived = await checkDialogOutlivesItsDrivers({ cdp })
       console.log(
-        `smoke: the connect dialog outlived its own drivers — opened on ${survived.defaults.join(' → ')}, `
-          + `uninstalled ${survived.removed.join('/')}, window still standing`,
+        `smoke: the connect dialog outlived its own drivers — opened on ${survived.defaults.join(' → ')}, ` +
+          `uninstalled ${survived.removed.join('/')}, window still standing`,
       )
     } catch (error) {
       failures += 1

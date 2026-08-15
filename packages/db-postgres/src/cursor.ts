@@ -139,9 +139,7 @@ export class PgCursor implements Cursor {
       // The caller already validated this integer; truncating again guarantees
       // nothing but digits can reach the interpolated SQL
       const statementMs =
-        timeoutMs !== undefined && timeoutMs > 0
-          ? Math.trunc(timeoutMs)
-          : DEFAULT_STATEMENT_TIMEOUT_MS
+        timeoutMs !== undefined && timeoutMs > 0 ? Math.trunc(timeoutMs) : DEFAULT_STATEMENT_TIMEOUT_MS
       await this.applyTimeouts(client, statementMs)
       await client.query({
         text: `DECLARE ${quoteIdent(this.name)} NO SCROLL CURSOR FOR ${text}`,
@@ -180,8 +178,8 @@ export class PgCursor implements Cursor {
   private async applyTimeouts(client: PoolClient, statementMs: number): Promise<void> {
     try {
       await client.query(
-        `SET LOCAL statement_timeout = ${statementMs};`
-        + ` SET LOCAL idle_in_transaction_session_timeout = ${IDLE_TX_TIMEOUT_MS}`,
+        `SET LOCAL statement_timeout = ${statementMs};` +
+          ` SET LOCAL idle_in_transaction_session_timeout = ${IDLE_TX_TIMEOUT_MS}`,
       )
     } catch {
       await client.query('ROLLBACK')

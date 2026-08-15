@@ -22,11 +22,12 @@ import {
 
 /* ---- DOM stand-ins: must be installed before resultCache is imported ---- */
 const rafQueue: (() => void)[] = []
-;(globalThis as unknown as { requestAnimationFrame: (cb: () => void) => number })
-  .requestAnimationFrame = (cb: () => void): number => {
-    rafQueue.push(cb)
-    return rafQueue.length
-  }
+;(globalThis as unknown as { requestAnimationFrame: (cb: () => void) => number }).requestAnimationFrame = (
+  cb: () => void,
+): number => {
+  rafQueue.push(cb)
+  return rafQueue.length
+}
 function flushRaf(): void {
   const q = rafQueue.splice(0, rafQueue.length)
   for (const cb of q) cb()
@@ -144,9 +145,15 @@ describe('MINOR — backpressure is decoupled from React render timing', () => {
     assert.equal(snap.rowCount, 250_000)
     // The default viewport {0, 0, atBottom: false} means 250k rows nobody is
     // looking at, so the stream must be held
-    assert.ok(r.port.acks().length < 250, `the ack should have been held partway; every one was released instead (${r.port.acks().length})`)
+    assert.ok(
+      r.port.acks().length < 250,
+      `the ack should have been held partway; every one was released instead (${r.port.acks().length})`,
+    )
     const held = r.port.acks().length
-    assert.ok(held > 0 && held < 250, `held partway rather than deadlocked from the start (acked ${held} times)`)
+    assert.ok(
+      held > 0 && held < 250,
+      `held partway rather than deadlocked from the start (acked ${held} times)`,
+    )
     cache.dropResult(r.id)
   })
 
@@ -286,7 +293,11 @@ describe('BLOCKER 2, continued — atBottom expires; it is not a one-way latch',
     const r = rig()
     cache.setViewport(r.id, 0, 26, true) // the viewport is pinned to the end
     r.push(250) // 250k rows: atBottom is fresh, so everything is released
-    assert.equal(r.port.acks().length, 250, 'premise: a fresh atBottom really does switch off the row-count gate')
+    assert.equal(
+      r.port.acks().length,
+      250,
+      'premise: a fresh atBottom really does switch off the row-count gate',
+    )
 
     // Grid unmounted / rAF starved by backgroundThrottling / main thread wedged:
     // reporting simply stops. The old implementation froze the viewport at
@@ -320,7 +331,11 @@ describe('BLOCKER 2, continued — atBottom expires; it is not a one-way latch',
     withClockSkew(11_000, () => {
       r.push(20)
     })
-    assert.equal(r.port.acks().length, 270, 'only one second since the last report, still inside the freshness window')
+    assert.equal(
+      r.port.acks().length,
+      270,
+      'only one second since the last report, still inside the freshness window',
+    )
     cache.dropResult(r.id)
   })
 
@@ -351,8 +366,8 @@ describe('MAJOR — paused is a terminal state, not an error', () => {
         elapsedMs: 1234,
         reason: 'idleAck',
         message:
-          'Result stream paused: no consumption ack for 60s,'
-          + ' the server-side cursor and connection have been released',
+          'Result stream paused: no consumption ack for 60s,' +
+          ' the server-side cursor and connection have been released',
         resumable: true,
       },
     })

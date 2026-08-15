@@ -85,7 +85,8 @@ export async function requestToolPermission(
   if (decision.kind === 'selected' && decision.optionId === 'allow') return undefined
   return {
     block: true,
-    reason: decision.kind === 'cancelled' ? cancelReason(decision.reason) : 'The user declined this tool call.',
+    reason:
+      decision.kind === 'cancelled' ? cancelReason(decision.reason) : 'The user declined this tool call.',
   }
 }
 

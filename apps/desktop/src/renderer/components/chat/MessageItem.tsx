@@ -248,7 +248,10 @@ function AttachmentReceipt({
   const detail = detailFor(
     receipt === undefined
       ? undefined
-      : { ...(receipt.notice ? { notice: receipt.notice } : {}), ...(receipt.failed === true ? { failed: true } : {}) },
+      : {
+          ...(receipt.notice ? { notice: receipt.notice } : {}),
+          ...(receipt.failed === true ? { failed: true } : {}),
+        },
     t,
   )
   const menu = useContextMenu<null>()

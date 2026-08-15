@@ -10,7 +10,13 @@ import {
   type ContextActionId,
   type ContextTarget,
 } from '../descriptors'
-import { CONSENT_VERSION, hasContextConsent, grantContextConsent, revokeContextConsent, resetContextConsentCache } from '../consent'
+import {
+  CONSENT_VERSION,
+  hasContextConsent,
+  grantContextConsent,
+  revokeContextConsent,
+  resetContextConsentCache,
+} from '../consent'
 import { detailFor, type AttachmentStatus } from '../chipDetail'
 
 /* ==================================================================
@@ -109,10 +115,9 @@ describe('contextActionsFor · what is offered', () => {
 
 describe('contextActionsFor · the descriptors it builds', () => {
   it('builds a rows descriptor carrying the exact selection', () => {
-    const action = contextActionsFor(
-      { view: tableView, resultId: RESULT, selectedRows: [9, 2, 5] },
-      t,
-    ).find((a) => a.id === 'rows')
+    const action = contextActionsFor({ view: tableView, resultId: RESULT, selectedRows: [9, 2, 5] }, t).find(
+      (a) => a.id === 'rows',
+    )
     const built = action?.build()
     assert.equal(built?.kind, 'rows')
     if (built?.kind !== 'rows') return
@@ -289,7 +294,10 @@ describe('detailFor', () => {
   })
 
   it('reports a failure ahead of any notice', () => {
-    const text = detailFor({ failed: true, notice: { unit: 'rows', included: 1, total: 2, reason: 'rowCap' } }, t)
+    const text = detailFor(
+      { failed: true, notice: { unit: 'rows', included: 1, total: 2, reason: 'rowCap' } },
+      t,
+    )
     assert.equal(text, translate('en', 'context.chips.failed'))
   })
 })

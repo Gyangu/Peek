@@ -113,8 +113,8 @@ export function ConsentDialog(props: ConsentDialogProps): ReactElement {
          */}
         <div
           className={
-            'min-h-0 flex-1 overflow-auto px-loose pt-loose '
-            + 'focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2'
+            'min-h-0 flex-1 overflow-auto px-loose pt-loose ' +
+            'focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2'
           }
           tabIndex={0}
         >

@@ -118,16 +118,13 @@ function resolveQueryView(
  * surface is English forever. (If it ever becomes reachable from the UI, the fix
  * is an `error.query.*` key in `@peek/core`, not a translation here.)
  */
-function assertConnMatches(
-  view: Draft<QueryViewState>,
-  input: CommandInput<'query.run'>,
-): void {
+function assertConnMatches(view: Draft<QueryViewState>, input: CommandInput<'query.run'>): void {
   if (input.connId === undefined || input.connId === view.connId) return
   fail(
     'BAD_REQUEST',
-    `View ${input.viewId} runs on connection ${view.connId}, not ${input.connId}.`
-    + ' Drop connId to run the statement in that view, or drop viewId to open a new'
-    + ' query view on that connection.',
+    `View ${input.viewId} runs on connection ${view.connId}, not ${input.connId}.` +
+      ' Drop connId to run the statement in that view, or drop viewId to open a new' +
+      ' query view on that connection.',
   )
 }
 

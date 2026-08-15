@@ -1,12 +1,6 @@
 import { useState } from 'react'
 import type { ReactElement } from 'react'
-import type {
-  AutoRefreshStopReason,
-  ConnectionState,
-  RefreshableView,
-  ResultId,
-  ViewId,
-} from '@peek/core'
+import type { AutoRefreshStopReason, ConnectionState, RefreshableView, ResultId, ViewId } from '@peek/core'
 import { useT } from '../../i18n'
 import { connHas } from '../../state/capabilities'
 import { dispatch } from '../../state/dispatch'

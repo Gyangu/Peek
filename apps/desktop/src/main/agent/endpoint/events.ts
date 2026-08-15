@@ -175,11 +175,13 @@ export function classifyAgentEvent(raw: unknown): AgentEventOutcome {
     case 'message_start':
       // A user prompt, a steering message and every tool result come through
       // here too; only the assistant's opens a bubble.
-      if (event.message?.role !== 'assistant') return ignored(`message_start:${event.message?.role ?? 'unknown'}`)
+      if (event.message?.role !== 'assistant')
+        return ignored(`message_start:${event.message?.role ?? 'unknown'}`)
       return feed({ type: 'assistant_start' })
 
     case 'message_end': {
-      if (event.message?.role !== 'assistant') return ignored(`message_end:${event.message?.role ?? 'unknown'}`)
+      if (event.message?.role !== 'assistant')
+        return ignored(`message_end:${event.message?.role ?? 'unknown'}`)
       // The one event that carries an upstream failure. `pi-ai` writes the
       // exception into the assistant message itself rather than rejecting the
       // stream, and `pi-agent-core` consumes its `error` event internally, so
@@ -435,7 +437,9 @@ export class EndpointTranslator {
   }
 
   #toolEnd(event: { id: string; output: unknown; isError: boolean }, now: number): EndpointTranslation {
-    return this.#settleTool(event.id, event.isError ? 'failed' : 'completed', now, { rawOutput: event.output })
+    return this.#settleTool(event.id, event.isError ? 'failed' : 'completed', now, {
+      rawOutput: event.output,
+    })
   }
 
   /**

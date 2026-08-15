@@ -31,7 +31,13 @@ test('every recorded command reaches the sink, in order, with its seq', () => {
   log.push(entry('view.open'))
   log.push(entry('query.run'))
 
-  assert.deepEqual(seen.map((e) => [e.seq, e.name]), [[1, 'view.open'], [2, 'query.run']])
+  assert.deepEqual(
+    seen.map((e) => [e.seq, e.name]),
+    [
+      [1, 'view.open'],
+      [2, 'query.run'],
+    ],
+  )
 })
 
 test('reading the log is not itself a command worth recording', () => {
@@ -90,7 +96,10 @@ test('the ring still evicts oldest-first with a sink attached', () => {
   log.push(entry('view.close'))
   log.push(entry('query.run'))
 
-  assert.deepEqual(log.entries().map((e) => e.name), ['view.close', 'query.run'])
+  assert.deepEqual(
+    log.entries().map((e) => e.name),
+    ['view.close', 'query.run'],
+  )
   // The sink saw all three: the file is not bounded by the ring, which is the
   // whole reason for writing one.
   assert.equal(seen.length, 3)

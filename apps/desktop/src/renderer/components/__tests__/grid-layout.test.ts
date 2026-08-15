@@ -31,8 +31,7 @@ import { blankComments } from '../../__tests__/sourceScan'
  * the geometry itself stays a job for acceptance on a real machine.
  * ================================================================== */
 
-const src = (rel: string): string =>
-  readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+const src = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
 const GRID_TSX = src('../DataGrid.tsx')
 
@@ -149,7 +148,10 @@ describe('the scrollbar and the overlay must not descend from the horizontal scr
   })
 
   it('.grid-overlay (Running… / 0 rows) is a sibling of .grid-scroll too', () => {
-    assert.ok(!byClass(collect(gridScroll!), 'grid-overlay'), 'the overlay must not travel with scrollLeft either')
+    assert.ok(
+      !byClass(collect(gridScroll!), 'grid-overlay'),
+      'the overlay must not travel with scrollLeft either',
+    )
     assert.ok(byClass(collect(wrap!), 'grid-overlay'))
   })
 
@@ -157,8 +159,9 @@ describe('the scrollbar and the overlay must not descend from the horizontal scr
     const inner = byClass(all, 'grid-inner')
     assert.ok(inner)
     const opening = ts.isJsxElement(inner!) ? inner!.openingElement : inner!
-    const style = opening.attributes.properties
-      .find((p) => ts.isJsxAttribute(p) && p.name.getText(sf) === 'style')
+    const style = opening.attributes.properties.find(
+      (p) => ts.isJsxAttribute(p) && p.name.getText(sf) === 'style',
+    )
     assert.ok(style)
     const text = style!.getText(sf)
     assert.ok(!/height/i.test(text), `grid-inner's style must not mention height again: ${text}`)
@@ -380,7 +383,10 @@ describe('the grid is where a chat attachment is created', () => {
   })
 
   it('<SelectionActionBar> is mounted, and outside the horizontal scroll container', () => {
-    assert.ok(byTag(all, 'SelectionActionBar'), 'the selection bar is unmounted again: selecting rows leads nowhere')
+    assert.ok(
+      byTag(all, 'SelectionActionBar'),
+      'the selection bar is unmounted again: selecting rows leads nowhere',
+    )
     assert.ok(
       !byTag(collect(gridScroll!), 'SelectionActionBar'),
       'inside .grid-scroll the bar translates with scrollLeft and disappears',

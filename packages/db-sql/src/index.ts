@@ -55,20 +55,8 @@ export { SqlValuePeeker, type SqlResultSource, type SqlValuePeekerOptions } from
 export { mapSqlError, type MapSqlErrorContext } from './errors'
 export { normalizeCell, estimateCellBytes, type NormalizeContext } from './values'
 
-export type {
-  SqlColumnMeta,
-  SqlDialect,
-  SqlFlavor,
-  SqlRelationInfo,
-  SqlText,
-} from './dialect'
-export type {
-  SqlBackend,
-  SqlBackendHandle,
-  SqlExecOptions,
-  SqlRowStream,
-  SqlRows,
-} from './connection'
+export type { SqlColumnMeta, SqlDialect, SqlFlavor, SqlRelationInfo, SqlText } from './dialect'
+export type { SqlBackend, SqlBackendHandle, SqlExecOptions, SqlRowStream, SqlRows } from './connection'
 
 export {
   ParamList,

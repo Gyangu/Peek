@@ -321,9 +321,7 @@ function signAdHoc(appPath) {
 
 async function main() {
   const manifest = readJson(join(packageDir, 'package.json'))
-  const electronVersion = readJson(
-    join(packageDir, 'node_modules', 'electron', 'package.json'),
-  ).version
+  const electronVersion = readJson(join(packageDir, 'node_modules', 'electron', 'package.json')).version
 
   if (!existsSync(outDir)) {
     throw new Error(`No build output at ${outDir}. Run "pnpm build" first.`)

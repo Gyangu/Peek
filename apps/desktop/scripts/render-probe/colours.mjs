@@ -121,5 +121,4 @@ export function contrast(a, b) {
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
 }
 
-export const hex = ([r, g, b]) =>
-  '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')
+export const hex = ([r, g, b]) => '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')

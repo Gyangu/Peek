@@ -116,9 +116,11 @@ export interface TruncatedValue {
 }
 
 export function isTruncatedValue(value: unknown): value is TruncatedValue {
-  return typeof value === 'object'
-    && value !== null
-    && (value as Record<string, unknown>)[TRUNCATED_MARKER] === true
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as Record<string, unknown>)[TRUNCATED_MARKER] === true
+  )
 }
 
 export function truncatedValue(

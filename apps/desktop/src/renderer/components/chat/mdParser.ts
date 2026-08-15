@@ -174,12 +174,12 @@ function parseBlocks(lines: string[]): MdBlock[] {
       const cur = lines[i] ?? ''
       if (cur.trim() === '') break
       if (
-        FENCE_RE.test(cur)
-        || HEADING_RE.test(cur)
-        || HR_RE.test(cur)
-        || QUOTE_RE.test(cur)
-        || BULLET_RE.test(cur)
-        || ORDERED_RE.test(cur)
+        FENCE_RE.test(cur) ||
+        HEADING_RE.test(cur) ||
+        HR_RE.test(cur) ||
+        QUOTE_RE.test(cur) ||
+        BULLET_RE.test(cur) ||
+        ORDERED_RE.test(cur)
       ) {
         break
       }

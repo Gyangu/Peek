@@ -217,7 +217,9 @@ function packageIdOf(directoryName) {
 function discoverPackages() {
   if (!existsSync(packagesDir)) return []
   const found = []
-  for (const entry of readdirSync(packagesDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+  for (const entry of readdirSync(packagesDir, { withFileTypes: true }).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  )) {
     if (!entry.isDirectory() || !entry.name.startsWith('db-')) continue
     const dir = join(packagesDir, entry.name)
     for (const required of [MANIFEST_MODULE, DRIVER_ENTRY]) {
@@ -302,7 +304,11 @@ function viewKindsOf(namespace) {
     for (const candidate of Array.isArray(value) ? value : [value]) {
       if (!looksLikeViewKind(candidate)) continue
       if (byKind.has(candidate.kind)) continue
-      byKind.set(candidate.kind, { kind: candidate.kind, driverIds: [...candidate.driverIds], title: candidate.title })
+      byKind.set(candidate.kind, {
+        kind: candidate.kind,
+        driverIds: [...candidate.driverIds],
+        title: candidate.title,
+      })
     }
   }
   return [...byKind.values()]

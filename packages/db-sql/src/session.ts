@@ -210,9 +210,8 @@ export class SqlSession implements DriverSession {
 
     // cursorToken is the absolute offset at the end of the previous page; when
     // present it overrides offset
-    const tokenOffset = req.cursorToken === undefined
-      ? undefined
-      : decodeRowOffsetCursor(req.cursorToken, this.driverId)
+    const tokenOffset =
+      req.cursorToken === undefined ? undefined : decodeRowOffsetCursor(req.cursorToken, this.driverId)
     const offset = clampInt(tokenOffset ?? req.offset ?? 0, 0, Number.MAX_SAFE_INTEGER) ?? 0
     const limit = clampInt(req.limit ?? DEFAULT_PAGE_LIMIT, 0, MAX_PAGE_LIMIT) ?? DEFAULT_PAGE_LIMIT
 

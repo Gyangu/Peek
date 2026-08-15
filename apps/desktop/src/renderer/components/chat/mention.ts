@@ -191,7 +191,5 @@ export function filterByMention<T extends { token: string; label: string; hint?:
 ): T[] {
   const needle = filter.trim().toLowerCase()
   if (needle === '') return [...items]
-  return items.filter((it) =>
-    `${it.token} ${it.label} ${it.hint ?? ''}`.toLowerCase().includes(needle),
-  )
+  return items.filter((it) => `${it.token} ${it.label} ${it.hint ?? ''}`.toLowerCase().includes(needle))
 }

@@ -1,9 +1,4 @@
-import type {
-  DriverManifest,
-  InstalledPackages,
-  NotifyMessage,
-  PackageDriverManifest,
-} from '@peek/core'
+import type { DriverManifest, InstalledPackages, NotifyMessage, PackageDriverManifest } from '@peek/core'
 import type { LoadedPackage, PackageLoadReport } from './loader'
 
 /* ==================================================================
@@ -51,9 +46,7 @@ export function installedFrom(report: PackageLoadReport): InstalledPackages {
     viewKinds: report.loaded.flatMap((pkg) =>
       pkg.manifest.viewKinds.map((viewKind) => ({ ...viewKind, packageId: pkg.id })),
     ),
-    tools: report.loaded.flatMap((pkg) =>
-      pkg.manifest.tools.map((tool) => ({ ...tool, packageId: pkg.id })),
-    ),
+    tools: report.loaded.flatMap((pkg) => pkg.manifest.tools.map((tool) => ({ ...tool, packageId: pkg.id }))),
   }
 }
 

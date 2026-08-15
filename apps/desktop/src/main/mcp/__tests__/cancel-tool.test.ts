@@ -49,7 +49,12 @@ const LAYOUT: LayoutNode = {
   dir: 'row',
   ratio: [1],
   children: [
-    { type: 'panel', id: asPanelId('panel_a'), viewIds: [asViewId('view_1')], activeViewId: asViewId('view_1') },
+    {
+      type: 'panel',
+      id: asPanelId('panel_a'),
+      viewIds: [asViewId('view_1')],
+      activeViewId: asViewId('view_1'),
+    },
   ],
 }
 

@@ -15,14 +15,7 @@ import { notify } from '../state/notifyStore'
 import { getCell, isRowLoaded, setViewport } from '../state/resultCache'
 import { useResult } from '../state/useResult'
 import { copyText } from '../util/clipboard'
-import {
-  cellClass,
-  cellSurfaceClass,
-  cellText,
-  formatCount,
-  formatMs,
-  isExpandable,
-} from '../util/format'
+import { cellClass, cellSurfaceClass, cellText, formatCount, formatMs, isExpandable } from '../util/format'
 import { columnMenuNodes } from './columnMenu'
 import { Icon } from '../ui/Icon'
 import { Menu } from '../ui/Menu'
@@ -52,12 +45,7 @@ import {
   type CellPos,
   type CellRange,
 } from './cellRange'
-import {
-  columnWindowKey,
-  useColumnModel,
-  type ColumnSizing,
-  type GridColumn,
-} from './columnModel'
+import { columnWindowKey, useColumnModel, type ColumnSizing, type GridColumn } from './columnModel'
 import { fetchShapeKey } from './views/fetchShape'
 import { GridScrollbar } from './GridScrollbar'
 import { ValueModal } from './ValueModal'
@@ -195,8 +183,8 @@ export function DataGrid(props: DataGridProps): ReactElement {
     prevRef.current = { shapeKey, resultId }
   }
   if (
-    heldRef.current !== undefined
-    && (liveSnap.schema !== undefined || liveSnap.rowCount > 0 || liveSnap.status !== 'running')
+    heldRef.current !== undefined &&
+    (liveSnap.schema !== undefined || liveSnap.rowCount > 0 || liveSnap.status !== 'running')
   ) {
     heldRef.current = undefined
   }
@@ -525,10 +513,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
 
   const copyRange = useCallback(
     (r: CellRange): void => {
-      runCopy(
-        copyRangePlan(copySource, r),
-        tStatic('grid.copy.cellsDone', { count: rangeCellCount(r) }),
-      )
+      runCopy(copyRangePlan(copySource, r), tStatic('grid.copy.cellsDone', { count: rangeCellCount(r) }))
     },
     [copySource, runCopy],
   )
@@ -810,9 +795,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
 
   const handleCellClick = useCallback((row: number, col: number, expand: boolean, shift: boolean) => {
     setRange((prev) =>
-      shift && prev !== null
-        ? rangeFrom(prev.anchor, row, col, MAX_SELECTION_SPAN)
-        : rangeAt(row, col),
+      shift && prev !== null ? rangeFrom(prev.anchor, row, col, MAX_SELECTION_SPAN) : rangeAt(row, col),
     )
     setRowSelection(EMPTY_SELECTION)
     if (expand) setExpanded({ row, col })
@@ -879,16 +862,13 @@ export function DataGrid(props: DataGridProps): ReactElement {
    * rectangle and the rows are dropped. A press on the gutter (`col < 0`) never
    * builds a rectangle, so there it only drops one.
    */
-  const handleRowContextMenu = useCallback(
-    (row: number, col: number, x: number, y: number): void => {
-      setMenu({ x, y, cell: col < 0 ? null : { row, col } })
-      if (isRowSelected(rowSelectionRef.current, row)) return
-      if (col >= 0 && isInRange(rangeRef.current, row, col)) return
-      setRowSelection(EMPTY_SELECTION)
-      setRange(col < 0 ? null : rangeAt(row, col))
-    },
-    [],
-  )
+  const handleRowContextMenu = useCallback((row: number, col: number, x: number, y: number): void => {
+    setMenu({ x, y, cell: col < 0 ? null : { row, col } })
+    if (isRowSelected(rowSelectionRef.current, row)) return
+    if (col >= 0 && isInRange(rangeRef.current, row, col)) return
+    setRowSelection(EMPTY_SELECTION)
+    setRange(col < 0 ? null : rangeAt(row, col))
+  }, [])
 
   /**
    * The current selection as an attachment descriptor, or null when nothing is
@@ -929,9 +909,12 @@ export function DataGrid(props: DataGridProps): ReactElement {
   }, [selectionSpec, view.id])
 
   // Unmounting counts as losing it: a closed tab must not stay attachable.
-  useEffect(() => () => {
-    clearGridSelection(view.id)
-  }, [view.id])
+  useEffect(
+    () => () => {
+      clearGridSelection(view.id)
+    },
+    [view.id],
+  )
 
   const closeMenu = useCallback(() => {
     setMenu(null)
@@ -1003,7 +986,12 @@ export function DataGrid(props: DataGridProps): ReactElement {
   // Offered only for a real block, and only when the right-click landed inside
   // it: a menu item that would copy a rectangle somewhere else on screen is a
   // trap. The 1×1 case is already covered by "copy cell" above.
-  if (range !== null && rangeCellCount(range) > 1 && menu?.cell && isInRange(range, menu.cell.row, menu.cell.col)) {
+  if (
+    range !== null &&
+    rangeCellCount(range) > 1 &&
+    menu?.cell &&
+    isInRange(range, menu.cell.row, menu.cell.col)
+  ) {
     const block = range
     copyItems.push({
       id: 'copy-range',
@@ -1028,12 +1016,13 @@ export function DataGrid(props: DataGridProps): ReactElement {
 
   // Offered to the menu on the same three conditions as "copy N cells" above: a
   // rectangle, more than one cell, and the right-click inside it.
-  const menuRange = range !== null
-    && rangeCellCount(range) > 1
-    && menu?.cell
-    && isInRange(range, menu.cell.row, menu.cell.col)
-    ? range
-    : null
+  const menuRange =
+    range !== null &&
+    rangeCellCount(range) > 1 &&
+    menu?.cell &&
+    isInRange(range, menu.cell.row, menu.cell.col)
+      ? range
+      : null
 
   const contextTarget: ContextTarget = {
     view,
@@ -1042,7 +1031,9 @@ export function DataGrid(props: DataGridProps): ReactElement {
     ...(menu?.cell && schema?.[menu.cell.col]
       ? { cell: { rowIndex: menu.cell.row, column: schema[menu.cell.col].name } }
       : {}),
-    ...(menuRange ? { cellRange: { r0: menuRange.r0, r1: menuRange.r1, columns: columnNamesIn(schema, menuRange) } } : {}),
+    ...(menuRange
+      ? { cellRange: { r0: menuRange.r0, r1: menuRange.r1, columns: columnNamesIn(schema, menuRange) } }
+      : {}),
     rowCount,
   }
 
@@ -1158,7 +1149,10 @@ export function DataGrid(props: DataGridProps): ReactElement {
             {/* Height 0, so it contributes nothing to any scroll dimension; the
                 driver writes its transform once per frame (magnitude < 98,304px,
                 composited, no layout and no repaint). */}
-            <div className="grid-surface absolute top-0 left-0 w-0 h-0 will-change-transform" ref={setSurface}>
+            <div
+              className="grid-surface absolute top-0 left-0 w-0 h-0 will-change-transform"
+              ref={setSurface}
+            >
               {rows}
             </div>
           </div>
@@ -1427,11 +1421,7 @@ const GridRow = memo(function GridRow(props: GridRowProps): ReactElement {
     >
       {/* `data-gutter` is what tells a plain click "this is a selection", the
           same delegation trick `data-col` uses for cells. */}
-      <div
-        className={rowSelected ? ROWNUM_SELECTED_CLASS : ROWNUM_CLASS}
-        data-gutter=""
-        title={ROWNUM_TITLE}
-      >
+      <div className={rowSelected ? ROWNUM_SELECTED_CLASS : ROWNUM_CLASS} data-gutter="" title={ROWNUM_TITLE}>
         {rowIndex + 1}
       </div>
       {cells}
@@ -1454,14 +1444,16 @@ const GridRow = memo(function GridRow(props: GridRowProps): ReactElement {
  */
 const ROW_CLASS = 'grid-row group absolute top-0 left-0 block h-row whitespace-nowrap'
 
-const ROWNUM_CLASS = 'grid-rownum sticky left-0 z-2 inline-block align-top w-gutter h-row leading-row pr-control-x text-right font-mono text-micro text-fg-faint bg-bg-1 shadow-rule-r overflow-hidden cursor-pointer'
+const ROWNUM_CLASS =
+  'grid-rownum sticky left-0 z-2 inline-block align-top w-gutter h-row leading-row pr-control-x text-right font-mono text-micro text-fg-faint bg-bg-1 shadow-rule-r overflow-hidden cursor-pointer'
 
 /* Hue and shape, and the shape is the half that survives a colour-vision
    difference: --shadow-gutter-sel is a 2px accent rule down the one column that
    is still on screen however far right a wide table is scrolled. Inset, so it
    costs no layout — a left border would eat 2px out of the 54px gutter and shove
    the number sideways. */
-const ROWNUM_SELECTED_CLASS = 'grid-rownum sticky left-0 z-2 inline-block align-top w-gutter h-row leading-row pr-control-x text-right font-mono text-micro text-accent bg-rownum-sel shadow-gutter-sel overflow-hidden cursor-pointer'
+const ROWNUM_SELECTED_CLASS =
+  'grid-rownum sticky left-0 z-2 inline-block align-top w-gutter h-row leading-row pr-control-x text-right font-mono text-micro text-accent bg-rownum-sel shadow-gutter-sel overflow-hidden cursor-pointer'
 
 /**
  * Tooltip on the row number.
@@ -1506,11 +1498,11 @@ function GridFooter(p: GridFooterProps): ReactElement {
     <div className="flex h-bar flex-none items-center gap-tight overflow-hidden shadow-rule-t bg-bg-1 px-snug text-fg-dim">
       {/* `count` selects the plural form, `rows` carries the grouped number —
           t() never formats numbers itself. */}
-      <span className="font-mono tabular-nums">{t('grid.rows', { count: p.rowCount, rows: formatCount(p.rowCount) })}</span>
-      <span className="h-divider w-px flex-none bg-border-strong" />
-      <span className={p.status === 'paused' ? 'text-warn' : undefined}>
-        {statusLabel(t, p.status)}
+      <span className="font-mono tabular-nums">
+        {t('grid.rows', { count: p.rowCount, rows: formatCount(p.rowCount) })}
       </span>
+      <span className="h-divider w-px flex-none bg-border-strong" />
+      <span className={p.status === 'paused' ? 'text-warn' : undefined}>{statusLabel(t, p.status)}</span>
       {p.elapsedMs !== undefined ? (
         <>
           <span className="h-divider w-px flex-none bg-border-strong" />

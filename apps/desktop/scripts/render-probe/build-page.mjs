@@ -106,7 +106,7 @@ export function readShippedCss() {
   if (text.length < MIN_ARTIFACT_BYTES) {
     throw new ProbeSetupError(
       `${path} is ${String(text.length)} B, under the ${String(MIN_ARTIFACT_BYTES)} B floor. ` +
-        'A stylesheet that small is not this app\'s, and measuring against it would produce ' +
+        "A stylesheet that small is not this app's, and measuring against it would produce " +
         'plausible numbers off an unstyled page.',
     )
   }
