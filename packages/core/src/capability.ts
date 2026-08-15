@@ -902,7 +902,6 @@ export const FILTER_OPS = [
   'isNotNull',
 ] as const
 export const FilterOpSchema = z.enum(FILTER_OPS)
-export type FilterOp = z.infer<typeof FilterOpSchema>
 
 /**
  * What a `FilterSpec.column` names.

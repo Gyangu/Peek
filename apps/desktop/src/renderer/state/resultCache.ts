@@ -711,33 +711,6 @@ export function attachResultPort(connId: ConnId, port: MessagePort): void {
   port.start()
 }
 
-export function detachResultPort(connId: ConnId): void {
-  const port = portsByConn.get(connId)
-  if (!port) return
-  portsByConn.delete(connId)
-  try {
-    port.close()
-  } catch {
-    /* ignore */
-  }
-  for (const e of entries.values()) {
-    if (e.port === port) e.port = null
-  }
-}
-
-/**
- * Cancel from the data plane (closing the cursor). Control-plane cancellation goes
- * through the `query.cancel` command; the two do not conflict, since this one only
- * asks the host to stop emitting as soon as it can.
- */
-export function cancelResultStream(id: ResultId): void {
-  const e = entries.get(id)
-  const port = e?.port ?? (e?.connId ? (portsByConn.get(e.connId) ?? null) : null)
-  if (!port) return
-  const msg: ResultStreamAck = { t: 'cancel', resultId: id }
-  port.postMessage(msg)
-}
-
 /* ------------------------------------------------------------------ */
 /* LRU eviction and lifecycle                                             */
 /* ------------------------------------------------------------------ */

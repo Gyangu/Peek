@@ -503,9 +503,6 @@ export function displayViewKind(view: { kind: ViewKind; packageKind?: string }):
   return view.packageKind ?? view.kind
 }
 
-/** Narrow ViewState down to one concrete kind */
-export type ViewStateOf<K extends ViewKind> = Extract<ViewState, { kind: K }>
-
 /* ================================================================== */
 /* 3. Tiled layout tree                                                */
 /* ================================================================== */

@@ -327,8 +327,3 @@ export function useDragPointer(): DragPoint | null {
   const y = useDragStore((s) => (isDragging(s.drag) ? s.drag.pointer.y : null))
   return x === null || y === null ? null : { x, y }
 }
-
-/** Non-hook read, for tests and event callbacks. */
-export function readDrag(): DragState {
-  return useDragStore.getState().drag
-}

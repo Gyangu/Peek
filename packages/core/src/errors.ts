@@ -52,8 +52,6 @@ export const PeekErrorI18nSchema = z.object({
   params: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
 })
 
-export type PeekErrorI18n = z.infer<typeof PeekErrorI18nSchema>
-
 export const PeekErrorSchema = z.object({
   code: PeekErrorCodeSchema,
   /**

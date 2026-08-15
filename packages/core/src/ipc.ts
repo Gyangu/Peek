@@ -228,19 +228,9 @@ export const IPC = {
   CHAT_RESTORE: 'peek:chat:restore',
 } as const
 
-export type IpcChannel = (typeof IPC)[keyof typeof IPC]
-
 /* ================================================================== */
 /* 2. main ↔ renderer message bodies                                   */
 /* ================================================================== */
-
-export interface CommandInvokeMessage<K extends CommandName = CommandName> {
-  name: K
-  input: CommandInput<K>
-  source: CommandSource
-  /** Correlation id minted by the renderer, useful for local de-duplication; main mints one when absent */
-  commandId?: string
-}
 
 /**
  * State-patch broadcast. The renderer's mirror store applies these in strict `rev`

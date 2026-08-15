@@ -93,7 +93,5 @@ export type EffectIntent =
    */
   | { type: 'uninstallPackage'; packageId: string; version: string; soft?: boolean }
 
-export type EffectIntentType = EffectIntent['type']
-
 /** The hook for registering a side-effect intent, injected into a handler's pure state phase. */
 export type PlanEffect = (intent: EffectIntent) => void

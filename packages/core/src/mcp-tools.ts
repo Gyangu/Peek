@@ -358,15 +358,6 @@ export interface ReadToolMeta<S extends z.ZodType = z.ZodType> extends ToolSpecB
 
 export type ToolMeta<S extends z.ZodType = z.ZodType> = CommandToolMeta<S> | ReadToolMeta<S>
 
-/**
- * A `ToolMeta` tagged with the package that has to run it.
- *
- * The tag is not the package's to declare: a `ToolSpec` names no package, so
- * ownership is stated once by whoever assembled the list — the app's
- * `drivers/mcpTools.ts` today, the directory a manifest was found in in Phase C.
- */
-export type PackageToolMeta = ToolMeta & { readonly packageId: string }
-
 /** The half of a tool that is code — what a package's host process runs. */
 export type ToolCode<S extends z.ZodType = z.ZodType> =
   Pick<CommandToolSpec<S>, 'toCommands' | 'render'> | Pick<ReadToolSpec<S>, 'read'>

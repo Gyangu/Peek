@@ -130,8 +130,3 @@ export const viewKindContribution: PackageContribution<ViewKindRegistration> = d
 export function installedViewKindContracts(): ViewKindRegistration[] {
   return viewKindContribution.live()
 }
-
-/** The registered kinds, for diagnostics and for the tests that assert this list is reachable. */
-export function registeredViewKindNames(): PackageViewKindName[] {
-  return VIEW_KIND_CONTRACTS.map((entry) => entry.kind)
-}

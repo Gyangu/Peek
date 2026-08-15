@@ -854,7 +854,6 @@ export const LayoutSpecSplitSchema = z.object({
 
 /** What becomes of views that are open but absent from the target tree */
 export const UnplacedPolicySchema = z.enum(['close', 'keep', 'error'])
-export type UnplacedPolicy = z.infer<typeof UnplacedPolicySchema>
 
 /**
  * The plain object half of `layout.setLayout`'s input.
@@ -1448,7 +1447,6 @@ export type AgentBackend = (typeof AGENT_BACKENDS)[number]
  * guessing wrong produces a failure at the first token rather than at save time.
  */
 export const AGENT_ENDPOINT_APIS = ['openai-completions', 'anthropic-messages'] as const
-export type AgentEndpointApi = (typeof AGENT_ENDPOINT_APIS)[number]
 
 const AgentBackendSchema = z.enum(AGENT_BACKENDS)
 
@@ -1555,8 +1553,6 @@ export const AgentMcpServerSchema = z.object({
    */
   enabled: z.boolean(),
 })
-
-export type AgentMcpServerInput = z.infer<typeof AgentMcpServerSchema>
 
 /** One row of the MCP list, as the settings form needs to describe it. */
 export interface AgentMcpServerInfo {
@@ -2757,9 +2753,6 @@ export interface CommandEnvelope<K extends CommandName = CommandName> {
   /** Timestamp of dispatch (ms) */
   ts: number
 }
-
-/** Envelope of any command, keeping `name` and `input` correlated */
-export type AnyCommandEnvelope = { [K in CommandName]: CommandEnvelope<K> }[CommandName]
 
 export interface CommandOk<T> {
   ok: true

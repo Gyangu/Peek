@@ -217,13 +217,14 @@ export type PackageHostResponse = {
 }[PackageHostMethod]
 
 /**
- * The two directions, named even though each has exactly one member today.
+ * What comes back out of a package host, named for the direction rather than for
+ * the shape.
  *
- * They are what main's process wrapper imports, and naming them is what keeps
- * "a package host sends responses and nothing else" a statement the compiler
- * checks rather than a habit.
+ * This is what main's process wrapper imports for its type guard, and the name is
+ * what keeps "a package host sends responses and nothing else" a statement the
+ * compiler checks rather than a habit. The inbound direction was named too, for
+ * symmetry, and nobody ever imported it — see PLAN.md §11.1.
  */
-export type PackageHostInbound = PackageHostRequest
 export type PackageHostOutbound = PackageHostResponse
 
 /* ------------------------------------------------------------------ */

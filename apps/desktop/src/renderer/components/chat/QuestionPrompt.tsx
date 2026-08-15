@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import { OTHER_OPTION_ID, type PendingQuestion, type ViewId } from '@peek/core'
+import type { PendingQuestion, ViewId } from '@peek/core'
 import { useT } from '../../i18n'
 import { Button } from '../../ui/Button'
 import { answerQuestion } from './chatCommands'
@@ -197,10 +197,3 @@ export function QuestionPrompt({
     </div>
   )
 }
-
-/**
- * Exported for the tests, and as the one place that states the contract the
- * component keeps with core: the free-text answer travels as `other`, never as
- * an option id, so an agent's `options` list can never collide with it.
- */
-export const OTHER_ID = OTHER_OPTION_ID

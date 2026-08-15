@@ -64,8 +64,3 @@ export function openSettings(section: SettingsSection = DEFAULT_SETTINGS_SECTION
 export function closeSettings(): void {
   useSettingsDialogStore.getState().close()
 }
-
-/** The open section, or `null` when the dialog is closed. */
-export function useSettingsSection(): SettingsSection | null {
-  return useSettingsDialogStore((s) => s.section)
-}
