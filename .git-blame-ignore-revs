@@ -1,0 +1,9 @@
+# Revisions to skip when running `git blame`.
+#
+# Enable with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub honours this file automatically.)
+
+# chore: adopt prettier as the repository's formatter — 375 files reflowed, no
+# behaviour changed. See docs/design/2026-08-15-prettier.md.
+76b412581b4771a408c8962f345270c554e6b544
