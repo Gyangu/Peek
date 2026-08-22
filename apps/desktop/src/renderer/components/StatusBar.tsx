@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 import type { ViewState } from '@peek/core'
 import {
   RESULT_CACHE_MAX_BYTES,
@@ -52,6 +52,7 @@ export function StatusBar(): ReactElement {
   const conns = ws ? Object.values(ws.connections) : []
   const readyCount = conns.filter((c) => c.status === 'ready').length
   const cachePct = Math.round((stats.bytes / RESULT_CACHE_MAX_BYTES) * 100)
+  const showInflight = useDelayedFlag(inflight > 0, INFLIGHT_DELAY_MS)
 
   return (
     /*
@@ -101,16 +102,31 @@ export function StatusBar(): ReactElement {
         </>
       ) : null}
 
+      {/* Left of the spring, and mounted whether or not it shows anything.
+          Both halves are about the same thing: this cell used to be a
+          conditionally rendered node to the *right* of `flex-1`, so every
+          dispatch — 0 → 1 → 0 within a few milliseconds — inserted and removed a
+          box, narrowed the spring, and shoved the two buttons beside it sideways
+          and back. Clicking a status-bar button made the whole bar flinch.
+
+          `invisible` rather than unmounting keeps the box, so the width never
+          appears out of nowhere; sitting before the spring means what width it
+          does have (`1` vs `10` in flight) is absorbed there instead of moving
+          the cells on the right. Still hidden from a screen reader.
+
+          Design record: docs/design/2026-08-17-statusbar-inflight-flicker.md */}
+      <span
+        className={showInflight ? 'flex items-center gap-tight' : 'invisible flex items-center gap-tight'}
+      >
+        {t('status.inflight', { count: inflight })}
+      </span>
+
       <span className="flex-1" />
 
       {/* The window's only always-reachable way into a conversation. Everything
           else that opens one needs an *empty* panel to put it in, which is a
           state a user stops having about a minute after they start working. */}
       <ChatEntry />
-
-      {inflight > 0 ? (
-        <span className="flex items-center gap-tight">{t('status.inflight', { count: inflight })}</span>
-      ) : null}
 
       <span
         className={cachePct > 85 ? 'flex items-center gap-tight text-warn' : 'flex items-center gap-tight'}
@@ -149,6 +165,35 @@ export function StatusBar(): ReactElement {
 }
 
 /* ------------------------------------------------------------------ */
+
+/**
+ * How long a command has to be in flight before the bar admits to it.
+ *
+ * Local commands finish in single-digit milliseconds, and "a command ran for
+ * 8ms" is not a fact anyone needs; the indicator earns its place only on the
+ * slow ones. Below this threshold it never appears at all.
+ */
+const INFLIGHT_DELAY_MS = 200
+
+/**
+ * `true` once `active` has held for `delayMs`, and `false` the instant it drops.
+ *
+ * Asymmetric on purpose. The delay exists to swallow flickers on the way up; on
+ * the way down there is nothing to swallow, and every extra millisecond of a
+ * busy indicator is busyness that is not happening.
+ */
+function useDelayedFlag(active: boolean, delayMs: number): boolean {
+  const [shown, setShown] = useState(false)
+  useEffect(() => {
+    if (!active) {
+      setShown(false)
+      return
+    }
+    const timer = setTimeout(() => setShown(true), delayMs)
+    return () => clearTimeout(timer)
+  }, [active, delayMs])
+  return shown
+}
 
 /**
  * Where the focused panel sits in the tiling, as `Panel 2/4`.
