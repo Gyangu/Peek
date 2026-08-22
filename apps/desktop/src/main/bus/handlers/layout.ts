@@ -14,6 +14,7 @@ import { plain } from '../../store/workspace-store'
 import { ensureFocusedPanel } from '../../store/mutations'
 import { failMsg } from '../failure'
 import {
+  activateViewInTree,
   buildLayoutFromSpec,
   closePanel,
   moveViewToPanel,
@@ -343,9 +344,11 @@ export const layoutHandlers = {
       // each opened view is appended as a background tab, so the tab the spec
       // named stays on screen. On a leaf that mounts nothing, P1 still forces the
       // first arrival to become visible — which is exactly the documented
-      // fallback, "the first `open` leaf when `viewIds` is empty".
+      // fallback, "the first `open` leaf when `viewIds` is empty". A leaf that
+      // named `activeOpenIndex` overrides that fallback once its views exist.
       const openedViewIds: ViewId[] = []
       for (const leaf of built.leaves) {
+        const mine: ViewId[] = []
         for (const spec of leaf.open) {
           const opened = openView(draft, spec, ctx, {
             panelId: leaf.panelId,
@@ -354,6 +357,16 @@ export const layoutHandlers = {
             focus: false,
           })
           openedViewIds.push(opened.viewId)
+          mine.push(opened.viewId)
+        }
+        // `activeOpenIndex` is resolved here and nowhere earlier: it exists exactly
+        // because the view it names had no id until the loop above ran. The index
+        // is in range by schema, and `mine` is this leaf's own opens in spec order,
+        // so the lookup cannot reach another leaf's tab.
+        const wanted = leaf.activeOpenIndex === null ? undefined : mine[leaf.activeOpenIndex]
+        if (wanted !== undefined) {
+          const shown = activateViewInTree(plain(draft.layout), wanted)
+          if (shown) writeLayout(draft, shown.layout)
         }
       }
       // The schema caps each leaf, but the handler is the gate: `viewIds` and

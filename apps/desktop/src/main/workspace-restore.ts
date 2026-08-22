@@ -245,12 +245,12 @@ function panelsOf(
  * empty and carrying its key.
  *
  * The views are deliberately **not** passed as the leaf's `open` array, which
- * would build the whole workspace in one command. A leaf's `activeViewId` can
- * only name a view that already exists — a newly opened one "has no id yet",
- * as the schema puts it — so a panel of four restored tabs could not say which
- * of them was in front. Opening them separately costs a few more commands, all
- * of them before the window exists, and keeps the tab that was on screen the
- * tab that comes back.
+ * would build the whole workspace in one command. `activeOpenIndex` would now
+ * carry the "which tab was in front" half of that — it exists precisely for views
+ * a call is creating — but the ids would still be unreachable, and steps 4 and 5
+ * need them: `view.update` replays the two fields a spec cannot carry, per view.
+ * Opening them separately costs a few more commands, all of them before the window
+ * exists, and keeps every restored view addressable as it arrives.
  */
 function toLayoutSpec(node: PersistedNode, keys: Set<string>): LayoutSpecNode {
   if (node.type === 'panel') {

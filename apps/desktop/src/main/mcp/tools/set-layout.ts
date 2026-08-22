@@ -11,21 +11,26 @@
  * can name the ones that would have worked, dispatch one Command. Every rule about
  * what a tree may look like lives in `LayoutSetLayoutInputSchema`, and every rule
  * about what happens to the workspace lives in the `layout.setLayout` handler.
+ *
+ * The one rule this tool adds on its own is `requireUnplacedPolicy`: the Command
+ * still defaults to closing views the tree left out, but an MCP caller has to say
+ * so. "I meant to close those" and "I forgot them" are the same JSON otherwise,
+ * and only one of the two callers this bus has — a model writing a tree from a
+ * snapshot it read a moment ago — can make that mistake. `workspace-restore.ts`
+ * builds its tree from a file and is not asked to carry the ceremony.
  */
 
 import { z } from 'zod'
 import {
-  LayoutSetLayoutInputSchema,
   LayoutSetLayoutObjectSchema,
-  LayoutSpecPanelSchema,
-  LayoutSpecSplitSchema,
+  LayoutSpecNodeSchema,
   MAX_LAYOUT_DEPTH,
   MAX_LAYOUT_PANELS,
   MAX_PANEL_TABS,
   MAX_SPLIT_CHILDREN,
   UnplacedPolicySchema,
   ViewIdSchema,
-  type LayoutSpecNode,
+  refineLayoutSetLayoutInput,
 } from '@peek/core'
 import { defineCommandTool, outcomeData } from '../executor'
 import {
@@ -33,6 +38,7 @@ import {
   requireConnExists,
   requirePanelExists,
   requireRev,
+  requireUnplacedPolicy,
   requireViewExists,
 } from '../layout-check'
 import { renderLayoutOutline, toJson } from '../summary'
@@ -52,80 +58,56 @@ const TREE_DOC = [
   'The window you want, as a tree of two node kinds.',
   '',
   'panel leaf — one tiled pane holding a stack of tabs, of which exactly one is visible:',
-  '  {"type":"panel","viewIds":["view_2"]}',
-  '        one tab. Ids come from read_workspace; the view must already exist.',
-  '  {"type":"panel","viewIds":["view_2","view_5","view_7"],"activeViewId":"view_5"}',
-  '        three tabs in one pane, left to right in the order written, showing the middle one.',
+  '  {"type":"panel","viewIds":["view_2","view_5"],"activeViewId":"view_5"}',
+  '        two tabs, left to right as written, showing the second. Ids come from read_workspace.',
   '  {"type":"panel","open":[{"kind":"query","connId":"conn_1","text":"select 1"}]}',
-  '        open brand-new views right here; each entry takes the same spec as open_view',
-  '        (table / query / inspector / tree / vector) and becomes a tab after the "viewIds" ones.',
-  '  {"type":"panel"}',
-  '        an empty pane. Legal and ordinary — it is what a fresh window holds.',
+  '        create views right here; each entry is an open_view spec (table / query / inspector /',
+  '        tree / vector) and becomes a tab after the "viewIds" ones.',
+  '  {"type":"panel"}   an empty pane. Legal and ordinary — it is what a fresh window holds.',
   '',
   'panel leaf rules:',
-  '  "viewIds" order IS the tab-bar order and is applied exactly as written, never sorted.',
-  '  "activeViewId" must be one of this leaf\'s own "viewIds". A view created by "open" cannot be',
-  '        named there — it has no id until this call runs. Omit the field to show the first tab.',
-  '  "viewIds" and "open" combine freely in one leaf; a leaf holds at most ' +
+  '  "viewIds" order IS the tab-bar order, applied exactly as written, never sorted.',
+  '  "viewIds" and "open" combine freely; a leaf holds at most ' +
     String(MAX_PANEL_TABS) +
     ' tabs, the two counted together.',
-  '  There is no singular "viewId" field. One view is "viewIds":["view_2"].',
+  '  There is no singular "viewId" field. One view is "viewIds":["view_2"]. Unknown keys are rejected.',
   '  A view may appear in at most one leaf, once — listing it twice is rejected, not deduplicated.',
+  '  "activeViewId" must be one of this leaf\'s own "viewIds"; "activeOpenIndex" points at one of its',
+  '        "open" entries by position (0-based), which is the only way to show a view this call creates.',
+  '        Pass at most one of the two; with neither, the first tab shows.',
   '  optional "panelId": pin this leaf to an existing panel so it keeps that id',
   '  optional "key": your own label for this leaf, echoed back next to the panel id it received',
   '',
   'split node — divides its area among 2..' + String(MAX_SPLIT_CHILDREN) + ' children:',
   '  {"type":"split","dir":"row","children":[<node>,<node>],"ratio":[0.6,0.4]}',
-  '  dir "row" places children left to right, dir "col" places them top to bottom.',
-  '  "ratio" is one positive number per child and is normalized to sum to 1; omit it for equal shares.',
+  '  dir "row" places children left to right, "col" top to bottom.',
+  '  "ratio" is one positive number per child, normalized to sum to 1; omit it for equal shares.',
   '',
-  'Tabs or panes? Panes are for views the user compares side by side; tabs are for views that',
-  'share one place on screen and are switched between. Four tables to compare is four leaves;',
-  'four tables to page through is one leaf with four "viewIds".',
-  '',
-  'Example — a 2x2 grid of four open views, left column narrower:',
-  '{"tree":{"type":"split","dir":"row","ratio":[0.4,0.6],"children":[',
-  '  {"type":"split","dir":"col","children":[{"type":"panel","viewIds":["view_1"]},{"type":"panel","viewIds":["view_2"]}]},',
-  '  {"type":"split","dir":"col","children":[{"type":"panel","viewIds":["view_3"]},{"type":"panel","viewIds":["view_4"]}]}]}}',
-  '',
-  'Example — three tables stacked as tabs on the left showing the second, a query pane on the right:',
+  'Example — three tables as tabs on the left showing the second, two new queries on the right',
+  'showing the second of those, focus on the left:',
   '{"tree":{"type":"split","dir":"row","ratio":[0.6,0.4],"children":[',
   '  {"type":"panel","viewIds":["view_1","view_2","view_3"],"activeViewId":"view_2","key":"tables"},',
-  '  {"type":"panel","open":[{"kind":"query","connId":"conn_1","text":"select 1"}]}]},',
+  '  {"type":"panel","activeOpenIndex":1,"open":[',
+  '    {"kind":"query","connId":"conn_1","text":"select 1"},',
+  '    {"kind":"query","connId":"conn_1","text":"select 2"}]}]},',
   ' "focusKey":"tables"}',
 ].join('\n')
 
-/**
- * The tree schema, rebuilt over core's leaf shapes for one reason: **strictness**.
- *
- * A plain zod object silently drops keys it does not know, so a leaf written
- * `{"type":"panel","viewId":"view_1"}` — the field this schema replaced, and the
- * spelling any model that saw an older peek will reach for — parses cleanly into an
- * *empty* panel. Combined with the default `unplaced:"close"` that quietly closes
- * view_1. A dropped key must not be able to destroy a view, so unknown keys are a
- * hard error and the failure names the leaf that carried one.
- *
- * The field shapes still come from core (`LayoutSpecPanelSchema`,
- * `LayoutSpecSplitSchema`); only the recursion is restated, because `.strict()`
- * cannot reach through a `z.lazy` defined elsewhere.
- */
-const StrictSpecNodeSchema: z.ZodType<LayoutSpecNode> = z.lazy(() =>
-  z.discriminatedUnion('type', [
-    LayoutSpecPanelSchema.strict(),
-    LayoutSpecSplitSchema.safeExtend({
-      children: z.array(StrictSpecNodeSchema).min(2).max(MAX_SPLIT_CHILDREN),
-    }).strict(),
-  ]),
-)
-
 const InputObjectSchema = LayoutSetLayoutObjectSchema.safeExtend({
-  tree: StrictSpecNodeSchema.describe(TREE_DOC),
+  // The shape is core's, unknown keys and all: `LayoutSpecPanelSchema` is strict at
+  // its definition, so `{"type":"panel","viewId":"view_1"}` — the field this schema
+  // replaced, and the spelling any model that saw an older peek will reach for —
+  // is a named error rather than a silently emptied panel. Only the prose is added
+  // here.
+  tree: LayoutSpecNodeSchema.describe(TREE_DOC),
   unplaced: UnplacedPolicySchema.optional().describe(
-    'What to do with views that are open but absent from the tree. ' +
-      '"close" (default) closes them, so the tree really is the whole window. ' +
+    'What to do with views that are open but absent from the tree. Required whenever there are any: ' +
+      'a call that leaves views out without saying so is refused, and the error names them. ' +
+      '"close" closes them, so the tree really is the whole window. ' +
       '"keep" unmounts them: they stay open with no panel, invisible to the user until a later ' +
       'set_layout or move_view puts them back. ' +
-      '"error" refuses the whole call instead, which is how you find out you forgot one.',
+      '"error" refuses the call, which is how you assert that you believe the tree covers everything. ' +
+      'Omit it when the tree does cover every open view.',
   ),
   focusViewId: ViewIdSchema.optional().describe(
     'Focus the panel that ends up holding this view. Mutually exclusive with focusKey. ' +
@@ -153,19 +135,14 @@ const InputObjectSchema = LayoutSetLayoutObjectSchema.safeExtend({
 })
 
 /**
- * Whole-tree rules (duplicate ids, depth, panel count, focus targets) are
- * delegated to core's own refinement rather than restated, so the tool cannot
- * drift from the Command. Every issue keeps the path of the offending node, and
- * the executor renders those paths into the error, which is what lets the model
- * repair one leaf instead of resending the tree blind.
+ * Whole-tree rules (duplicate ids, depth, panel count, focus targets) are core's
+ * own refinement, applied here as the function it is rather than by parsing the
+ * input a second time against `LayoutSetLayoutInputSchema`. Same rules, same
+ * paths, one parse. Every issue keeps the path of the offending node, and the
+ * executor renders those paths into the error, which is what lets the model repair
+ * one leaf instead of resending the tree blind.
  */
-const InputSchema = InputObjectSchema.superRefine((value, ctx) => {
-  const checked = LayoutSetLayoutInputSchema.safeParse(value)
-  if (checked.success) return
-  for (const issue of checked.error.issues) {
-    ctx.addIssue({ code: 'custom', path: [...issue.path], message: issue.message })
-  }
-})
+const InputSchema = InputObjectSchema.superRefine(refineLayoutSetLayoutInput)
 
 /* ================================================================== */
 /* 2. Result shape (parsed rather than cast — no `any` on this path)    */
@@ -207,17 +184,22 @@ export default defineCommandTool({
     'pane; use move_view instead when a single view needs to change places. Read read_workspace ' +
     'first: the view ids and panel ids it returns are what this tool takes. ' +
     'Each panel leaf lists its tabs in "viewIds" (views that already exist) and may name which of ' +
-    'them is visible in "activeViewId"; a leaf can also carry "open" specs to create new views in ' +
-    'place (same arguments as open_view). ' +
+    'them is visible in "activeViewId", or "activeOpenIndex" to show one it creates; a leaf can also ' +
+    'carry "open" specs to create new views in place (same arguments as open_view). ' +
+    'To widen or narrow a pane in a layout that is otherwise right, use set_ratio rather than resending ' +
+    'the tree. ' +
     `Limits: at most ${String(MAX_LAYOUT_PANELS)} panels, at most ${String(MAX_PANEL_TABS)} tabs per panel, ` +
     `nesting at most ${String(MAX_LAYOUT_DEPTH)} levels deep, ` +
     `2 to ${String(MAX_SPLIT_CHILDREN)} children per split, and one view may appear in at most one panel, once. ` +
-    'Views left out of the tree are closed by default — pass unplaced:"keep" to park them instead, or ' +
-    'unplaced:"error" to be told about them rather than lose them. ' +
+    'The tree is the whole window: if any open view is missing from it, the call is refused unless you say ' +
+    'what should happen to those views — unplaced:"close" to close them, "keep" to park them offscreen, ' +
+    '"error" to assert there are none. ' +
     'The call is atomic: if any part is rejected the window does not change at all, and the error names ' +
     'the node that broke the rule.',
   inputSchema: InputSchema,
-  // destructive: the default unplaced policy closes views the tree left out.
+  // destructive: `unplaced: "close"` closes views the tree left out. It has to be
+  // asked for explicitly (see requireUnplacedPolicy), but a tool the client may
+  // auto-approve still gets the flag.
   // Not idempotent: a leaf carrying `open` creates a fresh view on every call, so a
   // client that retries "safely" would end up with duplicates.
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
@@ -242,6 +224,10 @@ export default defineCommandTool({
         requireConnExists(snap, spec.connId, `${where} open #${String(i + 1)}`)
       }
     })
+
+    // Last, so that a tree naming a view that does not exist is reported as that
+    // rather than as an incomplete window.
+    requireUnplacedPolicy(snap, input.tree, input.unplaced)
 
     return [{ name: 'layout.setLayout', input }]
   },

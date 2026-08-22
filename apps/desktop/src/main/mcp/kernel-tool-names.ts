@@ -34,6 +34,7 @@ export const KERNEL_TOOL_NAMES: readonly string[] = Object.freeze([
   'run_query',
   'send_chat',
   'set_layout',
+  'set_ratio',
 ])
 
 const LOOKUP: ReadonlySet<string> = new Set(KERNEL_TOOL_NAMES)

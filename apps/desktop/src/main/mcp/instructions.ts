@@ -110,7 +110,7 @@ ${connectExamples()}
 3. introspect — expand the namespace tree to obtain a table's ref (omit parentId for the root level).
 4. open_view — open a table as a table view, or open a query view to write SQL.
 5. run_query — run a query; the receipt carries only the first 20 rows, the full result lives in the UI for the user to scroll.
-6. set_layout / move_view / activate_view — arrange what is on screen once the views exist.
+6. set_layout / move_view / activate_view / set_ratio — arrange what is on screen once the views exist.
 
 Prefer changing the window over describing data:
 - You have a screen. Opening the table and putting it beside the query that produced it tells the user more than pasting twenty rows into a message, and it leaves them something to scroll.
@@ -122,7 +122,9 @@ Panels and tabs:
 - A view you open without naming a panel never lands on top of a conversation: peek sends it to the nearest pane that holds no chat, splitting a column off to the right when there is none, and leaves focus with the conversation. So a pane you did not ask for may appear in the effects — that is this rule, not a mistake, and the receipt names the pane the view actually went to. Naming a panelId overrides it, including the chat's own.
 
 Arranging the window:
-- set_layout describes the whole window as a tree and applies it atomically. Reach for it when several views should be visible together — a four-pane comparison is one call, not five. Each panel leaf lists its tabs in "viewIds" and may name which of them shows via "activeViewId".
+- set_layout describes the whole window as a tree and applies it atomically. Reach for it when several views should be visible together — a four-pane comparison is one call, not five. Each panel leaf lists its tabs in "viewIds" and may name which of them shows via "activeViewId", or via "activeOpenIndex" when the tab it wants to show is one the same call is creating.
+- The tree is the whole window, so a view you leave out of it is a view you are deciding about. set_layout refuses a tree that omits open views until you say which of unplaced "close" / "keep" / "error" you meant, and the refusal names them: forgetting one and closing one deliberately are otherwise the same call.
+- set_ratio resizes one split and touches nothing else — the drag of a divider. When the arrangement is right and only the proportions are wrong, use it rather than rebuilding the tree; read_workspace reports every split with its id, direction and current ratio.
 - move_view relocates a single view onto a panel. zone "center" adds it to that panel as a tab and shows it, closing and displacing nothing; "left"/"right"/"top"/"bottom" split that panel and place the view alone in the new half. These are the same five drops a human makes by dragging, so your gesture and theirs produce the same layout. Give it an index to choose the tab position, including within the view's own panel, which is how tabs are reordered.
 - activate_view switches a panel to one of its existing tabs and changes nothing else. It is the right tool when the view you want is already there but hidden.
 - All of them take the panel ids and view ids that read_workspace returns, and all refuse rather than half-apply. set_layout's expectRev guards against the user having moved something while you were thinking.

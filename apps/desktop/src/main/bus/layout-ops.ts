@@ -531,6 +531,14 @@ export interface BuiltLeaf {
    * has an id at all.
    */
   activeViewId: ViewId | null
+  /**
+   * Show the view that `open[activeOpenIndex]` produces, once it has one.
+   *
+   * Null means the leaf did not ask. It cannot be resolved to a `ViewId` here for
+   * the same reason `activeViewId` cannot name one: the views do not exist until
+   * the handler creates them, which is precisely why this is an index.
+   */
+  activeOpenIndex: number | null
   /** True when this leaf got a freshly minted panel id rather than inheriting one */
   created: boolean
 }
@@ -628,6 +636,7 @@ export function buildLayoutFromSpec(
         viewIds,
         open: [...(node.open ?? [])],
         activeViewId: node.activeViewId ?? null,
+        activeOpenIndex: node.activeOpenIndex ?? null,
         created,
       })
       // `makePanel` enforces P1/P2 rather than trusting the spec: an

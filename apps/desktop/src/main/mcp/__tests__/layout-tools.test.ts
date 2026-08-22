@@ -32,6 +32,7 @@ import readWorkspace from '../tools/read-workspace'
 import activateView from '../tools/activate-view'
 import moveView from '../tools/move-view'
 import setLayout from '../tools/set-layout'
+import setRatio from '../tools/set-ratio'
 import type { CommandDispatch, ToolContext, ToolOutput } from '../types'
 
 /* ------------------------------------------------------------------ */
@@ -204,14 +205,16 @@ test('set_layout passes a multi-tab leaf through with its tab order intact', asy
   // P6: the order of viewIds is the tab-bar order and is state, so a tool that
   // normalised or sorted it would destroy the only thing this leaf was saying.
   const tree = panelLeaf(['view_4', 'view_1', 'view_2'], { activeViewId: 'view_1' })
-  await run(setLayout, { tree }, h)
-  assert.deepEqual(h.sent[0]?.input, { tree })
+  // `unplaced` is spelled out because the tree leaves view_3 out; the point of this
+  // test is the tab order, and it travels alongside whatever policy was named.
+  await run(setLayout, { tree, unplaced: 'keep' }, h)
+  assert.deepEqual(h.sent[0]?.input, { tree, unplaced: 'keep' })
 })
 
 test('set_layout accepts a leaf that mounts existing views and opens new ones together', async () => {
   const h = harness(() => SET_LAYOUT_RESULT)
   const tree = panelLeaf(['view_1'], { open: [{ kind: 'query', connId: 'conn_1', text: 'select 1' }] })
-  const out = await run(setLayout, { tree }, h)
+  const out = await run(setLayout, { tree, unplaced: 'close' }, h)
   assert.equal(out.isError, undefined, 'viewIds and open stopped being mutually exclusive')
   assert.equal(h.sent.length, 1)
 })
@@ -226,6 +229,7 @@ test('set_layout receipt names each panel, its key, every tab and the visible on
         dir: 'row',
         children: [panelLeaf(['view_1', 'view_4'], { key: 'left', activeViewId: 'view_4' }), panelLeaf()],
       },
+      unplaced: 'close',
     },
     h,
   )
@@ -371,14 +375,14 @@ test('set_layout checks the connection of an inline open leaf', async () => {
 
 test('set_layout honours expectRev and tells the caller the revision it is behind', async () => {
   const h = harness()
-  const out = await run(setLayout, { tree: panelLeaf(['view_1']), expectRev: 3 }, h)
+  const out = await run(setLayout, { tree: panelLeaf(['view_1']), unplaced: 'close', expectRev: 3 }, h)
   assert.equal(out.isError, true)
   assert.match(out.text, /CONFLICT/)
   assert.match(out.text, /expectRev 3 does not match the workspace revision 7/)
   assert.equal(h.sent.length, 0)
 
   const ok = harness(() => SET_LAYOUT_RESULT)
-  await run(setLayout, { tree: panelLeaf(['view_1']), expectRev: 7 }, ok)
+  await run(setLayout, { tree: panelLeaf(['view_1']), unplaced: 'close', expectRev: 7 }, ok)
   assert.equal(ok.sent.length, 1, 'a matching revision goes through')
 })
 
@@ -390,6 +394,100 @@ test('a rejection catalogues every tab, marking the visible one', async () => {
   assert.match(out.text, /panel_a\[view_1\*, view_4\]/)
   assert.match(out.text, /view_4\(background tab of panel_a\)/)
   assert.match(out.text, /view_3\(unplaced\)/)
+})
+
+/* ------------------------------------------------------------------ */
+/* set_layout — the unplaced policy has to be spelled out               */
+/* ------------------------------------------------------------------ */
+
+test('set_layout refuses a tree that quietly leaves views out, and names them', async () => {
+  const h = harness(() => SET_LAYOUT_RESULT)
+  // "close view_2 and view_3" and "I forgot view_2 and view_3" are the same JSON.
+  // Only one of them is something a caller means, so neither is the default.
+  const out = await run(setLayout, { tree: panelLeaf(['view_1', 'view_4']) }, h)
+  assert.equal(out.isError, true)
+  assert.match(out.text, /CONFLICT/)
+  assert.match(out.text, /view_2/)
+  assert.match(out.text, /view_3/)
+  // The describe travels with the id: whether losing these matters is not a
+  // question an id alone can answer.
+  assert.match(out.text, /Table public\.view_2/)
+  assert.match(out.text, /unplaced:"close"/)
+  assert.equal(h.sent.length, 0, 'nothing is dispatched until the caller has said what it meant')
+})
+
+test('set_layout dispatches the same tree once the policy is named', async () => {
+  for (const unplaced of ['close', 'keep', 'error'] as const) {
+    const h = harness(() => SET_LAYOUT_RESULT)
+    const out = await run(setLayout, { tree: panelLeaf(['view_1', 'view_4']), unplaced }, h)
+    assert.equal(out.isError, undefined, `unplaced:"${unplaced}" should pass the pre-flight`)
+    assert.deepEqual(h.sent[0]?.input, { tree: panelLeaf(['view_1', 'view_4']), unplaced })
+  }
+})
+
+test('set_layout asks for no ceremony when the tree covers every open view', async () => {
+  const h = harness(() => SET_LAYOUT_RESULT)
+  const tree = {
+    type: 'split',
+    dir: 'row',
+    children: [panelLeaf(['view_1', 'view_4']), panelLeaf(['view_2', 'view_3'])],
+  }
+  const out = await run(setLayout, { tree }, h)
+  assert.equal(out.isError, undefined, 'a complete tree leaves nothing to decide')
+  assert.equal(h.sent.length, 1)
+})
+
+test('set_layout reports a missing view as missing, not as an incomplete window', async () => {
+  const h = harness()
+  // Both faults at once: view_404 does not exist *and* the tree leaves others out.
+  // The id is the one the caller can act on, so it is the one that is reported.
+  const out = await run(setLayout, { tree: panelLeaf(['view_404']) }, h)
+  assert.equal(out.isError, true)
+  assert.match(out.text, /NOT_FOUND/)
+  assert.match(out.text, /view_404 does not exist/)
+})
+
+/* ------------------------------------------------------------------ */
+/* set_ratio                                                           */
+/* ------------------------------------------------------------------ */
+
+test('set_ratio sends one layout.setRatio and reports the normalized shares', async () => {
+  const h = harness(() => ({ splitId: 'split_1', ratio: [0.65, 0.35] }))
+  const out = await run(setRatio, { splitId: 'split_1', ratio: [65, 35] }, h)
+
+  assert.equal(out.isError, undefined)
+  assert.equal(h.sent.length, 1)
+  assert.equal(h.sent[0]?.name, 'layout.setRatio')
+  assert.deepEqual(h.sent[0]?.input, { splitId: 'split_1', ratio: [65, 35] })
+  // What comes back is what the window is using, not what was sent.
+  assert.match(out.text, /0\.65 \/ 0\.35/)
+  assert.match(out.text, /Layout:\n/)
+})
+
+test('set_ratio refuses an unknown split and describes the ones that exist', async () => {
+  const h = harness()
+  const out = await run(setRatio, { splitId: 'split_404', ratio: [0.5, 0.5] }, h)
+  assert.equal(out.isError, true)
+  assert.match(out.text, /NOT_FOUND/)
+  // A stale split id looks exactly like a typo unless the reply says what is there.
+  assert.match(out.text, /split_1 \(dir=row, 2 children, ratio 0\.50\/0\.50\)/)
+  assert.equal(h.sent.length, 0)
+})
+
+test('set_ratio says how many children the split it named actually has', async () => {
+  const h = harness()
+  const out = await run(setRatio, { splitId: 'split_1', ratio: [0.5, 0.3, 0.2] }, h)
+  assert.equal(out.isError, true)
+  assert.match(out.text, /BAD_REQUEST/)
+  assert.match(out.text, /split_1 has 2 children but ratio has 3 entries/)
+  assert.equal(h.sent.length, 0)
+})
+
+test('set_ratio rejects a single-child ratio at the schema, before any snapshot is read', async () => {
+  const h = harness()
+  const out = await run(setRatio, { splitId: 'split_1', ratio: [1] }, h)
+  assert.equal(out.isError, true)
+  assert.equal(h.sent.length, 0)
 })
 
 /* ------------------------------------------------------------------ */

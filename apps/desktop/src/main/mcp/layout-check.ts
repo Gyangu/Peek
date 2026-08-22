@@ -14,13 +14,16 @@
 import {
   collectPanels,
   findPanel,
+  findSplit,
   peekError,
   type ConnId,
+  type LayoutNode,
   type LayoutSpecNode,
   type LayoutSpecPanel,
   type PanelId,
   type PeekError,
   type PeekErrorCode,
+  type SplitId,
   type ViewId,
   type ViewSummary,
   type WorkspaceSnapshot,
@@ -52,6 +55,29 @@ export function listViewIds(snap: WorkspaceSnapshot): string[] {
 
 export function listPanelIds(snap: WorkspaceSnapshot): string[] {
   return collectPanels(snap.layout).map((p) => String(p.id))
+}
+
+/**
+ * Every split in the tree, depth-first, rendered the way `set_ratio` needs to read
+ * them: which way it divides, how many children it has (which is how long a `ratio`
+ * must be), and what the shares are today.
+ *
+ * Core has `findSplit` but no `collectSplits` — nothing in the app needs the list,
+ * only this diagnostic does, so the walk lives here rather than widening core's
+ * surface for an error message.
+ */
+export function describeSplits(snap: WorkspaceSnapshot): string[] {
+  const out: string[] = []
+  const walk = (node: LayoutNode): void => {
+    if (node.type === 'panel') return
+    const shares = node.ratio.map((r) => r.toFixed(2)).join('/')
+    out.push(
+      `${String(node.id)} (dir=${node.dir}, ${String(node.children.length)} children, ratio ${shares})`,
+    )
+    for (const child of node.children) walk(child)
+  }
+  walk(snap.layout)
+  return out
 }
 
 /** Views that exist but sit in no panel — the ones only `layout.moveView` / `set_layout` can bring back. */
@@ -142,6 +168,38 @@ export function requireViewMounted(snap: WorkspaceSnapshot, viewId: ViewId, wher
   )
 }
 
+/**
+ * Refuse a `set_layout` that leaves views out without saying what becomes of them.
+ *
+ * The Command's own default is `close`, and it stays that way — a tree built from a
+ * file (`workspace-restore.ts`) never forgets a view, because it is not written from
+ * memory. A model is: it reads a snapshot, thinks, and writes a tree, and "close
+ * these three" and "I forgot these three" arrive as byte-identical JSON. So the tool
+ * makes the destructive reading the one that has to be spelled out, and names the
+ * views at stake — with their `describe`, which is the only thing that tells the
+ * caller whether losing them matters.
+ *
+ * A tree that covers everything needs no policy and gets no ceremony.
+ */
+export function requireUnplacedPolicy(
+  snap: WorkspaceSnapshot,
+  tree: LayoutSpecNode,
+  policy: 'close' | 'keep' | 'error' | undefined,
+): void {
+  if (policy !== undefined) return
+  const placed = new Set<ViewId>(collectSpecPanels(tree).flatMap((leaf) => leaf.viewIds ?? []))
+  const absent = snap.views.filter((v) => !placed.has(v.id))
+  if (absent.length === 0) return
+  const named = absent.map((v) => `${String(v.id)} (${v.describe})`).join(', ')
+  toolFail(
+    'CONFLICT',
+    `${String(absent.length)} open view(s) are absent from this tree and the call did not say what should ` +
+      `happen to them: ${named}. Add them to the tree, or pass unplaced:"close" to close them, ` +
+      '"keep" to park them offscreen, or "error" if you believe the tree already covers everything.',
+    addressableIds(snap),
+  )
+}
+
 export function requirePanelExists(
   snap: WorkspaceSnapshot,
   panelId: PanelId,
@@ -152,6 +210,34 @@ export function requirePanelExists(
   toolFail(
     code,
     `${where}: panel ${String(panelId)} does not exist. Current panels are: ${listPanelIds(snap).join(', ') || '(none)'}`,
+    addressableIds(snap),
+  )
+}
+
+/**
+ * The split must exist, and the ratio must have one entry per child.
+ *
+ * Both are refused by `layout.setRatio` as well. What is added here is the shape of
+ * the tree the caller was aiming at: a split id that has gone stale is indistinguishable
+ * from a typo unless the reply says which splits are there now, and "ratio has 3
+ * entries but the split has 2 children" is only actionable next to the split it is
+ * about. Returns nothing — like every check in this file, it either passes or throws.
+ */
+export function requireSplitRatio(snap: WorkspaceSnapshot, splitId: SplitId, ratio: number[]): void {
+  const split = findSplit(snap.layout, splitId)
+  if (split === null) {
+    const known = describeSplits(snap)
+    toolFail(
+      'NOT_FOUND',
+      `split ${String(splitId)} does not exist. Splits in the current layout: ${known.join('; ') || '(none — the window is a single panel, so there is nothing to resize)'}`,
+      addressableIds(snap),
+    )
+  }
+  if (ratio.length === split.children.length) return
+  toolFail(
+    'BAD_REQUEST',
+    `split ${String(splitId)} has ${String(split.children.length)} children but ratio has ${String(ratio.length)} entries. ` +
+      'Pass one positive number per child, in the same order as the split divides the space.',
     addressableIds(snap),
   )
 }

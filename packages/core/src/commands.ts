@@ -810,6 +810,16 @@ export interface LayoutSpecPanel {
    * first tab — `viewIds[0]`, or the first `open` leaf when `viewIds` is empty.
    */
   activeViewId?: ViewId
+  /**
+   * Show the view produced by `open[activeOpenIndex]` — the way to point at a tab
+   * that does not exist yet, which `activeViewId` cannot do by construction.
+   *
+   * Mutually exclusive with `activeViewId`: a leaf shows one tab, and two fields
+   * naming different ones is a question with no answer. The handler applies it
+   * after every spec in `open` has become a real view, because "the second one"
+   * has no id before that.
+   */
+  activeOpenIndex?: number
   /** Pin this leaf to an existing panel id, keeping panel identity across the rewrite */
   panelId?: PanelId
   /** Caller-chosen label, echoed back in the result so the caller can find this leaf's panel id */
@@ -824,14 +834,35 @@ export interface LayoutSpecSplit {
   children: LayoutSpecNode[]
 }
 
-export const LayoutSpecPanelSchema = z.object({
-  type: z.literal('panel'),
-  viewIds: z.array(ViewIdSchema).max(MAX_PANEL_TABS).optional(),
-  open: z.array(ViewOpenSpecSchema).max(MAX_PANEL_TABS).optional(),
-  activeViewId: ViewIdSchema.optional(),
-  panelId: PanelIdSchema.optional(),
-  key: z.string().min(1).max(64).optional(),
-})
+/**
+ * Strict, and that is load-bearing rather than tidy.
+ *
+ * A permissive object silently drops keys it does not know, so a leaf written
+ * `{"type":"panel","viewId":"view_1"}` — the field this schema replaced, and the
+ * spelling any model that saw an older peek will reach for — would parse cleanly
+ * into an *empty* panel, and `unplaced: "close"` would then close view_1. A
+ * dropped key must not be able to destroy a view.
+ *
+ * Strictness lives here, at the definition, rather than being re-applied by each
+ * caller: `.strict()` cannot reach through a `z.lazy` from outside, so a caller
+ * that wanted it had to restate the whole recursion — a copy that then drifts.
+ */
+export const LayoutSpecPanelSchema = z
+  .object({
+    type: z.literal('panel'),
+    viewIds: z.array(ViewIdSchema).max(MAX_PANEL_TABS).optional(),
+    open: z.array(ViewOpenSpecSchema).max(MAX_PANEL_TABS).optional(),
+    activeViewId: ViewIdSchema.optional(),
+    activeOpenIndex: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_PANEL_TABS - 1)
+      .optional(),
+    panelId: PanelIdSchema.optional(),
+    key: z.string().min(1).max(64).optional(),
+  })
+  .strict()
 
 /**
  * The recursion is expressed with `z.lazy` plus an explicit type annotation,
@@ -845,12 +876,15 @@ export const LayoutSpecNodeSchema: z.ZodType<LayoutSpecNode> = z.lazy(() =>
   z.discriminatedUnion('type', [LayoutSpecPanelSchema, LayoutSpecSplitSchema]),
 )
 
-export const LayoutSpecSplitSchema = z.object({
-  type: z.literal('split'),
-  dir: z.enum(['row', 'col']),
-  ratio: z.array(z.number().positive()).optional(),
-  children: z.array(LayoutSpecNodeSchema).min(2).max(MAX_SPLIT_CHILDREN),
-})
+/** Strict for the reason `LayoutSpecPanelSchema` is, and so the recursion stays strict throughout. */
+export const LayoutSpecSplitSchema = z
+  .object({
+    type: z.literal('split'),
+    dir: z.enum(['row', 'col']),
+    ratio: z.array(z.number().positive()).optional(),
+    children: z.array(LayoutSpecNodeSchema).min(2).max(MAX_SPLIT_CHILDREN),
+  })
+  .strict()
 
 /** What becomes of views that are open but absent from the target tree */
 export const UnplacedPolicySchema = z.enum(['close', 'keep', 'error'])
@@ -891,8 +925,17 @@ export const LayoutSetLayoutObjectSchema = z.object({
  * Whole-tree validation. Everything here is a rule that cannot be expressed on a
  * single node, and every issue carries the path of the node that broke it, so an
  * AI reading the failure can fix that node instead of resending the tree blind.
+ *
+ * A named function rather than an inline closure because it has two callers: the
+ * schema below, and the `set_layout` MCP tool, which re-describes these fields for
+ * a model and therefore cannot use the schema itself. Sharing the function is what
+ * stops the tool from having to parse its input a second time against this schema
+ * just to borrow its rules.
  */
-export const LayoutSetLayoutInputSchema = LayoutSetLayoutObjectSchema.superRefine((value, ctx) => {
+export function refineLayoutSetLayoutInput(
+  value: z.infer<typeof LayoutSetLayoutObjectSchema>,
+  ctx: z.RefinementCtx,
+): void {
   const viewIds = new Set<string>()
   const panelIds = new Set<string>()
   const keys = new Set<string>()
@@ -939,8 +982,28 @@ export const LayoutSetLayoutInputSchema = LayoutSetLayoutObjectSchema.superRefin
           path: [...path, 'activeViewId'],
           message:
             `activeViewId ${node.activeViewId} is not among this panel's viewIds. ` +
-            'A view opened by `open` cannot be named here — it has no id yet; omit the field to show the first tab.',
+            'A view opened by `open` cannot be named here — it has no id yet; use activeOpenIndex to point at ' +
+            'one of them by position, or omit both fields to show the first tab.',
         })
+      }
+      if (node.activeOpenIndex !== undefined) {
+        if (node.activeViewId !== undefined) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [...path, 'activeOpenIndex'],
+            message:
+              'Pass activeViewId or activeOpenIndex, not both — a panel shows one tab. ' +
+              'activeViewId names a view that already exists; activeOpenIndex points into this leaf `open` array.',
+          })
+        }
+        const openCount = node.open?.length ?? 0
+        if (node.activeOpenIndex >= openCount) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [...path, 'activeOpenIndex'],
+            message: `activeOpenIndex ${String(node.activeOpenIndex)} is out of range: this leaf opens ${String(openCount)} view(s)`,
+          })
+        }
       }
       if (node.panelId !== undefined) {
         if (panelIds.has(node.panelId)) {
@@ -1001,7 +1064,9 @@ export const LayoutSetLayoutInputSchema = LayoutSetLayoutObjectSchema.superRefin
       message: `View ${value.focusViewId} is not placed anywhere in the tree`,
     })
   }
-})
+}
+
+export const LayoutSetLayoutInputSchema = LayoutSetLayoutObjectSchema.superRefine(refineLayoutSetLayoutInput)
 
 /* ---- Chat (M6) ----------------------------------------------------- */
 

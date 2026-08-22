@@ -1748,6 +1748,76 @@ test('layout.setLayout: an open leaf creates its view through the same helper vi
   assert.deepEqual(tabs(next.layout), [['view_1*'], ['n_view1*']])
 })
 
+test('layout.setLayout: activeOpenIndex shows a view this very call created', () => {
+  const state = workspaceOf(panel('a', 'view_1'), ['view_1'], 'a')
+  const { state: next, result } = runSetLayout(state, {
+    tree: {
+      type: 'split',
+      dir: 'row',
+      children: [
+        specPanel('view_1'),
+        specPanel(undefined, {
+          // The one thing `activeViewId` cannot express: none of these three exists
+          // yet, so there is no id to name — only a position.
+          activeOpenIndex: 1,
+          open: [
+            { kind: 'query', connId: CONN, text: 'select 1' },
+            { kind: 'query', connId: CONN, text: 'select 2' },
+            { kind: 'query', connId: CONN, text: 'select 3' },
+          ],
+        }),
+      ],
+    },
+  })
+
+  assert.deepEqual(result.openedViewIds, [asViewId('n_view1'), asViewId('n_view2'), asViewId('n_view3')])
+  // All three are tabs of the new panel, in spec order, and the middle one is the
+  // one on screen rather than the first arrival P1 would otherwise have left there.
+  assert.deepEqual(tabs(next.layout), [['view_1*'], ['n_view1', 'n_view2*', 'n_view3']])
+  assert.deepEqual(
+    result.panels[1],
+    appliedPanel(asPanelId('n_panel1'), ['n_view1', 'n_view2', 'n_view3'], 'n_view2'),
+  )
+})
+
+test('layout.setLayout: activeOpenIndex counts within its own leaf, not across the tree', () => {
+  const state = workspaceOf(panel('a', 'view_1'), ['view_1'], 'a')
+  const { state: next } = runSetLayout(state, {
+    tree: {
+      type: 'split',
+      dir: 'row',
+      children: [
+        specPanel(undefined, { open: [{ kind: 'query', connId: CONN, text: 'a' }] }),
+        specPanel(undefined, {
+          activeOpenIndex: 0,
+          open: [
+            { kind: 'query', connId: CONN, text: 'b' },
+            { kind: 'query', connId: CONN, text: 'c' },
+          ],
+        }),
+        specPanel('view_1'),
+      ],
+    },
+  })
+
+  // Index 0 is this leaf's first open (n_view2), never the tree's first (n_view1).
+  assert.deepEqual(tabs(next.layout), [['n_view1*'], ['n_view2*', 'n_view3'], ['view_1*']])
+})
+
+test('layout.setLayout: activeOpenIndex survives a leaf that also mounts existing tabs', () => {
+  const state = workspaceOf(panel('a', 'view_1'), ['view_1'], 'a')
+  const { state: next } = runSetLayout(state, {
+    tree: specPanel('view_1', {
+      activeOpenIndex: 0,
+      open: [{ kind: 'query', connId: CONN, text: 'select 1' }],
+    }),
+  })
+
+  // The mounted tab would have been the visible one by P1; the newly opened tab
+  // takes the screen because the leaf asked for it by position.
+  assert.deepEqual(tabs(next.layout), [['view_1', 'n_view1*']])
+})
+
 test('layout.setLayout (I12): a failing open leaf takes the whole command down, leaving no half-built tree', () => {
   const state = workspaceOf(rowOf(panel('a', 'view_1'), panel('b', 'view_2')), ['view_1', 'view_2'], 'a')
   const failure = expectFailure(() =>
@@ -1907,6 +1977,27 @@ test('layout.setLayout: the schema rejects malformed trees with a path to the of
   bad(
     { tree: specPanel('view_1', { activeViewId: asViewId('view_2') }) },
     /activeViewId view_2 is not among this panel's viewIds/,
+  )
+  // `activeOpenIndex` is the escape hatch for exactly that case, and it answers to
+  // rules of its own: it points into this leaf's `open`, and a leaf shows one tab.
+  bad(
+    {
+      tree: specPanel(undefined, {
+        activeOpenIndex: 2,
+        open: [{ kind: 'query', connId: CONN }],
+      }),
+    },
+    /activeOpenIndex 2 is out of range: this leaf opens 1 view/,
+  )
+  bad(
+    {
+      tree: specPanel('view_1', {
+        activeViewId: asViewId('view_1'),
+        activeOpenIndex: 0,
+        open: [{ kind: 'query', connId: CONN }],
+      }),
+    },
+    /Pass activeViewId or activeOpenIndex, not both/,
   )
   bad({ tree: specPanel(), focusKey: 'nope' }, /No panel in the tree carries key nope/)
   bad(
