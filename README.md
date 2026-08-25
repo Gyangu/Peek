@@ -37,6 +37,22 @@ the app, so the agent you talk to drives the window it lives in.
 
 **Databases:** PostgreSQL · MySQL · SQLite · Redis · Qdrant · Neo4j
 
+## Install
+
+Download `peek-v0.0.1-macos-arm64.zip` from
+[Releases](https://github.com/Gyangu/peek-viewer/releases), unzip, and drop `peek.app` into
+Applications. Apple Silicon only for now.
+
+> **This build is ad-hoc signed** (no Developer ID yet), so macOS will refuse the downloaded app
+> as "damaged" on first launch. Clear the quarantine flag once and it opens normally:
+>
+> ```bash
+> xattr -d com.apple.quarantine /Applications/peek.app
+> ```
+>
+> Alternatively: System Settings → Privacy & Security → "Open Anyway". A signed and notarized
+> build is planned.
+
 ## Quick start
 
 Requirements: **Node ≥ 22**, **pnpm 10.32.1** (pinned via `packageManager`), and a database to
