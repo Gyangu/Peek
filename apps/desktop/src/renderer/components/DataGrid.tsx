@@ -75,7 +75,18 @@ import { HEAD_H, ROW_H, VScrollDriver, rowTopIn } from './vscroll'
  *   keeps row props constant while scrolling, so re-renders are skipped wholesale.
  * ================================================================== */
 
-const GUTTER_W = 54
+/**
+ * The row-number gutter, stated twice: `w-gutter` on the three gutter elements
+ * resolves to `--spacing-gutter`, and this is the same number, because every
+ * column is laid out from it — `totalWidth`, the hit test, and the `left` of
+ * every header and data cell.
+ *
+ * The two drifted for twenty days: the token was narrowed to 48px in the
+ * Tailwind migration and this constant stayed at 54, leaving a 6px band between
+ * the gutter and column one (design 2026-08-24). `grid-layout.test.ts` now nails
+ * them together, the way it already did for `--spacing-row` and `ROW_H`.
+ */
+const GUTTER_W = 48
 const COL_OVERSCAN = 3
 
 export interface DataGridProps {
@@ -1077,7 +1088,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
               strip below is a piece of the *panel's* furniture, so its width has
               the panel as a floor and the content only as a ceiling. Without it
               the strip is exactly `totalWidth` wide and stops dead mid-panel —
-              a 54px stub over the empty-state hint when there are no columns at
+              a 48px stub over the empty-state hint when there are no columns at
               all, a severed bottom rule when the columns simply don't fill the
               width. `min-width: 100%` resolves against the *containing block*,
               which for the strip is this node, so the floor has to be passed
@@ -1450,7 +1461,7 @@ const ROWNUM_CLASS =
 /* Hue and shape, and the shape is the half that survives a colour-vision
    difference: --shadow-gutter-sel is a 2px accent rule down the one column that
    is still on screen however far right a wide table is scrolled. Inset, so it
-   costs no layout — a left border would eat 2px out of the 54px gutter and shove
+   costs no layout — a left border would eat 2px out of the 48px gutter and shove
    the number sideways. */
 const ROWNUM_SELECTED_CLASS =
   'grid-rownum sticky left-0 z-2 inline-block align-top w-gutter h-row leading-row pr-control-x text-right font-mono text-micro text-accent bg-rownum-sel shadow-gutter-sel overflow-hidden cursor-pointer'

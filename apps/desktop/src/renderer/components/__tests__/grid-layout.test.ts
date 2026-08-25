@@ -309,6 +309,30 @@ describe('the row paints its cells through a group, not through descendant selec
     )
   })
 
+  it('the gutter width is one number in two places', () => {
+    // The horizontal twin of the test above, and the one that was missing.
+    // --spacing-gutter → `w-gutter` on the gutter elements; GUTTER_W → the
+    // origin every column is laid out from. They drifted between 2026-08-04 and
+    // 2026-08-24 — token narrowed to 48px, constant left at 54 — and the 6px
+    // band that opened between the gutter and column one was reported by
+    // nothing, because both sides stayed self-consistent (design 2026-08-24).
+    for (const name of ['ROWNUM_CLASS', 'ROWNUM_SELECTED_CLASS']) {
+      assert.ok(
+        constant(GRID_TSX, name).split(/\s+/).includes('w-gutter'),
+        `${name} must take its width from --spacing-gutter, not from a number`,
+      )
+    }
+    const spacing = /--spacing-gutter:\s*([0-9.]+)px/.exec(src('../../styles.css'))
+    assert.ok(spacing, '--spacing-gutter is gone from @theme')
+    const gutterW = /const GUTTER_W\s*=\s*([0-9.]+)/.exec(GRID_TSX)
+    assert.ok(gutterW, 'GUTTER_W is gone from DataGrid.tsx')
+    assert.equal(
+      Number(spacing![1]),
+      Number(gutterW![1]),
+      '--spacing-gutter and GUTTER_W have drifted apart: a band opens between the gutter and column one',
+    )
+  })
+
   it('the grid section declares nothing that would silently outrank the class lists', () => {
     // This sheet is unlayered, so it beats every utility for any property it
     // names. That is safe only while it names one: `font-size`, which no class
