@@ -776,6 +776,282 @@ assert.deepEqual(
     `  take the name off the blocklist and reword the comments that were relying on it being dead.\n`,
 )
 
+/* ------------------------------------------------ the shadowed utilities */
+
+/**
+ * Every top-level rule in the artifact, as its prelude plus the declarations it
+ * makes, in order and with their values.
+ *
+ * `preludes()` above reads the same grammar for selector text and `declarations()`
+ * for property text; neither keeps the pairing, and the pairing is the whole
+ * question here — "which properties arrived together, inside one pair of
+ * braces".
+ *
+ * Order and values are kept because one of the two checks below is about a rule
+ * declaring one property twice, where the *later* value is the one that paints
+ * and the earlier one is what somebody thought they had written.
+ *
+ * **`@layer` is transparent; only conditional at-rules are not.** Rules under
+ * `@media` / `@supports` / `@container` are dropped, because a variant restating
+ * its own selector under a condition is not a collision. `@layer` is neither:
+ * it moves a rule's cascade layer without changing what it matches, and Tailwind
+ * v4 ships every utility inside `@layer utilities{…}` — so treating it as a
+ * conditional context skips the entire body of the stylesheet and leaves an
+ * assertion that can only pass. That is not hypothetical: the first version of
+ * this check did exactly that, and was caught by the one verification step that
+ * matters, reintroducing the bug and watching the guard say nothing.
+ */
+const CONDITIONAL_AT_RULE = /^@(media|supports|container|scope)\b/
+
+function topLevelRules(css) {
+  const out = []
+  const stack = []
+  let buf = ''
+  let i = 0
+  const declaration = (text) => {
+    const trimmed = text.trim()
+    const colon = trimmed.indexOf(':')
+    if (colon === -1 || trimmed.startsWith('@')) return null
+    return { name: trimmed.slice(0, colon).trim(), value: trimmed.slice(colon + 1).trim() }
+  }
+  while (i < css.length) {
+    const c = css[i]
+    if (c === '/' && css[i + 1] === '*') {
+      const end = css.indexOf('*/', i + 2)
+      i = end === -1 ? css.length : end + 2
+      continue
+    }
+    if (c === '"' || c === "'") {
+      let j = i + 1
+      while (j < css.length && css[j] !== c && css[j] !== '\n') {
+        if (css[j] === '\\') j += 1
+        j += 1
+      }
+      if (css[j] === c) {
+        i = j + 1
+        buf += ' '
+        continue
+      }
+    }
+    if (c === '{') {
+      stack.push({ prelude: buf.trim(), decls: [] })
+      buf = ''
+      i += 1
+      continue
+    }
+    if (c === ';') {
+      const decl = declaration(buf)
+      if (decl && stack.length > 0) stack[stack.length - 1].decls.push(decl)
+      buf = ''
+      i += 1
+      continue
+    }
+    if (c === '}') {
+      const decl = declaration(buf)
+      const frame = stack.pop()
+      if (frame) {
+        if (decl) frame.decls.push(decl)
+        const conditional = stack.some((f) => CONDITIONAL_AT_RULE.test(f.prelude))
+        if (!conditional && !frame.prelude.startsWith('@') && frame.decls.length > 0) out.push(frame)
+      }
+      buf = ''
+      i += 1
+      continue
+    }
+    buf += c
+    i += 1
+  }
+  return out
+}
+
+/**
+ * Logical properties folded onto the physical ones they are the same property
+ * as, under this window's writing mode.
+ *
+ * Without this the check reads `.inline-block{inline-size}` and
+ * `.w-gutter{width}` as two unrelated properties, which is exactly the blindness
+ * that let a token override a width for as long as it did.
+ */
+const PHYSICAL = {
+  'inline-size': 'width',
+  'min-inline-size': 'min-width',
+  'max-inline-size': 'max-width',
+  'block-size': 'height',
+  'min-block-size': 'min-height',
+  'max-block-size': 'max-height',
+}
+const physical = (p) => PHYSICAL[p] ?? p
+
+/*
+ * **One class selector, one utility.**
+ *
+ * Tailwind mints a utility per token in a namespace, and a token whose name
+ * happens to be a built-in utility's name mints a second rule under that same
+ * name. Both ship. Same specificity, so the later one wins, and it wins against
+ * every element wearing the built-in — silently, because the source is correct
+ * at every point a reader would look: the token holds the right value, the class
+ * is on the element, and the utility it was meant to be compiles exactly as
+ * written.
+ *
+ * `--spacing-block: 24px` did this on 2026-08-24. It minted
+ * `.inline-block{inline-size:var(--spacing-block)}` beside the built-in
+ * `.inline-block{display:inline-block}`, which pinned the row-number gutter to
+ * 24px against its 48px token and clipped every row number past 99. See
+ * `design/2026-08-24-a-spacing-token-shadowed-a-display-utility.md`.
+ *
+ * The two rules above this one cannot see it. "No rule ships that no element
+ * wears" passes — `.inline-block` is worn by three elements in `DataGrid`, and
+ * the rule that is worn is the legitimate one. "No colour ships unaccounted"
+ * passes — it is not a colour. What is wrong is not any single rule but the
+ * fact that there are two, and only the artifact knows there are two.
+ *
+ * **The collision ships in two shapes, and they need two different checks.**
+ * Which one you get depends on whether the two utilities sort next to each other
+ * in the emitted sheet, which depends on whether they came from the same utility
+ * root. `display` and `inline-size` do not, so they stay two rules. `width` and
+ * `width` do, so Tailwind merges them into one rule that sets the property twice:
+ *
+ *     .inline-block{display:inline-block}                  ← two rules, checked below
+ *     .inline-block{inline-size:var(--spacing-block)}
+ *
+ *     .w-full{width:100%;width:var(--spacing-full)}         ← one rule, checked after
+ *
+ * The one-rule shape is the common one by two orders of magnitude. Measured over
+ * Tailwind 4.3.3's 23,286 built-in class names, `--spacing-px` would silently
+ * rewrite 112 of them, `--spacing-full` 40, `--spacing-auto` 34, and so on down
+ * `fit` / `min` / `max` / `screen` / `dvh` / `lvh` / `svh` / `none` — 271 in
+ * total. The four names that produce the two-rule shape rewrite one utility each.
+ * See `design/2026-08-24-three-claims-nothing-checks.md`.
+ */
+const byPrelude = new Map()
+for (const sheet of sheets) {
+  for (const rule of topLevelRules(sheet.css)) {
+    if (!/^\.[^,\s>+~:[]+$/.test(rule.prelude)) continue
+    const props = new Set(rule.decls.map((d) => physical(d.name)))
+    const seen = byPrelude.get(rule.prelude) ?? []
+    seen.push({ props, decls: rule.decls, sheet: sheet.name })
+    byPrelude.set(rule.prelude, seen)
+  }
+}
+
+/**
+ * The properties a rule actually paints with, custom properties excluded.
+ *
+ * Tailwind splits one utility across several rules on purpose: `.bg-linear-to-r`
+ * sets `--tw-gradient-position` in one and reads it from `background-image` in
+ * another, and `.from-accent/10` sets two `--tw-gradient-*` variables and paints
+ * nothing at all. Those rule sets are disjoint by construction and entirely
+ * legitimate — they are one utility assembling itself, not two utilities under
+ * one name. Both showed up as false positives the first time this check ran.
+ *
+ * A custom property declaration is an assignment, not a paint, so a rule that
+ * only assigns cannot be shadowing anything. The collision this check exists for
+ * needs two rules that both reach a pixel.
+ */
+const paints = (props) => [...props].filter((p) => !p.startsWith('--'))
+
+/*
+ * Shape one: two rules under one name, sharing no property.
+ *
+ * Disjoint property sets are the signal. Two rules that set overlapping
+ * properties are one utility being progressively enhanced; two rules under one
+ * name that touch nothing in common are two different utilities that collided.
+ */
+const shadowed = []
+for (const [prelude, rules] of byPrelude) {
+  if (rules.length < 2) continue
+  for (let a = 0; a < rules.length; a += 1) {
+    for (let b = a + 1; b < rules.length; b += 1) {
+      const paintsA = paints(rules[a].props)
+      const paintsB = paints(rules[b].props)
+      if (paintsA.length === 0 || paintsB.length === 0) continue
+      const overlap = paintsA.some((p) => rules[b].props.has(p))
+      if (!overlap) {
+        shadowed.push(
+          `${prelude}  (${rules[a].sheet})\n` +
+            `        rule 1 sets: ${[...rules[a].props].sort().join(', ')}\n` +
+            `        rule 2 sets: ${[...rules[b].props].sort().join(', ')}`,
+        )
+      }
+    }
+  }
+}
+shadowed.sort()
+
+assert.deepEqual(
+  shadowed,
+  [],
+  `${String(shadowed.length)} class selector(s) ship as two rules that have no property in ` +
+    `common:\n` +
+    shadowed.map((line) => `    ${line}`).join('\n') +
+    `\n\n` +
+    `  That is two different utilities minted under one name, and the later one silently wins on\n` +
+    `  every element wearing the earlier. The usual cause is a token whose name collides with a\n` +
+    `  built-in utility: Tailwind generates \`inline-<name>\`, \`w-<name>\`, \`p-<name>\` and friends\n` +
+    `  for every token in a namespace, so a \`--spacing-block\` mints \`.inline-block\` beside the\n` +
+    `  display utility, and \`flex\`, \`grid\` and \`table\` would do the same. Those four names are\n` +
+    `  the whole of what this assertion can see; the rest of the family collides inside a single\n` +
+    `  rule and is caught by the one below.\n\n` +
+    `  Rename the token. The value is fine; the name is the bug. Nothing in source can show you\n` +
+    `  this — the class is spelled once, on an element, and looks exactly like the utility it was\n` +
+    `  meant to be. See design/2026-08-24-a-spacing-token-shadowed-a-display-utility.md.\n`,
+)
+
+/*
+ * Shape two: one rule, one property, two values.
+ *
+ * Cheaper than the check above and it covers the larger half of the family. When
+ * the colliding utilities set the same property, Tailwind emits them into one
+ * rule and the later declaration wins — `.w-full{width:100%;width:var(…)}` — so
+ * there is no second rule for the comparison above to find.
+ *
+ * Blunt on purpose. Today's artifact repeats no property in any of its
+ * single-class rules, so nothing legitimate is in the way, and that also
+ * disproves what this file assumed when it first went in: that Lightning CSS
+ * routinely emits `width:var(…);width:var(…)` fallback pairs inside one rule.
+ * It emits none here. Should a future version start to, this will name the
+ * selector and both values, and the answer is to allow that pair by name rather
+ * than to stop looking.
+ *
+ * Repeats of the *same* value stay legal — they paint identically, so nothing is
+ * being overridden.
+ */
+const overridden = []
+for (const [prelude, rules] of byPrelude) {
+  for (const rule of rules) {
+    const values = new Map()
+    for (const decl of rule.decls) {
+      if (decl.name.startsWith('--')) continue
+      const prop = physical(decl.name)
+      values.set(prop, [...(values.get(prop) ?? []), decl.value])
+    }
+    for (const [prop, seen] of values) {
+      if (new Set(seen).size < 2) continue
+      overridden.push(`${prelude}  (${rule.sheet})\n        ${prop}: ${seen.join('   then   ')}`)
+    }
+  }
+}
+overridden.sort()
+
+assert.deepEqual(
+  overridden,
+  [],
+  `${String(overridden.length)} class rule(s) declare one property twice with two different ` +
+    `values:\n` +
+    overridden.map((line) => `    ${line}`).join('\n') +
+    `\n\n` +
+    `  The last value is the one that paints, and it paints on every element wearing the class.\n` +
+    `  This is the same collision the assertion above describes, seen from the side where the two\n` +
+    `  utilities set the *same* property and Tailwind merges them into one rule. It is by far the\n` +
+    `  more common side: measured over Tailwind 4.3.3's built-in class list, a \`--spacing-px\`\n` +
+    `  rewrites 112 built-in utilities, \`--spacing-full\` 40, \`--spacing-auto\` 34, and\n` +
+    `  \`fit\`, \`min\`, \`max\`, \`screen\`, \`dvh\`, \`lvh\`, \`svh\` and \`none\` account for the rest.\n\n` +
+    `  Rename the token. If instead this is a deliberate fallback pair that some later version of\n` +
+    `  Lightning CSS has started emitting, say so here by name — the shipped artifact contained no\n` +
+    `  such pair when this check was written, and a check that stops looking is the failure mode\n` +
+    `  this file exists to deny. See design/2026-08-24-three-claims-nothing-checks.md.\n`,
+)
+
 /* ----------------------------------------------------------- the colours */
 
 /**

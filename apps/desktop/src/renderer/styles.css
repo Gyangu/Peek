@@ -699,8 +699,28 @@
   /* 一个面板里组↔组。工具条的两簇之间、表单的两个 section 之间。 */
   --spacing-loose: 16px;
 
-  /* 块↔块，以及对话框正文的内缩。**等于一行**，那是有意的。 */
-  --spacing-block: 24px;
+  /*
+   * 块↔块，以及对话框正文的内缩。**等于一行**，那是有意的。
+   *
+   * **这一档不能叫 `block`，别改回去。** Tailwind 会给 `--spacing-*` 里的每个
+   * token 生成一个 `inline-<名字>` 工具类，于是 `--spacing-block` 铸出了
+   * `.inline-block{inline-size:var(--spacing-block)}` —— 和内置的
+   * `.inline-block{display:inline-block}` 同名、同优先级、排在后面。
+   * `inline-size` 就是 `width`，所以它把 `.grid-rownum` 的 `w-gutter` 从 48px
+   * 压成了 24px，行号从第 100 行起全是错的，而源码里三样东西都是对的：token
+   * 是 48px、类名在元素上、编译出的 `.w-gutter` 规则一字不差。
+   *
+   * 同理不能叫 `flex` / `grid` / `table`，它们撞的是同一族 `inline-*`。更危险的
+   * 是 Tailwind 已经拿去当**间距值**的那些名字：`px` / `full` / `auto` / `fit` /
+   * `min` / `max` / `none` / `screen` / `dvh` / `lvh` / `svh`。这些撞出来的是
+   * `.w-full{width:100%;width:var(--spacing-full)}` —— 一条规则里写两遍，一个
+   * `--spacing-px` 就改写 112 个内置工具类。`inline` 反倒安全，`.inline-inline`
+   * 不是内置工具类。见
+   * `design/2026-08-24-a-spacing-token-shadowed-a-display-utility.md` 与
+   * `design/2026-08-24-three-claims-nothing-checks.md`；`audit-shipped-css.mjs`
+   * 用两条规则从产物那一侧分别盯着这两种形状。
+   */
+  --spacing-stack: 24px;
 
   /* 模态框最外层、空态四周。全窗口只有这两类地方。 */
   --spacing-page: 32px;
@@ -975,7 +995,7 @@
    *
    * Inset, and a shadow rather than a border, because it has to cost no layout:
    * `box-sizing: border-box` is set on everything in base.css, so a 2px left
-   * border would take those pixels out of a 54px content box and shove the row
+   * border would take those pixels out of a 48px content box and shove the row
    * number sideways every time a row was selected. It is the only shadow in
    * this block that is not a float — it is a rule, and it is here because a
    * `box-shadow` can only be named from JSX through this namespace.
