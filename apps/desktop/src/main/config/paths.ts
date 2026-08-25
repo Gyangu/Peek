@@ -1,5 +1,5 @@
 /**
- * Where peek keeps what it writes: four files, and one subtree.
+ * Where peek keeps what it writes: four files, and three subtrees.
  *
  * `~/.peek` was already the home of `mcp.json`; the connection book, the
  * settings file and the workspace join it rather than spreading into Electron's
