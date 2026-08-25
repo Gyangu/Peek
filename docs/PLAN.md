@@ -582,7 +582,7 @@ chunk frame format (columnar, leaving room for a future switch to Arrow/ArrayBuf
 ```ts
 { resultId, seq, schema?: ColumnDef[],   // first frame carries schema
   cols: unknown[][],                     // stored by column
-  done?: { rows: number; elapsedMs: number } }
+  done?: { rows: number; elapsedMs: number } }  // elapsedMs excludes backpressure parks
 ```
 ## 9. Milestones
 

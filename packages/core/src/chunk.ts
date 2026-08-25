@@ -54,7 +54,17 @@ export interface ColumnDef {
 export interface ChunkDone {
   /** Total rows in this result set */
   rows: number
-  /** Milliseconds from start to finish, measured by the driver host */
+  /**
+   * The query's own time in milliseconds — the cursor's wall clock less every
+   * interval the pump spent parked waiting for the data port or for an ack.
+   *
+   * **Not a wall clock** (design 2026-08-25). Backpressure means a result set
+   * stays open for as long as its reader takes to scroll, and charging that to
+   * the query put `40.81 s` next to a million rows that cost 2.1s to produce.
+   * The subtraction happens in the pump, not in the cursor: driver packages load
+   * from disk, and a figure describing a driver's cost is not one that driver
+   * gets to report unchecked.
+   */
   elapsedMs: number
   /** Cut short by the maxRows ceiling (more data is still available) */
   truncated?: boolean
@@ -152,7 +162,15 @@ export function truncatedValue(
 export interface ResultPause {
   /** Rows emitted before the pause */
   rows: number
-  /** Milliseconds from start to pause */
+  /**
+   * The query's own time in milliseconds up to the pause — the same measure as
+   * `ChunkDone.elapsedMs`, and for the same reason.
+   *
+   * A pause fires *because* the idle ceiling elapsed with no ack, so that whole
+   * timeout is parked time and none of it is here. Expect a small number: it is
+   * what the driver spent producing the rows it did deliver. What a reader wants
+   * from a paused result is `rows` and `reason`, both beside this.
+   */
   elapsedMs: number
   /** Why it paused; currently only "idle ack timeout" */
   reason: 'idleAck'

@@ -19,6 +19,7 @@ import {
 import {
   ACK_WINDOW,
   VALUE_PEEK_MAX_BYTES,
+  type ChunkFrame,
   type ResultPause,
   type ResultStreamAck,
   type ResultStreamMessage,
@@ -208,6 +209,12 @@ class StreamPump {
   private stopped = false
   private rows = 0
   private readonly startedAt = Date.now()
+  /**
+   * Wall time spent parked — waiting for the data port, or for an ack. That is
+   * the reader's pace, not the query's, and it is subtracted out before any
+   * elapsed time reaches a reader (design 2026-08-25).
+   */
+  private stalledMs = 0
   /** Signal rejected by stop(), used to break awaits that never look at the stopped flag */
   private readonly stopSignal: Promise<never>
   private stopReject: ((reason: unknown) => void) | null = null
@@ -249,6 +256,27 @@ class StreamPump {
     if (fn) fn()
   }
 
+  /** Time `work` and bank it as stall: every await it wraps is a wait on the reader. */
+  private async stall<T>(work: Promise<T>): Promise<T> {
+    const parked = Date.now()
+    try {
+      return await work
+    } finally {
+      this.stalledMs += Date.now() - parked
+    }
+  }
+
+  /**
+   * A cursor's wall clock, less everything spent parked — the query's own time.
+   *
+   * Clamped at zero. The cursor's clock and this one are independent `Date.now()`
+   * readings taken from different starting points, and a negative duration is
+   * never the right thing to show anybody.
+   */
+  private queryMs(wallMs: number): number {
+    return Math.max(0, wallMs - this.stalledMs)
+  }
+
   /**
    * Suspend once ACK_WINDOW frames are unacknowledged, until an ack arrives.
    * Suspending longer than idleAckMs returns 'paused', which packs the stream up
@@ -277,7 +305,7 @@ class StreamPump {
   private announcePause(): void {
     const pause: ResultPause = {
       rows: this.rows,
-      elapsedMs: Date.now() - this.startedAt,
+      elapsedMs: this.queryMs(Date.now() - this.startedAt),
       reason: 'idleAck',
       // English literal on purpose: this text is written into workspace state and
       // read back by MCP, which stays English forever.
@@ -298,8 +326,8 @@ class StreamPump {
         // backpressure. **It has to stay interruptible**: otherwise a query issued
         // before attachPort wedges here forever, cancellation cannot wake it, and
         // the cursor holds its server-side resources indefinitely.
-        const port = await Promise.race([this.host.waitPort(), this.stopSignal])
-        if ((await this.waitWindow()) === 'paused') {
+        const port = await this.stall(Promise.race([this.host.waitPort(), this.stopSignal]))
+        if ((await this.stall(this.waitWindow())) === 'paused') {
           this.announcePause()
           break
         }
@@ -317,21 +345,30 @@ class StreamPump {
           })
         }
 
-        const msg: ResultStreamMessage = { t: 'chunk', frame }
+        // Both planes have to carry the same number, so the correction lands on the
+        // frame *before* it is posted rather than only on the event emitted after.
+        // A copy, not a mutation: the frame came from a driver package, and
+        // overwriting a field it just set is how this pump would come to depend on
+        // that package's internals.
+        const outgoing: ChunkFrame = frame.done
+          ? { ...frame, done: { ...frame.done, elapsedMs: this.queryMs(frame.done.elapsedMs) } }
+          : frame
+
+        const msg: ResultStreamMessage = { t: 'chunk', frame: outgoing }
         port.postMessage(msg)
         this.lastSentSeq = frame.seq
         this.unacked += 1
         this.rows += frame.rowCount
 
-        if (frame.done) {
+        if (outgoing.done) {
           this.host.emit({
             kind: 'evt',
             type: 'result.done',
             resultId: this.resultId,
-            rows: frame.done.rows,
-            elapsedMs: frame.done.elapsedMs,
-            ...(frame.done.truncated === undefined ? {} : { truncated: frame.done.truncated }),
-            ...(frame.done.nextCursor === undefined ? {} : { nextCursor: frame.done.nextCursor }),
+            rows: outgoing.done.rows,
+            elapsedMs: outgoing.done.elapsedMs,
+            ...(outgoing.done.truncated === undefined ? {} : { truncated: outgoing.done.truncated }),
+            ...(outgoing.done.nextCursor === undefined ? {} : { nextCursor: outgoing.done.nextCursor }),
           })
           break
         }

@@ -167,6 +167,10 @@ Result sets are streamed as columnar frames, never materialized whole:
   renderer withholds the ack when the cache is near its ceiling or the viewport has fallen more than
   200,000 rows behind. Scrolling releases it. A stream held this way reports `paused`, which is a
   terminal-but-healthy state — the rows already loaded are valid.
+- **`elapsedMs` is the query's time, not a wall clock.** A stream parks while it waits on its reader,
+  and the host subtracts every parked interval before reporting, so the duration beside a row count
+  is what producing those rows cost. A million rows that took 40 s of scrolling to walk through
+  report `2.4 s`.
 - Values over 4KB arrive as a truncated preview carrying a ref; the full value is fetched on demand
   through `valuePeek`.
 
@@ -558,7 +562,7 @@ level.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/million-rows-dark.png">
-  <img alt="A one-million-row result scrolled past row 800,000. The status line reads 1,000,000 rows, Done, about 41 s, 84 chunks evicted." src="docs/images/million-rows-light.png">
+  <img alt="A one-million-row result scrolled past row 800,000. The status line reads 1,000,000 rows, Done, about 2.4 s, 84 chunks evicted." src="docs/images/million-rows-light.png">
 </picture>
 
 peek's answer is that **no DOM dimension is derived from the row count**. The vertical offset is a
