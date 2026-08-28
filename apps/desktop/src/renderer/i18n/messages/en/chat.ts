@@ -68,10 +68,10 @@ export const chat = {
    * and that is not modesty: peek only ever saw the turns it was open for, so a
    * conversation continued elsewhere is genuinely not what is on screen.
    */
-  'chat.snapshot.loading': 'This is what peek last saw. The agent’s own copy is on its way.',
-  'chat.snapshot.failed.title': 'This is peek’s snapshot, not a live conversation',
+  'chat.snapshot.loading': 'This is what Peek last saw. The agent’s own copy is on its way.',
+  'chat.snapshot.failed.title': 'This is Peek’s snapshot, not a live conversation',
   'chat.snapshot.failed.detail':
-    'The agent could not load this conversation, so what you see is what peek last showed — which may also be out of date. Sending a message here is not possible: the agent would not have this history behind it.',
+    'The agent could not load this conversation, so what you see is what Peek last showed — which may also be out of date. Sending a message here is not possible: the agent would not have this history behind it.',
   'chat.snapshot.retry': 'Try again',
   'chat.snapshot.composer': 'This conversation could not be loaded',
   'chat.role.user': 'You',
@@ -98,9 +98,9 @@ export const chat = {
   'chat.tool.readWindow': 'Read this window',
   'chat.tool.lookup': 'Looked up a tool',
   'chat.tool.via': 'via {server}',
-  'chat.tool.outside': 'Outside peek',
+  'chat.tool.outside': 'Outside Peek',
   'chat.tool.outsideTitle':
-    'Not one of peek’s tools. Whatever this did happened outside this window, so nothing here can account for it.',
+    'Not one of Peek’s tools. Whatever this did happened outside this window, so nothing here can account for it.',
   'chat.tool.arguments': 'Arguments',
   'chat.tool.result': 'Result',
   'chat.tool.noResult': 'No result',
@@ -110,15 +110,15 @@ export const chat = {
 
   /* Human names for peek's own MCP tools. These label what the agent did to the
      window, so they are phrased as actions, not as identifiers. */
-  'chat.tool.peek.open_view': 'Opened a view',
-  'chat.tool.peek.activate_view': 'Switched to a view',
-  'chat.tool.peek.move_view': 'Moved a view',
-  'chat.tool.peek.set_layout': 'Rearranged the layout',
-  'chat.tool.peek.run_query': 'Ran a query',
-  'chat.tool.peek.connect': 'Opened a connection',
-  'chat.tool.peek.read_workspace': 'Read the workspace',
-  'chat.tool.peek.introspect': 'Inspected the schema',
-  'chat.tool.peek.list_connections': 'Listed the connections',
+  'chat.tool.Peek.open_view': 'Opened a view',
+  'chat.tool.Peek.activate_view': 'Switched to a view',
+  'chat.tool.Peek.move_view': 'Moved a view',
+  'chat.tool.Peek.set_layout': 'Rearranged the layout',
+  'chat.tool.Peek.run_query': 'Ran a query',
+  'chat.tool.Peek.connect': 'Opened a connection',
+  'chat.tool.Peek.read_workspace': 'Read the workspace',
+  'chat.tool.Peek.introspect': 'Inspected the schema',
+  'chat.tool.Peek.list_connections': 'Listed the connections',
 
   /* ---- Code blocks ------------------------------------------------- */
   'chat.code.copy': 'Copy',
@@ -221,7 +221,7 @@ export const chat = {
   'chat.sessions.new': 'New conversation',
   'chat.sessions.loading': 'Reading the conversation list…',
   'chat.sessions.empty': 'No conversations yet.',
-  'chat.sessions.emptyHint': 'Start one and it will show up here, even after peek restarts.',
+  'chat.sessions.emptyHint': 'Start one and it will show up here, even after Peek restarts.',
   /* Not an empty list: the agent in use keeps no history at all, which is a
    * different sentence and has to read like one. */
   'chat.sessions.unsupported': 'This agent keeps no conversation history.',
@@ -230,7 +230,7 @@ export const chat = {
   'chat.sessions.untitled': 'Untitled conversation',
   'chat.sessions.open': 'Open',
   'chat.sessions.openTitle': 'Reopen this conversation and keep it open',
-  'chat.sessions.rowHint': 'Click to peek, double-click to keep',
+  'chat.sessions.rowHint': 'Click to Peek, double-click to keep',
   'chat.sessions.inUse': 'Already open',
   'chat.sessions.inUseTitle': 'This conversation is open in a panel already',
   'chat.sessions.reveal': 'Show it',

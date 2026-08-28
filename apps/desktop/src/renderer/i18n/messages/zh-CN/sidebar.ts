@@ -11,7 +11,7 @@ export const sidebar: CatalogFor<SidebarMessages> = {
 
   'sidebar.secretStored': '密码已存入系统钥匙串',
   'sidebar.connectHint': '双击连接',
-  'sidebar.noKeychain': '系统钥匙串不可用，密码不会被保存。peek 绝不会把凭据明文写到磁盘。',
+  'sidebar.noKeychain': '系统钥匙串不可用，密码不会被保存。Peek 绝不会把凭据明文写到磁盘。',
 
   'sidebar.action.connect': '连接',
   'sidebar.action.tree': '对象树',
@@ -53,7 +53,7 @@ export const sidebar: CatalogFor<SidebarMessages> = {
 
   /* ---------------- 首次运行 ---------------- */
   'firstRun.title': '还没有连接任何数据库',
-  'firstRun.subtitle': 'peek 是一个可以被 AI 驱动的数据库查看器。从这里可以做三件事。',
+  'firstRun.subtitle': 'Peek 是一个可以被 AI 驱动的数据库查看器。从这里可以做三件事。',
   'firstRun.connectTitle': '打开一个数据库',
   'firstRun.connectBody': 'PostgreSQL、MySQL、SQLite、Redis 或 Qdrant，始终只读。',
   'firstRun.connectAction': '新建连接',

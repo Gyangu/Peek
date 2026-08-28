@@ -34,15 +34,15 @@ export const app: CatalogFor<AppMessages> = {
   'app.errors.clear': '清空',
   'app.errors.close': '关闭',
   'app.errors.sourceTitle':
-    '出问题的那件事是谁要求的。“你”是本窗口；“MCP”是外部客户端；“对话”是 peek 自己的聊天面板；' +
-    '“peek”是应用自身——驱动进程、超时、状态同步。',
+    '出问题的那件事是谁要求的。“你”是本窗口；“MCP”是外部客户端；“对话”是 Peek 自己的聊天面板；' +
+    '“Peek”是应用自身——驱动进程、超时、状态同步。',
   'app.errors.source.ui': '你',
   'app.errors.source.mcp': 'MCP',
   'app.errors.source.agent': '对话',
-  'app.errors.source.system': 'peek',
-  'app.errors.dataPlaneDown': 'peek 启动了，但数据通道没建立——查询永远不会返回数据',
+  'app.errors.source.system': 'Peek',
+  'app.errors.dataPlaneDown': 'Peek 启动了，但数据通道没建立——查询永远不会返回数据',
   'app.errors.dataPlaneDownDetail':
-    '连接、浏览和设置仍然可用，它们走的是另一条通道。请重启 peek；如果重复出现，这是一个值得上报的 bug。',
+    '连接、浏览和设置仍然可用，它们走的是另一条通道。请重启 Peek；如果重复出现，这是一个值得上报的 bug。',
 
   'app.logs.title': '日志',
   'app.logs.tab.errors': '错误',
@@ -51,7 +51,7 @@ export const app: CatalogFor<AppMessages> = {
   /* 「记录」是写进文件的，「显示」是这个面板从里面挑出来给你看的。
    * 两个不同的问题——把它们混在一起，就会有人调低了级别然后奇怪为什么没有新行。 */
   'app.logs.capture': '记录',
-  'app.logs.captureTitle': '从现在起 peek 往日志文件里写多少。立即生效，已经写下的不会丢。',
+  'app.logs.captureTitle': '从现在起 Peek 往日志文件里写多少。立即生效，已经写下的不会丢。',
   'app.logs.show': '显示',
   'app.logs.showTitle': '只过滤这个面板显示什么，不改变正在记录什么。',
   'app.logs.filterAll': '全部',

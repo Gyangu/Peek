@@ -1,4 +1,4 @@
-<h1 align="center">peek</h1>
+<h1 align="center">Peek</h1>
 
 <p align="center"><b>A database viewer built for working with AI — Claude drives the same window you're looking at.</b></p>
 
@@ -13,13 +13,13 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png">
-  <img alt="peek with three tiled panes: a namespace tree on the left, a table view of a customers table top right, and a SQL editor below it showing a revenue-by-plan query that has returned five rows." src="docs/images/overview-light.png">
+  <img alt="Peek with three tiled panes: a namespace tree on the left, a table view of a customers table top right, and a SQL editor below it showing a revenue-by-plan query that has returned five rows." src="docs/images/overview-light.png">
 </picture>
 
 <sub>Every screenshot in this README was produced by a single `set_layout` MCP call — see
 [`apps/desktop/scripts/screenshot.mjs`](apps/desktop/scripts/screenshot.mjs).</sub>
 
-peek is a desktop database GUI that doubles as an MCP server. Ask Claude to open a table, run a
+Peek is a desktop database GUI that doubles as an MCP server. Ask Claude to open a table, run a
 query, or arrange panels for comparison — it happens in the window in front of you, because AI tool
 calls and your own clicks share one command channel. A built-in chat panel runs Claude Code inside
 the app, so the agent you talk to drives the window it lives in.
@@ -27,7 +27,7 @@ the app, so the agent you talk to drives the window it lives in.
 ## Features
 
 - 🤝 **One UI for human and AI** — every click and every MCP tool call is a Command on the same bus; no shadow state, no sync step
-- 💬 **Claude Code built in** — the chat panel hosts it over [ACP](https://agentclientprotocol.com), wired back to peek's own MCP server
+- 💬 **Claude Code built in** — the chat panel hosts it over [ACP](https://agentclientprotocol.com), wired back to Peek's own MCP server
 - 🛠️ **16 MCP tools** — connect, introspect schemas, run queries, open views, control the layout, notify, ask the user
 - 🔒 **Read-only, enforced by the server** — read-only transactions and flags, no keyword filtering anywhere
 - 📎 **Data reaches the AI only when you attach it** — otherwise a query returns the model at most 20 rows
@@ -40,7 +40,7 @@ the app, so the agent you talk to drives the window it lives in.
 ## Install
 
 Download `peek-v0.0.1-macos-arm64.zip` from
-[Releases](https://github.com/Gyangu/peek-viewer/releases), unzip, and drop `peek.app` into
+[Releases](https://github.com/Gyangu/Peek/releases), unzip, and drop `peek.app` into
 Applications. Apple Silicon only for now.
 
 > **This build is ad-hoc signed** (no Developer ID yet), so macOS will refuse the downloaded app
@@ -96,7 +96,7 @@ driver over MCP.
 
 ## Using it from Claude Code
 
-peek starts its MCP server on launch (loopback only, bearer-token authenticated) and writes the
+Peek starts its MCP server on launch (loopback only, bearer-token authenticated) and writes the
 endpoint to `~/.peek/mcp.json` (mode `0600`). Register once:
 
 ```bash
@@ -123,7 +123,7 @@ where you change the port or rotate the token.
 | `activate_view` | Bring a background tab to the front. |
 | `cancel_query` | Stop a running query. |
 | `send_chat` / `read_chat` / `control_chat` | Drive the chat panel from outside: send messages, read the transcript, manage the session. |
-| `notify` | Notify the user, even when peek is not the frontmost window. |
+| `notify` | Notify the user, even when Peek is not the frontmost window. |
 | `ask` | Ask the user a multiple-choice question and wait for the answer. |
 
 There is deliberately no tool that hands a full result set to the model.
@@ -137,8 +137,8 @@ There is deliberately no tool that hands a full result set to the model.
 
 <sub>An `ask` call, suspended until the human answers — agents cannot answer their own questions.</sub>
 
-You don't have to bring your own client: peek hosts Claude Code itself, as a tab. The embedded
-agent starts with no file tools, no shell, and no MCP servers other than peek's own — it does not
+You don't have to bring your own client: Peek hosts Claude Code itself, as a tab. The embedded
+agent starts with no file tools, no shell, and no MCP servers other than Peek's own — it does not
 inherit your `settings.json`, `CLAUDE.md`, or configured MCP servers, and
 [`verify-chat-security.mjs`](apps/desktop/scripts/verify-chat-security.mjs) checks that against the
 real agent. Two settings (both off by default) let you opt back in: file/command tools, and MCP
@@ -156,7 +156,7 @@ servers of your own. Each explains its cost next to the switch — see
   cannot take the window down, and killing the process is an unconditional cancel. Package code
   never runs in the main process.
 - **Packages are trusted, not sandboxed.** What you install is what you trust — the same deal as a
-  VS Code extension or an MCP server. peek validates a package's manifest shape, isolates its
+  VS Code extension or an MCP server. Peek validates a package's manifest shape, isolates its
   processes, and strips credentials from their environment, but there is no signature check and no
   sandbox. Details in the design docs.
 - **Enabling the agent's file tools has a real cost:** an agent that can read
@@ -180,7 +180,7 @@ fixture, by two reproducible benchmark scripts
 
 Results stream as columnar chunks with backpressure and an LRU cache, and the virtual scrolling is
 hand-written because Chromium silently clamps element heights around 699,000 rows at Retina
-resolution — no DOM dimension in peek is derived from the row count.
+resolution — no DOM dimension in Peek is derived from the row count.
 
 ## Status and limitations
 

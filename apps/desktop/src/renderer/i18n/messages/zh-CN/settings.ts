@@ -17,24 +17,24 @@ export const settings: CatalogFor<SettingsMessages> = {
 
   'settings.section.packages': '数据库',
 
-  'settings.packages.hint': 'peek 能打开的每种数据库，以及这个版本里各自的连接器是哪一版。',
+  'settings.packages.hint': 'Peek 能打开的每种数据库，以及这个版本里各自的连接器是哪一版。',
   'settings.packages.name': '数据库',
   'settings.packages.version': '连接器版本',
   'settings.packages.capabilities': '能力',
   'settings.packages.source': '来源',
-  'settings.packages.sourceBundled': 'peek 自带',
+  'settings.packages.sourceBundled': 'Peek 自带',
   'settings.packages.sourceUser': '你装的',
   'settings.packages.manage': '管理',
   'settings.packages.sourceNote':
-    '「来源」说的是这份 peek 有没有自带同 id 的包，不是这份装着的副本是谁放的。卸载自带的那种会被记住，重启之后也不会自己回来；「恢复自带包」撤销这条记录。',
+    '「来源」说的是这份 Peek 有没有自带同 id 的包，不是这份装着的副本是谁放的。卸载自带的那种会被记住，重启之后也不会自己回来；「恢复自带包」撤销这条记录。',
   'settings.packages.trustNote':
-    '连接一打开，包就以你自己的权限运行。peek 不检查包里有什么 —— 装它，就是你决定信它。',
+    '连接一打开，包就以你自己的权限运行。Peek 不检查包里有什么 —— 装它，就是你决定信它。',
   'settings.packages.install': '安装…',
   'settings.packages.uninstall': '卸载',
   'settings.packages.upgrade': '升级到 {version}',
   'settings.packages.restore': '恢复自带包',
   'settings.packages.reading': '读取中…',
-  'settings.packages.empty': '一个包都没装，peek 打不开任何数据库。',
+  'settings.packages.empty': '一个包都没装，Peek 打不开任何数据库。',
   'settings.packages.installed': '已装上 {id} {version}。',
   'settings.packages.replaced': '已替换 {id}，现在装着的是 {version}。',
   'settings.packages.uninstalled': '已卸载 {id}。',
@@ -43,7 +43,7 @@ export const settings: CatalogFor<SettingsMessages> = {
     other: '已卸载 {id}，顺带关掉了 {count} 个开着的连接。',
   },
   'settings.packages.restored': '已恢复 {ids}。',
-  'settings.packages.restoredNone': '没有缺的 —— 这份 peek 自带的包都装着。',
+  'settings.packages.restoredNone': '没有缺的 —— 这份 Peek 自带的包都装着。',
   'settings.packages.restoreFailed': '{ids} 恢复失败。',
   'settings.packages.viewKinds': '由包提供的视图种类',
   'settings.packages.noViewKinds': '没有 —— 上面这些数据库都用内置视图浏览。',
@@ -93,7 +93,7 @@ export const settings: CatalogFor<SettingsMessages> = {
   /* ---------------- 通知 ---------------- */
   'settings.notifications.system': '系统通知',
   'settings.notifications.systemHint':
-    'peek 的窗口不在最前面时，让它通过系统通知中心找到你。你正看着 peek 时，它只在应用内提示。',
+    'Peek 的窗口不在最前面时，让它通过系统通知中心找到你。你正看着 Peek 时，它只在应用内提示。',
   'settings.notifications.turnEnd': 'agent 结束时通知',
   'settings.notifications.turnEndHint':
     '你在别处忙的时候，聊天回合结束、或者停下来等你授权时告诉你一声。agent 自己也能在它认为值得打断你的时候通知你。',
@@ -112,17 +112,17 @@ export const settings: CatalogFor<SettingsMessages> = {
   'settings.timeouts.applied': '已保存。从现在起发出的请求按新值执行。',
   'settings.timeouts.unchanged': '当前用的就是这些值。',
   'settings.timeouts.stageNote':
-    'driver-host 协议自己还有一套内部超时。它们是 peek 防着 driver 进程卡死用的，不是偏好，所以不放在这里。',
+    'driver-host 协议自己还有一套内部超时。它们是 Peek 防着 driver 进程卡死用的，不是偏好，所以不放在这里。',
 
   /* ---------------- 聊天 agent ---------------- */
   'settings.section.agent': '聊天 agent',
   'settings.agent.intro':
-    '聊天面板由哪个 agent 来答。两种都通过 peek 自己的 MCP 端点回到这个窗口，每次工具调用仍然要先问你。',
+    '聊天面板由哪个 agent 来答。两种都通过 Peek 自己的 MCP 端点回到这个窗口，每次工具调用仍然要先问你。',
   'settings.agent.backend': 'Agent',
   'settings.agent.backend.acp': '内置 agent',
   'settings.agent.backend.endpoint': '你自己的端点',
   'settings.agent.restartHint':
-    '下次启动 peek 时生效。已有的对话仍用它创建时的那个 agent —— 两者的历史存放位置不同，互相读不了。',
+    '下次启动 Peek 时生效。已有的对话仍用它创建时的那个 agent —— 两者的历史存放位置不同，互相读不了。',
   'settings.agent.permissionMode': '新对话从哪种权限开始',
   'settings.agent.mode.default': '每次都问我',
   'settings.agent.mode.auto': '自动判断',
@@ -130,8 +130,8 @@ export const settings: CatalogFor<SettingsMessages> = {
   'settings.agent.mode.plan': '仅制定计划',
   'settings.agent.mode.dontAsk': '⚠ 不要问我',
   'settings.agent.mode.bypassPermissions': '⚠ 跳过全部检查',
-  'settings.agent.modeHint.default': '每次工具调用都等你回答。这是 peek 的默认。',
-  'settings.agent.modeHint.auto': '由 agent 自己的分类器代你批准。它能碰到的仍然只有 peek 的那些工具。',
+  'settings.agent.modeHint.default': '每次工具调用都等你回答。这是 Peek 的默认。',
+  'settings.agent.modeHint.auto': '由 agent 自己的分类器代你批准。它能碰到的仍然只有 Peek 的那些工具。',
   'settings.agent.modeHint.acceptEdits': '修改类调用直接放行，其余的仍然等你。',
   'settings.agent.modeHint.plan': 'agent 只做计划和解释，在你切走之前什么都不执行。',
   'settings.agent.modeHint.dontAsk': '工具调用不再问你。每个新对话会在档位旁边标出「来自设置」。',
@@ -162,25 +162,25 @@ export const settings: CatalogFor<SettingsMessages> = {
   'settings.agent.mcp.invalid':
     '每个 server 都要有地址，名字要唯一且只含小写字母、数字、- 或 _。这个名字会成为 agent 调用它时的工具前缀。',
   'settings.agent.mcp.hint':
-    '它们会和 peek 自己的工具一起交给 agent。peek 不管它们做什么——工具调用仍然会问你，但你同意之后发生的事是 agent 和那个 server 之间的事。',
+    '它们会和 Peek 自己的工具一起交给 agent。Peek 不管它们做什么——工具调用仍然会问你，但你同意之后发生的事是 agent 和那个 server 之间的事。',
   'settings.agent.workdir': '工作目录',
   'settings.agent.workdirPick': '选择…',
-  'settings.agent.workdirReset': '用 peek 自己的',
+  'settings.agent.workdirReset': '用 Peek 自己的',
   'settings.agent.workdirHint':
     '新对话在哪里工作。指向一个项目，agent 就能读写那个项目；已经开始的对话仍然留在它当初的目录里。',
   'settings.agent.fullTools': '文件与命令工具',
   'settings.agent.fullTools.off': '关',
   'settings.agent.fullTools.on': '开',
   'settings.agent.relaxed':
-    'agent 可以在这台机器上读文件、改文件、跑命令，因此它也能读到 peek 自己的 MCP token，进而自己批准自己的工具调用。权限提示不再是一道闸，只是一条通知。peek 拦不住这件事，也不打算拦——这是你自己关掉的。',
+    'agent 可以在这台机器上读文件、改文件、跑命令，因此它也能读到 Peek 自己的 MCP token，进而自己批准自己的工具调用。权限提示不再是一道闸，只是一条通知。Peek 拦不住这件事，也不打算拦——这是你自己关掉的。',
   'settings.agent.enforced':
-    'peek 会对真实 agent 跑一遍探针来检查它的沙箱：没有 shell、没有文件工具，也不带入你自己的 Claude Code 配置。',
+    'Peek 会对真实 agent 跑一遍探针来检查它的沙箱：没有 shell、没有文件工具，也不带入你自己的 Claude Code 配置。',
   'settings.agent.unverified':
-    '{agent} 会以只读模式启动，但 peek 没有探针验证这一点确实成立。工具调用仍然由你把关。',
-  'settings.agent.loginHint': '用该 agent 自己的 CLI 登录。peek 复用那份登录，从不经手凭据。',
+    '{agent} 会以只读模式启动，但 Peek 没有探针验证这一点确实成立。工具调用仍然由你把关。',
+  'settings.agent.loginHint': '用该 agent 自己的 CLI 登录。Peek 复用那份登录，从不经手凭据。',
   'settings.agent.executable': '可执行文件',
   'settings.agent.executablePlaceholder': '用内置的',
-  'settings.agent.executableHint': '可选。让 agent 用你已经装好的二进制，而不是 peek 附带的那个。',
+  'settings.agent.executableHint': '可选。让 agent 用你已经装好的二进制，而不是 Peek 附带的那个。',
   'settings.agent.baseUrl': 'Base URL',
   'settings.agent.model': '模型',
   'settings.agent.modelHint': '端点怎么写就怎么填。它必须支持工具调用。',
@@ -193,7 +193,7 @@ export const settings: CatalogFor<SettingsMessages> = {
   'settings.agent.apiKeyHint': '由操作系统钥匙串加封，不写进 settings.json，也不会再显示。',
   'settings.agent.forgetKey': '忘掉 key',
   'settings.agent.save': '保存',
-  'settings.agent.saved': '已保存。下次启动 peek 时生效。',
+  'settings.agent.saved': '已保存。下次启动 Peek 时生效。',
 
   /* ---------------- 关于 ---------------- */
   'settings.about.version': '版本',
@@ -201,6 +201,6 @@ export const settings: CatalogFor<SettingsMessages> = {
   'settings.about.settingsFile': '设置',
   'settings.about.connectionsFile': '连接',
   'settings.about.mcpFile': 'MCP 端点',
-  'settings.about.pathsHint': 'peek 写下的一切都在这些文件里。PEEK_CONFIG_DIR 会把它们整体挪走。',
+  'settings.about.pathsHint': 'Peek 写下的一切都在这些文件里。PEEK_CONFIG_DIR 会把它们整体挪走。',
   'settings.about.unavailable': '不可用',
 }

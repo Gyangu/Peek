@@ -77,8 +77,8 @@ export const settings = {
   /* Says when they appear, not what they are: the surprising half of the rule is
      that peek stays quiet while you are looking at it. */
   'settings.notifications.systemHint':
-    'Let peek reach you through the notification centre when its window is not the one in front. ' +
-    'While you are looking at peek it shows a message in the app instead.',
+    'Let Peek reach you through the notification centre when its window is not the one in front. ' +
+    'While you are looking at Peek it shows a message in the app instead.',
   'settings.notifications.turnEnd': 'When the agent finishes',
   'settings.notifications.turnEndHint':
     'Tell you when a chat turn ends, or stops to ask permission, while you are working elsewhere. ' +
@@ -88,7 +88,7 @@ export const settings = {
 
   /* ---------------- Queries & timeouts ---------------- */
   'settings.timeouts.intro':
-    'How long a request may run before peek gives up on it. These apply when nothing asks for a specific deadline.',
+    'How long a request may run before Peek gives up on it. These apply when nothing asks for a specific deadline.',
   'settings.timeouts.query': 'Query',
   'settings.timeouts.scan': 'Collection scan',
   'settings.timeouts.vectorSearch': 'Vector search',
@@ -99,7 +99,7 @@ export const settings = {
   'settings.timeouts.applied': 'Saved. These apply to requests started from now on.',
   'settings.timeouts.unchanged': 'Those are already the values in use.',
   'settings.timeouts.stageNote':
-    'The driver-host protocol has its own internal timeouts. They protect peek from a stuck driver process rather than expressing a preference, so they are not shown here.',
+    'The driver-host protocol has its own internal timeouts. They protect Peek from a stuck driver process rather than expressing a preference, so they are not shown here.',
 
   'settings.section.packages': 'Databases',
 
@@ -107,7 +107,7 @@ export const settings = {
    * Names, ids, versions and capability names are all identifiers and stay
    * untranslated; only the surrounding prose is a message. */
   'settings.packages.hint':
-    'Every database peek can open, and which build of each connector this app is running.',
+    'Every database Peek can open, and which build of each connector this app is running.',
   'settings.packages.name': 'Database',
   'settings.packages.version': 'Connector',
   'settings.packages.capabilities': 'Capabilities',
@@ -120,13 +120,13 @@ export const settings = {
    * carries the distinction in full, because this is also what decides whether
    * an uninstall is remembered.
    */
-  'settings.packages.sourceBundled': 'Ships with peek',
+  'settings.packages.sourceBundled': 'Ships with Peek',
   'settings.packages.sourceUser': 'Added by you',
   /* The header of the button column. Visually hidden — the buttons say what they
    * do — but a row-by-row screen reader still announces which column it is in. */
   'settings.packages.manage': 'Manage',
   'settings.packages.sourceNote':
-    'Source says whether this build of peek ships a package under that id — not who put the installed copy there. Removing one peek ships is remembered, so it stays gone after a restart; “Restore bundled packages” undoes that.',
+    'Source says whether this build of Peek ships a package under that id — not who put the installed copy there. Removing one Peek ships is remembered, so it stays gone after a restart; “Restore bundled packages” undoes that.',
   /*
    * The one sentence about trust, and it is a statement rather than a warning
    * (design §2.9 corollary 1). peek runs what is in the packages directory: no
@@ -135,13 +135,13 @@ export const settings = {
    * here may suggest anything was inspected.
    */
   'settings.packages.trustNote':
-    'A package runs with your own privileges from the moment a connection opens. peek does not inspect what is inside one — installing it is you deciding to trust it.',
+    'A package runs with your own privileges from the moment a connection opens. Peek does not inspect what is inside one — installing it is you deciding to trust it.',
   'settings.packages.install': 'Install…',
   'settings.packages.uninstall': 'Uninstall',
   'settings.packages.upgrade': 'Upgrade to {version}',
   'settings.packages.restore': 'Restore bundled packages',
   'settings.packages.reading': 'Reading…',
-  'settings.packages.empty': 'Nothing is installed, so peek cannot open any database.',
+  'settings.packages.empty': 'Nothing is installed, so Peek cannot open any database.',
   'settings.packages.installed': 'Installed {id} {version}.',
   'settings.packages.replaced': 'Replaced {id}. {version} is installed now.',
   /*
@@ -165,13 +165,13 @@ export const settings = {
   /* ---------------- The chat agent ---------------- */
   'settings.section.agent': 'Chat agent',
   'settings.agent.intro':
-    'Which agent answers in the chat panel. Either one reaches this window through peek’s own MCP endpoint, and every tool call still asks you first.',
+    'Which agent answers in the chat panel. Either one reaches this window through Peek’s own MCP endpoint, and every tool call still asks you first.',
   'settings.agent.backend': 'Agent',
   'settings.agent.backend.acp': 'Bundled agent',
   'settings.agent.backend.endpoint': 'Your own endpoint',
   /* Said once, at the top, because it applies to every control below it. */
   'settings.agent.restartHint':
-    'Applies the next time peek starts. Conversations you already have keep the agent they were created with — the two store history in different places, and neither can read the other’s.',
+    'Applies the next time Peek starts. Conversations you already have keep the agent they were created with — the two store history in different places, and neither can read the other’s.',
   'settings.agent.permissionMode': 'New conversations start in',
   'settings.agent.mode.default': 'Ask every time',
   'settings.agent.mode.auto': 'Let the agent judge',
@@ -179,9 +179,9 @@ export const settings = {
   'settings.agent.mode.plan': 'Plan only',
   'settings.agent.mode.dontAsk': '⚠ Never ask',
   'settings.agent.mode.bypassPermissions': '⚠ Bypass all checks',
-  'settings.agent.modeHint.default': 'Every tool call waits for you. This is peek’s default.',
+  'settings.agent.modeHint.default': 'Every tool call waits for you. This is Peek’s default.',
   'settings.agent.modeHint.auto':
-    'The agent’s own classifier approves calls instead of you. It still cannot reach anything beyond peek’s tools.',
+    'The agent’s own classifier approves calls instead of you. It still cannot reach anything beyond Peek’s tools.',
   'settings.agent.modeHint.acceptEdits':
     'Edits go through without asking; everything else still waits for you.',
   'settings.agent.modeHint.plan': 'The agent plans and explains, and runs nothing until you leave this mode.',
@@ -220,10 +220,10 @@ export const settings = {
   'settings.agent.mcp.invalid':
     'Every server needs an address and a unique name of lowercase letters, digits, - or _. The name becomes the tool prefix the agent addresses it by.',
   'settings.agent.mcp.hint':
-    'These are sent to the agent alongside peek’s own tools. peek does not gate what they do — a tool call still asks you, but what happens after that is between the agent and that server.',
+    'These are sent to the agent alongside Peek’s own tools. Peek does not gate what they do — a tool call still asks you, but what happens after that is between the agent and that server.',
   'settings.agent.workdir': 'Working directory',
   'settings.agent.workdirPick': 'Choose…',
-  'settings.agent.workdirReset': 'Use peek’s own',
+  'settings.agent.workdirReset': 'Use Peek’s own',
   'settings.agent.workdirHint':
     'Where new conversations work. Point it at a project to let the agent read and edit that project; conversations already started keep the directory they were started in.',
   'settings.agent.fullTools': 'File and command tools',
@@ -232,18 +232,18 @@ export const settings = {
   /* States the consequence, not a warning about one. peek does not hold a gate
      here and should not sound like it does — see the design doc §2.5. */
   'settings.agent.relaxed':
-    'The agent can read, write and run things on this machine, so it can also read peek’s own MCP token and approve its own tool calls. The permission prompt is no longer a barrier — it is a notification. peek does not stop this and cannot; you are turning it off deliberately.',
+    'The agent can read, write and run things on this machine, so it can also read Peek’s own MCP token and approve its own tool calls. The permission prompt is no longer a barrier — it is a notification. Peek does not stop this and cannot; you are turning it off deliberately.',
   'settings.agent.enforced':
-    'peek checks this agent’s sandbox with a probe against the real agent: no shell, no file tools, and none of your own Claude Code settings.',
+    'Peek checks this agent’s sandbox with a probe against the real agent: no shell, no file tools, and none of your own Claude Code settings.',
   /* Names the gap rather than implying a guarantee peek has not tested. */
   'settings.agent.unverified':
-    '{agent} is started in its read-only mode, but peek has no probe that verifies it holds. Tool calls are still gated by you.',
+    '{agent} is started in its read-only mode, but Peek has no probe that verifies it holds. Tool calls are still gated by you.',
   'settings.agent.loginHint':
-    'Sign in with the agent’s own CLI. peek reuses that login and never handles the credential.',
+    'Sign in with the agent’s own CLI. Peek reuses that login and never handles the credential.',
   'settings.agent.executable': 'Executable',
   'settings.agent.executablePlaceholder': 'Use the bundled one',
   'settings.agent.executableHint':
-    'Optional. Point the agent at a binary you already have instead of the one peek ships.',
+    'Optional. Point the agent at a binary you already have instead of the one Peek ships.',
   'settings.agent.baseUrl': 'Base URL',
   'settings.agent.model': 'Model',
   'settings.agent.modelHint':
@@ -258,7 +258,7 @@ export const settings = {
     'Sealed by your operating system’s keychain, never written to settings.json, and never shown again.',
   'settings.agent.forgetKey': 'Forget key',
   'settings.agent.save': 'Save',
-  'settings.agent.saved': 'Saved. It takes effect the next time peek starts.',
+  'settings.agent.saved': 'Saved. It takes effect the next time Peek starts.',
 
   /* ---------------- About ---------------- */
   'settings.about.version': 'Version',
@@ -267,7 +267,7 @@ export const settings = {
   'settings.about.connectionsFile': 'Connections',
   'settings.about.mcpFile': 'MCP endpoint',
   'settings.about.pathsHint':
-    'Everything peek writes lives in these files. PEEK_CONFIG_DIR moves them all together.',
+    'Everything Peek writes lives in these files. PEEK_CONFIG_DIR moves them all together.',
   'settings.about.unavailable': 'Unavailable',
 } as const
 

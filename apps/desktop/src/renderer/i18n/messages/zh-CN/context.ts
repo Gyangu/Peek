@@ -34,7 +34,7 @@ export const context: CatalogFor<ContextMessages> = {
   'context.float.add': { other: '把 {count} 行加入对话' },
   'context.float.clear': '取消选择',
   'context.float.spanWarning':
-    '这些行相距 {span} 行。peek 不会为了取其中 {count} 行而读取这么大的范围——请选择相邻的行，或直接加入整个结果。',
+    '这些行相距 {span} 行。Peek 不会为了取其中 {count} 行而读取这么大的范围——请选择相邻的行，或直接加入整个结果。',
 
   /* ---- chip 的名字 ---------------------------------------------------
    *
@@ -74,7 +74,7 @@ export const context: CatalogFor<ContextMessages> = {
   'context.consent.body':
     '把数据行、字段值、查询语句或表结构加入对话，意味着它们会作为消息的一部分发送到 Anthropic 的 API，供 Claude 阅读。它们会离开这台机器。',
   'context.consent.scope':
-    '只有你主动添加的内容会被发送。peek 绝不会包含连接凭据——不含密码、API key、主机地址或用户名。',
+    '只有你主动添加的内容会被发送。Peek 绝不会包含连接凭据——不含密码、API key、主机地址或用户名。',
   'context.consent.production':
     '请把它当作「把同样这些行粘贴到一个外部服务」来看待。如果这个连接里有个人信息或受监管数据，请先确认这样做是被允许的。',
   'context.consent.once': '这个提示只会出现一次。',

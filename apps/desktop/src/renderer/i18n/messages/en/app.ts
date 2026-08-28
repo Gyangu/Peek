@@ -55,18 +55,18 @@ export const app = {
    * recorded on it when the Command Bus creates it. See errorLog.ts. */
   'app.errors.sourceTitle':
     'Who asked for the thing that failed. “you” is this window, “MCP” an external client, ' +
-    '“chat” peek’s own chat panel, and “peek” the app itself — a driver process, a timeout, ' +
+    '“chat” Peek’s own chat panel, and “Peek” the app itself — a driver process, a timeout, ' +
     'state sync.',
   'app.errors.source.ui': 'you',
   'app.errors.source.mcp': 'MCP',
   'app.errors.source.agent': 'chat',
-  'app.errors.source.system': 'peek',
+  'app.errors.source.system': 'Peek',
   /* Raised once at startup when preload's main-world bootstrap failed. Not a
    * transient failure: it lasts until peek is restarted. */
-  'app.errors.dataPlaneDown': 'peek started without its data channel — queries will never return rows',
+  'app.errors.dataPlaneDown': 'Peek started without its data channel — queries will never return rows',
   'app.errors.dataPlaneDownDetail':
     'Connecting, browsing and settings still work, because those travel a different channel. ' +
-    'Restart peek. If it happens again, this is a bug worth reporting.',
+    'Restart Peek. If it happens again, this is a bug worth reporting.',
 
   /* ----------------------------------------------------------------
    * The other two tabs of the same panel: main's diagnostic stream and
@@ -81,7 +81,7 @@ export const app = {
    * user turns the level down and wonders why nothing new appears. */
   'app.logs.capture': 'Capture',
   'app.logs.captureTitle':
-    'How much peek writes to its log file, from now on. Takes effect immediately; nothing already written is lost.',
+    'How much Peek writes to its log file, from now on. Takes effect immediately; nothing already written is lost.',
   'app.logs.show': 'Show',
   'app.logs.showTitle': 'Filter what this panel displays. Does not change what is being written.',
   'app.logs.filterAll': 'All',

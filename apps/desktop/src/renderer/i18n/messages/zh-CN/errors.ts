@@ -126,7 +126,7 @@ export const errors: CatalogFor<ErrorMessageCatalog> = {
   'error.chat.permissionOptionUnknown': '没有 {optionId} 这个授权选项，可选：{options}',
   'error.chat.modeNotAllowed': '授权模式 {mode} 只能由本人在界面上选择，{source} 无权切换',
   'error.chat.permissionNotAnswerableByAgent':
-    '权限提示只能由键盘前的本人、或从外部驱动 peek 的 operator 来回答，peek 自己的聊天面板无权代答',
+    '权限提示只能由键盘前的本人、或从外部驱动 Peek 的 operator 来回答，Peek 自己的聊天面板无权代答',
   'error.chat.agentUnavailable': '聊天助手当前不可用',
 
   /* ---- agent 提问（ask 工具） ---- */
@@ -136,5 +136,5 @@ export const errors: CatalogFor<ErrorMessageCatalog> = {
     '问题 {requestId} 已经不是当前在问的那个了（现在是 {actual}），请重新读一次对话',
   'error.chat.answerRejected': '这不是这个问题的有效答案；可选是 {options}，而单选题只能选一个',
   'error.chat.answerNotAnswerableByAgent':
-    'agent 提的问题只能由键盘前的本人、或从外部驱动 peek 的 operator 来回答，agent 永远无权代答',
+    'agent 提的问题只能由键盘前的本人、或从外部驱动 Peek 的 operator 来回答，agent 永远无权代答',
 }

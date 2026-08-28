@@ -35,7 +35,7 @@ export const context = {
   'context.float.add': { one: 'Add {count} row to chat', other: 'Add {count} rows to chat' },
   'context.float.clear': 'Clear selection',
   'context.float.spanWarning':
-    'These rows are {span} apart. peek will not read that far to collect {count} of them — select rows closer together, or add the whole result.',
+    'These rows are {span} apart. Peek will not read that far to collect {count} of them — select rows closer together, or add the whole result.',
 
   /* ---- Chip names ---------------------------------------------------
    *
@@ -80,7 +80,7 @@ export const context = {
   'context.consent.body':
     'Adding rows, values, queries or table structures to the chat sends them to Anthropic’s API as part of your message, so that Claude can read them. They leave this machine.',
   'context.consent.scope':
-    'Only what you attach is sent. peek never includes connection credentials — no passwords, API keys, hosts or usernames.',
+    'Only what you attach is sent. Peek never includes connection credentials — no passwords, API keys, hosts or usernames.',
   'context.consent.production':
     'Treat this the way you would treat pasting the same rows into any external service. If the connection holds personal or regulated data, check that this is allowed before continuing.',
   'context.consent.once': 'You will only be asked this once.',

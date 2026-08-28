@@ -1,10 +1,23 @@
-# peek — a general-purpose database viewer whose UI can be driven by MCP
+# Peek — a general-purpose database viewer whose UI can be driven by MCP
 
 **English** · [中文原文](./PLAN.zh-CN.md)
 
 > 2026-07-31 initial plan. Decision record: initial support for PostgreSQL / Redis / Qdrant /
 > MySQL·SQLite; the AI operates only the built-in views (no pushing custom HTML); the UI is a
-> multi-panel tiled paradigm; project name peek.
+> multi-panel tiled paradigm; ~~project name peek~~.
+>
+> **That last item was reversed on 2026-08-28**: the brand is **Peek**. This project's own
+> competitor survey (`design/icon-exploration/competitive-matrix.md`) lists seventeen samples and
+> **not one of them is lowercase** — TablePlus, DataGrip, DBeaver, Zed, Warp. Lowercase is a
+> command-line convention (npm, git, jq); this is a desktop GUI. The cost is the verb pun in
+> "peek at a table", which the original decision never weighed.
+>
+> **Only the front matter and the UI strings move**: both READMEs, both PLANs, and the two i18n
+> catalogues — 151 occurrences. Technical identifiers stay lowercase (`package.json`'s `peek`, the
+> bundle ID, `~/.peek`, `@peek/*`, `PEEK_*`), and so do the 676 occurrences under `docs/design/`:
+> those are timestamped decision records written while the project was called peek, and rewriting
+> them sands off the judgement they captured — the same reason earlier Chinese records are not
+> translated back.
 
 ## 1. Positioning
 
@@ -39,14 +52,14 @@ dialog.
 
 **As of 2026-08-15, this same criterion also governs the chat panel.** The embedded agent's
 capabilities have three switches — built-in file and command tools, a working directory,
-self-configured MCP servers — all off by default; with them off, it is exactly the panel peek
+self-configured MCP servers — all off by default; with them off, it is exactly the panel Peek
 has always had, the one that can "only talk about the database in front of it," and
 `verify-chat-security.mjs` verifies this by running probes against a real agent. Turning any one
 of them on is the same transaction: **a decision made in settings, reversible, with a sentence
 alongside it spelling out what it means, and no confirmation dialog.** Of these, the file-tools
 switch hands over something bigger than a list of tools — it simultaneously voids the guarantee
 that "the panel cannot approve its own permission prompts," because that guarantee's basis was
-precisely that "the agent has no file-reading tool at all." peek does not guard against this;
+precisely that "the agent has no file-reading tool at all." Peek does not guard against this;
 it only reports it honestly. See
 `design/2026-08-15-chat-panel-full-capability.md` §2.5.
 ## 2. Tech Stack
@@ -59,8 +72,8 @@ it only reports it honestly. See
 | Table | An in-house column model + in-house vertical virtual scrolling; TanStack Virtual kept only for horizontal | See the revision below |
 | Editor | CodeMirror 6 | An order of magnitude lighter than Monaco, sufficient for SQL |
 | Layout | An in-house tiled tree (settled, not using dockview) | Layout is state, and must be drivable by Command |
-| Control | An in-house `renderer/ui/`, no shadcn / Radix / CVA | Density differs by a factor of two (shadcn 36px vs peek's 24px row height); what was missing is a single point where it converges, not a dependency. See `design/2026-08-02-control-spec.md` §3.1 |
-| Styling | **Tailwind v4** (CSS-first, `@theme` carries the tokens, peek's own scale: font sizes 10/11/12/14/16, line boxes 12/18/20/24, spacing 2/4/8/16/24/32, Tailwind's text/leading/radius namespaces cleared out) | 2026-08-04 reversal: originally zero-dependency hand-written CSS. The motivation was a technical experiment, not defect-driven; the three floors were kept, in equivalent or stronger form. §29 at one point used Tailwind's defaults exclusively, and the result was an interface that lost its primary/secondary hierarchy, with text on horizontal bars landing entirely on half-pixels; §31 measured out the cause, §32 established peek's own scale and moved the 1px stroke out of boxes that get centered. See `design/2026-08-04-tailwind-migration.md` §29–§32. From 2026-08-15, there are **two color palettes**: `@theme` is dark and doubles as the default, `:root[data-theme='light']` overrides the base colors, and 8 `color-mix()`-derived tokens follow automatically (measured in Electron). The three-way preference dark/light/system is stored in `settings.json`, resolved by main and broadcast — the window background color, the traffic lights, and the package iframe all use the same answer. The contrast contract runs once for each of the two themes. See `design/2026-08-15-light-and-dark-theme.md` |
+| Control | An in-house `renderer/ui/`, no shadcn / Radix / CVA | Density differs by a factor of two (shadcn 36px vs Peek's 24px row height); what was missing is a single point where it converges, not a dependency. See `design/2026-08-02-control-spec.md` §3.1 |
+| Styling | **Tailwind v4** (CSS-first, `@theme` carries the tokens, Peek's own scale: font sizes 10/11/12/14/16, line boxes 12/18/20/24, spacing 2/4/8/16/24/32, Tailwind's text/leading/radius namespaces cleared out) | 2026-08-04 reversal: originally zero-dependency hand-written CSS. The motivation was a technical experiment, not defect-driven; the three floors were kept, in equivalent or stronger form. §29 at one point used Tailwind's defaults exclusively, and the result was an interface that lost its primary/secondary hierarchy, with text on horizontal bars landing entirely on half-pixels; §31 measured out the cause, §32 established Peek's own scale and moved the 1px stroke out of boxes that get centered. See `design/2026-08-04-tailwind-migration.md` §29–§32. From 2026-08-15, there are **two color palettes**: `@theme` is dark and doubles as the default, `:root[data-theme='light']` overrides the base colors, and 8 `color-mix()`-derived tokens follow automatically (measured in Electron). The three-way preference dark/light/system is stored in `settings.json`, resolved by main and broadcast — the window background color, the traffic lights, and the package iframe all use the same answer. The contrast contract runs once for each of the two themes. See `design/2026-08-15-light-and-dark-theme.md` |
 | MCP | @modelcontextprotocol/sdk, Streamable HTTP | Independent process lifecycle, Claude connects and uses it at will |
 | Repo | pnpm monorepo | Each driver is its own package, unit-testable and reusable |
 | Formatting | prettier (`printWidth: 110`, no semicolons, single quotes; **does not touch `.md`**) | Introduced 2026-08-15; before this there was no formatting/lint tooling at all. The width was not chosen, it was measured — among four candidates, 110 produced the smallest diff, because it echoes the author's own line width (p99=103). `.md` is excluded because prettier pads table column widths by code-point count, and CJK tables get wrecked. `format:check` is hooked into `pnpm test`. See `design/2026-08-15-prettier.md` |
@@ -167,7 +180,7 @@ Key points:
   `main/packages/host-process.ts`.
 ## 4. The Capability Model (first-cut split)
 
-peek does not flatten every database into a lowest common denominator. Each driver declares a
+Peek does not flatten every database into a lowest common denominator. Each driver declares a
 capability set, and the UI and MCP tools adapt themselves by capability:
 
 ```ts
@@ -236,7 +249,7 @@ tools all live there, and `PackageManifestSchema` judges whether it qualifies at
 read** (`installedDrivers()`), not the roster itself: the earlier line "the shape lives in
 core, the roster lives in the app" now has to become **the shape lives in core, the roster
 lives on disk**. `DriverId` is therefore an open string rather than a closed union, and the
-six databases peek ships with take the same path — distributed with the app, copied into that
+six databases Peek ships with take the same path — distributed with the app, copied into that
 directory on first start, and uninstallable just like a package the user installed themselves.
 See
 [`design/2026-08-07-database-packages-from-disk.md`](design/2026-08-07-database-packages-from-disk.md),
@@ -639,7 +652,7 @@ chunk frame format (columnar, leaving room for a future switch to Arrow/ArrayBuf
   session out of the view: a persistent entry point in the status bar, a session list, history
   restoration, deletion. **No new persistence layer** — `claude-agent-acp` already advertises
   `loadSession` and `sessionCapabilities.list/delete`; the history has always lived in the
-  agent's own cwd (`~/.peek/chat`), and what peek does is wire it out. **After multiple
+  agent's own cwd (`~/.peek/chat`), and what Peek does is wire it out. **After multiple
   backends, this has one correction**: the three tiers keep their history in different places;
   for the endpoint tier there is no agent side at all, so `~/.peek/chat/sessions.json` keeps an
   index containing **only routing** (which session belongs to which tier); the transcript still
@@ -656,14 +669,14 @@ chunk frame format (columnar, leaving room for a future switch to Arrow/ArrayBuf
   copies** — measured behavior is that closing the tab permanently deletes it, and the session
   list is always empty. The dividing line now is **whether the body of this conversation has
   another owner**: the ACP tier still stores not a single byte, and replays via `session/load`;
-  the endpoint tier is stored by peek itself, at `~/.peek/chat/endpoint/<sessionId>.json`.
+  the endpoint tier is stored by Peek itself, at `~/.peek/chat/endpoint/<sessionId>.json`.
   Also added a re-fetch channel for after the renderer reloads (`CHAT_RESTORE`), shared by both
   tiers. The reasoning, the measured data compared against Zed, and the trade-offs are in
   [`design/2026-08-03-chat-history-ownership.md`](design/2026-08-03-chat-history-ownership.md).
 
 - **UI pass** (unplanned, 2026-08-04 to 08-06, between M7 and M8): not a single new feature;
   what changed is how this window reads and where it converges. The Tailwind v4 migration and
-  peek's own type scale (last row of the §2 table), settings moved out of the sidebar and into
+  Peek's own type scale (last row of the §2 table), settings moved out of the sidebar and into
   the macOS app menu, the sidebar became collapsible, the control layer and the legibility
   baseline. What this batch has in common is **turning repeated eyeballing into an assertion
   that can go red** — `theme-contrast.test.ts`, `type-scale.test.ts`, and
@@ -772,7 +785,7 @@ target":
   model refused with "I don't have a Bash tool" it went red, while both structural
   assertions were still green at the time. Changed to a structural criterion: the output of
   `echo <nonce>` must be a nonce **occupying a line by itself**, while a reference to it
-  inside an explanation is inline. The real evidence is always "no tool outside peek was
+  inside an explanation is inline. The real evidence is always "no tool outside Peek was
   ever called" — the text is only corroborating evidence.
 
 ### 9.2 The full picture now: three guards are already inside `pnpm build`
@@ -913,7 +926,7 @@ exactly the moment it most needs to be believed.
      [`design/2026-08-15-logging-and-audit.md`](design/2026-08-15-logging-and-audit.md)
      §2.2.
 
-  There is also an implicit premise to correct: peek's read-only mode **is not "writes have
+  There is also an implicit premise to correct: Peek's read-only mode **is not "writes have
   not been built yet," it is a guarantee that has been built**, enforced by the server, and
   the client does not parse a single line of SQL (PG issues `BEGIN READ ONLY` per cursor,
   MySQL resets on every checkout, SQLite re-asserts `PRAGMA query_only` before every

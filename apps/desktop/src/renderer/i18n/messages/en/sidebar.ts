@@ -13,7 +13,7 @@ export const sidebar = {
   'sidebar.secretStored': 'Password saved in the system keychain',
   'sidebar.connectHint': 'Double-click to connect',
   'sidebar.noKeychain':
-    'The system keychain is unavailable, so passwords are not being saved. peek never writes a credential to disk unprotected.',
+    'The system keychain is unavailable, so passwords are not being saved. Peek never writes a credential to disk unprotected.',
 
   /* Actions on the selected connection. Which of these appear depends on whether
      the row has a live connection — see the note on ConnectionRowItem. */
@@ -63,13 +63,13 @@ export const sidebar = {
      none. The driver id is not translated — it is the identifier the picker, the
      settings table and the MCP receipts all spell. */
   'connect.noPackages':
-    'No database packages are installed, so there is nothing to connect to. Settings → Databases installs one, or restores the ones peek ships with.',
+    'No database packages are installed, so there is nothing to connect to. Settings → Databases installs one, or restores the ones Peek ships with.',
   'connect.driverGone':
     'No installed database package provides "{driverId}", so this connection cannot be opened until that package is installed again under Settings → Databases.',
 
   /* ---------------- First run ---------------- */
   'firstRun.title': 'Nothing is connected yet',
-  'firstRun.subtitle': 'peek is a database viewer that an AI can drive. Three things you can do from here.',
+  'firstRun.subtitle': 'Peek is a database viewer that an AI can drive. Three things you can do from here.',
   'firstRun.connectTitle': 'Open a database',
   'firstRun.connectBody': 'PostgreSQL, MySQL, SQLite, Redis or Qdrant. Read-only, always.',
   'firstRun.connectAction': 'New connection',

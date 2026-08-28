@@ -13,7 +13,7 @@ export const views = {
    * to `string`, and the catalog's parameter typing is derived from the literal —
    * a joined message with a {placeholder} in it stops type-checking its own params. */
   'result.cancelUnsupportedTitle':
-    'The {driverId} driver cannot stop a request once it has started. peek’s only remaining option is to kill the driver process, which closes this connection — so that is not offered as a button. Close the connection to stop it, or wait for the request timeout.',
+    'The {driverId} driver cannot stop a request once it has started. Peek’s only remaining option is to kill the driver process, which closes this connection — so that is not offered as a button. Close the connection to stop it, or wait for the request timeout.',
   'result.cacheGap': 'Rows dropped from the cache.',
   'result.cacheGapDetail':
     'These rows were evicted to stay within the memory budget. They cannot be fetched back on their ' +

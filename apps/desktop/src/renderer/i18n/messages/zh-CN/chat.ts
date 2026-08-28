@@ -52,10 +52,10 @@ export const chat: CatalogFor<ChatMessages> = {
   'chat.loading.hint': '历史存在 agent 那边，正在恢复。每段对话第一次打开都要等一下。',
 
   /* ---- The stored snapshot ------------------------------------------ */
-  'chat.snapshot.loading': '这是 peek 上次看到的样子，agent 那边的正本正在读取。',
-  'chat.snapshot.failed.title': '这是 peek 的快照，不是一段活的对话',
+  'chat.snapshot.loading': '这是 Peek 上次看到的样子，agent 那边的正本正在读取。',
+  'chat.snapshot.failed.title': '这是 Peek 的快照，不是一段活的对话',
   'chat.snapshot.failed.detail':
-    'agent 没能读回这段对话，屏幕上是 peek 上次显示的内容，也可能已经过时。这里不能继续发消息：agent 手上并没有这段历史。',
+    'agent 没能读回这段对话，屏幕上是 Peek 上次显示的内容，也可能已经过时。这里不能继续发消息：agent 手上并没有这段历史。',
   'chat.snapshot.retry': '重试',
   'chat.snapshot.composer': '这段对话没能载入',
   'chat.role.user': '你',
@@ -82,8 +82,8 @@ export const chat: CatalogFor<ChatMessages> = {
   'chat.tool.readWindow': '读取了这个窗口',
   'chat.tool.lookup': '查找了工具',
   'chat.tool.via': '来自 {server}',
-  'chat.tool.outside': 'peek 之外',
-  'chat.tool.outsideTitle': '这不是 peek 的工具。它做的事发生在这个窗口之外，这里无法为其负责。',
+  'chat.tool.outside': 'Peek 之外',
+  'chat.tool.outsideTitle': '这不是 Peek 的工具。它做的事发生在这个窗口之外，这里无法为其负责。',
   'chat.tool.arguments': '参数',
   'chat.tool.result': '结果',
   'chat.tool.noResult': '没有结果',
@@ -91,15 +91,15 @@ export const chat: CatalogFor<ChatMessages> = {
   'chat.tool.collapse': '收起详情',
   'chat.tool.elapsed': '{ms} ms',
 
-  'chat.tool.peek.open_view': '打开了一个视图',
-  'chat.tool.peek.activate_view': '切换到了某个视图',
-  'chat.tool.peek.move_view': '移动了一个视图',
-  'chat.tool.peek.set_layout': '重排了布局',
-  'chat.tool.peek.run_query': '执行了一次查询',
-  'chat.tool.peek.connect': '建立了一个连接',
-  'chat.tool.peek.read_workspace': '读取了工作区',
-  'chat.tool.peek.introspect': '查看了表结构',
-  'chat.tool.peek.list_connections': '列出了连接',
+  'chat.tool.Peek.open_view': '打开了一个视图',
+  'chat.tool.Peek.activate_view': '切换到了某个视图',
+  'chat.tool.Peek.move_view': '移动了一个视图',
+  'chat.tool.Peek.set_layout': '重排了布局',
+  'chat.tool.Peek.run_query': '执行了一次查询',
+  'chat.tool.Peek.connect': '建立了一个连接',
+  'chat.tool.Peek.read_workspace': '读取了工作区',
+  'chat.tool.Peek.introspect': '查看了表结构',
+  'chat.tool.Peek.list_connections': '列出了连接',
 
   /* ---- Code blocks ------------------------------------------------- */
   'chat.code.copy': '复制',
@@ -192,7 +192,7 @@ export const chat: CatalogFor<ChatMessages> = {
   'chat.sessions.new': '新建对话',
   'chat.sessions.loading': '正在读取对话列表…',
   'chat.sessions.empty': '还没有对话。',
-  'chat.sessions.emptyHint': '开一个聊聊，它会出现在这里，重启 peek 后依然在。',
+  'chat.sessions.emptyHint': '开一个聊聊，它会出现在这里，重启 Peek 后依然在。',
   'chat.sessions.unsupported': '当前 agent 不保存对话历史。',
   'chat.sessions.unsupportedHint':
     '重新打开历史对话需要 agent 声明会话历史能力，当前这个没有声明，因此没有任何东西被存下来可列。',
