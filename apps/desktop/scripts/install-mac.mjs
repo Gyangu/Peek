@@ -1,5 +1,5 @@
 /**
- * Install the packaged peek.app into /Applications.
+ * Install the packaged Peek.app into /Applications.
  *
  * `ditto` rather than `cp -R`: it preserves extended attributes and the
  * resource forks inside the bundle, which is what keeps the ad-hoc code
@@ -8,13 +8,13 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, rmSync } from 'node:fs'
+import { existsSync, readdirSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-const APP_NAME = 'peek'
+const APP_NAME = 'Peek'
 const ARCH = 'arm64'
 
 const builtApp = join(packageDir, 'release', `${APP_NAME}-darwin-${ARCH}`, `${APP_NAME}.app`)
@@ -25,11 +25,25 @@ function main() {
     throw new Error(`Nothing to install at ${builtApp}. Run "pnpm package" first.`)
   }
 
-  // ditto merges into an existing bundle rather than replacing it, which would
-  // leave files from a previous version behind. Remove first.
-  if (existsSync(installedApp)) {
-    console.log(`[install] replacing ${installedApp}`)
-    rmSync(installedApp, { recursive: true, force: true })
+  /*
+   * ditto merges into an existing bundle rather than replacing it, which would
+   * leave files from a previous version behind. Remove first.
+   *
+   * Matched case-insensitively rather than by exact path, because the app was
+   * `peek.app` until 2026-08-28 and a case-**sensitive** APFS volume — which
+   * macOS offers, and some developers choose — treats that as a different
+   * directory from `Peek.app`. Removing only the exact path there would leave
+   * both bundles installed, both registered with Launch Services, sharing one
+   * bundle identifier and one `~/.peek`, with no rule saying which one opens.
+   * On the default case-insensitive volume this is the same single removal it
+   * has always performed. See design 2026-08-28 §2.2.
+   */
+  const wanted = `${APP_NAME}.app`.toLowerCase()
+  for (const entry of readdirSync('/Applications')) {
+    if (entry.toLowerCase() !== wanted) continue
+    const stale = join('/Applications', entry)
+    console.log(`[install] replacing ${stale}`)
+    rmSync(stale, { recursive: true, force: true })
   }
 
   execFileSync('ditto', [builtApp, installedApp], { stdio: 'inherit' })

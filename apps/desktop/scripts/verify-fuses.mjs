@@ -48,7 +48,7 @@
  *
  * ## Running it
  *
- *     pnpm --filter @peek/desktop package        # produces release/…/peek.app
+ *     pnpm --filter @peek/desktop package        # produces release/…/Peek.app
  *     pnpm --filter @peek/desktop verify:fuses
  *
  * There is deliberately **no skip path**: a missing bundle is a failure with a
@@ -69,7 +69,7 @@ const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
  * rather than exported from there because importing it would execute its
  * top-level `await main()` — that file is a script, not a module.
  */
-const APP_NAME = 'peek'
+const APP_NAME = 'Peek'
 const ARCH = 'arm64'
 
 /**
@@ -215,7 +215,7 @@ async function main() {
 
   say('')
   say(`ELECTRON_RUN_AS_NODE=1 <binary> -e "console.log('${SENTINEL}')":`)
-  const packagedRan = await ranAsNode(packagedBinary, 'the packaged peek binary')
+  const packagedRan = await ranAsNode(packagedBinary, `the packaged ${APP_NAME} binary`)
   const devRan = await ranAsNode(devBinary, 'node_modules electron (unfused control)')
 
   if (packagedRan) {

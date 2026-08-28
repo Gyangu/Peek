@@ -14,7 +14,7 @@ import { inspectPackageDir, loadPackages, type LoadedPackage } from './loader'
  * indistinguishable from a package the user dropped in by hand — same loader,
  * same directory, same uninstall button.
  *
- *     peek.app/Contents/Resources/bundled-packages/<id>/   read-only, signed
+ *     Peek.app/Contents/Resources/bundled-packages/<id>/   read-only, signed
  *     ~/.peek/packages/<id>/                               writable, loaded
  *
  * ## Three rules, and each one is a failure that would otherwise be silent

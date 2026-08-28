@@ -1,5 +1,5 @@
 /**
- * Package the built renderer/preload/main bundles into peek.app (macOS, arm64).
+ * Package the built renderer/preload/main bundles into Peek.app (macOS, arm64).
  *
  * Why @electron/packager and not electron-builder
  * -----------------------------------------------
@@ -92,7 +92,7 @@ function workspacePackageDirs() {
  */
 const RUNTIME_RESOLVED = ['@agentclientprotocol/claude-agent-acp', '@agentclientprotocol/codex-acp']
 
-const APP_NAME = 'peek'
+const APP_NAME = 'Peek'
 const BUNDLE_ID = 'io.github.gyangu.peek'
 const ARCH = 'arm64'
 
@@ -352,7 +352,7 @@ async function main() {
     // `bundledPackagesRoot` reads process.resourcesPath/bundled-packages.
     extraResource: [runtimeIconPath, bundledStageDir],
     appCategoryType: 'public.app-category.developer-tools',
-    appCopyright: `Copyright © ${new Date().getFullYear()} peek`,
+    appCopyright: `Copyright © ${new Date().getFullYear()} ${APP_NAME}`,
     darwinDarkModeSupport: true,
     // See the header: the driver host is forked by path from a utilityProcess.
     asar: false,

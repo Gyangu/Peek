@@ -39,15 +39,15 @@ the app, so the agent you talk to drives the window it lives in.
 
 ## Install
 
-Download `peek-v0.0.1-macos-arm64.zip` from
-[Releases](https://github.com/Gyangu/Peek/releases), unzip, and drop `peek.app` into
+Download `Peek-v0.0.1-macos-arm64.zip` from
+[Releases](https://github.com/Gyangu/Peek/releases), unzip, and drop `Peek.app` into
 Applications. Apple Silicon only for now.
 
 > **This build is ad-hoc signed** (no Developer ID yet), so macOS will refuse the downloaded app
 > as "damaged" on first launch. Clear the quarantine flag once and it opens normally:
 >
 > ```bash
-> xattr -d com.apple.quarantine /Applications/peek.app
+> xattr -d com.apple.quarantine /Applications/Peek.app
 > ```
 >
 > Alternatively: System Settings → Privacy & Security → "Open Anyway". A signed and notarized
