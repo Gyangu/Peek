@@ -25,8 +25,9 @@ Because the competition it avoids is not the failure it should be optimising
 against. The prompt's whole justification, in the earlier record's §3, is that a
 person must not be cornered into the least-wrong option:
 
-> 一个只能从三个选项里挑的问题，在选项都不对的时候会逼人挑一个最不坏的，然后 agent
-> 拿着这个答案自信地做错事。
+> A question that only allows a pick from three options, when none of them is
+> right, forces a person to pick the least bad one, after which the agent
+> confidently does the wrong thing holding that answer.
 
 A collapsed box is a weaker version of that corner. When none of the options fit,
 what the person sees is a row of answers that are all wrong plus a control whose
