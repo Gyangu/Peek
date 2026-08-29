@@ -6,7 +6,7 @@
  * ==================================================================
  *
  * Design 2026-08-07 §4.8 items 36, 37 and 38, plus §4.4 item 18. All four were
- * "有实现无断言" in the §4sedecies ledger: `main/window-hardening.ts` has carried
+ * "implemented, not asserted" in the §4sedecies ledger: `main/window-hardening.ts` has carried
  * the navigation and permission guards since §2.10 landed and nothing had ever
  * made one fire, and the two boundary claims the front end rests on — a package
  * frame has no network, and a package id is an origin — were asserted only as
@@ -492,10 +492,10 @@ function installRelaxedProtocol(packagesRoot, csp) {
 /**
  * A server the package frame must not be able to reach, and this process can.
  *
- * The evidence item 18 asks for is that the request "没发出去" — was never sent —
- * and only something outside the renderer can say that. A rejected promise
- * cannot: a connection refused by the OS and one refused by CSP look the same
- * from inside the page.
+ * The evidence item 18 asks for is that the request was never sent, and only
+ * something outside the renderer can say that. A rejected promise cannot: a
+ * connection refused by the OS and one refused by CSP look the same from inside
+ * the page.
  *
  * `upgrade` is listened for separately because a WebSocket handshake never
  * becomes a `request` event, and the one scheme whose block is easiest to get

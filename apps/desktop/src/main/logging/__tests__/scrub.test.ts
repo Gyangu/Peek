@@ -5,8 +5,8 @@ import { createScrubber } from '../scrub'
 /**
  * The backstop between a diagnostic line and the disk.
  *
- * PLAN §7 ("token 不进日志") is kept at the **call sites** — a token is never
- * handed to a log call in the first place. This is the accident-catcher, and the
+ * PLAN §7 ("the token does not go into logs") is kept at the **call sites** — a
+ * token is never handed to a log call in the first place. This is the accident-catcher, and the
  * distinction matters enough that the last test in this file asserts the limit
  * rather than the capability: a pattern matcher cannot stop a shape it has never
  * seen, and a reader who believes otherwise will eventually log something in a

@@ -17,11 +17,12 @@ import { PackageHostProcess, type PackageId } from './host-process'
  *
  * ## Lazy is the whole point, not an optimisation
  *
- * Design 2026-08-07 §2.4bis(c): "第一次真正需要计算时才 fork。启动路径上零进程".
- * Twenty installed packages must cost twenty *manifests read* at startup and
- * zero processes, because acceptance item 20 (installing 20 packages does not
- * move cold start) cannot survive twenty forks and acceptance item 31 asserts
- * the count directly. `runningCount` exists so that assertion has something to
+ * Design 2026-08-07 §2.4bis(c): "forked only when computation is genuinely
+ * needed for the first time. Zero processes on the startup path". Twenty
+ * installed packages must cost twenty *manifests read* at startup and zero
+ * processes, because acceptance item 20 (installing 20 packages does not move
+ * cold start) cannot survive twenty forks and acceptance item 31 asserts the
+ * count directly. `runningCount` exists so that assertion has something to
  * read.
  *
  * What makes it hold is that `hostFor` is the only path to a process and the

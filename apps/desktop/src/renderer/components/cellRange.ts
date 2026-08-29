@@ -1,6 +1,6 @@
 /**
- * The rectangular cell selection — "框选", the gesture a spreadsheet taught
- * everyone to expect from a table.
+ * The rectangular cell selection — the gesture a spreadsheet taught everyone to
+ * expect from a table.
  *
  * Kept apart from `context-actions/selection.ts` on purpose. That module owns a
  * *set of rows*, which may be discontiguous — hand-picked with ⌘ — and this one

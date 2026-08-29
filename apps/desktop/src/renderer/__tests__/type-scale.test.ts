@@ -97,40 +97,49 @@ const RENDERER = join(dirname(fileURLToPath(import.meta.url)), '..')
 const STYLESHEETS = stylesheets(RENDERER)
 
 /**
- * 文字地板，px。**11 是查过的下限，不是「Tailwind 最小的那个」。**
+ * The text floor, in px. **11 is a looked-up lower bound, not "Tailwind's
+ * smallest".**
  *
- * macOS 系统 UI 的最小规格是 11px（caption2），而 peek 发布了 zh-CN ——
- * PingFang SC 在 10px 下笔画会粘连。同一份文档记着它恰好也是 TablePlus
- * 自己的地板。见 design/2026-08-02-ui-legibility-baseline.md §2.1。
+ * The smallest size in macOS's system UI is 11px (caption2), and peek ships
+ * zh-CN — PingFang SC runs its strokes together at 10px. The same document
+ * records that it happens to be TablePlus's own floor as well. See
+ * design/2026-08-02-ui-legibility-baseline.md §2.1.
  *
- * 它当过一轮 12px：Tailwind 没有 12px 以下的档，于是地板变成了「ladder
- * 碰巧停在哪里」而不是一个决定（§29.10.2）。§32 把决定拿了回来。
+ * It was 12px for one round: Tailwind has no rung below 12px, so the floor
+ * became "wherever the ladder happens to stop" rather than a decision
+ * (§29.10.2). §32 took the decision back.
  */
 const TEXT_MIN = 11
 
 /**
- * 地板之下唯一合法的东西，以及它合法的条件。
+ * The one thing that is legal below the floor, and what makes it legal.
  *
- * `--text-mark` 是 10px，**故意**在文字地板之下，因为它承载的不是词：展开
- * 三角 ▸▾、Markdown 的勾 ✔ —— 按形状读，不按字形辨认。条件写在这里而不是
- * 「凡是 10px 都放行」：它必须有一个不由字号决定的外框（caret 列
- * `--spacing-glyph` 14px、勾选框 12×12），且不得承载任何需要辨认的字形。
+ * `--text-mark` is 10px, **deliberately** below the text floor, because what
+ * it carries is not words: the disclosure triangles ▸▾, Markdown's tick ✔ —
+ * read by shape, not identified glyph by glyph. The conditions are written
+ * here rather than "anything at 10px passes": it must sit in a box its type
+ * size does not decide (the caret column's `--spacing-glyph` 14px, the
+ * checkbox's 12×12), and it must carry no glyph anybody has to identify.
  *
- * 低于地板必须是**一句写出来的话**，不能是一个偶然的计算结果 —— 这条规矩
- * 是 legibility 基线文档 §2.2.1 立的，本文件只是执行它。
+ * Going below the floor has to be **a sentence somebody wrote**, never an
+ * incidental result of a calculation — that rule is the legibility baseline's
+ * §2.2.1, and this file only enforces it.
  */
 const MARK_RUNG = '--text-mark'
 
 /**
- * 产品的五档，按它们自己的名字。没有第六档。
+ * The product's five rungs, under their own names. There is no sixth.
  *
- * Tailwind 的十三档全部被 `--text-*: initial` 清掉了（§32），所以这五个名字
- * 是窗口里**仅有**的字号词汇 —— 这比上一轮「列出两档、按名字驳回另外十一档」
- * 硬：现在写 `text-lg` 不是被这个测试驳回，是根本编译不出东西来。
+ * Tailwind's thirteen are all cleared by `--text-*: initial` (§32), so these
+ * five names are the **only** type-size vocabulary in the window — which is
+ * harder than the previous round's "list two rungs and reject the other eleven
+ * by name": writing `text-lg` is not rejected by this test now, it compiles to
+ * nothing at all.
  *
- * 名字说的是用途不是大小。`text-xs`/`text-sm` 说的是「小」和「稍小」，
- * 三个月后没人知道该用哪个；`text-micro`（次要文本）和 `text-body`（正文）
- * 说的是这段文字**是什么**。
+ * A name says what the type is for, not how big it is. `text-xs`/`text-sm` say
+ * "small" and "slightly less small", and three months later nobody knows which
+ * one to reach for; `text-micro` (secondary text) and `text-body` (running
+ * text) say what the words **are**.
  */
 const SCALE = ['--text-mark', '--text-micro', '--text-body', '--text-title', '--text-hero'] as const
 
@@ -190,16 +199,20 @@ const SHEET = 'styles.css'
  * of change that is invisible in a diff and obvious on screen.
  */
 /**
- * 一档的 px 值，从**产品自己的** `styles.css` 读，不是从 Tailwind 读。
+ * A rung's px value, read from **the product's own** `styles.css`, not from
+ * Tailwind.
  *
- * 上一轮读的是 `tailwindcss/theme.css`，理由是「档位是 Tailwind 的，所以
- * 值也应该从那里读，版本升级动了档位就在这里红」。§32 之后档位是产品自己
- * 铸的，Tailwind 的十三档被 `--text-*: initial` 清空了 —— 继续读那个文件
- * 只会读到一堆没人穿的数字。
+ * The previous round read `tailwindcss/theme.css`, on the reasoning that "the
+ * rungs are Tailwind's, so the values should be read from there, and a version
+ * bump that moves a rung goes red right here". Since §32 the rungs are the
+ * product's own, and Tailwind's thirteen are emptied by `--text-*: initial` —
+ * going on reading that file would only read a pile of numbers nobody wears.
  *
- * 值直接写 px（不是 rem），所以这里也不再需要 ×16 和「根字号必须是 16px」
- * 那条假设。那条假设本身是对的，但它是**这个文件**的假设而不是产品的属性，
- * 少一条假设就少一处会悄悄失效的地方。
+ * The values are written straight in px, not rem, so the ×16 and the "the root
+ * font size must be 16px" assumption are not needed here any more either. That
+ * assumption was true, but it was **this file's** assumption rather than a
+ * property of the product, and one assumption fewer is one fewer place that can
+ * quietly stop holding.
  */
 function readVarPx(name: string): number {
   const css = readFileSync(join(RENDERER, SHEET), 'utf8')
@@ -470,7 +483,7 @@ describe('the type scale', () => {
   test('the scale is five rungs, ordered, with the floor as the second', () => {
     const px = SCALE.map(readVarPx)
 
-    // 具名，所以失败时说的是「哪一档动了」而不只是「有一档动了」。
+    // Named, so a failure says which rung moved rather than only that one did.
     assert.deepEqual(px, [10, 11, 12, 14, 16], 'the rungs are 10 / 11 / 12 / 14 / 16px')
     assert.deepEqual(
       px,
@@ -487,12 +500,15 @@ describe('the type scale', () => {
 
   test('every rung carries a line box, and every line box is an even whole number', () => {
     /*
-     * 这是本轮的核心不变式，写成断言。
+     * This round's central invariant, written as an assertion.
      *
-     * 比值行高乘字号必然产生小数：12 × 1.45 = 17.390625（Chromium 按 1/64px
-     * 量化）。87 个实测面里 37 个的小数几何全部追到那一行（§31.2）。所以
-     * 这里同时要两件事：每一档都配了行盒（不许有档位落回继承），且每个行盒
-     * 都是偶数整数 px（奇数行盒在偶数容器里居中又会掉回半像素）。
+     * A ratio line height multiplied by a type size necessarily produces a
+     * fraction: 12 × 1.45 = 17.390625 (Chromium quantises to 1/64px). Of 87
+     * measured surfaces, the fractional geometry of 37 traced back to that one
+     * line (§31.2). So this asks two things at once: every rung is paired with a
+     * line box (no rung may fall back to inheritance), and every line box is an
+     * even whole number of px (an odd line box, centred in an even container,
+     * falls back onto a half pixel).
      */
     const css = readFileSync(join(RENDERER, SHEET), 'utf8')
     const bad: string[] = []
@@ -508,14 +524,18 @@ describe('the type scale', () => {
         continue
       }
       /*
-       * 跟一跳 `var()`。
+       * Follow one `var()` hop.
        *
-       * 规则是「解析成偶数整数 px」，不是「写成 px 字面量」——`--leading-row`
-       * 故意写成 `var(--spacing-row)`，因为 `vscroll.ts` 用行高算产品里每一个
-       * 滚动偏移，行盒必须**跟着**那个令牌走而不是复制它的当前值。第一版这个
-       * 检查只认字面量，于是把这处正确的间接引用报成了违规。
+       * The rule is "resolves to an even whole number of px", not "is written
+       * as a px literal" — `--leading-row` is deliberately written as
+       * `var(--spacing-row)`, because `vscroll.ts` computes every scroll offset
+       * in the product from the row height, so the line box has to **follow**
+       * that token rather than copy its current value. The first version of
+       * this check recognised literals only, and reported that correct
+       * indirection as a violation.
        *
-       * 只跟一跳：两跳以上就不是「派生」而是绕路了，那种应该红。
+       * One hop only: two or more is not derivation but a detour, and that
+       * should be red.
        */
       const px = resolvePx(css, named[1])
       if (px === null) {
@@ -528,9 +548,10 @@ describe('the type scale', () => {
     assert.deepEqual(
       bad,
       [],
-      `每一档必须配一个具名的 --leading-* 令牌，且它必须是偶数整数 px。\n` +
-        `比值（1.45、1.625…）乘字号会产生小数，小数是这个窗口分数几何的唯一来源；\n` +
-        `奇数行盒在偶数容器里居中会掉回半像素。见 §31.2 与 §32：\n${bad.join('\n')}`,
+      `Every rung needs a named --leading-* token, and it has to be an even whole px.\n` +
+        `A ratio (1.45, 1.625, …) times a font size produces a fraction, and fractions are\n` +
+        `the only source of this window's fractional geometry; an odd line box centred in an\n` +
+        `even container falls back onto a half pixel. See §31.2 and §32:\n${bad.join('\n')}`,
     )
   })
 

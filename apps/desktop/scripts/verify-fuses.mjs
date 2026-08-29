@@ -5,7 +5,7 @@
  * ==================================================================
  *
  * Design 2026-08-07 §4.8 item 34, which the §4sedecies ledger recorded as ⬜
- * 没跑: `package-mac.mjs` calls `flipFuses`, and **nobody had ever read the
+ * not run: `package-mac.mjs` calls `flipFuses`, and **nobody had ever read the
  * result back**. That gap has a specific shape worth naming — flipping a fuse is
  * a write into a sentinel-delimited region of the Electron framework binary, and
  * every way it can go wrong is quiet:

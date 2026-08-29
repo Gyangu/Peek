@@ -77,7 +77,8 @@ export function ConnectDialog({ onClose, initial, saved }: ConnectDialogProps): 
   // Everything below reads the installed registry synchronously — the picker's
   // ids, the field list, the capability line — so this subscription is what makes
   // a package installed while this dialog is open show up in it, which is design
-  // §2.7 step 5 ("立刻能在连接对话框里选它"). The value is deliberately unused.
+  // §2.7 step 5 ("it can be picked in the connect dialog immediately"). The value
+  // is deliberately unused.
   usePackagesRevision()
   // The locale itself, not just a bound `t`: a field's label is text the package
   // carries, so it is looked up in the manifest rather than in peek's catalog.

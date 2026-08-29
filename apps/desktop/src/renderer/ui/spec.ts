@@ -276,28 +276,36 @@ export const CONTROL_SIZES = {
     px: 24,
     intent: 'The default. Every standalone button.',
     /*
-     * 24px 是**算出来的**，不是靠 `min-h-hit` 兜出来的。
+     * 24px is **computed**, not caught by `min-h-hit`.
      *
-     * --leading-ui(18) + 2×--spacing-control-y(2) + 2×1px 描边 = 24。等号
-     * 两边都成立才叫规范：`<input>` 与 `<select>` 在 `@layer base` 里用的是
-     * 同一个算术，所以三者由构造同高，而不是各自凑到附近再让地板削平。
+     * --leading-ui(18) + 2×--spacing-control-y(2) + 2×1px border = 24. It is a
+     * spec only when both sides of that equation hold: `<input>` and `<select>`
+     * run the same arithmetic in `@layer base`, so all three stand the same
+     * height by construction rather than each landing somewhere nearby and
+     * being planed flat by the floor.
      *
-     * 这一条替掉了上一版按住行盒的那个补丁（类名不写在这里 —— Tailwind 的
-     * 扫描器读注释，写下来就会编译成一条没人穿的活规则，构建审计当场会拦；
-     * 这已经是本仓库第七次）。那是个补丁：它把行盒压成 12px
-     * 让内容降到地板以下，再由 `min-h-hit` 把盒子撑回 24 —— 数字对了，但
-     * 「按钮为什么是 24px」这个问题的答案变成了「因为地板是 24」，而
-     * `<input>` 不吃那个地板，于是同一张表单里 button 24 / input 28.3，
-     * 散布 4.3px（§30.2）。现在两边算术相同，散布由构造为 0。
+     * This replaced the previous version's patch, the one that pinned the line
+     * box (the class is not written out here — Tailwind's scanner reads
+     * comments, so spelling it would compile a live rule no element wears and
+     * the build audit would stop it on the spot; this is the seventh time in
+     * this repository). It was a patch: it crushed the line box to 12px, which
+     * dropped the content below the floor, and then let `min-h-hit` push the
+     * box back out to 24 — the number was right, but the answer to "why is a
+     * button 24px" had become "because the floor is 24", and `<input>` does not
+     * take that floor, so the same form carried button 24 / input 28.3, a
+     * spread of 4.3px (§30.2). The arithmetic is the same on both sides now,
+     * and the spread is 0 by construction.
      *
-     * `min-h-hit` 留着，但它现在真的只是**地板**：在 11px 的状态栏里
-     * 内容高度会掉到 22px，那时候它才起作用。
+     * `min-h-hit` stays, but it really is only a **floor** now: in the 11px
+     * status bar the content height falls to 22px, and that is when it acts.
      *
-     * **`leading-ui` 也必须由档位自己说，理由和 `sm` 自报字号一样。**
-     * 不说的话行盒是继承来的，于是同一个「24px 按钮」在 consent 对话框里
-     * 实测 26px —— 那个对话框是 `leading-prose`(20px)，20+4+2=26。一个尺寸
-     * 取决于它落在哪里的档位不是档位，而这正是上一版 `px: 24` 写着 24、
-     * 实际渲染 25.4 的同一个毛病换了个入口。
+     * **`leading-ui` has to be stated by the rung itself, for the same reason
+     * `sm` states its own type size.** Left unstated, the line box is
+     * inherited, and the very same "24px button" measured 26px in the consent
+     * dialog — that dialog is `leading-prose`(20px), and 20+4+2=26. A size
+     * that depends on which rung it lands in is not a rung, and that is the
+     * previous version's `px: 24` — which said 24 and rendered 25.4 — the same
+     * fault through another door.
      */
     classes: 'min-h-hit px-control-x py-control-y gap-tight leading-ui',
     iconClasses: 'min-h-hit w-hit p-0 gap-0 leading-ui',

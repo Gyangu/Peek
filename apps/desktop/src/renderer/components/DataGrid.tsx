@@ -617,7 +617,7 @@ export function DataGrid(props: DataGridProps): ReactElement {
   const stableCols = colsRef.current
 
   /* ==================================================================
-   * Dragging: 框选
+   * Dragging: the rectangular selection
    *
    * Two gestures share one machine, because they are the same motion started
    * over different territory — the row-number gutter selects rows, anywhere

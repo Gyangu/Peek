@@ -1321,10 +1321,10 @@ export const StateReadInputSchema = z.object({
  *
  * ## Why adding to a table PLAN §6 calls closed is not a contradiction
  *
- * That sentence is about **packages** — "包不能往里加动词" — and its reasoning is
- * that every name in the table is kernel-general. These two are as well; they
- * sit beside `state.read`, `settings.read` and `mcp.read`, which are the same
- * kind of thing: a read-only question about the app itself.
+ * That sentence is about **packages** — "a package cannot add verbs to it" — and
+ * its reasoning is that every name in the table is kernel-general. These two are
+ * as well; they sit beside `state.read`, `settings.read` and `mcp.read`, which
+ * are the same kind of thing: a read-only question about the app itself.
  *
  * ## The consequence worth knowing
  *

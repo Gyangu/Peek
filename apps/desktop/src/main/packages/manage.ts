@@ -23,10 +23,10 @@ import { inspectPackageDir, type LoadedPackage } from './loader'
  * ## Validate before writing, never after
  *
  * Both paths here run the loader's own checks *before* touching the packages
- * directory. That ordering is the whole of §2.7's "任一项不过则拒绝整个包": a
- * package that failed a laxer install check would sit on disk contributing
- * nothing, and the explanation would arrive at the next launch, from the loader,
- * about a directory the user thought had installed.
+ * directory. That ordering is the whole of §2.7's "any one failing rejects the
+ * whole package": a package that failed a laxer install check would sit on disk
+ * contributing nothing, and the explanation would arrive at the next launch,
+ * from the loader, about a directory the user thought had installed.
  *
  * ## What this module deliberately does not do
  *

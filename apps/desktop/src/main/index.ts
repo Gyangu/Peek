@@ -1130,10 +1130,11 @@ function buildMcpController(
       // The one place both tokens are certainly current — a rotation comes
       // through here — so it is where they are registered as literals to mask.
       //
-      // This is a **backstop and not the rule**. PLAN §7's "token 不进日志" is
-      // kept by never handing a token to a log call in the first place; the file
-      // this writes to is persistent and its readers are wide, so the accident
-      // is worth catching even though the design is that it cannot happen.
+      // This is a **backstop and not the rule**. PLAN §7's "the token does not
+      // go into logs" is kept by never handing a token to a log call in the first
+      // place; the file this writes to is persistent and its readers are wide, so
+      // the accident is worth catching even though the design is that it cannot
+      // happen.
       logging?.rememberSecret(token)
       logging?.rememberSecret(agentToken)
       return createMcpServer({

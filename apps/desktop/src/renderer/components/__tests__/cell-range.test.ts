@@ -3,7 +3,7 @@ import { describe, test } from 'node:test'
 import { isAnchor, isInRange, rangeAt, rangeCellCount, rangeFrom, rangeHasRow } from '../cellRange'
 
 /* ==================================================================
- * The rectangular selection — 框选.
+ * The rectangular selection.
  *
  * The whole module is arithmetic over four numbers, which is exactly the kind of
  * thing that looks too simple to test until a drag upwards selects the wrong

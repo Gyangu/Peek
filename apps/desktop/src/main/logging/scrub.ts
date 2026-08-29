@@ -10,9 +10,9 @@
  * pattern matcher cannot stop a shape it has never seen.
  *
  * This is written down because the failure mode is people trusting it. PLAN §7
- * ("token 不进日志") is enforced at the *call sites* — the MCP token is never
- * passed to a log call in the first place — and this file exists to catch the
- * accident, not to license the practice.
+ * ("the token does not go into logs") is enforced at the *call sites* — the MCP
+ * token is never passed to a log call in the first place — and this file exists
+ * to catch the accident, not to license the practice.
  *
  * ## Why it reuses `agent/redact.ts`
  *

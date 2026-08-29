@@ -75,10 +75,12 @@ a shipped capability. The same applies to the Chinese half of every
 assertions that check those strings come back correctly. None of it is prose
 about the project; all of it is the project's output.
 
-**Chinese comments in source** are the same problem as this document's, and are
-left for a separate decision rather than folded in here. There are 4,949 Han
-characters across 38 source files once the catalogue above is excluded, and they
-are concentrated:
+**Chinese comments in source** were left for a separate decision when this
+document was first written, and that decision was taken on 2026-08-29: they are
+in scope, and are translated in the same pass. The reason is §2.4's: history is
+rewritten once, and deciding this afterwards would mean rewriting it twice.
+There are 4,950 Han characters across 38 source files once the catalogue above is
+excluded, and they are concentrated:
 
 | file | Han characters | what they are |
 | --- | --- | --- |
@@ -87,10 +89,15 @@ are concentrated:
 | `apps/desktop/src/renderer/ui/spec.ts` | 336 | why the control height is arithmetic |
 | 35 others | 302 | mostly one-line citations of a design record |
 
-They are excluded because the scope agreed for this pass was the documentation,
-and because separating them keeps the mechanical check in §5 honest: a source
-file that legitimately holds a Chinese product string cannot be checked by the
-same rule that says a Markdown file must hold none.
+Three files carry 94% of it, and the rest is a line or two apiece.
+
+The check in §5 does not extend to them, and deliberately: a source file may
+legitimately hold a Chinese product string — the zh-CN half of a manifest label,
+a test's expected translation, a CJK string being exercised for its width — and
+the rule that says a Markdown file holds none cannot be applied to it without
+either failing on correct code or being loosened into something that catches
+nothing. What separates a comment from a string is a judgement, and a judgement
+is what a reviewer makes, not what a grep makes.
 
 ## 2. The plan
 

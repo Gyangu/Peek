@@ -30,10 +30,11 @@ import type {
  *     (`renderer/main.tsx`).
  *
  * The window's copy is *data* and only data — that is design §1.3's hard rule
- * ("渲染进程永远不能执行包的 JS") reduced to a mechanism rather than a habit. A
- * `DriverManifest` has been a JSON value since decision 3 turned its last two
- * functions into declarations, so it survives `structuredClone` intact and there
- * is nothing left for a package to smuggle across.
+ * ("the renderer may never execute a package's JS") reduced to a mechanism
+ * rather than a habit. A `DriverManifest` has been a JSON value since decision 3
+ * turned its last two functions into declarations, so it survives
+ * `structuredClone` intact and there is nothing left for a package to smuggle
+ * across.
  *
  * ## Empty is a legal state, and it is the loud one
  *

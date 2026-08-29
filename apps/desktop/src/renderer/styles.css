@@ -514,116 +514,139 @@
   --color-rownum-sel: color-mix(in srgb, var(--color-accent) 24%, var(--color-bg-1));
 
   /* ----------------------------------------------------------------
-   * 字号标度 —— 五档，零半像素
+   * The type scale — five rungs, no half pixels
    *
-   * §29.10.2 把八个字号收成三个（12/14/18），代价是 64 条原本严格低于
-   * 正文的声明并进 12px，六条真实区分一起消失。用户的原话是「完全没有
-   * 以前精致」——说的就是这件事，不是对齐，是层次（§31.6）。
+   * §29.10.2 collapsed eight sizes into three (12/14/18), and the price was 64
+   * declarations that had been strictly under the body size folding into 12px,
+   * taking six real distinctions with them. The user's own words were "nothing
+   * like as refined as before" — that is what they were about: not alignment,
+   * hierarchy (§31.6).
    *
-   * 这里把档位加回来，并且顺手把它一直带着的半像素去掉：`--fs-data` 是
-   * 11.5px，用半个像素补偿等宽字形的光学重量；现在 chrome 是 11px、数据
-   * 是 12px，同一个补偿用**整一档**表达。
+   * This puts the rungs back, and takes off the half pixel the scale had
+   * carried all along: `--fs-data` was 11.5px, half a pixel compensating for
+   * the optical weight of a monospace glyph. Chrome is 11px and data is 12px
+   * now, so the same compensation is stated as **a whole rung**.
    *
-   * 先清空 Tailwind 的十三档。不清就是两套梯子并存，而 `text-xs` /
-   * `text-sm` 这两个名字说的是「小」和「稍小」，不是「这是元数据」或
-   * 「这是标题」——留着它们，三个月后一定有人写回去。清空之后
-   * `type-scale.test.ts` 可以从「列出三档、驳回另外十档」升级成「十三档
-   * 全部不存在」，那是更硬的围栏。
+   * Tailwind's thirteen rungs are emptied first. Leaving them is two ladders
+   * side by side, and the names `text-xs` / `text-sm` say "small" and "a bit
+   * smaller", not "this is metadata" or "this is a heading" — keep them and
+   * somebody writes one back inside three months. Emptied, `type-scale.test.ts`
+   * goes from "list three rungs, reject the other ten" to "all thirteen do not
+   * exist", which is the harder fence.
    * ---------------------------------------------------------------- */
   --text-*: initial;
   --leading-*: initial;
 
   /*
-   * 不是词。展开三角 ▸▾、Markdown 的勾选 ✔ —— 按形状读，不按字形辨认，
-   * 所以不受文字地板约束。合法条件写在这里而不是在站点上：所在盒子必须
-   * 另有尺寸下限（caret 列 --spacing-glyph 14px、勾选框 12×12），且不得
-   * 承载任何需要辨认的字形。
+   * Not words. The disclosure triangle ▸▾ and Markdown's tick ✔ — read by
+   * shape rather than identified glyph by glyph, so the text floor does not
+   * bind them. The conditions are written here rather than at each site: the
+   * box holding the mark must have a size floor of its own (the caret column's
+   * --spacing-glyph 14px, the checkbox's 12×12), and it must carry no glyph
+   * anybody has to identify.
    *
-   * `design/2026-08-02-ui-legibility-baseline.md` §2.1 定过这条「符号地板
-   * 10px」，§29.10.2 把它抹平到 12px，这里恢复。
+   * `design/2026-08-02-ui-legibility-baseline.md` §2.1 set this 10px symbol
+   * floor; §29.10.2 flattened it to 12px, and this restores it.
    */
   --text-mark: 10px;
   --text-mark--line-height: var(--leading-mark);
 
   /*
-   * 有词句的地板，也是 chrome 的默认档：状态栏、表头、行号、树的 detail、
-   * 时间戳、连接副行、错误明细、`size="sm"` 控件、菜单副文本。
+   * The floor for anything with words in it, and chrome's default rung: the
+   * status bar, table heads, row numbers, a tree node's detail, timestamps, a
+   * connection's second line, error detail, `size="sm"` controls, a menu's
+   * secondary text.
    *
-   * 11px 不是审美，是查过的下限：macOS 系统 UI 最小规格是 11px（caption2），
-   * 而 peek 发布了 zh-CN —— PingFang SC 在 10px 下笔画会粘连。同一份文档
-   * 里记着它恰好也是 TablePlus 自己的地板。
+   * 11px is not taste, it is a checked lower bound: macOS's smallest system UI
+   * size is 11px (caption2), and peek ships zh-CN — PingFang SC's strokes run
+   * together below 10px. The same document records that it is also TablePlus's
+   * own floor.
    *
-   * 它和 --text-body 差一档，这一档就是「次要」的全部含义。§29.10.2 之后
-   * 两者同为 12px，界面因此没有主次；恢复它是本轮最主要的一件事。
+   * It sits one rung under --text-body, and that rung is the whole meaning of
+   * "secondary". After §29.10.2 both were 12px, so the interface had no
+   * hierarchy at all; restoring this is the main thing this round does.
    */
   --text-micro: 11px;
   --text-micro--line-height: var(--leading-ui);
 
-  /* 默认。`body` 穿它，数据单元格也穿它 —— 等宽字比 chrome 的比例字高
-     整一档，那是 --fs-data 那半个像素想说的话。 */
+  /* The default. `body` wears it and so does a data cell — a monospace face
+     stands a whole rung above chrome's proportional one, which is what
+     --fs-data's half pixel was trying to say. */
   --text-body: 12px;
   --text-body--line-height: var(--leading-ui);
 
-  /* 对话框标题、Markdown h2/h3、空态标题、崩溃标题。 */
+  /* Dialog titles, Markdown h2/h3, empty-state titles, the crash title. */
   --text-title: 14px;
   --text-title--line-height: var(--leading-prose);
 
-  /* 只有 Markdown h1。它取代 `.md-h1` 那条 15px 的字面量规则 —— 全窗口
-     最后一个 bespoke 字号，同时把行盒从 24.375px（15 × 继承来的 1.625）
-     拉回整整 24px。 */
+  /* Markdown h1 and nothing else. It replaces `.md-h1`'s 15px literal rule —
+     the window's last bespoke font size — and pulls the line box back from
+     24.375px (15 × the inherited 1.625) to exactly 24px. */
   --text-hero: 16px;
   --text-hero--line-height: var(--leading-row);
 
   /* ----------------------------------------------------------------
-   * 行盒 —— 四个，全部 px 字面量
+   * Line boxes — four of them, every one a px literal
    *
-   * **比值行高是这个窗口 43% 分数几何的唯一源头。** `body { line-height:
-   * 1.45 }` × 12px = 17.4px，Chromium 按 1/64px 量化成 17.390625px，于是
-   * 上下文菜单每行 27.398px、连接对话框整框 321.391px、裸 button 25.398px。
-   * 比值乘字号必然产生小数，px 永远不会 —— 所以这里一个比值都不留。
+   * **A ratio line-height is the single source of 43% of this window's
+   * fractional geometry.** `body { line-height: 1.45 }` × 12px = 17.4px, which
+   * Chromium quantises to 17.390625px at 1/64px, so a context menu row is
+   * 27.398px, the connect dialog's whole frame 321.391px, a bare button
+   * 25.398px. A ratio times a font size always produces a fraction and a px
+   * literal never does — so not one ratio is left here.
    *
-   * 它同时消灭「同一个 12px 在窗口里有两个行高」：不写 text-* 的元素继承
-   * body 的 1.45（17.39px），写了的拿 Tailwind 的 calc(1/0.75)（16px），
-   * 而 139 条设置竖向盒子的类串里 104 条两个都没写 —— 那 1.39px 的差别
-   * 纯粹取决于当初有没有人顺手写那个 class。
+   * It also kills "one 12px with two line heights in the same window": an
+   * element that writes no text-* inherits body's 1.45 (17.39px), one that
+   * writes a rung takes Tailwind's calc(1/0.75) (16px), and 104 of the 139
+   * class strings that set a vertical box write neither — so that 1.39px
+   * difference came down entirely to whether somebody happened to add the
+   * class.
    * ---------------------------------------------------------------- */
 
   /*
-   * 一个行盒统治 --text-micro 与 --text-body 两档。
+   * One line box governs two rungs, --text-micro and --text-body.
    *
-   * 混排是理由：一行里 11px 的标签配 12px 的数值（状态栏、树行、连接行
-   * 到处都是），行盒同为 18px 才基线一致。
+   * Mixing is the reason: an 11px label beside a 12px value on one line (the
+   * status bar, a tree row, a connection row — everywhere), and only an equal
+   * 18px box puts the two on a common baseline.
    *
-   * 18/12 = 1.50、18/11 = 1.64，两个都在 PingFang 需要的带里。它替掉的
-   * 16px 是 1.333，比这轮迁移出发时的 1.45 还紧 8% —— 那是 zh-CN 侧一处
-   * 真实回退，迁移期间没有任何文档记过。
+   * 18/12 = 1.50 and 18/11 = 1.64, both inside the band PingFang needs. The
+   * 16px it replaces is 1.333, 8% tighter than the 1.45 this migration set out
+   * from — a real regression on the zh-CN side that no document recorded while
+   * the migration was happening.
    *
-   * 字形原点的半像素**不追**，因为追不到：三个字族的 content-area 在
-   * 12px 处是 15(SF Pro) / 14(SF Mono) / 17(PingFang)，两奇一偶，要三者
-   * 半行距同时为整数需要 L−15、L−14 同时是偶数，无解（§31.7）。盒子边缘
-   * 的半像素才是肉眼可见的那种，那一类下面清零。
+   * The half pixel at the glyph origin is **not** chased, because it cannot be:
+   * the three families' content areas at 12px are 15 (SF Pro) / 14 (SF Mono) /
+   * 17 (PingFang), two odd and one even, and an integer half-leading for all
+   * three at once needs L−15 and L−14 both even, which has no solution
+   * (§31.7). The half pixel at a box edge is the kind the eye sees, and that
+   * class of them is zeroed below.
    */
   --leading-ui: 18px;
 
   /*
-   * 读的东西，不是扫的东西 —— 标题，以及会换行的散文。
+   * The things that are read rather than scanned — headings, and prose that
+   * wraps.
    *
-   * chrome 是扫的：状态栏、表头、树行，一行一个事实，18px 的行盒让它们尽量
-   * 密。agent 写的散文、空态说明、对话框正文是**读**的，一段几行，行距要松
-   * 一档才不费眼。20px 同时是 --text-title 的行盒：一个 14px 的标题和一段
-   * 12px 的散文本来就该在同一个节奏上。
+   * Chrome is scanned: the status bar, table heads, tree rows, one fact per
+   * line, and an 18px box packs them as tight as they go. The prose an agent
+   * writes, an empty state's explanation and a dialog's body are **read** —
+   * several lines at a time, and a rung of extra leading is what keeps that
+   * from tiring the eye. 20px is also --text-title's box: a 14px heading and a
+   * paragraph of 12px prose belong on one rhythm.
    *
-   * 它吸收了 Tailwind 的 `relaxed`(1.625) 与 `normal`(1.5)、以及原来的
-   * --leading-hint(1.7)。那三个都是比值，12px 下分别是 19.5 / 18 / 20.4 —— 
-   * 三个不同的小数，说的是同一件事。
+   * It absorbs Tailwind's `relaxed` (1.625) and `normal` (1.5) along with the
+   * old --leading-hint (1.7). All three are ratios, which at 12px are
+   * 19.5 / 18 / 20.4 — three different fractions saying one thing.
    */
   --leading-prose: 20px;
 
   /*
-   * 只给 --text-mark，也是唯一一个不是 18 的 chrome 行盒。
+   * For --text-mark alone, and the only chrome line box that is not 18.
    *
-   * 它必须存在：Markdown 的任务勾选框是一个 12×12 的 inline-block +
-   * text-center，不走 flex 居中。18px 的行盒塞进 12px 外框，勾号会掉出去。
+   * It has to exist: Markdown's task checkbox is a 12×12 inline-block with
+   * text-center, not flex centring. An 18px line box inside a 12px frame drops
+   * the tick out of it.
    */
   --leading-mark: 12px;
 
@@ -632,65 +655,79 @@
   --font-mono: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
 
   /*
-   * 窗口的竖向骨架，放在 `--spacing-*` 命名空间里，于是 `h-bar` / `h-row` /
-   * `w-gutter` 直接是工具类，而不是谁都得记住的 `var()`。
+   * The window's vertical skeleton, kept in the `--spacing-*` namespace so
+   * that `h-bar` / `h-row` / `w-gutter` are utility classes outright rather
+   * than a `var()` everybody has to remember.
    *
-   * 上一版这里写着「没有第五种高度：标题栏、侧栏头、面板头和状态栏都是
-   * --spacing-bar」。**这句话是假的**：状态栏是 26px（`StatusBar.tsx` 写的是
-   * 裸数字 `h-6.5`），全窗 13 条横条只有它不用令牌。已改成 `h-head`，注释
-   * 也改成说实话的版本。
+   * The previous version said here: "there is no fifth height — the title bar,
+   * the sidebar head, a panel head and the status bar are all --spacing-bar".
+   * **That sentence was false**: the status bar is 26px (`StatusBar.tsx`
+   * writes the bare number `h-6.5`), the one strip of the window's thirteen
+   * that used no token. It is `h-head` now, and the comment is the version that
+   * tells the truth.
    *
-   * 20/24/26/30 一个都不动，尽管它们没有一个是 4 的倍数。强推 4px 网格
-   * 修不了半像素（偶数减 1px 描边恒得奇数内容盒，实测 28px 与 32px 条配
-   * 六种子元素，十二格全糊），而代价是真的：表头 26→28 按
-   * rows(v)=floor((v−HEAD_H)/24) 在 v=300..1600 上枚举，8.3% 的窗口高度
-   * 少显示一行。要修的是那条线的画法，不是这些数（§31.3）。
+   * Not one of 20/24/26/30 moves, even though none of them is a multiple of 4.
+   * Forcing a 4px grid does not fix a half pixel — an even height minus a 1px
+   * border is always an odd content box, measured on 28px and 32px strips
+   * against six kinds of child and all twelve cells came out blurred — and the
+   * cost is real: taking a table head from 26 to 28 and enumerating
+   * rows(v)=floor((v−HEAD_H)/24) over v=300..1600 shows one row fewer at 8.3%
+   * of window heights. What has to be fixed is how that line is drawn, not
+   * these numbers (§31.3).
    */
   --spacing-row: 24px;
   --spacing-head: 26px;
   --spacing-bar: 30px;
 
   /*
-   * 行号槽，54px → 48px。本轮唯一一处横向密度净赚。
+   * The row-number slot, 54px → 48px. The one net gain in horizontal density
+   * this round.
    *
-   * 槽的内容宽 = 槽宽 − 右内边距 − `border-r`。行号从 12px 降到
-   * --text-micro(11px) 之后重算：SF Mono 11px 的 advance 实测 6.6226px，
-   * 48 − 7 − 1 = 40px 装得下 6 位（39.74px），和 54px @12px 时的容量
-   * 一模一样，第七位两边都装不下。
+   * Slot content width = slot width − right padding − `border-r`. Recomputed
+   * after the row number dropped from 12px to --text-micro (11px): SF Mono at
+   * 11px measures an advance of 6.6226px, so 48 − 7 − 1 = 40px holds six digits
+   * (39.74px) — exactly the capacity of 54px at 12px. A seventh digit fits in
+   * neither.
    *
-   * 每一行、每一个表格视图永久省 6px 横向。
+   * 6px of horizontal space saved permanently, on every row of every table view.
    */
   --spacing-gutter: 48px;
 
-  /* 树的 caret 列与图标列宽 —— 也是 --text-mark 合法性的那条尺寸下限：
-     一个 10px 的字形必须有一个不由字号决定的外框。 */
+  /* The tree's caret and icon column width — and the size floor that makes
+     --text-mark legal: a 10px glyph must have a frame its font size does not
+     decide. */
   --spacing-glyph: 14px;
 
   /* ----------------------------------------------------------------
-   * 间距标度 —— 六档，前四档翻倍
+   * The spacing ladder — six rungs, the first four doubling
    *
-   * 现在 0–16px 之间**每一个整数像素都在用**，奇数值 121 处。漏口是
-   * Tailwind 的 `.25` 分数：`--spacing` 是 4px，所以 `p-2.25` 恰好 9px，
-   * 1px 粒度是白送的（§31.4）。
+   * **Every integer pixel between 0 and 16 is in use** today, 121 of them odd.
+   * The leak is Tailwind's `.25` fractions: `--spacing` is 4px, so `p-2.25` is
+   * exactly 9px and 1px granularity comes free (§31.4).
    *
-   * 修法不是「把所有数凑成 4 的倍数」——那只是另一种徒手。密集界面的
-   * 精致感来自「嵌套一层，间距翻一倍」：眼睛分不出 5 和 6，但分得出 4 和 8。
-   * 现在 5/6/7/8/9/10 挤在同一个容器里，所以**没有任何一层能被看出来**。
+   * The fix is not "round every number to a multiple of 4" — that is freehand
+   * under another name. A dense interface reads as refined because **one level
+   * of nesting doubles the gap**: the eye cannot tell 5 from 6 and can tell 4
+   * from 8. Today 5/6/7/8/9/10 are crowded into one container, so **no level
+   * can be seen at all**.
    *
-   * **故意没有 12px 档。** 8 → 16 必须是干净的一倍，塞个 12 进去就又糊回去。
-   * 这是这把梯子最容易被将来的人破坏的地方，所以写在这里。
+   * **Deliberately no 12px rung.** 8 → 16 has to be a clean doubling, and
+   * wedging a 12 in blurs it again. This is where a future reader is most
+   * likely to damage the ladder, which is why it is written down here.
    *
-   * 这一组只管**缝**（padding / margin / gap）。尺寸（w / h / max-w）不走
-   * 这把梯子：一个列宽、一个点击边、一个字形的最小外框都是量出来的，不是
-   * 从嵌套层级推出来的。把它们塞进同一把梯子，要么逼着 88px 的标签列变成
-   * 96px，要么逼着会换行的块套上 h-row 把内容裁掉。
+   * This group governs **gaps** only (padding / margin / gap). Sizes (w / h /
+   * max-w) do not come off this ladder: a column width, a hit edge and the
+   * minimum frame around a glyph are all measured, not derived from a nesting
+   * level. Forcing them onto one ladder either pushes an 88px label column to
+   * 96px or puts h-row on a block that wraps and clips its content.
    * ---------------------------------------------------------------- */
 
-  /* 控件盒子内部的余量。合法位置只有两处：控件自己的 padding-block、
-     一个标记和它外框的缝。两个可独立点击的东西之间禁止用它。 */
+  /* Slack inside a control's own box. Two legal sites and no others: a
+     control's own padding-block, and the gap between a mark and its frame.
+     Never between two independently clickable things. */
   --spacing-inset: 2px;
 
-  /* 图标 ↔ 它自己的文字。读作「同一个对象的两个部分」。 */
+  /* An icon ↔ its own label. Reads as "two parts of one object". */
   --spacing-tight: 4px;
 
   /* **默认档。** 控件↔控件、label↔field、面板与卡片的内边距。拿不准用它。 */

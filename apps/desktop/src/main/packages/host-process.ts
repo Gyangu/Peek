@@ -18,10 +18,10 @@ import { allowedEnv } from '../connections/spawn-policy'
  *
  * `connections/host-process.ts` is the model, and everything below that looks
  * the same as that file *is* the same decision reached twice — one RPC envelope,
- * one deadline owner, one crash story (design 2026-08-07 §2.4bis f-bis: "照抄
- * driver-host，不发明第二套"). What follows is only the three places the two
- * differ, because those are the parts a reader coming from that file will
- * mis-assume.
+ * one deadline owner, one crash story (design 2026-08-07 §2.4bis f-bis: "copy
+ * driver-host, do not invent a second one"). What follows is only the three
+ * places the two differ, because those are the parts a reader coming from that
+ * file will mis-assume.
  *
  * ## No data plane, and therefore no port
  *
