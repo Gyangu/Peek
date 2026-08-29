@@ -35,7 +35,10 @@ for (const f of md) {
     .filter(([, l]) => {
       // A fenced block holds code, and code may legitimately carry a Chinese
       // UI string (the renderer ships a zh-CN catalogue). Skip those lines.
-      if (/^\s*```/.test(l)) { fenced = !fenced; return false }
+      if (/^\s*```/.test(l)) {
+        fenced = !fenced
+        return false
+      }
       if (fenced) return false
       // A blockquote is how a translated document quotes the clause it replaces.
       if (l.trimStart().startsWith('>')) return false
@@ -46,8 +49,12 @@ for (const f of md) {
     })
   if (hits.length) han.push({ f, n: hits.length, first: hits[0] })
 }
-report('no Han characters outside blockquotes', han, md.length,
-  (b) => `${b.f}:${b.first[0]}  (${b.n} lines)  ${b.first[1].trim().slice(0, 60)}`)
+report(
+  'no Han characters outside blockquotes',
+  han,
+  md.length,
+  (b) => `${b.f}:${b.first[0]}  (${b.n} lines)  ${b.first[1].trim().slice(0, 60)}`,
+)
 
 // 2 + 3. Source comments citing a design record resolve, section numbers included.
 const SRC = ['*.ts', '*.tsx', '*.js', '*.mjs', '*.css', '*.rs']
@@ -60,7 +67,10 @@ for (const f of ls(...SRC).concat(md)) {
   for (const m of text.matchAll(CITE)) {
     cites++
     const target = join('docs/design', m[1])
-    if (!existsSync(target)) { missing.push(`${f} → ${m[1]}`); continue }
+    if (!existsSync(target)) {
+      missing.push(`${f} → ${m[1]}`)
+      continue
+    }
     if (!m[2]) continue
     // A cited §N.N must exist as a heading number in the target.
     const body = readFileSync(target, 'utf8')
