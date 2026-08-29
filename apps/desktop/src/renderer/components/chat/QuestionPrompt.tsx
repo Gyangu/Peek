@@ -16,15 +16,22 @@ import { answerQuestion } from './chatCommands'
  *
  * Three things it does differently, each because the *answer* is different:
  *
- * **There is always an "Other".** It is not one of the agent's options and it is
- * not conditional — see `OTHER_OPTION_ID` in core. A question with three wrong
- * answers and no way out makes a person pick the least wrong one, and the agent
- * then proceeds confidently on an answer nobody meant.
+ * **There is always an "Other", and it is always open.** It is not one of the
+ * agent's options and it is not conditional — see `OTHER_OPTION_ID` in core. A
+ * question with three wrong answers and no way out makes a person pick the least
+ * wrong one, and the agent then proceeds confidently on an answer nobody meant.
+ * The box was collapsed behind a button until 2026-08-29, on the reasoning that
+ * an open one would read as a fifth option; it is open now because a control you
+ * must first discover is a weaker version of the same corner — see
+ * `docs/design/2026-08-29-the-other-box-opens-by-default.md`. A text field does
+ * not look like a button, which is what keeps it from being read as an option.
  *
  * **A single-choice question answers on click.** No confirm step: the click *is*
- * the answer, exactly as it is on a permission prompt. Multi-select cannot work
- * that way — the answer is not complete until the person says it is — so that
- * variant, and only that variant, grows a Send button.
+ * the answer, exactly as it is on a permission prompt. Two variants cannot work
+ * that way and only those two grow a Send button — multi-select, where the
+ * answer is not complete until the person says it is, and a box with something
+ * typed in it, which no click can complete. An *empty* box is not a pending
+ * answer, which is why the condition reads "has text" rather than "is open".
  *
  * **Nothing is the primary button.** Same reasoning as the permission prompt: the
  * agent offered these as alternatives, and drawing one of them louder would be
@@ -43,17 +50,17 @@ export function QuestionPrompt({
   const boxRef = useRef<HTMLDivElement | null>(null)
   const [picked, setPicked] = useState<readonly string[]>([])
   const [other, setOther] = useState('')
-  const [writingOther, setWritingOther] = useState(false)
 
-  // The container, never a button — the same rule the permission prompt keeps,
-  // and for the same reason: Tab reaches the answers, but no keystroke aimed at
-  // the composer can answer by inertia. Re-runs per question so a second one
-  // arriving behind the first is announced rather than silently swapped.
+  // The container, never a button and never the text box — the same rule the
+  // permission prompt keeps, and for the same reason: Tab reaches the answers,
+  // but no keystroke aimed at the composer can answer by inertia. Focusing the
+  // free-text field instead would tell a person to type when most questions are
+  // answered by picking. Re-runs per question so a second one arriving behind
+  // the first is announced rather than silently swapped.
   useEffect(() => {
     boxRef.current?.focus()
     setPicked([])
     setOther('')
-    setWritingOther(false)
   }, [question.requestId])
 
   const send = (optionIds: readonly string[], text: string): void => {
@@ -64,6 +71,8 @@ export function QuestionPrompt({
     if (!question.multiSelect) {
       // Single choice: the click is the answer. Nothing to confirm, and a
       // confirm step here would be a second click for a decision already made.
+      // The typed text rides along — "this one, but only for the EU part" is one
+      // answer, not two.
       send([optionId], other)
       return
     }
@@ -72,7 +81,8 @@ export function QuestionPrompt({
     )
   }
 
-  const canSend = picked.length > 0 || other.trim() !== ''
+  const typed = other.trim() !== ''
+  const canSend = picked.length > 0 || typed
 
   return (
     <div
@@ -130,55 +140,40 @@ export function QuestionPrompt({
           )
         })}
 
-        {/* The escape hatch, collapsed until it is wanted: shown open it would
-            read as a fifth option and compete with the four the agent actually
-            offered. */}
-        {writingOther ? (
-          <input
-            className="w-full px-tight py-tight rounded-control border border-border bg-bg-1 text-fg"
-            autoFocus
-            value={other}
-            placeholder={t('chat.question.otherPlaceholder')}
-            aria-label={t('chat.question.other')}
-            onChange={(e) => {
-              setOther(e.target.value)
-            }}
-            onKeyDown={(e) => {
-              // Enter sends, because this input has exactly one purpose and a
-              // person who has finished typing an answer should not have to find
-              // a button. Escape puts the box away without answering.
-              if (e.key === 'Enter' && !e.shiftKey && canSend) {
-                e.preventDefault()
-                send(picked, other)
-              } else if (e.key === 'Escape') {
-                e.preventDefault()
-                setOther('')
-                setWritingOther(false)
-                boxRef.current?.focus()
-              }
-            }}
-          />
-        ) : (
-          <Button
-            variant="ghost"
-            // No `action` id: opening a text box is not the answering act, and an
-            // id is an address — two controls sharing one leaves a caller unable
-            // to say which it meant. `chat.answer` addresses the option buttons,
-            // which are the ones that answer.
-            exposure="human-only"
-            onClick={() => {
-              setWritingOther(true)
-            }}
-          >
-            {t('chat.question.other')}
-          </Button>
-        )}
+        {/* The escape hatch, last in the same column as the options and open
+            from the start. No `autoFocus`: it is as available as the options,
+            not more so. */}
+        <input
+          className="w-full px-tight py-tight rounded-control border border-border bg-bg-1 text-fg"
+          value={other}
+          placeholder={t('chat.question.otherPlaceholder')}
+          aria-label={t('chat.question.other')}
+          onChange={(e) => {
+            setOther(e.target.value)
+          }}
+          onKeyDown={(e) => {
+            // Enter sends, because this input has exactly one purpose and a
+            // person who has finished typing an answer should not have to find
+            // a button. Escape clears what was typed and hands focus back to the
+            // container — a way out of the box that does not answer the
+            // question, which is still standing either way.
+            if (e.key === 'Enter' && !e.shiftKey && canSend) {
+              e.preventDefault()
+              send(picked, other)
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              setOther('')
+              boxRef.current?.focus()
+            }
+          }}
+        />
       </div>
 
-      {/* Only the two variants that cannot answer on a single click get a Send:
-          a multi-select answer is not complete until the person says so, and a
-          typed answer is not complete until they stop typing. */}
-      {question.multiSelect || writingOther ? (
+      {/* Only the two answers that cannot be completed by a single click get a
+          Send: a multi-select answer is not complete until the person says so,
+          and typed text is not complete until they stop typing. An empty box is
+          neither. */}
+      {question.multiSelect || typed ? (
         <div className="mt-snug flex gap-tight">
           <Button
             variant="primary"
