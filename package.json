@@ -12,9 +12,10 @@
     "build": "pnpm --filter @peek/desktop build",
     "typecheck": "pnpm -r --no-bail typecheck",
     "check:vocabulary": "node scripts/check-package-vocabulary.mjs",
+    "check:docs": "node scripts/verify-docs-english.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "pnpm run format:check && pnpm run check:vocabulary && pnpm -r --no-bail test",
+    "test": "pnpm run format:check && pnpm run check:vocabulary && pnpm run check:docs && pnpm -r --no-bail test",
     "icon": "pnpm --filter @peek/desktop icon",
     "package": "pnpm --filter @peek/desktop package",
     "install:local": "pnpm --filter @peek/desktop install:local"

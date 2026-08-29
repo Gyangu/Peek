@@ -208,6 +208,12 @@ deletes from history rather than translating within it.
 
 ## 5. Verification
 
+`scripts/verify-docs-english.mjs` carries the four mechanical checks, and
+`pnpm check:docs` runs it. It is wired into `pnpm test` beside
+`check:vocabulary`, for the reason `2026-08-15-prettier.md` §1 gives about
+formatting: a rule with no referee is not a rule, and `CLAUDE.md` now says
+documents in this repository are written in English.
+
 Mechanical, in order:
 
 1. **No Han characters remain in tracked Markdown.** A script counts
