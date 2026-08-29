@@ -39,8 +39,10 @@ for (const f of md) {
       if (fenced) return false
       // A blockquote is how a translated document quotes the clause it replaces.
       if (l.trimStart().startsWith('>')) return false
+      // An inline code span quotes a literal — an identifier, or a shipped
+      // zh-CN interface string a document has to name to compare its width.
       HAN.lastIndex = 0
-      return HAN.test(l)
+      return HAN.test(l.replace(/`[^`]*`/g, ''))
     })
   if (hits.length) han.push({ f, n: hits.length, first: hits[0] })
 }
@@ -79,7 +81,12 @@ const LINK = /\[[^\]]*\]\((\.{0,2}\/?[^)#\s]+\.md)(?:#[^)\s]*)?\)/g
 const dangling = []
 let links = 0
 for (const f of md) {
-  for (const m of readFileSync(f, 'utf8').matchAll(LINK)) {
+  // Strip fenced blocks and inline code spans first: a document that quotes a
+  // markdown snippet it deleted is quoting text, not linking anywhere.
+  const prose = readFileSync(f, 'utf8')
+    .replace(/^```[\s\S]*?^```/gm, '')
+    .replace(/`[^`\n]*`/g, '')
+  for (const m of prose.matchAll(LINK)) {
     links++
     const p = resolve(dirname(f), m[1])
     if (!existsSync(p)) dangling.push(`${f} → ${m[1]}`)
