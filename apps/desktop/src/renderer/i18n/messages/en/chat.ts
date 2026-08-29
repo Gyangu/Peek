@@ -110,15 +110,15 @@ export const chat = {
 
   /* Human names for peek's own MCP tools. These label what the agent did to the
      window, so they are phrased as actions, not as identifiers. */
-  'chat.tool.Peek.open_view': 'Opened a view',
-  'chat.tool.Peek.activate_view': 'Switched to a view',
-  'chat.tool.Peek.move_view': 'Moved a view',
-  'chat.tool.Peek.set_layout': 'Rearranged the layout',
-  'chat.tool.Peek.run_query': 'Ran a query',
-  'chat.tool.Peek.connect': 'Opened a connection',
-  'chat.tool.Peek.read_workspace': 'Read the workspace',
-  'chat.tool.Peek.introspect': 'Inspected the schema',
-  'chat.tool.Peek.list_connections': 'Listed the connections',
+  'chat.tool.peek.open_view': 'Opened a view',
+  'chat.tool.peek.activate_view': 'Switched to a view',
+  'chat.tool.peek.move_view': 'Moved a view',
+  'chat.tool.peek.set_layout': 'Rearranged the layout',
+  'chat.tool.peek.run_query': 'Ran a query',
+  'chat.tool.peek.connect': 'Opened a connection',
+  'chat.tool.peek.read_workspace': 'Read the workspace',
+  'chat.tool.peek.introspect': 'Inspected the schema',
+  'chat.tool.peek.list_connections': 'Listed the connections',
 
   /* ---- Code blocks ------------------------------------------------- */
   'chat.code.copy': 'Copy',

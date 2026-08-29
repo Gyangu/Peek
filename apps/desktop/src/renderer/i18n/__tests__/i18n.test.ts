@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, it } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import {
   ERROR_MESSAGE_KEYS,
   formatMessage,
@@ -81,6 +84,59 @@ describe('catalog parity', () => {
         assert.ok(CATALOGS[locale][key] !== undefined, `catalog ${locale} is missing ${key}`)
       }
     }
+  })
+})
+
+/* ==================================================================
+ * Every key the renderer asks for must exist.
+ *
+ * Parity above compares the catalogs to each other, which is the check that
+ * lets this whole class of bug through: renaming a key in *both* locales keeps
+ * parity perfectly green and breaks every call site at once. That happened —
+ * `chat.tool.peek.*` became `chat.tool.Peek.*` when the brand was capitalised
+ * (a key is an identifier, not front matter), and the chat panel spent a
+ * release rendering `chat.tool.peek.open_view` at the reader instead of
+ * "Opened a view". Nothing failed, because an unknown key renders as itself and
+ * a string that looks like a string looks fine to every test that was watching.
+ *
+ * So this reads the source rather than the catalog. Only literal keys can be
+ * checked; the ~30 computed ones are the price, and they are computed from
+ * prefixes that literal siblings already pin.
+ * ================================================================== */
+describe('call sites', () => {
+  const RENDERER = fileURLToPath(new URL('../..', import.meta.url))
+  /** `t('a.b.c')` and `tStatic('a.b.c')`; a computed key does not match and is skipped. */
+  const CALL = /\bt(?:Static)?\(\s*'([A-Za-z0-9_.-]+)'/g
+
+  function sources(dir: string, out: string[] = []): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name !== '__tests__') sources(full, out)
+      } else if (/\.tsx?$/.test(entry.name)) {
+        out.push(full)
+      }
+    }
+    return out
+  }
+
+  it('every literal key in the renderer is defined in the catalog', () => {
+    const missing: string[] = []
+    let seen = 0
+    for (const file of sources(RENDERER)) {
+      const text = readFileSync(file, 'utf8')
+      for (const m of text.matchAll(CALL)) {
+        const key = m[1]
+        if (key === undefined) continue
+        seen += 1
+        if (!(key in CATALOGS[REFERENCE])) missing.push(`${file.slice(RENDERER.length)}: ${key}`)
+      }
+    }
+    // A scan that matches nothing passes every assertion after it. Renaming `t`
+    // or restructuring the renderer must break this line, not silently retire
+    // the check — the same failure the shipped-CSS audit had to be rescued from.
+    assert.ok(seen > 400, `the scan found only ${String(seen)} literal keys; the regex has stopped matching`)
+    assert.deepEqual(missing, [], `keys asked for but never defined:\n${missing.join('\n')}`)
   })
 })
 
