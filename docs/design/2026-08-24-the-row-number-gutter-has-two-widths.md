@@ -140,7 +140,8 @@ the reason it survived twenty days is that nothing asked.
 
 **Change the token to 54px instead.** Cheapest, and it discards a measurement.
 48px was derived for `--text-micro`, and the migration banked the difference
-explicitly — "每一行、每一个表格视图永久省 6px 横向". Widening the token back to 54
+explicitly — "6px of horizontal space saved permanently, on every row of every
+table view". Widening the token back to 54
 would hand that back silently and leave the arithmetic comment in `styles.css`
 describing a width nothing uses.
 
