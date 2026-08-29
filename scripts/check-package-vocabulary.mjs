@@ -109,7 +109,11 @@ const ALLOWED = {
   'docs/design/2026-08-12-main-only-parse-out-of-the-window.md': [`vite ${OLD}`],
   // ProseMirror / Lexical / Tiptap call theirs that; not ours to rename.
   'docs/design/2026-08-14-composer-inline-context.md': [`mention ${OLD}`],
-  'docs/design/2026-08-04-tailwind-migration.md': [`renderer.${OLD}s: [`, `tailwind 的 \`${OLD}()\``],
+  'docs/design/2026-08-04-tailwind-migration.md': [
+    `renderer.${OLD}s: [`,
+    `vite ${OLD}`,
+    `Tailwind v3's \`${OLD}()\``,
+  ],
 }
 
 /**
