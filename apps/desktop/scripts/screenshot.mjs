@@ -11,24 +11,42 @@
  * user-data directory and config directory, so an installed peek neither blocks
  * it nor is disturbed by it. `pnpm --filter @peek/desktop build` first.
  *
- * Three shots, each a `set_layout` call away from the last:
+ * One recording and three stills, each a `set_layout` call away from the last:
  *
+ *   agent-drives  the README's hero — a real Claude Code turn, recorded live
  *   overview      the tiled window — namespace tree, a table, a query that has run
  *   million-rows  one streamed result, drained to `done` and sitting deep in it
  *   agent-asks    an `ask` suspended mid-call, waiting on a person to click
  *
- *   node apps/desktop/scripts/screenshot.mjs                    # 3 shots x 2 themes
+ *   node apps/desktop/scripts/screenshot.mjs                    # 4 shots x 2 themes
  *   node apps/desktop/scripts/screenshot.mjs --theme dark
  *   node apps/desktop/scripts/screenshot.mjs --only agent-asks --rows 50000
  *   node apps/desktop/scripts/screenshot.mjs --rows 200000 --verbose
  *
- * Output lands in `docs/images/`, one PNG per shot per theme. `--only` takes a
- * comma-separated list and exists because a full run drains a million rows,
- * which turns a one-line tweak to a shot into a four-minute round trip.
+ * Output lands in `docs/images/`, one PNG per still per theme; `agent-drives`
+ * writes a GIF and the final frame beside it (`design/2026-08-29-the-hero-image
+ * -moves.md` §2.4 — the still is what a reader who asked for reduced motion
+ * gets). `--only` takes a comma-separated list and exists because a full run
+ * drains a million rows, which turns a one-line tweak to a shot into a
+ * four-minute round trip.
+ *
+ * The recording needs `ffmpeg` on PATH and a Claude Code login on this machine —
+ * it drives the real embedded agent and spends tokens, the same deal
+ * `verify-chat-security.mjs` makes. The stills need neither.
  */
 
-import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -45,8 +63,14 @@ const REPO_DIR = fileURLToPath(new URL('../../..', import.meta.url))
 const OUT_DIR = join(REPO_DIR, 'docs', 'images')
 
 const DEFAULT_EVENT_ROWS = 1_000_000
-/** The three shots and the two themes, in the order they are taken. */
-const SHOTS = ['overview', 'million-rows', 'agent-asks']
+/**
+ * The four shots and the two themes, in the order they are taken.
+ *
+ * `agent-drives` is first because it is the only one that has an opening state:
+ * it records a workspace filling up, so it has to start from an empty one. Run
+ * after any still, it would open on that still's panes.
+ */
+const SHOTS = ['agent-drives', 'overview', 'million-rows', 'agent-asks']
 const THEMES = ['dark', 'light']
 const MCP_READY_TIMEOUT_MS = 45_000
 const APP_LIFETIME_MS = 600_000
@@ -625,6 +649,279 @@ async function capture(cdp, file) {
   console.log(`  wrote ${file} (${String(Math.round(bytes.length / 1024))}KB)`)
 }
 
+/* ------------------------------------------------------------------ */
+/* Recording                                                           */
+/* ------------------------------------------------------------------ */
+
+const GIF_FPS = 12
+const FRAME_INTERVAL_MS = Math.round(1_000 / GIF_FPS)
+/** What GitHub's README column renders at on a wide screen. Wider is bytes nobody sees. */
+const GIF_WIDTH = 1_200
+/** §2.3's budget, per file. Exceeding it fails the run rather than quietly shipping. */
+const GIF_BUDGET_BYTES = 3 * 1_024 * 1_024
+
+function ffmpegOrDie() {
+  try {
+    execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' })
+  } catch {
+    throw new Error('the agent-drives recording needs ffmpeg on PATH (brew install ffmpeg)')
+  }
+}
+
+/** Width and height straight out of the PNG's IHDR — cheaper than decoding it. */
+function pngSize(file) {
+  const head = readFileSync(file).subarray(16, 24)
+  return { width: head.readUInt32BE(0), height: head.readUInt32BE(4) }
+}
+
+/**
+ * Poll `Page.captureScreenshot` on an interval and keep the wall-clock time of
+ * every frame.
+ *
+ * Not `Page.startScreencast`, for two reasons. It delivers frames as CDP
+ * *events*, and `cdp.mjs` carries no event plumbing on purpose — it dispatches
+ * replies and drops the rest, which is why it needs nothing kept in sync with a
+ * protocol version. And a screencast only emits when the compositor produces a
+ * frame, so a deliberately motionless beat — the suspended `ask`, the most
+ * important second in the file — emits nothing and has to be reconstructed from
+ * timestamps anyway. Polling has to do that for jitter regardless, so it may as
+ * well be the whole mechanism. See `design/2026-08-29-the-hero-image-moves.md`
+ * §2.2.
+ *
+ * `clip.scale` does the downscale at the shutter rather than in ffmpeg. The clip
+ * is in CSS pixels but the scale multiplies the *device* pixels on top of the
+ * display's ratio, so at dpr 2 a scale of 1 is the 2880px wide frame the stills
+ * are captured at, and the divisor has to carry the ratio as well. Measured, not
+ * assumed: the first version divided by `innerWidth` alone and wrote 2400px
+ * frames, which is why the width is asserted rather than trusted.
+ */
+class Recorder {
+  #cdp
+  #dir
+  #clip
+  #frames = []
+  #stopped = false
+  #loop = null
+
+  constructor(cdp, dir, clip) {
+    this.#cdp = cdp
+    this.#dir = dir
+    this.#clip = clip
+  }
+
+  static async open(cdp, dir) {
+    const box = await cdp.evaluate(
+      `JSON.stringify({ w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio })`,
+    )
+    const { w, h, dpr } = JSON.parse(String(box))
+    if (!(w > 0 && h > 0 && dpr > 0)) throw new Error(`the window reported no size: ${String(box)}`)
+    return new Recorder(cdp, dir, { x: 0, y: 0, width: w, height: h, scale: GIF_WIDTH / (w * dpr) })
+  }
+
+  start() {
+    this.#loop = this.#run()
+  }
+
+  async #run() {
+    while (!this.#stopped) {
+      const at = Date.now()
+      let shot = null
+      try {
+        shot = await this.#cdp.send('Page.captureScreenshot', {
+          format: 'png',
+          clip: this.#clip,
+          captureBeyondViewport: false,
+        })
+      } catch {
+        // The app went away mid-recording. Whatever was captured before that is
+        // still a truthful prefix; `stop` reports the count and the caller's own
+        // assertions decide whether it was enough.
+        break
+      }
+      const file = join(this.#dir, `f${String(this.#frames.length).padStart(5, '0')}.png`)
+      writeFileSync(file, Buffer.from(shot.data, 'base64'))
+      this.#frames.push({ file, at })
+      const rest = FRAME_INTERVAL_MS - (Date.now() - at)
+      if (rest > 0) await delay(rest)
+    }
+  }
+
+  async stop() {
+    this.#stopped = true
+    await this.#loop
+    return this.#frames
+  }
+}
+
+/**
+ * Frames → GIF, in ffmpeg's two passes.
+ *
+ * The concat list carries each frame's *real* duration, so a capture that took
+ * longer than the interval stretches the picture instead of silently speeding
+ * the recording up. `fps=` then resamples that to a constant rate, which is what
+ * a GIF's per-frame delay can actually express.
+ *
+ * `palettegen=stats_mode=diff` weights the 256 entries towards the pixels that
+ * move; on a screen recording the static background would otherwise take the
+ * whole palette. `diff_mode=rectangle` lets each frame carry only its changed
+ * rectangle — nearly all of the compression here. `dither=bayer` because an
+ * ordered dither is stable frame to frame, where error diffusion re-scatters
+ * itself every frame and turns a motionless background into crawling noise that
+ * defeats the rectangle. §2.3.
+ */
+/**
+ * How long a motionless stretch is allowed to last in the finished GIF.
+ *
+ * A real turn is mostly waiting: measured on the first good take, 49 of its 55
+ * seconds were frozen, in stretches of 14.2s and 11.6s while the model thought.
+ * A hero nobody watches to the end is not a hero, and 55 seconds of autoplaying
+ * loop is worse than that — it is 55 seconds of bandwidth spent on a still.
+ *
+ * So the waits are truncated and nothing else is. Every motion in the file plays
+ * at the speed it happened; only the gaps between motions are shortened, and the
+ * caption says so. This is deliberately not a uniform speed-up: a 3x recording
+ * makes the streaming text unreadable and misrepresents how fast the *window*
+ * responds, which is the one thing the picture is measuring.
+ */
+const IDLE_CAP_S = 1.2
+
+/**
+ * The motionless spans in a recording, as ffmpeg's own `freezedetect` reports
+ * them — asked rather than guessed.
+ *
+ * Comparing the frames here would mean decoding PNGs to tell "nothing happened"
+ * from "the caret blinked and an elapsed-ms counter ticked", which is exactly
+ * the judgement `freezedetect` already encodes as a noise floor.
+ */
+function freezeSpans(list) {
+  const run = spawnSync(
+    'ffmpeg',
+    [
+      '-hide_banner',
+      '-f',
+      'concat',
+      '-safe',
+      '0',
+      '-i',
+      list,
+      '-vf',
+      `freezedetect=n=-55dB:d=${String(IDLE_CAP_S)}`,
+      '-map',
+      '0:v',
+      '-f',
+      'null',
+      '-',
+    ],
+    { encoding: 'utf8' },
+  )
+  const spans = []
+  for (const line of (run.stderr ?? '').split('\n')) {
+    const start = /freeze_start:\s*([\d.]+)/.exec(line)
+    if (start?.[1] !== undefined) spans.push({ start: Number(start[1]), end: Infinity })
+    const dur = /freeze_duration:\s*([\d.]+)/.exec(line)
+    const last = spans.at(-1)
+    if (dur?.[1] !== undefined && last) last.end = last.start + Number(dur[1])
+  }
+  return spans
+}
+
+/**
+ * Drop the tail of every motionless stretch, keeping `IDLE_CAP_S` of it.
+ *
+ * The first and last frames are never dropped: the last one is also written out
+ * as the reduced-motion still, and a GIF whose final frame is not that still
+ * would make the two disagree.
+ */
+function trimIdle(frames, spans) {
+  const all = frames.map((_, i) => i)
+  if (spans.length === 0) return all
+  const t0 = frames[0].at
+  return all.filter((i) => {
+    if (i === 0 || i === frames.length - 1) return true
+    const at = (frames[i].at - t0) / 1_000
+    return !spans.some((s) => at > s.start + IDLE_CAP_S && at < s.end)
+  })
+}
+
+function encodeGif(frames, outFile, dir, verbose) {
+  /** Each frame's own duration: the gap to the frame that actually followed it. */
+  const durations = frames.map((frame, i) => {
+    const next = frames[i + 1]?.at ?? frame.at + FRAME_INTERVAL_MS
+    return Math.max(0.01, (next - frame.at) / 1_000)
+  })
+  const list = join(dir, 'frames.txt')
+
+  const write = (keep) => {
+    const lines = []
+    for (const i of keep) lines.push(`file '${frames[i].file}'`, `duration ${durations[i].toFixed(3)}`)
+    // The concat demuxer ignores the last entry's duration unless the file is
+    // repeated, which drops the final frame to a single tick.
+    lines.push(`file '${frames[keep.at(-1)].file}'`)
+    writeFileSync(list, `${lines.join('\n')}\n`)
+  }
+
+  const all = frames.map((_, i) => i)
+  write(all)
+
+  /*
+   * One pass to find the motionless stretches, then the list is rebuilt without
+   * their tails. The durations carried into the second list are the frames' own,
+   * so everything that survives plays at the speed it was recorded at — what is
+   * cut is the dead air between motions, never a motion.
+   */
+  const kept = trimIdle(frames, freezeSpans(list))
+  const shown = kept.reduce((sum, k) => sum + durations[k], 0)
+  if (kept.length < all.length) {
+    write(kept)
+    console.log(
+      `  trimmed ${String(all.length - kept.length)} idle frame(s): ` +
+        `${((frames.at(-1).at - frames[0].at) / 1_000).toFixed(1)}s recorded, ${shown.toFixed(1)}s shown`,
+    )
+  }
+
+  const palette = join(dir, 'palette.png')
+  const quiet = verbose ? [] : ['-loglevel', 'error']
+  execFileSync(
+    'ffmpeg',
+    [
+      ...quiet,
+      '-y',
+      '-f',
+      'concat',
+      '-safe',
+      '0',
+      '-i',
+      list,
+      '-vf',
+      `fps=${String(GIF_FPS)},palettegen=stats_mode=diff`,
+      palette,
+    ],
+    { stdio: verbose ? 'inherit' : ['ignore', 'ignore', 'inherit'] },
+  )
+  execFileSync(
+    'ffmpeg',
+    [
+      ...quiet,
+      '-y',
+      '-f',
+      'concat',
+      '-safe',
+      '0',
+      '-i',
+      list,
+      '-i',
+      palette,
+      '-lavfi',
+      `fps=${String(GIF_FPS)}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`,
+      '-loop',
+      '0',
+      outFile,
+    ],
+    { stdio: verbose ? 'inherit' : ['ignore', 'ignore', 'inherit'] },
+  )
+  return { bytes: statSync(outFile).size, shown }
+}
+
 /** Resolve once the grid has rendered rows, or the deadline passes. */
 async function waitForRows(cdp, atLeast = 5, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs
@@ -774,6 +1071,229 @@ async function resultSummary(client) {
  * screenshots showed exactly that: an editor with a statement in it reading
  * "0 rows · Idle".
  */
+/** The SQL `agent-asks` puts on screen, so the `ask` card's day/week numbers are
+ *  grounded by the grid sitting next to them. */
+const ROLLUP_SQL =
+  "SELECT strftime('%Y-W%W', occurred_at) AS week,\n" +
+  '       COUNT(*)                        AS events,\n' +
+  '       ROUND(AVG(duration_ms))         AS avg_ms\n' +
+  'FROM events\n' +
+  'GROUP BY week\n' +
+  'ORDER BY week DESC;'
+
+/**
+ * The README's hero: a real Claude Code turn, recorded as it happens.
+ *
+ * The stills answer "what does it look like". This answers the only question
+ * that distinguishes the project — *who arranged that window* — and a still
+ * cannot, because a window an agent tiled and a window a person dragged into
+ * shape are the same pixels.
+ *
+ * Neither could the first cut, which is worth knowing before this is simplified
+ * back into it. That version issued the tool calls from this script and recorded
+ * the window obeying them: true in every frame, and still no evidence, because a
+ * viewer cannot tell an agent from a fast mouse. What closes the gap is the chat
+ * panel itself — it renders the agent's tool calls in plain language as they
+ * land and marks peek's own as acting on this window (`chat/toolCalls.ts`), so
+ * the transcript is a running caption for the motion in the other panes, written
+ * by the product rather than by a caption track. See
+ * `design/2026-08-29-the-hero-image-moves.md` §1.2 and §3.
+ *
+ * The price is that this is **one take**, not a reproducible artifact: the model
+ * chooses its own wording, tools and order, which is exactly why the recording is
+ * evidence and exactly why it cannot be pinned. What is pinned is the scene, the
+ * prompt, and the assertions below.
+ *
+ * It spends tokens, against whatever Claude Code login exists on this machine —
+ * the same deal `verify-chat-security.mjs` makes, and for the same reason: the
+ * thing being photographed is the real agent.
+ */
+
+/**
+ * The one sentence the hero asks for. Committed so the recording can be re-made
+ * and so a reader can see exactly what was asked.
+ *
+ * It names no tool. Asking for an outcome and letting the agent choose the route
+ * is the whole point — a prompt that dictated `open_view` then `set_layout` would
+ * be the first cut again, wearing a conversation as a costume.
+ */
+const AGENT_PROMPT =
+  'Open the customers table, then work out how many events there are per week, ' +
+  'and put the two side by side so I can compare them.'
+
+/**
+ * The permission mode the recorded conversation starts in.
+ *
+ * The panel ships on "Ask every time" and that is the right default: every tool
+ * call stops and waits for a person. It is the wrong *recording* — the hero would
+ * be somebody clicking Allow five times, which is the opposite of what it is
+ * there to show. "Let the agent judge" hands the approval to the agent's own
+ * classifier and still reaches nothing beyond peek's own tools, and the panel
+ * header says which mode the conversation is on for the whole recording. The two
+ * modes below it in the list carry a warning triangle and neither is used here.
+ */
+const AGENT_MODE = 'auto'
+
+/** A turn with four or five tool calls in it, with room for a slow one. */
+const TURN_TIMEOUT_MS = 300_000
+
+/** `read_chat`'s one-line brief for a conversation, parsed for the two facts the recording needs. */
+async function chatState(client, viewId) {
+  const { text } = await call(client, 'read_chat', { viewId }, 'read_chat')
+  return {
+    text,
+    streaming: /a turn is running/.test(text),
+    blocked: /BLOCKED:/.test(text),
+    messages: Number(/(\d+) message\(s\)/.exec(text)?.[1] ?? '0'),
+  }
+}
+
+/**
+ * Wait for the agent's turn to finish.
+ *
+ * Two guards rather than one. `streaming` alone is not enough — it is still
+ * false in the moment between `send_chat` returning and the agent starting, and
+ * a naive poll reads that as "already done" and stops the recording on an empty
+ * transcript. So the turn is only finished once it has also produced a reply.
+ *
+ * A pending permission prompt fails the run instead of waiting it out: the
+ * conversation is set to a mode that should not produce one, and a window that
+ * has quietly stopped is the one thing this recording must never show.
+ */
+async function waitForTurn(client, viewId, verbose) {
+  const deadline = Date.now() + TURN_TIMEOUT_MS
+  let sawStreaming = false
+  while (Date.now() < deadline) {
+    const state = await chatState(client, viewId)
+    if (state.blocked) throw new Error(`the agent is blocked on a permission prompt:\n${state.text}`)
+    if (state.streaming) sawStreaming = true
+    else if (sawStreaming && state.messages >= 2) return state
+    if (verbose) console.log(`    [turn] ${state.text.trim().split('\n').pop()}`)
+    await delay(1_000)
+  }
+  throw new Error(`the turn did not finish within ${String(TURN_TIMEOUT_MS / 1_000)}s`)
+}
+
+/**
+ * The tool calls the agent made, read off the transcript it drew.
+ *
+ * Read from the DOM rather than from a tool, because there is no tool that
+ * reports it — `read_chat` deliberately never returns the messages, on the
+ * grounds that the conversation is for the person watching. This is what the
+ * person watching sees, which is the right thing to assert on anyway.
+ */
+async function transcriptTools(cdp) {
+  const raw = await cdp
+    .evaluate(
+      `JSON.stringify([...document.querySelectorAll('.rounded-control > button')]
+         .map((b) => b.textContent.trim().replace(/\\s+/g, ' '))
+         .filter(Boolean))`,
+    )
+    .catch(() => '[]')
+  try {
+    return JSON.parse(String(raw))
+  } catch {
+    return []
+  }
+}
+
+async function recordAgentDrives({ client, cdp, connId, nodes, theme, verbose }) {
+  const dir = mkdtempSync(join(tmpdir(), 'peek-shot-rec-'))
+  const recorder = await Recorder.open(cdp, dir)
+
+  try {
+    /*
+     * The scene, set before the shutter opens: a namespace tree on the left and
+     * an empty conversation on the right, which is what the window looks like
+     * the moment before somebody asks it for something. Everything that appears
+     * after this is the agent's doing, and that is the claim the picture makes.
+     */
+    const treeId = await openView(client, { kind: 'tree', connId, expanded: containerIds(nodes) })
+    const chatId = await openView(client, { kind: 'chat', connId, title: 'Claude Code' })
+    await call(
+      client,
+      'set_layout',
+      {
+        tree: {
+          type: 'split',
+          dir: 'row',
+          ratio: [32, 68],
+          children: [
+            { type: 'panel', viewIds: [treeId], activeViewId: treeId },
+            { type: 'panel', viewIds: [chatId], activeViewId: chatId },
+          ],
+        },
+        unplaced: 'close',
+        focusViewId: chatId,
+      },
+      'set_layout/scene',
+    )
+
+    recorder.start()
+    await delay(1_200)
+
+    console.log(`  · send_chat: ${AGENT_PROMPT}`)
+    await call(client, 'send_chat', { viewId: chatId, text: AGENT_PROMPT }, 'send_chat')
+
+    const finished = await waitForTurn(client, chatId, verbose)
+    console.log(`  · turn finished — ${finished.text.trim().split('\n').pop()}`)
+    /*
+     * Long enough for two things: to read the last thing the agent said, and for
+     * the "the agent has replied" toast to expire.
+     *
+     * The toast is real UI and it is right to fire — but it lands over the
+     * composer, repeats the reply it is announcing, and the frame it lands on is
+     * also the still that stands in for the whole recording under
+     * `prefers-reduced-motion`. `notifyStore.AUTO_DISMISS_MS` is 4500, so the
+     * wait is set past it. What this adds is motionless and the idle trim takes
+     * it back out.
+     */
+    await delay(6_500)
+
+    const frames = await recorder.stop()
+
+    const tools = await transcriptTools(cdp)
+    console.log(
+      `  · the agent called: ${tools.length > 0 ? tools.join(' | ') : '(nothing the transcript shows)'}`,
+    )
+    if (tools.length < 3) {
+      throw new Error(
+        `the transcript shows ${String(tools.length)} tool call(s); the hero needs a turn that works`,
+      )
+    }
+    const { text: workspace } = await call(client, 'read_workspace', {}, 'read_workspace')
+    if (!/result/i.test(workspace)) throw new Error('the agent finished without leaving a result on screen')
+
+    if (frames.length < 60) throw new Error(`only ${String(frames.length)} frames were captured`)
+    const { width, height } = pngSize(frames[0].file)
+    if (Math.abs(width - GIF_WIDTH) > 2) {
+      throw new Error(`frames came out ${String(width)}px wide, expected ${String(GIF_WIDTH)}`)
+    }
+
+    const gif = join(OUT_DIR, `agent-drives-${theme}.gif`)
+    const still = join(OUT_DIR, `agent-drives-${theme}.png`)
+    // The reduced-motion still is the recording's *last* frame rather than a
+    // fresh capture: a reader who asked their system to stop things moving gets
+    // the frame the recording ends on, to the pixel. §2.4.
+    copyFileSync(frames.at(-1).file, still)
+    const { bytes, shown } = encodeGif(frames, gif, dir, verbose)
+    console.log(
+      `  wrote ${gif} (${String(frames.length)} frames captured, ${shown.toFixed(1)}s shown, ` +
+        `${String(width)}x${String(height)}, ${String(Math.round(bytes / 1_024))}KB)`,
+    )
+    console.log(`  wrote ${still} (final frame, for prefers-reduced-motion)`)
+    if (bytes > GIF_BUDGET_BYTES) {
+      throw new Error(
+        `${gif} is ${String(Math.round(bytes / 1_024))}KB, over the ${String(GIF_BUDGET_BYTES / 1_024)}KB budget — ` +
+          'the levers, in order: frame rate, dwell times, width (§2.3)',
+      )
+    }
+  } finally {
+    await recorder.stop()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function shotOverview({ client, cdp, connId, nodes, theme }) {
   const treeId = await openView(client, { kind: 'tree', connId, expanded: containerIds(nodes) })
   const tableId = await openView(client, { kind: 'table', connId, ref: refFor(nodes, 'customers') }, 8_000)
@@ -958,13 +1478,7 @@ async function shotAgentAsks({ client, cdp, connId, nodes, rollup }) {
       kind: 'query',
       connId,
       title: 'Weekly rollup',
-      text:
-        "SELECT strftime('%Y-W%W', occurred_at) AS week,\n" +
-        '       COUNT(*)                        AS events,\n' +
-        '       ROUND(AVG(duration_ms))         AS avg_ms\n' +
-        'FROM events\n' +
-        'GROUP BY week\n' +
-        'ORDER BY week DESC;',
+      text: ROLLUP_SQL,
       run: true,
     },
     20_000,
@@ -1074,9 +1588,22 @@ async function runTheme({ theme, fixture, eventRows, rollup, verbose, wants }) {
   console.log(`\n=== ${theme} ===`)
   const configDir = mkdtempSync(join(tmpdir(), 'peek-shot-cfg-'))
   const userDataDir = mkdtempSync(join(tmpdir(), 'peek-shot-udd-'))
-  // Written before launch so the first frame is already in the right theme;
-  // toggling afterwards would have to be waited out and could be caught mid-swap.
-  writeFileSync(join(configDir, 'settings.json'), JSON.stringify({ theme }, null, 2))
+  /*
+   * Written before launch so the first frame is already in the right theme;
+   * toggling afterwards would have to be waited out and could be caught mid-swap.
+   *
+   * `agent.permissionMode` has to be here too, rather than set later through
+   * `control_chat`, because a conversation's session is created lazily — it does
+   * not exist until the first message is sent, so there is nothing for
+   * `set_mode` to set, and the session is then born on the settings default
+   * anyway. Measured: the first live take set the mode through `control_chat`
+   * before `send_chat`, and the agent blocked on a permission prompt for
+   * `read_workspace` with the conversation still reading `mode default`. See
+   * `design/2026-08-13-permission-mode-takes-effect.md` §1.
+   */
+  const settings = { theme }
+  if (wants('agent-drives')) settings.agent = { permissionMode: AGENT_MODE }
+  writeFileSync(join(configDir, 'settings.json'), JSON.stringify(settings, null, 2))
 
   const mcpPort = await pickFreePort()
   const cdpPort = await pickFreePort()
@@ -1106,6 +1633,11 @@ async function runTheme({ theme, fixture, eventRows, rollup, verbose, wants }) {
     const connId = /Connection\s+(\S+)\s+is\s+ready/.exec(connectText)?.[1]
     if (!connId) throw new Error(`could not read a connId out of:\n${connectText}`)
     const nodes = await namespaceNodes(client, connId)
+
+    if (wants('agent-drives')) {
+      console.log('- agent-drives: a real Claude Code turn, recorded live')
+      await recordAgentDrives({ client, cdp, connId, nodes, theme, verbose })
+    }
 
     if (wants('overview')) {
       console.log('- overview: namespace tree · table · a query that has run')
@@ -1188,6 +1720,10 @@ async function main() {
   const { eventRows, themes, only, verbose } = parseArgs(process.argv.slice(2))
   const wants = (name) => only === null || only.has(name)
   if (only) console.log(`only: ${[...only].join(', ')}`)
+
+  // Before anything is built or launched: a missing ffmpeg would otherwise
+  // surface minutes later, after the recording it cannot encode.
+  if (wants('agent-drives')) ffmpegOrDie()
 
   mkdirSync(OUT_DIR, { recursive: true })
   console.log(`fixture: ${String(eventRows)} event rows`)
