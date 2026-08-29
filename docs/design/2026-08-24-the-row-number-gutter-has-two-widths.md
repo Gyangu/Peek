@@ -114,7 +114,7 @@ worded the way `ROW_H`'s twin is already documented at `DataGrid.tsx:1441-1443`
 ("stated twice ... both resolve to `--spacing-row`").
 
 The three comments that reason about the gutter's width follow the number:
-`styles.css:992` and `DataGrid.tsx:1453` were corrected to 48px in the same pass
+`styles.css:1070` and `DataGrid.tsx:1453` were corrected to 48px in the same pass
 as this document; `DataGrid.tsx:1080`'s "54px stub" was left alone precisely
 because it tracks `GUTTER_W`, and it becomes a 48px stub here.
 
@@ -195,7 +195,7 @@ one moves. Two causes, two records.
 
 4. **`pnpm -r test` and `pnpm -r typecheck` stay green.** No test referenced 54
    before this change. Afterwards the only `54px` left in shipped source is
-   `styles.css:654` and `:658`, which record the token's own 54 → 48 narrowing
+   `styles.css:683` and `:688`, which record the token's own 54 → 48 narrowing
    and are correct as history; the rest live in three dated design records
    (2026-08-04, 2026-08-15, and this morning's) and stay as written.
 

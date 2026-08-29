@@ -730,104 +730,127 @@
   /* An icon ↔ its own label. Reads as "two parts of one object". */
   --spacing-tight: 4px;
 
-  /* **默认档。** 控件↔控件、label↔field、面板与卡片的内边距。拿不准用它。 */
+  /* **The default rung.** Control ↔ control, label ↔ field, the padding inside
+     a panel or a card. Reach for it when unsure. */
   --spacing-snug: 8px;
 
-  /* 一个面板里组↔组。工具条的两簇之间、表单的两个 section 之间。 */
+  /* Group ↔ group inside one panel: between a toolbar's two clusters, between
+     two sections of a form. */
   --spacing-loose: 16px;
 
   /*
-   * 块↔块，以及对话框正文的内缩。**等于一行**，那是有意的。
+   * Block ↔ block, and the indent of a dialog's body. **Equal to one line**,
+   * and that is deliberate.
    *
-   * **这一档不能叫 `block`，别改回去。** Tailwind 会给 `--spacing-*` 里的每个
-   * token 生成一个 `inline-<名字>` 工具类，于是 `--spacing-block` 铸出了
-   * `.inline-block{inline-size:var(--spacing-block)}` —— 和内置的
-   * `.inline-block{display:inline-block}` 同名、同优先级、排在后面。
-   * `inline-size` 就是 `width`，所以它把 `.grid-rownum` 的 `w-gutter` 从 48px
-   * 压成了 24px，行号从第 100 行起全是错的，而源码里三样东西都是对的：token
-   * 是 48px、类名在元素上、编译出的 `.w-gutter` 规则一字不差。
+   * **This rung may not be called `block`; do not change it back.** Tailwind
+   * mints an `inline-<name>` utility for every token in `--spacing-*`, so
+   * `--spacing-block` minted
+   * `.inline-block{inline-size:var(--spacing-block)}` — the same name as the
+   * built-in `.inline-block{display:inline-block}`, the same specificity, later
+   * in the file. `inline-size` is `width`, so it squeezed `.grid-rownum`'s
+   * `w-gutter` from 48px down to 24px and every row number from row 100 on was
+   * wrong, while all three things in the source were right: the token was 48px,
+   * the class was on the element, and the compiled `.w-gutter` rule was word
+   * for word correct.
    *
-   * 同理不能叫 `flex` / `grid` / `table`，它们撞的是同一族 `inline-*`。更危险的
-   * 是 Tailwind 已经拿去当**间距值**的那些名字：`px` / `full` / `auto` / `fit` /
-   * `min` / `max` / `none` / `screen` / `dvh` / `lvh` / `svh`。这些撞出来的是
-   * `.w-full{width:100%;width:var(--spacing-full)}` —— 一条规则里写两遍，一个
-   * `--spacing-px` 就改写 112 个内置工具类。`inline` 反倒安全，`.inline-inline`
-   * 不是内置工具类。见
-   * `design/2026-08-24-a-spacing-token-shadowed-a-display-utility.md` 与
-   * `design/2026-08-24-three-claims-nothing-checks.md`；`audit-shipped-css.mjs`
-   * 用两条规则从产物那一侧分别盯着这两种形状。
+   * `flex` / `grid` / `table` are barred for the same reason — they collide
+   * with that same `inline-*` family. More dangerous still are the names
+   * Tailwind already uses as a **spacing value**: `px` / `full` / `auto` /
+   * `fit` / `min` / `max` / `none` / `screen` / `dvh` / `lvh` / `svh`. Those
+   * collide as `.w-full{width:100%;width:var(--spacing-full)}` — one rule
+   * stating the property twice, and a single `--spacing-px` rewrites 112
+   * built-in utilities. Bare `inline` is safe, because `.inline-inline` is not
+   * a built-in. See
+   * `design/2026-08-24-a-spacing-token-shadowed-a-display-utility.md` and
+   * `design/2026-08-24-three-claims-nothing-checks.md`; `audit-shipped-css.mjs`
+   * watches for each of those two shapes from the artifact side, with a rule
+   * apiece.
    */
   --spacing-stack: 24px;
 
-  /* 模态框最外层、空态四周。全窗口只有这两类地方。 */
+  /* A modal's outermost frame, and the space around an empty state. Those two
+     kinds of place in the whole window and no others. */
   --spacing-page: 32px;
 
-  /* ---- 以下三个是算出来的，不是从梯子上选的 ---- */
+  /* ---- The three below are computed, not picked off the ladder ---- */
 
   /*
-   * 控件的上下内边距。(24 − 18 − 2×1px 描边) / 2 = 2。
+   * A control's vertical padding. (24 − 18 − 2×1px border) / 2 = 2.
    *
-   * 这个数让 `<button>` 与 `<input>` 由**构造**同高，而不是靠
-   * `min-height` 兜底：--leading-ui 是 18px，加两倍 2px 内边距、加两条
-   * 1px 描边，正好 24px = --spacing-hit。§30.2 那次 button 24 / input 28.3
-   * 的参差，根子是两边各自凑高度，没有一个共同的算术。
+   * This number is what makes `<button>` and `<input>` the same height **by
+   * construction** rather than by `min-height` catching them: --leading-ui is
+   * 18px, plus twice 2px of padding, plus two 1px borders, is exactly 24px =
+   * --spacing-hit. The button 24 / input 28.3 mismatch in §30.2 came of each
+   * side assembling its own height with no arithmetic in common.
    */
   --spacing-control-y: 2px;
 
   /*
-   * 控件的左右内边距。8px 光学内缩 − 1px 描边 = 7px。
+   * A control's horizontal padding. 8px of optical inset − 1px of border = 7px.
    *
-   * 奇数，但它是**规范允许的那种奇数**：写成「某个栅格值 ± 它所核算的
-   * 那一条 1px 线」。今天 button 是 9px 而 input 是 6px，同一张表单里
-   * 两种控件的文字起点差 3px；统一到 7px 之后，描边外沿到文字的距离
-   * 两边都是 8px。
+   * Odd, but **the kind of odd the spec allows**: written as "a grid value ±
+   * the one 1px line it accounts for". Today a button is 9px and an input 6px,
+   * so two controls in one form start their text 3px apart; at a shared 7px
+   * the distance from the outer edge of the border to the text is 8px on both.
    */
   --spacing-control-x: 7px;
 
   /*
-   * 数据格的左右内边距。**量出来的，不属于梯子。**
+   * A data cell's horizontal padding. **Measured, and not on the ladder.**
    *
-   * 相邻两列文字之间的间隙 = 6 + 1(列分隔线) + 6 = 13px。SF Mono 11px 的
-   * advance 实测 6.6226px，13 / 6.6226 = 1.96 个字符——刚好够把两列数字
-   * 分开而不浪费。换成 --spacing-snug(8) 是 2.57 字符，每列白扔 4px；
-   * 13 寸屏上 10 列可见就是 40px 数据宽度、约 6 个字符从屏幕上消失。
-   * 换成 --spacing-tight(4) 是 1.36 字符，相邻数字列会粘在一起。
+   * The gap between the text of two neighbouring columns = 6 + 1 (the column
+   * rule) + 6 = 13px. SF Mono at 11px measures an advance of 6.6226px, so
+   * 13 / 6.6226 = 1.96 characters — just enough to hold two columns of digits
+   * apart and no more. --spacing-snug (8) is 2.57 characters, throwing away 4px
+   * per column; with 10 columns visible on a 13-inch screen that is 40px of
+   * data width, about 6 characters gone off the screen. --spacing-tight (4) is
+   * 1.36 characters, and neighbouring number columns run together.
    *
-   * 所以它是**测量值**而不是节奏值，只许出现在网格的单元格与表头格上。
+   * So it is a **measurement** rather than a rhythm value, and it is allowed
+   * only on the grid's cells and head cells.
    */
   --spacing-cell: 6px;
 
   /*
-   * macOS 交通灯的让位宽度。**量出来的，不属于梯子。**
+   * The width kept clear for macOS's traffic lights. **Measured, and not on
+   * the ladder.**
    *
-   * 主进程 `trafficLightPosition` 把三颗灯放在 x=18、y=(30−12)/2=9，
-   * 这个 72px 是「让开它们再留一口气」的结果，不是四档间距里的任何一档。
-   * 它和 --spacing-cell 一样，是规范里明确的第二类数：测量值。
+   * The main process's `trafficLightPosition` puts the three lights at x=18,
+   * y=(30−12)/2=9, and this 72px is what "clear them and leave a breath after"
+   * comes to — not any of the four spacing rungs. Like --spacing-cell it is the
+   * spec's explicit second kind of number: a measurement.
    */
   --spacing-traffic: 72px;
 
-  /* 工具条里的竖发丝线。偶数，所以在 24 / 26 / 30 三种条里居中都落整数
-     （分别是 6 / 7 / 9）。它取代 29 处 `h-3.25`(13px) —— 那个 13 是被
-     29px 的奇数内容盒逼出来的，不是设计（§31.4、§31.5）。 */
+  /* The vertical hairline inside a toolbar. Even, so centring it in a 24 / 26 /
+     30 strip lands on an integer every time (6 / 7 / 9 respectively). It
+     replaces 29 sites of `h-3.25` (13px) — that 13 was forced out of a 29px odd
+     content box, not designed (§31.4, §31.5). */
   --spacing-divider: 12px;
 
   /*
-   * 恰好等于一行的行盒。不是排版行高，是布局装置。
+   * A line box exactly one row tall. Not typography — a layout device.
    *
-   * 网格靠「行盒 == 内容盒」把字居中：单元格是 absolute top-0、行号是
-   * inline-block align-top，两者都不走 flex 居中，所以行高就是落位。
+   * The grid centres its text by making the line box equal the content box: a
+   * cell is absolute top-0 and a row number is an inline-block align-top,
+   * neither of them flex-centred, so the line height *is* the placement.
    *
-   * `vscroll.ts` 用行高算产品里每一个滚动偏移，所以这里必须是从
-   * --spacing-row 推出来的而不是写死的 24。
+   * `vscroll.ts` computes every scroll offset in the product from the row
+   * height, so this has to be derived from --spacing-row rather than written
+   * as a hard 24.
    *
-   * **--leading-cell 已删除，因为它制造了产品里最显眼的那个半像素。**
-   * 它是 calc(--spacing-row − 1px) = 23px，补的是数据单元格自己的
-   * `border-b`；可它要对齐的行号格根本没有 `border-b`（只有 `border-r`）。
-   * 用 Range 量两列文字的真实行盒（元素盒都是 24px，量元素盒会说「对齐」）：
-   * 行号中心 12，单元格中心 11.5 —— **每一行数据都比它自己的行号高
-   * 0.5px**，在用户整天盯着的那个东西上。单元格的下线改成
-   * --shadow-rule-b（inset，不占布局）之后，两边内容盒都是 24，行盒都是
-   * --leading-row，实测两列文字中心完全重合（§31.3 的修正段）。
+   * **--leading-cell is deleted, because it produced the most visible half
+   * pixel in the product.** It was calc(--spacing-row − 1px) = 23px,
+   * compensating for the data cell's own `border-b` — but the row-number cell
+   * it has to line up with has no `border-b` at all (only a `border-r`).
+   * Measuring the two columns' real line boxes with a Range (both element
+   * boxes are 24px, so measuring the element box reports "aligned"): the row
+   * number's centre is 12 and the cell's 11.5 — **every row of data sits 0.5px
+   * above its own row number**, on the one thing the user stares at all day.
+   * With the cell's bottom line moved to --shadow-rule-b (inset, costing no
+   * layout), both content boxes are 24 and both line boxes are --leading-row,
+   * and the two columns' text centres measure exactly coincident (§31.3's
+   * correction).
    */
   --leading-row: var(--spacing-row);
 
@@ -846,9 +869,11 @@
    * the note explaining what the token is for would be true of half its wearers.
    */
   --shadow-panel-focused: 0 0 0 1px var(--color-accent), 0 2px 14px -6px var(--color-accent);
-  /* 面板头的聚焦标记**带着**那条底部发丝线，理由同 --shadow-cell：
-     `shadow-rule-b group-data-focused/panel:shadow-head-focused` 是两个
-     同族工具类，聚焦时后者会把底线一起顶掉。 */
+  /* The panel head's focus mark **carries** the bottom hairline with it, for
+     the same reason as --shadow-cell:
+     `shadow-rule-b group-data-focused/panel:shadow-head-focused` is two
+     utilities from one family, so on focus the second would knock the bottom
+     line out along with it. */
   --shadow-head-focused: inset 2px 0 0 var(--color-accent), inset 0 -1px 0 var(--color-border);
 
   /*
@@ -866,55 +891,69 @@
   --shadow-caret: 0 0 6px var(--color-accent);
 
   /* ----------------------------------------------------------------
-   * 发丝线 —— 一条 1px 的分界线，画出来但**不占布局**
+   * The hairline — a 1px boundary that is drawn and **costs no layout**
    *
-   * 这是本轮最要紧的一条机制。窗口里每一条固定高度的横条都是
-   * `h-bar`/`h-head`（**border-box** 高度）再往里画 1px 描边，于是内容盒
-   * 是 29 或 25 —— 奇数。`align-items: center` 在奇数盒里居中，落点是 x.5。
-   * 实测 8 条横条，7 条有半像素，而且符号随描边位置翻转：`border-b` 偏
-   * −0.5、`border-t` 偏 +0.5，所以工具条和页脚叠着看差整整 1px（§31.1）。
+   * This is the most consequential mechanism in this round. Every fixed-height
+   * strip in the window is `h-bar`/`h-head` (a **border-box** height) with a
+   * 1px border drawn inside it, so the content box is 29 or 25 — odd.
+   * `align-items: center` centring inside an odd box lands on x.5. Measured
+   * across 8 strips, 7 carried a half pixel, and the sign flips with the
+   * border's edge: `border-b` shifts −0.5 and `border-t` +0.5, so a toolbar
+   * and a footer laid over each other are a full 1px apart (§31.1).
    *
-   * 2x 屏上半个 CSS 像素是一个真实设备像素：那条 1px 的线跨两个物理像素，
-   * 渲染成两条半亮的灰线而不是一条实线。这就是「糊」的直接视觉形态。
+   * On a 2x display half a CSS pixel is a real device pixel: that 1px line
+   * straddles two physical pixels and renders as two half-bright grey lines
+   * instead of one solid one. That is the direct visual form of "blurred".
    *
-   * 五个候选方案实测过（§31.3）。`inset` 阴影与绝对定位的 `::after` 都能
-   * 做到「内容盒 30、文字偏移 0、描边照画、外框不变」；`border-b`、
-   * 奇数高度、以及把 1px 减回行高（`--leading-cell` 那一招）都做不到 ——
-   * 最后一个尤其值得记：`align-items: center` 居中的是**盒子**不是行盒，
-   * 改行高在 flex 里根本够不着。
+   * Five candidates were measured (§31.3). An `inset` shadow and an absolutely
+   * positioned `::after` both deliver "content box 30, text offset 0, border
+   * still drawn, outer frame unchanged"; `border-b`, an odd height, and
+   * subtracting the 1px back out of the line height (the `--leading-cell`
+   * trick) do not — and the last is worth recording: `align-items: center`
+   * centres the **box**, not the line box, so inside flex a line height cannot
+   * reach it at all.
    *
-   * 选 `inset` 阴影而不是 `::after`：不需要额外元素、不需要在容器上加
-   * `relative`（那会改变定位上下文，网格里有一批 absolute 子元素靠祖先
-   * 定位），而且仓库里已经有同形先例（--shadow-head-focused）。
+   * An `inset` shadow rather than `::after`: no extra element, no `relative`
+   * on the container (which would change the containing block, and the grid
+   * has a batch of absolute children positioned against an ancestor), and the
+   * repository already has a precedent of the same shape
+   * (--shadow-head-focused).
    *
-   * **代价写下来。** `render-probe` 的 `border-bands` 检查是按「元素有
-   * border」找被检对象的，改成阴影之后这些容器会从它的视野里消失。这是
-   * 覆盖面的净损失，所以 probe 那侧同时加了 hairline 的读数，否则是拿一个
-   * 已知缺陷换一个盲区。
+   * **The cost, written down.** `render-probe`'s `border-bands` check finds
+   * its subjects by "the element has a border", so these containers drop out
+   * of its view once they wear a shadow instead. That is a net loss of
+   * coverage, which is why a hairline reading was added on the probe side in
+   * the same change — otherwise this trades a known defect for a blind spot.
    * ---------------------------------------------------------------- */
   /* ----------------------------------------------------------------
-   * 圆角 —— 按**被圆的元素有多高**选，不按「大中小」选
+   * Corner radii — chosen by **how tall the rounded element is**, not by
+   * "small / medium / large"
    *
-   * 现在 46 处 `rounded-sm`、3 处 `md`、2 处 `lg`、1 处 `xs`，名字说的是
-   * 「小/中/大」，而一个 24px 的按钮和一个 400px 的对话框用同一个 4px，
-   * 视觉上前者偏方、后者偏尖。圆角是全窗口唯一一个不随尺寸变化的量。
+   * Today there are 46 sites of `rounded-sm`, 3 of `md`, 2 of `lg` and 1 of
+   * `xs`, and the names say "small / medium / large" while a 24px button and a
+   * 400px dialog share one 4px — which reads as square on the first and sharp
+   * on the second. The radius is the only quantity in the window that does not
+   * move with size.
    *
-   * 清空 Tailwind 的八档，理由和字号那边一样：留着就是两套梯子并存。
-   * `rounded-full` 不受影响 —— 它是静态工具类，编译成一个巨大的 px 值，
-   * 不走 `--radius-*` 命名空间，所以 `--radius-*: initial` 清不掉它。
+   * Tailwind's eight rungs are emptied, for the same reason as the type scale:
+   * leaving them is two ladders side by side. `rounded-full` is unaffected —
+   * it is a static utility compiling to one enormous px value, outside the
+   * `--radius-*` namespace, so `--radius-*: initial` cannot clear it.
    * ---------------------------------------------------------------- */
   --radius-*: initial;
 
-  /* h ≤ 16：行内 `<code>`、tag、色块、勾选框。 */
+  /* h ≤ 16: inline `<code>`, a tag, a colour swatch, a checkbox. */
   --radius-mark: 2px;
 
-  /* 17–32：按钮、输入、选择、列表行、单元格、chip、标签。窗口里绝大多数。 */
+  /* 17–32: buttons, inputs, selects, list rows, cells, chips, labels. The vast
+     majority of the window. */
   --radius-control: 4px;
 
-  /* > 32 的浮层与面板：菜单、弹层、toast、错误中心、选区条、面板本身。 */
+  /* Floating surfaces and panels above 32: menus, popovers, toasts, the error
+     centre, the selection bar, a panel itself. */
   --radius-surface: 6px;
 
-  /* 模态框，只有模态框。 */
+  /* Modals, and only modals. */
   --radius-dialog: 8px;
 
   --shadow-rule-b: inset 0 -1px 0 var(--color-border);
@@ -924,12 +963,13 @@
   --shadow-rule-r-strong: inset -1px 0 0 var(--color-border-strong);
 
   /*
-   * 两条线的组合，铸成一个令牌而不是两个类。
+   * Two lines combined, minted as one token rather than written as two classes.
    *
-   * `shadow-rule-r shadow-rule-b` 写在同一个 class 串里是**两个同族工具类**
-   * ——class 串没有层叠，谁赢由 Tailwind 的发射顺序决定，而不是由书写顺序。
-   * 这是本仓库明令禁止的形状（`ui/CLAUDE.md` 第 2 条），所以需要几条线就
-   * 铸几个组合令牌。
+   * `shadow-rule-r shadow-rule-b` in one class string is **two utilities from
+   * one family** — a class string has no cascade, and which of them wins is
+   * decided by Tailwind's emission order, not by the order they are written
+   * in. That is the shape this repository bans outright (`ui/CLAUDE.md`, rule
+   * 2), so a combination token is minted for each set of lines that is needed.
    */
   --shadow-cell: inset -1px 0 0 var(--color-border), inset 0 -1px 0 var(--color-border);
 
@@ -1531,15 +1571,17 @@ body {
   color: var(--color-fg);
   font-family: var(--font-ui);
   /*
-   * 这一档就是整个窗口：别处不写字号的元素全部继承它。
+   * This one rung is the whole window: every element that writes no size of
+   * its own inherits it.
    *
-   * 它经历过 12（--fs-md）→ 14（Tailwind text-sm）→ 12（Tailwind text-xs）
-   * 三次，现在是 --text-body，还是 12px，但这次它是**一个有名字的档位**，
-   * 而不是「Tailwind 最小的那个刚好合适」。
+   * It has been 12 (--fs-md) → 14 (Tailwind text-sm) → 12 (Tailwind text-xs),
+   * three times over, and it is --text-body now, still 12px — but this time it
+   * is **a rung with a name** rather than "Tailwind's smallest happens to fit".
    *
-   * 行高一起改：`1.45` 是这个文件里最后一个比值，12 × 1.45 = 17.390625px，
-   * 87 个实测面里 37 个（43%）的小数几何全部追到这一行（§31.2）。
-   * --leading-ui 是 18px 字面量，比值消失，小数随之消失。
+   * The line height moves with it: `1.45` was the last ratio in this file,
+   * 12 × 1.45 = 17.390625px, and 37 of the 87 measured surfaces (43%) traced
+   * their fractional geometry back to this one line (§31.2). --leading-ui is
+   * an 18px literal, so the ratio goes and the fractions go with it.
    */
   font-size: var(--text-body);
   line-height: var(--leading-ui);
@@ -1748,8 +1790,9 @@ body {
     background: var(--color-bg);
     border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-control);
-    /* `button` 上面用的是同一个算术：--leading-ui(18) + 2×2 + 2×1 = 24。
-       两边写同一件事，所以两边由构造同高（§30.2 / §32）。 */
+    /* The same arithmetic `button` uses above: --leading-ui (18) + 2×2 + 2×1
+       = 24. Both sides state one thing, so both are the same height by
+       construction (§30.2 / §32). */
     padding: var(--spacing-control-y) var(--spacing-control-x);
     outline: none;
     user-select: text;
@@ -1783,10 +1826,12 @@ body {
    */
   input:not([type='checkbox']):not([type='radio']),
   select {
-    /* 真正的**地板**，不是高度的来源。上面那条算术在 12px 正文里给出
-       整整 24px；这一行只在字号更小的上下文里起作用（11px 的状态栏里
-       内容会掉到 22px）。§30.6 那一版靠 `padding-block: 2px` 把自然高度
-       压到地板之下再让地板托住，数字对但因果反了。 */
+    /* A real **floor**, not where the height comes from. The arithmetic above
+       yields exactly 24px in the 12px body; this line only does anything in a
+       smaller context (in the 11px status bar the content falls to 22px). The
+       §30.6 version used `padding-block: 2px` to push the natural height under
+       the floor and let the floor catch it — right number, causality
+       backwards. */
     min-height: var(--spacing-hit);
   }
 
