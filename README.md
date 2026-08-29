@@ -12,12 +12,18 @@
 <p align="center"><b>English</b> · <a href="./README.zh-CN.md">中文</a></p>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png">
-  <img alt="Peek with three tiled panes: a namespace tree on the left, a table view of a customers table top right, and a SQL editor below it showing a revenue-by-plan query that has returned five rows." src="docs/images/overview-light.png">
+  <source media="(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)" srcset="docs/images/agent-drives-dark.png">
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/agent-drives-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/agent-drives-dark.gif">
+  <img alt="A Claude Code session in Peek's right-hand panel, asked in plain English to open the customers table and count events per week. The transcript names each tool call as it lands — read the workspace, inspect the schema, open a view, run a query, rearrange the layout — and the panes on the left appear and re-tile to match, ending with the customers table and the weekly counts side by side." src="docs/images/agent-drives-light.gif">
 </picture>
 
-<sub>Every screenshot in this README was produced by a single `set_layout` MCP call — see
-[`apps/desktop/scripts/screenshot.mjs`](apps/desktop/scripts/screenshot.mjs).</sub>
+<sub>A real Claude Code session in the right-hand panel, driving the panes on the left. The
+transcript is the app's own: it names each tool call as it lands and marks the ones that changed the
+window. Every picture in this README is produced by
+[`apps/desktop/scripts/screenshot.mjs`](apps/desktop/scripts/screenshot.mjs), which launches the
+built app, sets the scene, types one sentence and holds the shutter open — everything after the
+prompt is the agent's. Waits longer than 1.2 s are shortened; nothing else is.</sub>
 
 Peek is a desktop database GUI that doubles as an MCP server. Ask Claude to open a table, run a
 query, or arrange panels for comparison — it happens in the window in front of you, because AI tool
