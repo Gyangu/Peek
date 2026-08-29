@@ -275,10 +275,10 @@ reason as `browseControls.ts`: unit tests cannot reach into a `.tsx`):
 
 Wiring: one each in the `TableView` / `QueryView` / `VectorView` toolbars.
 
-**No control is drawn for the `package` view**: a plugin view is one whole block
+**No control is drawn for the `package` view**: a package view is one whole block
 drawn by `entry.render(view)`, and peek has no toolbar of its own to insert
 into. The kernel side is fully supported (the field, the command and the
-scheduler all recognise it), and a plugin that wants one draws its own button
+scheduler all recognise it), and a package that wants one draws its own button
 and sends `view.update`. That is what bringing `package` into scope this round
 actually means.
 

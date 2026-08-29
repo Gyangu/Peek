@@ -168,7 +168,7 @@ moved four import lines.
 
 ### 2.4 The guard: `assertWindowHoldsNoMainOnlyCore`
 
-A mirror of `assertMainHoldsNoPackageCode`, registered in the renderer's plugin
+A mirror of `assertMainHoldsNoPackageCode`, registered in the renderer's vite plugin
 list. It walks every chunk's `modules` in the renderer's output and calls
 `this.error` the moment `packages/core/src/package-manifest.ts` appears.
 
@@ -181,7 +181,7 @@ actually exist, or it reports "this check is now vacuous". A renamed module has 
 go red here rather than green everywhere — the same technique as
 `manifest-purity.test.ts`'s "the scan is reading the real manifest sources".
 
-Why a build-time plugin rather than a test: `export *` and `export type *` differ
+Why a vite plugin rather than a test: `export *` and `export type *` differ
 by one word, both compile, both leave the tests green, and the only difference is
 the size of the output. This is the class of regression for which this repository
 has no other alarm.

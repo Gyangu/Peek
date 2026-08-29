@@ -232,8 +232,8 @@ Which is to say the `'@peek/db-postgres'` alias **does match**
 and its failure mode is the top-of-chunk throw of the
 "`assertNoUnresolvedImports`" kind.
 
-`getEntries` preserves order via `Object.entries`, and the plugin takes the
-**first** rule that matches. So **the subpath aliases must come before the bare
+`getEntries` preserves order via `Object.entries`, and `@rollup/plugin-alias`
+takes the **first** rule that matches. So **the subpath aliases must come before the bare
 package name**:
 
 ```ts
@@ -464,7 +464,7 @@ nor renderer, so it lives outside both, in `src/drivers/`.
 
 ## 3. Trade-offs
 
-### 3.1 Full plugin architecture (one package per database, holding all four) — not chosen
+### 3.1 Fully pluggable (one package per database, holding all four) — not chosen
 
 To get "a package that can add views and MCP tools", `core/commands.ts`'s
 `ViewState` and Command discriminated unions have to stop being **frozen zod
@@ -491,8 +491,8 @@ If **third-party drivers from outside the repository** (a package the user
 installs) ever have to be supported, this route becomes necessary — and what would
 then have to be solved is the loader, version negotiation and the sandbox, which
 is a different question from this round's. The manifest is the first step down
-that road rather than a substitute for it: when plugins are really built,
-`DriverManifest` is exactly the embryo of the plugin manifest.
+that road rather than a substitute for it: when a pluggable architecture is
+really built, `DriverManifest` is exactly the embryo of the package manifest.
 
 ### 3.2 Do nothing — not chosen
 

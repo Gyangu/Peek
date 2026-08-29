@@ -153,7 +153,7 @@ the notifier**, three reasons, weakest first:
    Command means no second set of books has to be written for it.
 3. **`ToolContext` does not have to move.** A tool that wants the notifier
    directly needs a new member on `ToolContext` — and `ToolContext` moved into
-   `@peek/core` with the 2026-08-03 pluginisation, so a package's tools eat the
+   `@peek/core` when databases became packages on 2026-08-03, so a package's tools eat the
    same contract (see the `mcp/types.ts` header comment). Widening an interface
    every package has to honour, for the sake of one kernel tool, is completely
    out of proportion. Through a Command, the tool layer stays a thin shell and

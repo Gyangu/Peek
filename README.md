@@ -36,7 +36,7 @@ the app, so the agent you talk to drives the window it lives in.
 - 🛠️ **16 MCP tools** — connect, introspect schemas, run queries, open views, control the layout, notify, ask the user
 - 🔒 **Read-only, enforced by the server** — read-only transactions and flags, no keyword filtering anywhere
 - 📎 **Data reaches the AI only when you attach it** — otherwise a query returns the model at most 20 rows
-- 📦 **Databases are plugins** — six drivers load from `~/.peek/packages/<id>/`; adding one means installing a directory
+- 📦 **Databases are packages** — six drivers load from `~/.peek/packages/<id>/`; adding one means installing a directory
 - ⚡ **A million rows scroll** — 0 dropped frames, ~0.5 s launch, 6.3 MB bundles ([Performance](#performance))
 - 🔑 **Passwords live in the OS keychain** — never plaintext on disk
 
