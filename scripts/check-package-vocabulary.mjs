@@ -106,6 +106,7 @@ const ALLOWED = {
   'apps/desktop/src/main/store/workspace-store.ts': [`immer's patch ${OLD}`],
   'apps/desktop/src/renderer/state/workspaceStore.ts': [`immer's patch support is a ${OLD}`],
   'docs/design/2026-08-03-driver-package-boundary.md': [`@rollup/${OLD}-alias`],
+  'docs/design/2026-08-07-database-packages-from-disk.md': [`vite ${OLD}`],
   'docs/design/2026-08-12-main-only-parse-out-of-the-window.md': [`vite ${OLD}`],
   // ProseMirror / Lexical / Tiptap call theirs that; not ours to rename.
   'docs/design/2026-08-14-composer-inline-context.md': [`mention ${OLD}`],
