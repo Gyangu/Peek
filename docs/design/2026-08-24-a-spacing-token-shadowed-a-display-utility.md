@@ -12,9 +12,11 @@
 `DataGrid`'s row-number gutter is sized `w-gutter`, and `--spacing-gutter` is
 48px with the arithmetic written beside it in `styles.css`:
 
-> 槽的内容宽 = 槽宽 − 右内边距 − `border-r`。行号从 12px 降到 `--text-micro`(11px)
-> 之后重算：SF Mono 11px 的 advance 实测 6.6226px，48 − 7 − 1 = 40px 装得下 6 位
-> （39.74px），和 54px @12px 时的容量一模一样，第七位两边都装不下。
+> Slot content width = slot width − right padding − `border-r`. Recomputed after
+> the row number dropped from 12px to `--text-micro` (11px): SF Mono at 11px
+> measures an advance of 6.6226px, so 48 − 7 − 1 = 40px holds six digits
+> (39.74px) — exactly the capacity of 54px at 12px. A seventh digit fits in
+> neither.
 
 The running app disagrees. Probed through CDP against a real result set:
 
@@ -45,7 +47,7 @@ utility for every token in the `--spacing-*` namespace, and the spacing ladder
 has a fifth rung called `block`:
 
 ```css
-/* 块↔块，以及对话框正文的内缩。**等于一行**，那是有意的。 */
+/* Block to block, and the inset of a dialog body. **Equal to one line**, deliberately. */
 --spacing-block: 24px;
 ```
 
@@ -128,7 +130,7 @@ Migration cost is zero: the token has **no callers**. No `p-block` / `gap-block`
 the override this document is about.
 
 Renaming rather than deleting keeps the ladder honest. The comment block opens
-with 「间距标度 —— 六档，前四档翻倍」 and explicitly warns that the missing 12px
+with "the spacing ladder — six rungs, the first four doubling" and explicitly warns that the missing 12px
 rung is where a future reader will damage it. A ladder documented as six rungs
 should have six rungs, even while one is unused — the alternative invites
 somebody to reintroduce 24px later under whatever name is free.

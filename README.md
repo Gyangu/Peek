@@ -9,7 +9,6 @@
   <img src="https://img.shields.io/badge/status-early-orange" alt="Status: early">
 </p>
 
-<p align="center"><b>English</b> · <a href="./README.zh-CN.md">中文</a></p>
 
 <picture>
   <source media="(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)" srcset="docs/images/agent-drives-dark.png">
@@ -225,8 +224,7 @@ peek/
 ```
 
 [`docs/PLAN.md`](docs/PLAN.md) is the authoritative design record — architecture decisions, the
-performance budget, and milestone definitions ([`PLAN.zh-CN.md`](docs/PLAN.zh-CN.md) is the Chinese
-original). Per-change design docs live in `docs/design/`.
+performance budget, and milestone definitions. Per-change design docs live in `docs/design/`.
 
 ## License
 

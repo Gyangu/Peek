@@ -1,7 +1,5 @@
 # Peek — a general-purpose database viewer whose UI can be driven by MCP
 
-**English** · [中文原文](./PLAN.zh-CN.md)
-
 > 2026-07-31 initial plan. Decision record: initial support for PostgreSQL / Redis / Qdrant /
 > MySQL·SQLite; the AI operates only the built-in views (no pushing custom HTML); the UI is a
 > multi-panel tiled paradigm; ~~project name peek~~.
