@@ -890,6 +890,13 @@ exactly the moment it most needs to be believed.
   had always existed: those views were also empty after a reconnect. See
   [`design/2026-08-15-workspace-persistence.md`](design/2026-08-15-workspace-persistence.md).
 
+- ~~How a change is documented~~: **Decided 2026-09-11, Spec Kit.** A change is specified,
+  planned and tasked under `specs/NNN-short-name/` by the `/speckit-*` skills, and
+  `/speckit-plan`'s Constitution Check measures it against `.specify/memory/constitution.md`,
+  which cites this plan for the standing decisions. `docs/design/` is frozen as the archive of
+  the 74 records written before that date; the source keeps citing them. Record:
+  `docs/design/2026-09-11-spec-kit-adoption.md`.
+
 ### Still open
 
 - Result-set spill to disk (overflowing oversized results to disk): do it once the budget

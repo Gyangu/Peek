@@ -195,7 +195,7 @@ bundles, and [`package-mac.mjs`](apps/desktop/scripts/package-mac.mjs) produces 
 there is no signed installer yet. Writes are deliberately out of scope until the read-only path has
 fully stabilized.
 
-Known limitations, briefly (details in [`docs/PLAN.md`](docs/PLAN.md) and `docs/design/`):
+Known limitations, briefly (details in [`docs/PLAN.md`](docs/PLAN.md), `docs/design/` and `specs/`):
 
 - A large query pauses (by design) at ~200k rows until you scroll further; rows evicted from the
   ~200 MB cache can't be re-fetched in place — re-run the query.
@@ -220,11 +220,14 @@ peek/
 │  ├─ db-qdrant/      # Qdrant driver
 │  └─ db-neo4j/       # Neo4j driver, plus the `graph` view kind
 ├─ apps/desktop/      # Electron app: main / preload / renderer, plus scripts/ (benchmarks, smoke tests)
-└─ docs/              # PLAN.md (design record) and docs/design/ (per-change design docs)
+├─ specs/             # per-change spec / plan / tasks, written with Spec Kit (since 2026-09-11)
+├─ .specify/          # Spec Kit templates, scripts, and the project constitution
+└─ docs/              # PLAN.md (design record) and docs/design/ (design docs written before Spec Kit)
 ```
 
 [`docs/PLAN.md`](docs/PLAN.md) is the authoritative design record — architecture decisions, the
-performance budget, and milestone definitions. Per-change design docs live in `docs/design/`.
+performance budget, and milestone definitions. Per-change documents live in `specs/`, produced by
+[Spec Kit](https://github.com/github/spec-kit); the 74 written before it live in `docs/design/`.
 
 ## License
 

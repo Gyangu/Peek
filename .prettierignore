@@ -11,3 +11,7 @@ build/
 release/
 node_modules/
 pnpm-lock.yaml
+
+# Spec Kit scaffolding — generated and rewritten by the `specify` CLI on
+# refresh, so not ours to format. See docs/design/2026-09-11-spec-kit-adoption.md §2.5.
+.specify/
